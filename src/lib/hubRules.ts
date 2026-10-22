@@ -26,6 +26,14 @@ export function gameSignature(head: Uint8Array, name: string, textHead?: string)
 
 // ---------------- limits ----------------
 
+/**
+ * Supabase project URL from a setting that may hold an API endpoint instead
+ * (the dashboard shows `https://<ref>.supabase.co/rest/v1/` on its Data API page).
+ */
+export function supabaseProjectUrl(raw: string): string {
+  return raw.trim().replace(/\/+$/, '').replace(/\/(rest|auth|storage|functions)\/v1$/i, '')
+}
+
 export const MB = 1024 * 1024
 /** Bytes of each file the server inspects. */
 export const HEAD_BYTES = 4096

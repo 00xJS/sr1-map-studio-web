@@ -15,7 +15,10 @@ let instance: Promise<Backend | null> | null = null
 /** The configured backend, or null when accounts are turned off. */
 export function getBackend(): Promise<Backend | null> {
   instance ??= (async () => {
-    if (mode === 'supabase') return new (await import('./supabase')).SupabaseBackend(env.VITE_SUPABASE_URL, env.VITE_SUPABASE_ANON_KEY)
+    if (mode === 'supabase') {
+      const { supabaseProjectUrl } = await import('../hubRules')
+      return new (await import('./supabase')).SupabaseBackend(supabaseProjectUrl(env.VITE_SUPABASE_URL), env.VITE_SUPABASE_ANON_KEY.trim())
+    }
     if (mode === 'local') return new (await import('./local')).LocalBackend()
     return null
   })()

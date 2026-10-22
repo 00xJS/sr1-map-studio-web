@@ -6,7 +6,7 @@
 // the files to hub/<mapId>/ and writes the hub_maps row. Only this function
 // (service role) can write to hub/.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { HEAD_BYTES, isValidThumbnail, limitsFromEnv, preparePublish } from '../../src/lib/hubRules'
+import { HEAD_BYTES, isValidThumbnail, limitsFromEnv, preparePublish, supabaseProjectUrl } from '../../src/lib/hubRules'
 
 const BUCKET = 'blobs'
 const env = (k: string) => process.env[k] || ''
@@ -74,13 +74,18 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
 export default async (req: Request): Promise<Response> => {
   if (req.method !== 'POST' && req.method !== 'DELETE') return reject(405, 'Method not allowed')
-  const url = env('SUPABASE_URL'), key = env('SUPABASE_SERVICE_ROLE_KEY')
+  const url = supabaseProjectUrl(env('SUPABASE_URL')), key = env('SUPABASE_SERVICE_ROLE_KEY').trim()
   if (!url || !key) return reject(503, 'Publishing is not configured on this site.')
   const admin = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
 
   const token = (req.headers.get('authorization') || '').replace(/^Bearer\s+/i, '')
   if (!token) return reject(401, 'Sign in first.')
   const { data: auth, error: authError } = await admin.auth.getUser(token)
+  if (authError && ![400, 401, 403].includes(authError.status ?? 0)) {
+    // Not a token problem: the account service is unreachable or misconfigured.
+    console.error('Supabase auth check failed', authError.status, authError.message)
+    return reject(503, 'The account service is not reachable right now. Try again later.')
+  }
   if (authError || !auth.user) return reject(401, 'Your session has expired. Sign in again.')
   const uid = auth.user.id
 

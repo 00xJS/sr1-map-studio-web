@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_LIMITS, MB, checkPublishFiles, checkPublishMeta, fileKind, gameSignature, hubSnapshot, isValidThumbnail,
-  limitsFromEnv, normalizeTags, preparePublish, projectUploadPlan, type PublishFile,
+  limitsFromEnv, normalizeTags, preparePublish, projectUploadPlan, supabaseProjectUrl, type PublishFile,
 } from '../src/lib/hubRules'
 import { newProject, type FileRef, type Project, type SceneItem } from '../src/lib/project'
 
@@ -220,5 +220,12 @@ describe('thumbnails', () => {
     expect(isValidThumbnail(3 * MB, PNG)).toBe(false)
     expect(isValidThumbnail(5000, bin([0x56, 0x4b, 0x45, 0x47]))).toBe(false)
     expect(isValidThumbnail(5000, enc.encode('<html><script>'))).toBe(false)
+  })
+})
+
+describe('supabaseProjectUrl', () => {
+  it('accepts the project URL or an API endpoint copied from the dashboard', () => {
+    const want = 'https://abcd.supabase.co'
+    for (const raw of [want, want + '/', ` ${want}/rest/v1/ `, want + '/rest/v1', want + '/auth/v1/']) expect(supabaseProjectUrl(raw)).toBe(want)
   })
 })
