@@ -16,6 +16,10 @@ through [Pyodide](https://pyodide.org); the editor interface is rebuilt with Rea
   a generator of 11 tiling materials, a starter library of 29 CC0 textures) that also sets the
   physical surface; "Install to game" writes exports straight into `SaintsReborn/dist/maps`
   (Chrome/Edge).
+- **Start with nothing:** five sample maps (flat ground, arena, warehouse, rooftops, street) built
+  in the browser from shapes and free textures, with spawns, weapons and lights for their modes;
+  a Paint-style tool strip (select/rotate/scale, shape, paint bucket, eyedropper, spawn, weapon,
+  light, eraser) with a texture palette.
 - **Phase 2, accounts:** sign in, save projects to the cloud and open them on another device.
 - **Phase 3, hub:** publish projects, browse/search/sort, like, remix, report and moderate.
 

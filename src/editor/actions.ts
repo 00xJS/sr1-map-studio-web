@@ -7,7 +7,7 @@ import { cacheModel, loadModel } from '../lib/assets'
 import { groundOffset, meshPivot, withPivot } from '../lib/geometry'
 import { py } from '../lib/py'
 import { catalogs } from '../lib/catalogs'
-import { isCustomNative, isGlass, isProp, newLight, newMarker, referencedPaths, uid, type Asset, type FileRef, type Project, type SceneItem, type Vec3 } from '../lib/project'
+import { isCustomNative, isGlass, isProp, newLight, newMarker, referencedPaths, uid, type Asset, type FileRef, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
 import { SHAPE_PRESETS, shapeLabel, shapeName, shapeObj, type Shape } from '../lib/shapes'
 import { storeFile } from '../lib/files'
 import { parseObj } from '../lib/geometry'
@@ -263,14 +263,23 @@ export async function setProjectFile(key: 'sky_texture' | 'minimap_texture' | 'b
 
 // ---------------- markers & lights ----------------
 
-export function addMarker(type: string, position: Vec3) {
-  update('Add marker', (d) => { d.markers.push(newMarker(type, position)) })
+export function addMarker(type: string, position: Vec3, patch: Partial<Marker> = {}) {
+  update('Add marker', (d) => {
+    const m = { ...newMarker(type, position), ...patch }
+    if (m.type === 'Weapon pickup') m.label = m.weapon
+    if (m.type === 'Vehicle spawn') m.label = m.vehicle
+    d.markers.push(m)
+  })
   useEditor.getState().select({ kind: 'marker', index: currentProject()!.markers.length - 1 })
 }
 
 export function removeSelected() {
   const { selection } = useEditor.getState()
-  if (!selection) return
+  if (selection) removeTarget(selection)
+}
+
+/** Deletes one object, marker or light (the Eraser tool and the Delete key). */
+export function removeTarget(selection: { kind: 'item' | 'marker' | 'light'; index: number }) {
   if (selection.kind === 'item') return removeItem(selection.index)
   const key = selection.kind === 'marker' ? 'markers' : 'lights'
   update('Remove ' + selection.kind, (d) => { d[key].splice(selection.index, 1) })

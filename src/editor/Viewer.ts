@@ -18,6 +18,8 @@ export interface ViewOptions {
   faceRange: [number, number]
   snap?: boolean
   step?: number
+  /** False while a click tool (paint, eraser...) is active. */
+  showGizmo?: boolean
   readOnly?: boolean
 }
 
@@ -25,6 +27,8 @@ export interface ViewerEvents {
   onPick(sel: ViewOptions['selection']): void
   onSurface(point: Vec3, item: number, sourceFace: number, mode: 'click' | 'drop', data?: string): void
   onTransform(kind: 'item' | 'marker' | 'light', index: number, t: { position: Vec3; rotation?: Vec3; scale?: number; yaw?: number }, done: boolean): void
+  /** Eraser click: whatever is under the cursor (marker, light or object). */
+  onErase(target: NonNullable<ViewOptions['selection']>): void
 }
 
 const RAD = Math.PI / 180
@@ -254,16 +258,23 @@ export class Viewer {
     // Markers and lights first: they are small and sit on top of geometry.
     const handles = rc.intersectObjects([...this.markerRoot.children, ...this.lightRoot.children], true)[0]
     const surface = this.raycast(x, y)
-    const placing = (this.host.dataset.place || '') as '' | 'marker' | 'light' | 'face'
-    if (placing && surface) {
-      this.events.onSurface(surface.point, surface.item, surface.face, 'click')
-      return
-    }
+    const placing = this.host.dataset.place || ''
+    let handle: ViewOptions['selection'] = null
     if (handles) {
       let o: THREE.Object3D | null = handles.object
       while (o && !o.userData.kind) o = o.parent
-      if (o) { this.events.onPick({ kind: o.userData.kind, index: o.userData.index }); return }
+      if (o) handle = { kind: o.userData.kind, index: o.userData.index }
     }
+    if (placing === 'erase') {
+      const target = handle ?? (surface && surface.item >= 0 ? { kind: 'item' as const, index: surface.item } : null)
+      if (target) this.events.onErase(target)
+      return
+    }
+    if (placing) {
+      if (surface) this.events.onSurface(surface.point, surface.item, surface.face, 'click')
+      return
+    }
+    if (handle) { this.events.onPick(handle); return }
     this.events.onPick(surface && surface.item >= 0 ? { kind: 'item', index: surface.item } : null)
   }
 
@@ -488,7 +499,7 @@ export class Viewer {
 
   private syncGizmo() {
     if (this.dragging) return
-    const t = this.opts.readOnly ? null : this.target()
+    const t = this.opts.readOnly || this.opts.showGizmo === false ? null : this.target()
     const sel = this.opts.selection
     if (!t || !sel) { this.gizmo.detach(); return }
     let mode = this.opts.gizmo

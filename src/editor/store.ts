@@ -8,6 +8,16 @@ import type { Project } from '../lib/project'
 export type Selection = { kind: 'item' | 'marker' | 'light'; index: number } | null
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
 export type PlaceMode = null | 'marker' | 'light' | 'face'
+/** Paint-style tools: 'select' shows the gizmo; the others act on every click in the viewport. */
+export type Tool = 'select' | 'shape' | 'paint' | 'pick' | 'spawn' | 'weapon' | 'light' | 'erase'
+
+/** A texture the paint bucket applies: generated, from the starter library, or a file already in the map. */
+export interface Swatch {
+  key: string
+  label: string
+  surface: number
+  source: { kind: 'generated'; params: import('../lib/procedural').GenParams } | { kind: 'library'; id: string } | { kind: 'file'; vpath: string }
+}
 export type SaveState = 'saved' | 'saving' | 'unsaved' | 'error'
 
 interface HistoryEntry { project: Project; label: string; merge?: string }
@@ -27,6 +37,11 @@ interface EditorState {
   collisionView: 'off' | 'faces'
   soloMaterial: string | null
   placeMode: PlaceMode
+  tool: Tool
+  toolShape: string
+  toolSpawn: string
+  toolWeapon: string
+  swatch: Swatch | null
   placeMarkerType: string
   faceRange: [number, number]
   logs: string[]
@@ -60,12 +75,17 @@ export const useEditor = create<EditorState>((set, get) => ({
   collisionView: 'off',
   soloMaterial: null,
   placeMode: null,
+  tool: 'select',
+  toolShape: 'wall',
+  toolSpawn: 'Shared spawn',
+  toolWeapon: 'ak47',
+  swatch: null,
   placeMarkerType: 'Shared spawn',
   faceRange: [0, 0],
   logs: [],
   tab: 'scene',
   open(project) {
-    set({ project, selection: null, lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, logs: [] })
+    set({ project, selection: null, lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [] })
   },
   close() { set({ project: null, selection: null, past: [], future: [] }) },
   update(label, recipe, opts) {

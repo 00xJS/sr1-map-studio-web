@@ -1,7 +1,8 @@
 import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { db, requestPersistence, type ProjectRecord } from '../lib/db'
-import { newProject, normalizeProject, uid } from '../lib/project'
+import { newProject, normalizeProject, uid, type Project } from '../lib/project'
+import { SamplePicker } from './SamplePicker'
 import { dataPackStatus, type DataPackStatus } from '../lib/datapack'
 import { downloadBlob } from '../lib/exporter'
 import { accountsEnabled, hubEnabled } from '../lib/backend'
@@ -27,11 +28,11 @@ export default function Home() {
   const [projects, setProjects] = useState<Meta[] | null>(null)
   const [pack, setPack] = useState<DataPackStatus | null>(null)
   const [run, busy] = useBusy()
+  const [picking, setPicking] = useState(false)
   const refresh = () => db.listProjects().then(setProjects)
   useEffect(() => { refresh(); dataPackStatus().then(setPack) }, [])
 
-  const create = async () => {
-    const p = newProject()
+  const open = async (p: Project) => {
     await db.putProject({ id: p.id, name: p.name, updated_at: p.updated_at, project: p })
     void requestPersistence()
     nav('/editor/' + p.id)
@@ -81,7 +82,7 @@ export default function Home() {
         <h1>Build <b>Saints Row 1</b> maps in your browser</h1>
         <p>Import your models, place spawns, glass, props and lights, then export a ready-to-install map for Saints Reborn. Your work saves automatically in this browser{accountsEnabled ? ', and you can sync it to your account' : ''}{hubEnabled ? ' and share it on the hub' : ''}. To pass a map to someone, use <b>Backup</b> and they open it with <b>Import project…</b>.</p>
         <div className="row wrap">
-          <button className="primary" onClick={create}>+ New map</button>
+          <button className="primary" onClick={() => setPicking(true)}>+ New map</button>
           <FileButton multiple accept=".zip,.json,.obj,.mtl,.glb,.gltf,.fbx,.png,.jpg,.jpeg,.tga,.bmp,.dds" onFiles={importFiles} disabled={busy}
             title="A .sr1map.zip backup, or a desktop .sr1map.json selected together with its models and textures">Import project…</FileButton>
           <FileButton directory onFiles={importFiles} disabled={busy} title="Pick the folder that holds a desktop .sr1map.json and its files">Import desktop project folder…</FileButton>
@@ -101,7 +102,7 @@ export default function Home() {
       <section className="col">
         <div className="row between"><h2>My maps</h2><span className="faint small">Saved in this browser</span></div>
         {projects === null ? <p className="muted">Loading…</p> : projects.length === 0 ? (
-          <div className="card"><p className="muted">No maps yet. Create one, or import a desktop SR1 Map Studio project.</p></div>
+          <div className="card"><p className="muted">No maps yet. Press <b>+ New map</b> to start from a sample or a blank map, or import a desktop SR1 Map Studio project.</p></div>
         ) : (
           <div className="grid-cards">
             {projects.map((m) => (
@@ -122,6 +123,8 @@ export default function Home() {
           </div>
         )}
       </section>
+
+      {picking && <SamplePicker onClose={() => setPicking(false)} onBuilt={open} onBlank={() => open(newProject()).catch(toastError)} />}
 
       {accountsEnabled && <Suspense fallback={null}><CloudSection /></Suspense>}
 

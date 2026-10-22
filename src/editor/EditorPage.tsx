@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import { useEditor, saveNow } from './store'
 import { Viewport, getViewer } from './Viewport'
+import { TOOL_KEYS, chooseTool } from './Tools'
 import * as act from './actions'
 import { ScenePanel } from './panels/ScenePanel'
 import { AssetsPanel } from './panels/AssetsPanel'
@@ -10,12 +11,13 @@ import { MarkersPanel } from './panels/MarkersPanel'
 import { LightsPanel } from './panels/LightsPanel'
 import { ExportPanel } from './panels/ExportPanel'
 import { db } from '../lib/db'
-import { normalizeProject } from '../lib/project'
+import { normalizeProject, type Project } from '../lib/project'
 import { py } from '../lib/py'
 import { accountsEnabled, hubEnabled } from '../lib/backend'
 import { confirmDialog, toast, toastError } from '../ui'
 
 const CloudButton = lazy(() => import('./CloudButton').then((m) => ({ default: m.CloudButton })))
+const SamplePicker = lazy(() => import('../pages/SamplePicker').then((m) => ({ default: m.SamplePicker })))
 const PublishDialog = lazy(() => import('./PublishDialog').then((m) => ({ default: m.PublishDialog })))
 
 const TABS = [
@@ -75,10 +77,11 @@ function useShortcuts() {
       }
       else if (typing) return
       else if (e.key === 'Delete' || e.key === 'Backspace') { if (st.selection) { e.preventDefault(); act.removeSelected() } }
-      else if (e.key === 'Escape') st.set({ placeMode: null })
-      else if (e.key === '1') st.set({ gizmo: 'translate' })
-      else if (e.key === '2') st.set({ gizmo: 'rotate' })
-      else if (e.key === '3') st.set({ gizmo: 'scale' })
+      else if (e.key === 'Escape') chooseTool('select')
+      else if (e.key === '1') chooseTool('select')
+      else if (e.key === '2') chooseTool('rotate')
+      else if (e.key === '3') chooseTool('scale')
+      else if (!mod && TOOL_KEYS[e.key.toLowerCase()]) chooseTool(TOOL_KEYS[e.key.toLowerCase()])
       else if (e.key.toLowerCase() === 'g') st.set({ snap: !st.snap })
     }
     window.addEventListener('keydown', onKey)
@@ -90,6 +93,7 @@ function Editor() {
   const project = useEditor((s) => s.project)!
   const tab = useEditor((s) => s.tab)
   const [publishing, setPublishing] = useState(false)
+  const [picking, setPicking] = useState(false)
   const importDropped = async (files: File[]) => {
     try {
       const st = useEditor.getState()
@@ -97,11 +101,25 @@ function Editor() {
       await act.importModelFiles(files, mode)
     } catch (err) { toastError(err) }
   }
+  // The map is empty when the picker is offered, so the sample replaces it (one undo step).
+  const useSample = (p: Project) => {
+    useEditor.getState().update('Start from ' + p.name, (d) => {
+      d.scene_items = p.scene_items
+      d.markers = p.markers
+      d.lights = p.lights
+      d.files = { ...d.files, ...p.files }
+      d.settings.modes = p.settings.modes
+      d.settings.base_name = p.settings.base_name
+      d.settings.display_name = p.settings.display_name
+      if (d.name === 'Untitled map') d.name = p.name
+    })
+    useEditor.getState().select(null)
+  }
   return (
     <div className="editor">
       <TopBar onPublish={() => setPublishing(true)} />
       <div className="editor-main">
-        <Viewport onEmptyImport={importDropped} />
+        <Viewport onEmptyImport={importDropped} onSamples={() => setPicking(true)} />
         <aside className="side">
           <div className="tabs" role="tablist">
             {TABS.map(([k, label]) => (
@@ -121,6 +139,7 @@ function Editor() {
         </aside>
       </div>
       <LogBar />
+      {picking && <Suspense fallback={null}><SamplePicker onClose={() => setPicking(false)} onBuilt={useSample} /></Suspense>}
       {publishing && <Suspense fallback={null}><PublishDialog projectId={project.id} onClose={() => setPublishing(false)} /></Suspense>}
     </div>
   )
@@ -134,7 +153,6 @@ function TopBar({ onPublish }: { onPublish: () => void }) {
   const canUndo = useEditor((s) => s.past.length > 0)
   const canRedo = useEditor((s) => s.future.length > 0)
   const undoLabel = useEditor((s) => s.past[s.past.length - 1]?.label)
-  const gizmo = useEditor((s) => s.gizmo)
   const wireframe = useEditor((s) => s.wireframe)
   const snap = useEditor((s) => s.snap)
   const collision = useEditor((s) => s.collisionView)
@@ -153,11 +171,6 @@ function TopBar({ onPublish }: { onPublish: () => void }) {
         <button className="sm" disabled={!canUndo} onClick={() => st().undo()} title={undoLabel ? `Undo ${undoLabel} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}>↶</button>
         <button className="sm" disabled={!canRedo} onClick={() => st().redo()} title="Redo (Ctrl+Shift+Z)">↷</button>
       </div>
-      <div className="btn-group">
-        {([['translate', 'Move'], ['rotate', 'Rotate'], ['scale', 'Scale']] as const).map(([k, label], i) => (
-          <button key={k} className={'sm' + (gizmo === k ? ' on' : '')} onClick={() => st().set({ gizmo: k })} title={`${label} (${i + 1})`}>{label}</button>
-        ))}
-      </div>
       <button className={'sm' + (snap ? ' on' : '')} onClick={() => st().set({ snap: !snap })} title="Move in steps of the Scene tab's Fine/Normal/Coarse size and rotate in 15° steps (G)">Snap</button>
       <button className={'sm' + (wireframe ? ' on' : '')} onClick={() => st().set({ wireframe: !wireframe })}>Wireframe</button>
       <button className={'sm' + (!doubleSided ? ' on' : '')} onClick={() => update('Backface culling', (d) => { d.settings.double_sided = !doubleSided })} title="On = normal one-sided SR1 rendering. Off also exports reversed render-only copies so both sides show in game.">Cull backfaces</button>
@@ -171,7 +184,7 @@ function TopBar({ onPublish }: { onPublish: () => void }) {
       {accountsEnabled && <Suspense fallback={null}><CloudButton projectId={projectId} /></Suspense>}
       {hubEnabled && <button className="sm" onClick={async () => { await saveNow(true); onPublish() }}>Publish</button>}
       <button className="sm primary" onClick={() => st().set({ tab: 'export' })}>Export</button>
-      <button className="sm quiet" onClick={() => confirmDialog('Keyboard & mouse', 'Left drag: orbit · Right drag: pan · Wheel: zoom\nWASD / Q E: fly (Shift = faster) · F: focus selection\n1 / 2 / 3: move / rotate / scale gizmo\nCtrl+Z / Ctrl+Shift+Z: undo / redo\nCtrl+D: duplicate · Delete: remove · Ctrl+S: save\nDrag assets from the Assets tab onto the map.', { confirm: 'Got it', cancel: null })}>?</button>
+      <button className="sm quiet" onClick={() => confirmDialog('Keyboard & mouse', 'Left drag: orbit · Right drag: pan · Wheel: zoom\nWASD / Q E: fly (Shift = faster) · F: focus selection\nTools (left strip): V select · 2 rotate · 3 scale · H shape · B paint bucket · I eyedropper\nP spawn · K weapon · L light · X eraser · Esc back to select · G snap\nCtrl+Z / Ctrl+Shift+Z: undo / redo\nCtrl+D: duplicate · Delete: remove · Ctrl+S: save\nDrag assets from the Assets tab onto the map.', { confirm: 'Got it', cancel: null })}>?</button>
     </div>
   )
 }
