@@ -1,0 +1,647 @@
+{
+ "marker_types": [
+  "Shared spawn",
+  "Red team spawn",
+  "Blue team spawn",
+  "Weapon pickup",
+  "Vehicle spawn",
+  "Chains drop-off",
+  "Pimp entrance",
+  "Sphere trigger (custom)",
+  "Ground navpoint",
+  "Floating navpoint",
+  "Special spawn",
+  "Human NPC spawn"
+ ],
+ "spawn_kinds": [
+  "Blue team spawn",
+  "Red team spawn",
+  "Shared spawn"
+ ],
+ "trigger_kinds": [
+  "Chains drop-off",
+  "Pimp entrance",
+  "Pimp exit (experimental)",
+  "Sphere trigger (custom)"
+ ],
+ "special_spawn_types": [
+  "Beer Chat",
+  "Beer Stand",
+  "Bouncer",
+  "Bum at fire",
+  "Dance pair c",
+  "Dance pair d",
+  "Dancer",
+  "Dead body",
+  "Drinking 40",
+  "Drunk vomit",
+  "Fountain",
+  "Gang Cluster",
+  "Gang Cluster2",
+  "Gang Sitting",
+  "Gang Standing",
+  "Gravesite",
+  "Jackhammering",
+  "Lounge",
+  "NPC busted",
+  "Ped Dance Cluster",
+  "Reading news",
+  "SH Gang Cluster",
+  "Sitting",
+  "Sitting paper",
+  "Sitting reading",
+  "Sleeping",
+  "Smoking Weed",
+  "Store browse bling",
+  "Store browse gun",
+  "Store browse wine",
+  "Stripper and fans",
+  "Suicide"
+ ],
+ "human_char_types": [
+  "LC_X_F_Thug1-01_A",
+  "LC_X_M_Killa1-01",
+  "LC_X_M_Killa2-01",
+  "LC_X_M_Thug1-01",
+  "LC_X_M_Thug2-01",
+  "LC_X_M_Thug2-02",
+  "TS_X_M_Killa-A",
+  "TS_X_M_KillaB",
+  "TS_X_M_Thug1-01",
+  "TS_X_M_Thug1-01b",
+  "TS_X_M_Thug2-01",
+  "VK_X_M_Killa1-02",
+  "VK_X_M_Killa1-03",
+  "VK_X_M_Thug1-02",
+  "VK_X_M_Thug2-02",
+  "VK_X_M_killa1-01",
+  "WR_X_F_Thug1-01",
+  "WR_X_F_Thug1-02",
+  "WR_X_M_Killa2-01",
+  "WR_X_M_Killa2-03",
+  "WR_X_M_Thug2-01"
+ ],
+ "weapons": [
+  [
+   "Knife",
+   "knife"
+  ],
+  [
+   "Beretta",
+   "beretta"
+  ],
+  [
+   "TEC-9",
+   "tec9"
+  ],
+  [
+   "TEC-9 P",
+   "tec9b"
+  ],
+  [
+   "Pump Shotgun",
+   "pump_action_shotgun"
+  ],
+  [
+   "AK-47",
+   "ak47"
+  ],
+  [
+   "RPG",
+   "rpg_launcher"
+  ],
+  [
+   "Pipe Bomb",
+   "pipe_bomb"
+  ],
+  [
+   "Briefcase L",
+   "briefcaseL"
+  ],
+  [
+   "40oz",
+   "40oz"
+  ],
+  [
+   "Tanya Pistol",
+   "Tanya_pistol"
+  ],
+  [
+   "Pimp Cup",
+   "pimpcup"
+  ],
+  [
+   "AK-47 L",
+   "ak47L"
+  ],
+  [
+   "RPG Laser",
+   "rpg_laser"
+  ],
+  [
+   "Sniper Rifle",
+   "sniper_rifle"
+  ],
+  [
+   "Tire Iron",
+   "tire_iron"
+  ],
+  [
+   "Nightstick",
+   "nightstick"
+  ],
+  [
+   "Pimp Cane",
+   "pimpcane"
+  ],
+  [
+   "Sawn-Off",
+   "twelve_gauge"
+  ],
+  [
+   "SPAS-12",
+   "spas12"
+  ],
+  [
+   "SPAS-12 P",
+   "spas12b"
+  ],
+  [
+   "Pimp Slap",
+   "pimp_slap"
+  ],
+  [
+   "Desert Eagle Gold",
+   "desert_eagle_gold"
+  ],
+  [
+   "Grenade",
+   "grenade"
+  ],
+  [
+   "M16",
+   "m16"
+  ],
+  [
+   "NR4 (Glock)",
+   "glock"
+  ],
+  [
+   "MAC-10",
+   "mac10"
+  ],
+  [
+   "MAC-10 L",
+   "mac10L"
+  ],
+  [
+   "Magnum",
+   "magnum"
+  ],
+  [
+   "Magnum L",
+   "magnumL"
+  ],
+  [
+   "Baseball Bat",
+   "baseball_bat"
+  ],
+  [
+   "Cellphone",
+   "cellphone"
+  ],
+  [
+   "Bomb",
+   "bombsml"
+  ],
+  [
+   "Molotov",
+   "molotov"
+  ],
+  [
+   "Desert Eagle",
+   "desert eagle"
+  ]
+ ],
+ "vehicles": [
+  [
+   "Five-0",
+   "car_4dr_police01"
+  ],
+  [
+   "Venom",
+   "car_2dr_sports04"
+  ],
+  [
+   "Hollywood",
+   "car_4dr_classic01"
+  ],
+  [
+   "Ambulance",
+   "sp_ambulance01"
+  ],
+  [
+   "Cavallaro",
+   "car_4dr_std06"
+  ],
+  [
+   "Vegas",
+   "car_2dr_standard02"
+  ],
+  [
+   "Bootlegger",
+   "car_2dr_muscle02"
+  ],
+  [
+   "La Fuerza",
+   "car_2dr_muscle03"
+  ],
+  [
+   "Ruckus",
+   "sp_derbycar01"
+  ],
+  [
+   "Rampage",
+   "SP_derbycar02"
+  ],
+  [
+   "Hammerhead",
+   "car_2dr_muscle01"
+  ],
+  [
+   "Stiletto",
+   "car_2dr_luxury02"
+  ],
+  [
+   "Gunslinger",
+   "car_2dr_standard04"
+  ],
+  [
+   "Mockingbird",
+   "car_2dr_compact03"
+  ],
+  [
+   "Jackrabbit",
+   "car_2dr_compact01"
+  ],
+  [
+   "Ant",
+   "car_2dr_compact05"
+  ],
+  [
+   "Slingshot",
+   "car_2dr_compact06"
+  ],
+  [
+   "Halberd",
+   "car_2dr_compact04"
+  ],
+  [
+   "Attrazione",
+   "car_2dr_exoticsports01"
+  ],
+  [
+   "Vortex",
+   "car_2dr_exoticsports04"
+  ],
+  [
+   "Raycaster",
+   "car_2dr_sports03"
+  ],
+  [
+   "Rattler",
+   "car_2dr_luxury01"
+  ],
+  [
+   "Zenith",
+   "car_2dr_exoticsports03"
+  ],
+  [
+   "Cosmos",
+   "car_2dr_standard03"
+  ],
+  [
+   "Capshaw",
+   "car_4dr_std01"
+  ],
+  [
+   "Justice",
+   "car_4dr_exoticluxury01"
+  ],
+  [
+   "Destiny",
+   "car_4dr_standard05"
+  ],
+  [
+   "Voxel",
+   "car_4dr_sports01"
+  ],
+  [
+   "Zimos",
+   "car_4dr_standard03"
+  ],
+  [
+   "Taxi",
+   "car_4dr_taxi01"
+  ],
+  [
+   "Interest",
+   "car_4dr_irs01"
+  ],
+  [
+   "Shogun",
+   "car_4dr_standard08"
+  ],
+  [
+   "El Train",
+   "sp_eltrain_01"
+  ],
+  [
+   "Fer de Lance",
+   "car_2dr_exoticsports02"
+  ],
+  [
+   "Venom Classic",
+   "car_2dr_sports05"
+  ],
+  [
+   "Bag Boy",
+   "sp_bagcart01"
+  ],
+  [
+   "Compton",
+   "car_4dr_lowrider01"
+  ],
+  [
+   "Komodo",
+   "wagon_4dr_01"
+  ],
+  [
+   "Keystone",
+   "wagon_4dr_sprt01"
+  ],
+  [
+   "Ricochet",
+   "car_4dr_luxury03"
+  ],
+  [
+   "Nordberg",
+   "suv_4dr_04"
+  ],
+  [
+   "FBI",
+   "suv_4dr_fbi01"
+  ],
+  [
+   "Bulldog",
+   "suv_4dr_luxury05"
+  ],
+  [
+   "Aqua",
+   "SUV_4dr_03"
+  ],
+  [
+   "Mag",
+   "suv_4dr_luxury01"
+  ],
+  [
+   "Quasar",
+   "suv_4dr_luxury06"
+  ],
+  [
+   "BadDog",
+   "sp_limosuv02"
+  ],
+  [
+   "Traxx Master",
+   "suv_4dr_05"
+  ],
+  [
+   "The Job",
+   "sp_limosuv01"
+  ],
+  [
+   "Helicopter",
+   "heli_4dr_police01"
+  ],
+  [
+   "Reaper",
+   "sp_hearse01"
+  ],
+  [
+   "Status Quo",
+   "sp_limo01"
+  ],
+  [
+   "Baron",
+   "car_2dr_exolux01"
+  ],
+  [
+   "Zicron",
+   "car_4dr_standard02"
+  ],
+  [
+   "Socialite",
+   "car_4dr_luxury05"
+  ],
+  [
+   "Nelson",
+   "car_2dr_luxury04"
+  ],
+  [
+   "Zomkah",
+   "car_4dr_luxury01"
+  ],
+  [
+   "Eiswolf",
+   "car_4dr_luxury04"
+  ],
+  [
+   "Forklift",
+   "sp_forklift01"
+  ],
+  [
+   "Quota",
+   "sp_metermaid01"
+  ],
+  [
+   "Bulldozer",
+   "sp_bulldozer01"
+  ],
+  [
+   "Backhoe",
+   "sp_backhoe01"
+  ],
+  [
+   "Garbage Truck",
+   "truck_2dr_garbage01"
+  ],
+  [
+   "Goliath",
+   "truck_2dr_semi02"
+  ],
+  [
+   "Winslow Bus",
+   "sp_charterbus03"
+  ],
+  [
+   "Cheetah",
+   "sp_charterbus02"
+  ],
+  [
+   "Titan",
+   "truck_2dr_armored01"
+  ],
+  [
+   "Peacekeeper",
+   "van_2dr_riot01"
+  ],
+  [
+   "Peterliner",
+   "truck_2dr_semi01"
+  ],
+  [
+   "Delivery Truck",
+   "sp_dlvry_truck01"
+  ],
+  [
+   "Mule",
+   "truck_2dr_mover01"
+  ],
+  [
+   "Nightingale",
+   "truck_2dr_airport01"
+  ],
+  [
+   "Varsity",
+   "truck_2dr_pickup02"
+  ],
+  [
+   "Thorogood",
+   "truck_2dr_pickup03"
+  ],
+  [
+   "Newman",
+   "truck_2dr_mail01"
+  ],
+  [
+   "Betsy",
+   "truck_2dr_classic01"
+  ],
+  [
+   "Anchor",
+   "van_4dr_news01"
+  ],
+  [
+   "Hannibal",
+   "minivan_4dr_02"
+  ],
+  [
+   "Westbury",
+   "minivan_4dr_01"
+  ],
+  [
+   "NRG V8",
+   "van_4dr_01"
+  ]
+ ],
+ "surface_types": [
+  "Concrete",
+  "Cardboard",
+  "Carpet",
+  "Ceramic",
+  "Dirt",
+  "Drywall",
+  "Flesh",
+  "Foliage",
+  "Glass Heavy",
+  "Glass Medium",
+  "Glass Light",
+  "Grass",
+  "Gravel",
+  "Marble",
+  "Metal Fence",
+  "Metal Solid",
+  "Metal Thin",
+  "Plastic",
+  "Rubber",
+  "Sand",
+  "Water",
+  "Wood"
+ ],
+ "surface_suffixes": [
+  "co",
+  "cb",
+  "ca",
+  "ce",
+  "dt",
+  "dw",
+  "fl",
+  "lv",
+  "gh",
+  "gm",
+  "gl",
+  "gs",
+  "gv",
+  "ma",
+  "fm",
+  "me",
+  "tm",
+  "pl",
+  "rb",
+  "sa",
+  "wa",
+  "wo"
+ ],
+ "glass_styles": {
+  "Tinted glass": "tinted",
+  "Solid blue test": "blue"
+ },
+ "glass_kind": "sr1_native_glass_3x3",
+ "custom_kind": "sr1_native_custom_mesh_glass_experiment",
+ "glass_size": [
+  1.4931641,
+  2.37597704
+ ],
+ "prop_presets": {
+  "movable": {
+   "label": "Movable crate",
+   "profile": "Crate Small",
+   "health": 50,
+   "weight": 20,
+   "description": "Loose physics prop. Stock crate profile: 50 health, weight 20; no blast. Fitted box collision; first gameplay test pending."
+  },
+  "explosive": {
+   "label": "Explosive propane",
+   "profile": "Propanesmall",
+   "health": 75,
+   "weight": 10,
+   "description": "Loose explosive prop. Stock propane profile: 75 health, weight 10; blast radius 5 with fire and force. Fitted box collision; first gameplay test pending."
+  }
+ },
+ "limits": {
+  "max_native_objects": 32,
+  "max_native_triangles": 4096,
+  "min_native_axis": 0.01,
+  "max_native_axis": 25.0,
+  "max_lights": 64
+ },
+ "new_light": {
+  "name": "Point light",
+  "enabled": true,
+  "position": [
+   0.0,
+   3.0,
+   0.0
+  ],
+  "color": [
+   1.0,
+   0.85,
+   0.65
+  ],
+  "intensity": 1.0,
+  "inner_range": 1.0,
+  "range": 8.0
+ },
+ "exporter_version": "0.58-texture-guard"
+}

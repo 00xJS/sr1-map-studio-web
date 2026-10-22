@@ -1,0 +1,647 @@
+// Imperative three.js scene for the editor. React calls sync() whenever the
+// project or view options change; the viewer diffs by uid and only rebuilds
+// what changed. Transforms follow sr1_scene.transform exactly:
+//   world = T(position) · Ry · Rx · Rz · S(scale) · T(-pivot)
+import * as THREE from 'three'
+import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
+import type { ObjModel } from '../lib/geometry'
+import { loadModel, peekModel, textureUrl } from '../lib/assets'
+import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
+
+export interface ViewOptions {
+  selection: { kind: 'item' | 'marker' | 'light'; index: number } | null
+  gizmo: 'translate' | 'rotate' | 'scale'
+  wireframe: boolean
+  collisionView: 'off' | 'faces'
+  soloMaterial: string | null
+  faceRange: [number, number]
+  readOnly?: boolean
+}
+
+export interface ViewerEvents {
+  onPick(sel: ViewOptions['selection']): void
+  onSurface(point: Vec3, item: number, sourceFace: number, mode: 'click' | 'drop', data?: string): void
+  onTransform(kind: 'item' | 'marker' | 'light', index: number, t: { position: Vec3; rotation?: Vec3; scale?: number; yaw?: number }, done: boolean): void
+}
+
+const RAD = Math.PI / 180
+const DEG = 180 / Math.PI
+
+const MARKER_COLORS: Record<string, number> = {
+  'Shared spawn': 0x37e3ff, 'Red team spawn': 0xff4d5e, 'Blue team spawn': 0x4d8bff,
+  'Weapon pickup': 0xffc23d, 'Vehicle spawn': 0xb98cff, 'Human NPC spawn': 0x7dff8f, 'Special spawn': 0x7dff8f,
+}
+const markerColor = (t: string) => MARKER_COLORS[t] ?? (/navpoint/i.test(t) ? 0x9aa4b5 : 0xff42bf)
+
+interface GeoInfo { geometry: THREE.BufferGeometry; faceOrder: Uint32Array; mats: string[] }
+interface ItemNode {
+  uid: string
+  group: THREE.Group
+  mesh: THREE.Mesh | null
+  key: string // rebuild key: path + textures + flags
+  overlay: THREE.Mesh | null
+  overlayKey: string
+  path: string
+}
+
+let missingTexture: THREE.Texture | null = null
+function checker(): THREE.Texture {
+  if (missingTexture) return missingTexture
+  const c = document.createElement('canvas')
+  c.width = c.height = 64
+  const g = c.getContext('2d')!
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) { g.fillStyle = (x + y) % 2 ? '#ff42bf' : '#1a0f19'; g.fillRect(x * 8, y * 8, 8, 8) }
+  missingTexture = new THREE.CanvasTexture(c)
+  missingTexture.wrapS = missingTexture.wrapT = THREE.RepeatWrapping
+  missingTexture.colorSpace = THREE.SRGBColorSpace
+  return missingTexture
+}
+
+export class Viewer {
+  readonly renderer: THREE.WebGLRenderer
+  readonly scene = new THREE.Scene()
+  readonly camera = new THREE.PerspectiveCamera(55, 1, 0.05, 50000)
+  readonly orbit: OrbitControls
+  readonly gizmo: TransformControls
+  private root = new THREE.Group()
+  private markerRoot = new THREE.Group()
+  private lightRoot = new THREE.Group()
+  private grid: THREE.GridHelper
+  private box = new THREE.Box3Helper(new THREE.Box3(), 0xff42bf)
+  private items = new Map<string, ItemNode>()
+  private geos = new Map<string, Promise<GeoInfo>>()
+  private textures = new Map<string, THREE.Texture | null>()
+  private project: Project | null = null
+  private opts: ViewOptions = { selection: null, gizmo: 'translate', wireframe: false, collisionView: 'off', soloMaterial: null, faceRange: [0, 0] }
+  private raf = 0
+  private keys = new Set<string>()
+  private dragging = false
+  private framed = false
+  private resizeObs: ResizeObserver
+  private loaded = new THREE.LoadingManager()
+  private texLoader = new THREE.TextureLoader(this.loaded)
+
+  constructor(private host: HTMLElement, private events: ViewerEvents) {
+    this.renderer = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    this.renderer.outputColorSpace = THREE.SRGBColorSpace
+    host.appendChild(this.renderer.domElement)
+    this.renderer.domElement.tabIndex = 0
+    this.scene.background = new THREE.Color(0x120f15)
+    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x3a2a38, 2.2))
+    const sun = new THREE.DirectionalLight(0xffffff, 1.4)
+    sun.position.set(0.4, 1, 0.3)
+    this.scene.add(sun)
+    this.grid = new THREE.GridHelper(200, 40, 0x6b2a5a, 0x2b1c2b)
+    this.scene.add(this.grid, this.root, this.markerRoot, this.lightRoot, this.box)
+    this.box.visible = false
+    this.camera.position.set(30, 25, 30)
+    this.orbit = new OrbitControls(this.camera, this.renderer.domElement)
+    this.orbit.enableDamping = true
+    this.orbit.dampingFactor = 0.15
+    this.orbit.screenSpacePanning = true
+    this.gizmo = new TransformControls(this.camera, this.renderer.domElement)
+    this.gizmo.setSize(0.9)
+    this.scene.add(this.gizmo.getHelper())
+    this.gizmo.addEventListener('dragging-changed', (e: any) => {
+      this.orbit.enabled = !e.value
+      this.dragging = e.value
+      if (!e.value) this.emitTransform(true)
+    })
+    this.gizmo.addEventListener('objectChange', () => this.emitTransform(false))
+    this.loaded.onLoad = () => this.requestRender()
+    this.bindInput()
+    this.resizeObs = new ResizeObserver(() => this.resize())
+    this.resizeObs.observe(host)
+    this.resize()
+    this.loop()
+  }
+
+  dispose() {
+    cancelAnimationFrame(this.raf)
+    this.resizeObs.disconnect()
+    // TransformControls.dispose() in r169 assumes an Object3D; detach manually.
+    this.gizmo.detach()
+    this.gizmo.disconnect()
+    this.orbit.dispose()
+    this.renderer.dispose()
+    this.renderer.domElement.remove()
+  }
+
+  private needsRender = true
+  requestRender() { this.needsRender = true }
+
+  private loop = () => {
+    this.raf = requestAnimationFrame(this.loop)
+    const moved = this.flyStep()
+    const damped = this.orbit.update()
+    if (this.needsRender || moved || damped || this.dragging) {
+      this.needsRender = false
+      this.renderer.render(this.scene, this.camera)
+    }
+  }
+
+  private resize() {
+    const w = this.host.clientWidth || 1
+    const h = this.host.clientHeight || 1
+    this.renderer.setSize(w, h, false)
+    this.renderer.domElement.style.width = '100%'
+    this.renderer.domElement.style.height = '100%'
+    this.camera.aspect = w / h
+    this.camera.updateProjectionMatrix()
+    this.requestRender()
+  }
+
+  // ---------------- input ----------------
+
+  private pointerDown: { x: number; y: number } | null = null
+
+  private bindInput() {
+    const el = this.renderer.domElement
+    el.addEventListener('pointerdown', (e) => { if (e.button === 0) this.pointerDown = { x: e.clientX, y: e.clientY }; el.focus() })
+    el.addEventListener('pointerup', (e) => {
+      const d = this.pointerDown
+      this.pointerDown = null
+      if (!d || e.button !== 0 || this.dragging) return
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return
+      this.click(e.clientX, e.clientY)
+    })
+    el.addEventListener('keydown', (e) => {
+      if (e.ctrlKey || e.metaKey || e.altKey) return
+      const k = e.key.toLowerCase()
+      if ('wasdqe'.includes(k) && k.length === 1) { this.keys.add(k); e.preventDefault() }
+      if (e.key === 'Shift') this.keys.add('shift')
+      if (k === 'f') this.focusSelection()
+    })
+    el.addEventListener('keyup', (e) => { this.keys.delete(e.key.toLowerCase()); if (e.key === 'Shift') this.keys.delete('shift') })
+    el.addEventListener('blur', () => this.keys.clear())
+    el.addEventListener('dragover', (e) => { if (e.dataTransfer?.types.includes('application/x-sr1-asset')) e.preventDefault() })
+    el.addEventListener('drop', (e) => {
+      const data = e.dataTransfer?.getData('application/x-sr1-asset')
+      if (!data) return
+      e.preventDefault()
+      const hit = this.raycast(e.clientX, e.clientY)
+      const point = hit ? hit.point : this.orbit.target.toArray() as Vec3
+      this.events.onSurface(point, hit?.item ?? -1, hit?.face ?? -1, 'drop', data)
+    })
+  }
+
+  private lastFly = performance.now()
+  private flyStep(): boolean {
+    const now = performance.now()
+    const dt = Math.min(0.1, (now - this.lastFly) / 1000)
+    this.lastFly = now
+    if (!this.keys.size || (this.keys.size === 1 && this.keys.has('shift'))) return false
+    const dist = this.camera.position.distanceTo(this.orbit.target)
+    const speed = Math.max(2, dist * 0.9) * (this.keys.has('shift') ? 3 : 1) * dt
+    const fwd = new THREE.Vector3()
+    this.camera.getWorldDirection(fwd)
+    const right = new THREE.Vector3().crossVectors(fwd, this.camera.up).normalize()
+    const move = new THREE.Vector3()
+    if (this.keys.has('w')) move.add(fwd)
+    if (this.keys.has('s')) move.sub(fwd)
+    if (this.keys.has('d')) move.add(right)
+    if (this.keys.has('a')) move.sub(right)
+    if (this.keys.has('e')) move.y += 1
+    if (this.keys.has('q')) move.y -= 1
+    if (!move.lengthSq()) return false
+    move.normalize().multiplyScalar(speed)
+    this.camera.position.add(move)
+    this.orbit.target.add(move)
+    return true
+  }
+
+  private ndc(x: number, y: number) {
+    const r = this.renderer.domElement.getBoundingClientRect()
+    return new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1)
+  }
+
+  /** Nearest scene-item surface under the cursor. */
+  raycast(x: number, y: number): { point: Vec3; item: number; face: number } | null {
+    const rc = new THREE.Raycaster()
+    rc.setFromCamera(this.ndc(x, y), this.camera)
+    const meshes: THREE.Object3D[] = []
+    this.items.forEach((n) => { if (n.mesh && n.group.visible) meshes.push(n.mesh) })
+    const hit = rc.intersectObjects(meshes, false)[0]
+    if (!hit) return null
+    const node = [...this.items.values()].find((n) => n.mesh === hit.object)
+    const index = this.project?.scene_items.findIndex((it) => it.uid === node?.uid) ?? -1
+    const info = (hit.object as THREE.Mesh).userData.faceOrder as Uint32Array | undefined
+    const face = info && hit.faceIndex != null ? info[hit.faceIndex] : -1
+    return { point: hit.point.toArray() as Vec3, item: index, face }
+  }
+
+  /** Height of the first scene surface straight below (x, z), or null. */
+  surfaceBelow(x: number, y: number, z: number): number | null {
+    const meshes: THREE.Object3D[] = []
+    this.items.forEach((n) => { if (n.mesh) meshes.push(n.mesh) })
+    const box = new THREE.Box3()
+    meshes.forEach((m) => box.expandByObject(m))
+    const top = Math.max(y, box.isEmpty() ? y : box.max.y) + 5
+    const rc = new THREE.Raycaster(new THREE.Vector3(x, top, z), new THREE.Vector3(0, -1, 0))
+    rc.params.Line = { threshold: 0 }
+    const hit = rc.intersectObjects(meshes, false).find((h) => h.point.y <= y + 0.01) ?? rc.intersectObjects(meshes, false)[0]
+    return hit ? hit.point.y : null
+  }
+
+  private click(x: number, y: number) {
+    if (this.opts.readOnly) return
+    const rc = new THREE.Raycaster()
+    rc.setFromCamera(this.ndc(x, y), this.camera)
+    // Markers and lights first: they are small and sit on top of geometry.
+    const handles = rc.intersectObjects([...this.markerRoot.children, ...this.lightRoot.children], true)[0]
+    const surface = this.raycast(x, y)
+    const placing = (this.host.dataset.place || '') as '' | 'marker' | 'light' | 'face'
+    if (placing && surface) {
+      this.events.onSurface(surface.point, surface.item, surface.face, 'click')
+      return
+    }
+    if (handles) {
+      let o: THREE.Object3D | null = handles.object
+      while (o && !o.userData.kind) o = o.parent
+      if (o) { this.events.onPick({ kind: o.userData.kind, index: o.userData.index }); return }
+    }
+    this.events.onPick(surface && surface.item >= 0 ? { kind: 'item', index: surface.item } : null)
+  }
+
+  // ---------------- sync ----------------
+
+  sync(project: Project | null, opts: ViewOptions) {
+    const firstProject = this.project?.id !== project?.id
+    this.project = project
+    this.opts = opts
+    if (firstProject) this.framed = false
+    this.syncItems()
+    this.syncMarkers(project?.markers || [])
+    this.syncLights(project?.lights || [])
+    this.syncGizmo()
+    this.requestRender()
+  }
+
+  private geometry(path: string): Promise<GeoInfo> {
+    let g = this.geos.get(path)
+    if (!g) {
+      g = (peekModel(path) || loadModel(this.project, path)).then((m) => buildGeometry(m))
+      g.catch(() => this.geos.delete(path))
+      this.geos.set(path, g)
+    }
+    return g
+  }
+
+  private texture(path: string | undefined): THREE.Texture | null | undefined {
+    if (!path) return null
+    if (this.textures.has(path)) return this.textures.get(path)
+    this.textures.set(path, undefined as any)
+    textureUrl(this.project, path).then((url) => {
+      if (!url) { this.textures.set(path, null); this.refreshMaterials(); return }
+      this.texLoader.load(url, (t) => {
+        t.colorSpace = THREE.SRGBColorSpace
+        t.wrapS = t.wrapT = THREE.RepeatWrapping
+        t.anisotropy = 4
+        this.textures.set(path, t)
+        this.refreshMaterials()
+      }, undefined, () => { this.textures.set(path, null); this.refreshMaterials() })
+    })
+    return undefined
+  }
+
+  private refreshMaterials() {
+    for (const n of this.items.values()) n.key = ''
+    this.syncItems()
+    this.requestRender()
+  }
+
+  private itemKey(it: SceneItem, index: number) {
+    const o = this.opts
+    const s = this.project!.settings
+    return JSON.stringify([it.path, it.textures, it.alpha, it.double_sided, s.double_sided, o.wireframe, o.soloMaterial?.startsWith(index + ':') ? o.soloMaterial : o.soloMaterial ? 'other' : null, it.native_opacity, it.glass_custom_texture])
+  }
+
+  private syncItems() {
+    const items = this.project?.scene_items || []
+    const seen = new Set<string>()
+    items.forEach((it, index) => {
+      seen.add(it.uid)
+      let node = this.items.get(it.uid)
+      if (!node) {
+        node = { uid: it.uid, group: new THREE.Group(), mesh: null, key: '', overlay: null, overlayKey: '', path: it.path }
+        node.group.userData = { kind: 'item' }
+        this.items.set(it.uid, node)
+        this.root.add(node.group)
+      }
+      node.group.userData.index = index
+      applyTransform(node.group, it)
+      const key = this.itemKey(it, index)
+      if (node.key !== key || node.path !== it.path) {
+        node.key = key
+        node.path = it.path
+        this.buildItemMesh(node, it, index)
+      } else if (node.mesh) {
+        node.mesh.position.set(...(it.pivot ? (it.pivot.map((v) => -v) as Vec3) : [0, 0, 0] as Vec3))
+      }
+      this.syncOverlay(node, it, index)
+    })
+    for (const [uid, node] of this.items) {
+      if (!seen.has(uid)) {
+        this.root.remove(node.group)
+        node.overlay?.geometry.dispose()
+        this.items.delete(uid)
+      }
+    }
+    if (!this.framed && items.length) {
+      const first = this.items.get(items[0].uid)
+      if (first?.mesh) { this.framed = true; this.frame(first.group) }
+    }
+    this.updateSelectionBox()
+  }
+
+  private buildItemMesh(node: ItemNode, it: SceneItem, index: number) {
+    const s = this.project!.settings
+    const opts = this.opts
+    this.geometry(it.path).then((info) => {
+      if (this.items.get(it.uid) !== node || node.path !== it.path) return
+      // Fixed glass panes are flat quads; show both faces like the game does.
+      const side = s.double_sided || it.double_sided || (isGlass(it) && !isCustomNative(it)) ? THREE.DoubleSide : THREE.FrontSide
+      const custom = isCustomNative(it)
+      const materials = info.mats.map((raw) => {
+        const mat = raw || 'default'
+        const texPath = custom ? it.glass_custom_texture : it.textures?.[mat]
+        const tex = this.texture(texPath)
+        const alpha = !!it.alpha?.[mat] || (custom && (it.native_opacity ?? 100) < 100)
+        const solo = opts.soloMaterial
+        const m = new THREE.MeshLambertMaterial({
+          map: tex || (tex === null || !texPath ? checker() : null),
+          color: tex === undefined && texPath ? 0x554455 : 0xffffff,
+          side, wireframe: opts.wireframe,
+          transparent: alpha, alphaTest: alpha ? 0.02 : 0,
+          opacity: custom ? Math.max(0.15, (it.native_opacity ?? 100) / 100) : 1,
+          depthWrite: !alpha,
+        })
+        m.visible = !solo || solo === `${index}:${mat}`
+        m.userData.mat = mat
+        return m
+      })
+      if (node.mesh) {
+        node.group.remove(node.mesh)
+        ;(node.mesh.material as THREE.Material[]).forEach((m) => m.dispose())
+      }
+      const mesh = new THREE.Mesh(info.geometry, materials)
+      mesh.userData.faceOrder = info.faceOrder
+      mesh.position.set(...(it.pivot ? (it.pivot.map((v) => -v) as Vec3) : [0, 0, 0] as Vec3))
+      node.mesh = mesh
+      node.group.add(mesh)
+      if (!this.framed && index === 0) { this.framed = true; this.frame(node.group) }
+      this.syncOverlay(node, it, index, true)
+      this.updateSelectionBox()
+      this.requestRender()
+    }).catch(() => { /* missing file: shown in the scene list */ })
+  }
+
+  private syncOverlay(node: ItemNode, it: SceneItem, index: number, force = false) {
+    const on = this.opts.collisionView === 'faces'
+    const sel = this.opts.selection?.kind === 'item' && this.opts.selection.index === index ? this.opts.faceRange : null
+    const key = on ? JSON.stringify([it.path, it.collision_disabled, it.collision_excluded_faces?.length, it.collision_excluded_faces?.slice(0, 50), isGlass(it), sel]) : ''
+    if (!force && key === node.overlayKey) return
+    node.overlayKey = key
+    if (node.overlay) { node.mesh?.remove(node.overlay); node.overlay.geometry.dispose(); node.overlay = null }
+    if (!on || !node.mesh) return
+    const model = peekModel(it.path)
+    model?.then((m) => {
+      if (node.overlayKey !== key || !node.mesh) return
+      const excluded = new Set(it.collision_excluded_faces || [])
+      const native = isGlass(it) || isProp(it)
+      const tris = m.faces.length / 3
+      const pos = new Float32Array(tris * 9)
+      const col = new Float32Array(tris * 9)
+      const green = [0.2, 0.95, 0.45], red = [1, 0.25, 0.3], blue = [0.35, 0.6, 1], orange = [1, 0.6, 0.1]
+      for (let f = 0; f < tris; f++) {
+        const c = native ? blue : sel && f >= Math.min(...sel) && f <= Math.max(...sel) ? orange : it.collision_disabled || excluded.has(f) ? red : green
+        for (let k = 0; k < 3; k++) {
+          const v = m.faces[f * 3 + k] * 3
+          pos.set([m.positions[v], m.positions[v + 1], m.positions[v + 2]], f * 9 + k * 3)
+          col.set(c, f * 9 + k * 3)
+        }
+      }
+      const g = new THREE.BufferGeometry()
+      g.setAttribute('position', new THREE.BufferAttribute(pos, 3))
+      g.setAttribute('color', new THREE.BufferAttribute(col, 3))
+      const overlay = new THREE.Mesh(g, new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, opacity: 0.42, depthWrite: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -1, side: THREE.DoubleSide }))
+      overlay.raycast = () => {}
+      node.overlay = overlay
+      node.mesh.add(overlay)
+      this.requestRender()
+    })
+  }
+
+  private syncMarkers(markers: Marker[]) {
+    const root = this.markerRoot
+    while (root.children.length > markers.length) root.remove(root.children[root.children.length - 1])
+    markers.forEach((m, i) => {
+      let g = root.children[i] as THREE.Group | undefined
+      if (!g || g.userData.type !== m.type) {
+        if (g) root.remove(g)
+        g = markerObject(m.type)
+        root.children.splice(i, 0, g)
+        g.parent = root
+      }
+      g.userData = { kind: 'marker', index: i, type: m.type }
+      g.position.set(...m.position)
+      g.rotation.set(0, -m.yaw * RAD, 0)
+      const selected = this.opts.selection?.kind === 'marker' && this.opts.selection.index === i
+      // Marker meshes are ~1 game unit across; editor units are game units / world scale.
+      g.scale.setScalar((selected ? 1.25 : 1) / (this.project?.settings.world_scale || 0.5))
+    })
+  }
+
+  private syncLights(lights: Light[]) {
+    const root = this.lightRoot
+    while (root.children.length > lights.length) root.remove(root.children[root.children.length - 1])
+    lights.forEach((l, i) => {
+      let g = root.children[i] as THREE.Group | undefined
+      if (!g) { g = lightObject(); root.add(g) }
+      g.userData = { kind: 'light', index: i }
+      g.position.set(...l.position)
+      const color = new THREE.Color(...l.color)
+      ;((g.children[0] as THREE.Mesh).material as THREE.MeshBasicMaterial).color = color
+      const ring = g.children[1] as THREE.LineLoop
+      ring.scale.setScalar(l.range)
+      ;(ring.material as THREE.LineBasicMaterial).color = color
+      ;(ring.material as THREE.LineBasicMaterial).opacity = l.enabled ? 0.8 : 0.25
+      const selected = this.opts.selection?.kind === 'light' && this.opts.selection.index === i
+      ring.visible = selected || l.enabled
+    })
+  }
+
+  private target(): THREE.Object3D | null {
+    const sel = this.opts.selection
+    if (!sel || !this.project) return null
+    if (sel.kind === 'item') {
+      const it = this.project.scene_items[sel.index]
+      return it ? this.items.get(it.uid)?.group ?? null : null
+    }
+    if (sel.kind === 'marker') return this.markerRoot.children[sel.index] ?? null
+    return this.lightRoot.children[sel.index] ?? null
+  }
+
+  private syncGizmo() {
+    if (this.dragging) return
+    const t = this.opts.readOnly ? null : this.target()
+    const sel = this.opts.selection
+    if (!t || !sel) { this.gizmo.detach(); return }
+    let mode = this.opts.gizmo
+    const it = sel.kind === 'item' ? this.project!.scene_items[sel.index] : null
+    if (sel.kind === 'light') mode = 'translate'
+    if (sel.kind === 'marker' && mode === 'scale') mode = 'translate'
+    if (it && mode === 'scale' && isGlass(it) && !isCustomNative(it)) mode = 'translate'
+    this.gizmo.setMode(mode)
+    this.gizmo.setSpace(mode === 'rotate' && sel.kind === 'item' ? 'local' : 'world')
+    const yawOnly = sel.kind === 'marker' && mode === 'rotate'
+    this.gizmo.showX = !yawOnly
+    this.gizmo.showZ = !yawOnly
+    this.gizmo.showY = true
+    if (this.gizmo.object !== t) this.gizmo.attach(t)
+  }
+
+  private emitTransform(done: boolean) {
+    const sel = this.opts.selection
+    const o = this.gizmo.object
+    if (!sel || !o) return
+    const position = o.position.toArray() as Vec3
+    if (sel.kind === 'item') {
+      const it = this.project!.scene_items[sel.index]
+      const e = new THREE.Euler().setFromQuaternion(o.quaternion, 'YXZ')
+      const prev = it.scale
+      const s = [o.scale.x, o.scale.y, o.scale.z]
+      const scale = s.reduce((best, v) => (Math.abs(v - prev) > Math.abs(best - prev) ? v : best), prev)
+      o.scale.setScalar(scale)
+      this.events.onTransform('item', sel.index, { position, rotation: [e.x * DEG, e.y * DEG, e.z * DEG], scale }, done)
+    } else if (sel.kind === 'marker') {
+      this.events.onTransform('marker', sel.index, { position, yaw: -o.rotation.y * DEG }, done)
+    } else {
+      this.events.onTransform('light', sel.index, { position }, done)
+    }
+    this.updateSelectionBox()
+  }
+
+  private updateSelectionBox() {
+    const sel = this.opts.selection
+    if (sel?.kind !== 'item') { this.box.visible = false; return }
+    const t = this.target()
+    if (!t) { this.box.visible = false; return }
+    this.box.box.setFromObject(t)
+    this.box.visible = !this.box.box.isEmpty()
+  }
+
+  // ---------------- camera ----------------
+
+  private frame(obj: THREE.Object3D) {
+    const box = new THREE.Box3().setFromObject(obj)
+    if (box.isEmpty()) return
+    const size = box.getSize(new THREE.Vector3()).length()
+    const center = box.getCenter(new THREE.Vector3())
+    this.orbit.target.copy(center)
+    const dir = new THREE.Vector3(0.8, 0.65, 0.9).normalize()
+    this.camera.position.copy(center).addScaledVector(dir, Math.max(2, size * 0.75))
+    this.camera.near = Math.max(0.01, size / 5000)
+    this.camera.far = Math.max(1000, size * 20)
+    this.camera.updateProjectionMatrix()
+    const span = Math.max(20, Math.ceil(size / 10) * 10)
+    this.scene.remove(this.grid)
+    this.grid = new THREE.GridHelper(span * 2, 40, 0x6b2a5a, 0x2b1c2b)
+    this.grid.position.y = box.min.y
+    this.scene.add(this.grid)
+    this.requestRender()
+  }
+
+  focusSelection() {
+    const t = this.target()
+    if (t) this.frame(t)
+    else if (this.project?.scene_items[0]) {
+      const n = this.items.get(this.project.scene_items[0].uid)
+      if (n) this.frame(n.group)
+    }
+  }
+
+  resetView() { this.framed = false; this.focusSelection() }
+
+  /** Point at the camera target (used to place things "in front of you"). */
+  center(): Vec3 { return this.orbit.target.toArray() as Vec3 }
+
+  async capture(width = 640, height = 360): Promise<Blob | null> {
+    const prevBox = this.box.visible
+    const helper = this.gizmo.getHelper()
+    const prevGizmo = helper.visible
+    this.box.visible = false
+    helper.visible = false
+    const w = this.renderer.domElement.width, h = this.renderer.domElement.height
+    this.renderer.render(this.scene, this.camera)
+    const canvas = new OffscreenCanvas(width, height)
+    const ctx = canvas.getContext('2d')!
+    const scale = Math.max(width / w, height / h)
+    const sw = width / scale, sh = height / scale
+    ctx.drawImage(this.renderer.domElement, (w - sw) / 2, (h - sh) / 2, sw, sh, 0, 0, width, height)
+    this.box.visible = prevBox
+    helper.visible = prevGizmo
+    this.requestRender()
+    return canvas.convertToBlob({ type: 'image/webp', quality: 0.82 })
+  }
+}
+
+function applyTransform(g: THREE.Object3D, it: SceneItem) {
+  g.position.set(...it.position)
+  g.rotation.set(it.rotation[0] * RAD, it.rotation[1] * RAD, it.rotation[2] * RAD, 'YXZ')
+  g.scale.setScalar(it.scale || 1)
+}
+
+function buildGeometry(m: ObjModel): GeoInfo {
+  const tris = m.faces.length / 3
+  const order = Array.from({ length: tris }, (_, i) => i).sort((a, b) => m.faceMat[a] - m.faceMat[b] || a - b)
+  const index = new Uint32Array(tris * 3)
+  const faceOrder = new Uint32Array(tris)
+  const g = new THREE.BufferGeometry()
+  let start = 0
+  order.forEach((f, i) => {
+    index.set(m.faces.subarray(f * 3, f * 3 + 3), i * 3)
+    faceOrder[i] = f
+    const next = order[i + 1]
+    if (next === undefined || m.faceMat[next] !== m.faceMat[f]) {
+      g.addGroup(start * 3, (i + 1 - start) * 3, m.faceMat[f])
+      start = i + 1
+    }
+  })
+  g.setAttribute('position', new THREE.BufferAttribute(m.positions, 3))
+  g.setAttribute('uv', new THREE.BufferAttribute(m.uvs, 2))
+  g.setIndex(new THREE.BufferAttribute(index, 1))
+  g.computeVertexNormals()
+  g.computeBoundingSphere()
+  return { geometry: g, faceOrder, mats: m.mats }
+}
+
+function markerObject(type: string): THREE.Group {
+  const color = markerColor(type)
+  const g = new THREE.Group()
+  const mat = new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.95 })
+  const body = new THREE.Mesh(new THREE.CylinderGeometry(0.22, 0.22, 1.7, 12, 1, true), new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.35, side: THREE.DoubleSide }))
+  body.position.y = 0.85
+  const base = new THREE.Mesh(new THREE.RingGeometry(0.25, 0.42, 24), mat)
+  base.rotation.x = -Math.PI / 2
+  base.position.y = 0.02
+  const arrow = new THREE.Mesh(new THREE.ConeGeometry(0.16, 0.5, 10), mat)
+  arrow.rotation.x = -Math.PI / 2
+  arrow.position.set(0, 0.25, -0.65) // yaw 0 faces -Z, like the desktop viewer
+  g.add(body, base, arrow)
+  g.renderOrder = 10
+  return g
+}
+
+function lightObject(): THREE.Group {
+  const g = new THREE.Group()
+  const bulb = new THREE.Mesh(new THREE.SphereGeometry(0.25, 16, 12), new THREE.MeshBasicMaterial({ color: 0xffd9a6 }))
+  const pts: THREE.Vector3[] = []
+  for (let i = 0; i < 64; i++) { const a = (i / 64) * Math.PI * 2; pts.push(new THREE.Vector3(Math.cos(a), 0, Math.sin(a))) }
+  const ring = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints(pts), new THREE.LineBasicMaterial({ color: 0xffd9a6, transparent: true, opacity: 0.8 }))
+  ring.raycast = () => {}
+  g.add(bulb, ring)
+  return g
+}

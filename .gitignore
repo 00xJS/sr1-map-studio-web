@@ -1,0 +1,8 @@
+node_modules
+dist
+public/py/studio.zip
+.env
+.env*.local
+.netlify
+*.tsbuildinfo
+public/py/version.json

@@ -1,0 +1,252 @@
+{
+ "cts_examples/amb_downtown.cts": {
+  "sha256": "77ef630413f9e605860212cf0da3234315711025045578cdaf65d6f755744ff8",
+  "size": 81821,
+  "group": "cts"
+ },
+ "cts_examples/mp_ptp_01.cts": {
+  "sha256": "fc07122fc1f53906238f04620afa262a56cd0b4652b33469033720bcf1d5ea4a",
+  "size": 5005,
+  "group": "cts"
+ },
+ "cts_examples/pb_sr_city.cts": {
+  "sha256": "de5b8d5f7f5dd0c6a97ae08e3ecf8699892ec6c7fa107e00b2a690c902ade027",
+  "size": 125147,
+  "group": "cts"
+ },
+ "cts_examples/shore_sr_city.cts": {
+  "sha256": "61a3cad81e74512af5e88b3272ea45419747d6faaaad67a816d0ac6c833a207f",
+  "size": 16051,
+  "group": "cts"
+ },
+ "cts_examples/sspawn_sr_city.cts": {
+  "sha256": "2871d51ba4139da1718e0bfb9fed121baf2cb2a2a38141b920659de8c3e95212",
+  "size": 93926,
+  "group": "cts"
+ },
+ "demo_crate/crate_low_test.mtl": {
+  "sha256": "96fb13693479c9b3f05ecb23ce5f410bb241889ae5a1ac4a1c41f4407a7f64fb",
+  "size": 61,
+  "group": "demo"
+ },
+ "demo_crate/crate_low_test.obj": {
+  "sha256": "b65bc21e42081b4f91dbfa754734a8f573c12d8c941b5bac34883ac52723571f",
+  "size": 9952,
+  "group": "demo"
+ },
+ "demo_crate/crate_wood.png": {
+  "sha256": "082f4f924fe24800d0b24379e931b993df8a93c9994259ba01d45514e51921b1",
+  "size": 662,
+  "group": "demo"
+ },
+ "demo_crate/README.txt": {
+  "sha256": "324011f50459325a5bf934ea16b505914ed702d5c7fe7f921c5efa9ebc9c1194",
+  "size": 842,
+  "group": "demo"
+ },
+ "native_glass/blue.png": {
+  "sha256": "e0a3399e0af69631073ff5f666fe0a8d2aa5eb3f018e3c8e86cb11d5a7c24516",
+  "size": 794,
+  "group": "glass"
+ },
+ "native_glass/crate_placeholder.png": {
+  "sha256": "082f4f924fe24800d0b24379e931b993df8a93c9994259ba01d45514e51921b1",
+  "size": 662,
+  "group": "glass"
+ },
+ "native_glass/pane.obj": {
+  "sha256": "eec974fbb43b059e2631420c97f0604a1fa81ca7ad9d282b6ccbf4e23ff626f6",
+  "size": 3087,
+  "group": "glass"
+ },
+ "native_glass/prefab.bbchunk_xbox2": {
+  "sha256": "5befe26368a7e5a0dea3a2544432aeaf3ffa3a2d7896d4100ea3433a0a628360",
+  "size": 989184,
+  "group": "glass"
+ },
+ "native_glass/prefab.peg_xbox2": {
+  "sha256": "dd9d7f26fce8dc44ae3049b8a93a49cb0f85fcc49e8f3c0c680f189e81e2f4d1",
+  "size": 10498048,
+  "group": "glass"
+ },
+ "native_glass/tinted.png": {
+  "sha256": "97bfcfccb290ca4b0c48ed347ee011afdf7a5cfd8dc1fb880f3c9015e2a99fbb",
+  "size": 637,
+  "group": "glass"
+ },
+ "native_props/propane_effect.bin": {
+  "sha256": "47b93601d2830d8d6f168638871897fe512c710a886e627a98d38508f05eadf2",
+  "size": 86284,
+  "group": "props"
+ },
+ "native_props/templates.json": {
+  "sha256": "99a07e3336006a079529866f51a89742d222394065ef42e95517c15ff3f06599",
+  "size": 1003,
+  "group": "props"
+ },
+ "native_props/texture_00.bin": {
+  "sha256": "382961a7cdcac55a8fae381f1fb397e01180f966ea6d0f909b01bebabddf2332",
+  "size": 8192,
+  "group": "props"
+ },
+ "native_props/texture_01.bin": {
+  "sha256": "e35bd0e1b4e3e523205853306867223968af1bd913213fa8f4fea308fe6ff0af",
+  "size": 16384,
+  "group": "props"
+ },
+ "native_props/texture_02.bin": {
+  "sha256": "b83f32fab55da6ed8eda85c778ff9b06b91b1e6d6a2cae1b621919bb05aa7c10",
+  "size": 139264,
+  "group": "props"
+ },
+ "native_props/texture_03.bin": {
+  "sha256": "f5517744a4976d15bbd1c8b3ed816263d23f41b8f0b888a69ee5b85afcbb46eb",
+  "size": 221184,
+  "group": "props"
+ },
+ "native_props/texture_04.bin": {
+  "sha256": "c9b86312c5889d679d32530688d0ae1f292f2aff6e7ff84ff0e8a70abb50db71",
+  "size": 8192,
+  "group": "props"
+ },
+ "native_props/texture_05.bin": {
+  "sha256": "29c197dd5ad5e4dcb444f2e4fe93ded2eb4d849b8f6ac355dd7b44fd18f1a4fe",
+  "size": 8192,
+  "group": "props"
+ },
+ "native_props/texture_06.bin": {
+  "sha256": "e0ace1689603df7d4f46f0a1d977002c00cb2458eff4266d54dbe1e8fe42ec03",
+  "size": 65536,
+  "group": "props"
+ },
+ "native_props/texture_07.bin": {
+  "sha256": "44647bb96cdbb765cb472e06601edc3116ad7786b92621458ab3290e05632eea",
+  "size": 57344,
+  "group": "props"
+ },
+ "native_props/texture_08.bin": {
+  "sha256": "cd144829c58eddca36c41c6b282eb21da8b39c6c10dddb0fa980388bed372051",
+  "size": 73728,
+  "group": "props"
+ },
+ "native_props/texture_09.bin": {
+  "sha256": "6547cd12d2441e15929cac0197eb90ce0fc9abbd8ae5ddcb36c997aeeb729c81",
+  "size": 73728,
+  "group": "props"
+ },
+ "native_props/texture_10.bin": {
+  "sha256": "93331cea692eea867d8296530c30691a9bdacaf9580785b9bf080245914610de",
+  "size": 73728,
+  "group": "props"
+ },
+ "native_props/texture_11.bin": {
+  "sha256": "e580a3e8039aaec9d98d39fc260d90c1b03c42677c5c79bf36161815cd903f10",
+  "size": 32768,
+  "group": "props"
+ },
+ "native_props/texture_12.bin": {
+  "sha256": "e722c514e6169851cb6fc2ac3dc30bb01d9c9181fa3d4c25ebdf4a209bf632c3",
+  "size": 73728,
+  "group": "props"
+ },
+ "native_props/texture_13.bin": {
+  "sha256": "23f54bdb5dd334f46f8bb92834d5fbb448efea875770c8fd6e2d273622ea9e9a",
+  "size": 139264,
+  "group": "props"
+ },
+ "native_props/texture_14.bin": {
+  "sha256": "4e78ffa7b71fa33f6e982347eb156f34ad5d085f6dfc921e4d094ad351653cb5",
+  "size": 139264,
+  "group": "props"
+ },
+ "native_props/texture_15.bin": {
+  "sha256": "937e1d1329ab66c8d8f05d2e4f9a40b942ef52940fe1da0e5420840008970707",
+  "size": 139264,
+  "group": "props"
+ },
+ "native_props/texture_16.bin": {
+  "sha256": "95850018ea113d8f5d3f227224aea48e48158a57e3ff5eadbc898ce75628ef72",
+  "size": 73728,
+  "group": "props"
+ },
+ "native_props/texture_17.bin": {
+  "sha256": "4981e50b2b2801f1ef81ea6a78ec430c88c7d288da44a1397eb7459260222419",
+  "size": 196608,
+  "group": "props"
+ },
+ "native_props/texture_18.bin": {
+  "sha256": "a4624c32d49f75f7d509cb5796076eebb722d1b7568abd1c78ae823ebe23211f",
+  "size": 65536,
+  "group": "props"
+ },
+ "native_props/texture_19.bin": {
+  "sha256": "b2f50aec3724f0c856147c2533e477b2684b5a2d49623f0bbf38b34eed8bf4e6",
+  "size": 65536,
+  "group": "props"
+ },
+ "native_props/texture_20.bin": {
+  "sha256": "47378202dd105aa3a6846c07794dd4e22973f9debe54fbb643ea89b9dace0ea4",
+  "size": 196608,
+  "group": "props"
+ },
+ "native_props/texture_21.bin": {
+  "sha256": "18e43714adee3fe98510ed68c254e7f6b5005cf9f072bd2f0200a072d2188705",
+  "size": 65536,
+  "group": "props"
+ },
+ "native_props/textures.json": {
+  "sha256": "7232e44730a032ef9618aa4db3b026c18f983437f0e50de54c9991be19ac4a9d",
+  "size": 9647,
+  "group": "props"
+ },
+ "native_sky_presets/sr_alwayshwyf01.bbchunk_xbox2": {
+  "sha256": "a978d2047f825a620419e7f20c8786220687e4f825a19c153c1e275a4d9c0e16",
+  "size": 4683776,
+  "group": "sky"
+ },
+ "native_sky_presets/sr_alwayshwyf01.peg_xbox2": {
+  "sha256": "93b91057c43abe012c4e0fb67bbc717cf651a9ec94eee59451ed5f3a4810b1b0",
+  "size": 34471936,
+  "group": "sky"
+ },
+ "native_sky_presets/sr_custom000001.bbchunk_xbox2": {
+  "sha256": "8788a1619edf101fb83e74d867f19b299c01f18c4080375e9f2a57a348f11ccc",
+  "size": 4683776,
+  "group": "sky"
+ },
+ "native_sky_presets/sr_custom000001.peg_xbox2": {
+  "sha256": "ba94e2ab021660572c58a92fc41753743b8cecb84ad9679cfbfa197e26ced03e",
+  "size": 55074816,
+  "group": "sky"
+ },
+ "reference_beavercreek/beavercreek.bbchunk_xbox2": {
+  "sha256": "5fdd1f620b41dac1944258430c44ccfd70a84ad8eeca2079068ee74e1afec154",
+  "size": 1005568,
+  "group": "required"
+ },
+ "reference_beavercreek/beavercreek.bbcity_xbox2": {
+  "sha256": "922d89b4c8e35835e93d362c3ef570840472bf1a00ca2888a0b62fb745bb4cac",
+  "size": 960,
+  "group": "required"
+ },
+ "reference_beavercreek/beavercreek.cts": {
+  "sha256": "6d85e29c0795b348f44d510dcf311d49d51a9042e0673b2a96c44940921a5f59",
+  "size": 5224,
+  "group": "required"
+ },
+ "reference_beavercreek/beavercreek.hmap_xbox2": {
+  "sha256": "b34ed778bf4fad4fa3cc0d6e78e6e81d25f666f8e0a399022e01ea8d4b2e4418",
+  "size": 128,
+  "group": "required"
+ },
+ "reference_beavercreek/beavercreek.peg_xbox2": {
+  "sha256": "c704de90338228524469d85689735c3cf3456be49885eaf0cbe7026b31061aea",
+  "size": 10358784,
+  "group": "required"
+ },
+ "reference_beavercreek/beavercreek.pvsv_xbox2": {
+  "sha256": "17dc8ae1d3d57699c0339c7cfb72ed70697c4f4a46cf37c6ead840722dffcc71",
+  "size": 80,
+  "group": "required"
+ }
+}
