@@ -126,7 +126,7 @@ export default function Home() {
       {accountsEnabled && <Suspense fallback={null}><CloudSection /></Suspense>}
 
       <section className="steps">
-        <div className="card"><div className="row"><span className="step-num">1</span><h3>Import</h3></div><p className="muted small">OBJ with MTL and textures, GLB, glTF or FBX. No Blender or Python install needed.</p></div>
+        <div className="card"><div className="row"><span className="step-num">1</span><h3>Import</h3></div><p className="muted small">Your own 3D models as OBJ (with its MTL and textures), GLB, glTF or FBX, exported from Blender or another 3D app, or downloaded from a model site. Or start from a map installed in <code>SaintsReborn/dist/maps</code>. Nothing else to install.</p></div>
         <div className="card"><div className="row"><span className="step-num">2</span><h3>Build</h3></div><p className="muted small">Move, rotate and scale objects; set textures and surfaces; place spawns, weapons, vehicles, glass, props and lights.</p></div>
         <div className="card"><div className="row"><span className="step-num">3</span><h3>Export</h3></div><p className="muted small">The original SR1 Map Studio exporter runs in your browser and gives you a folder to drop into <code>SaintsReborn/dist/maps</code>.</p></div>
       </section>

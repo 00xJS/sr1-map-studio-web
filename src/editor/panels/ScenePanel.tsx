@@ -51,7 +51,7 @@ export function ScenePanel() {
           ))}
           {!items.length && <div className="list-item faint">No objects yet. Open a base map to begin.</div>}
         </div>
-        <p className="faint small">{busy ? 'Importing…' : 'Select an OBJ together with its MTL and textures, or a GLB/glTF/FBX. You can also drop files on the viewport.'}</p>
+        <p className="faint small">{busy ? 'Importing…' : 'Select an OBJ together with its MTL and textures (usually in the same folder you exported it to), or a GLB/glTF/FBX. You can also drop files on the viewport.'}</p>
       </div>
       {it && <ObjectEditor key={it.uid} it={it} index={index} step={step} />}
       <div className="row wrap">

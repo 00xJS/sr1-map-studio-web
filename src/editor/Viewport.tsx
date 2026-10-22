@@ -103,6 +103,7 @@ export function Viewport({ onEmptyImport }: { onEmptyImport: (files: File[]) => 
           <div className="card">
             <h2>Start with a base map</h2>
             <p className="muted">Drop an OBJ (with its MTL and textures), GLB, glTF or FBX here, or use <b>Open base map</b> in the Scene tab.</p>
+            <p className="faint small">These are your own 3D models: export them from Blender, SketchUp or 3ds Max, or download them from a model site. The game doesn't include any. To start from a map you already have installed, use <b>Assets → Import a map from the game</b>.</p>
           </div>
         </div>
       )}
