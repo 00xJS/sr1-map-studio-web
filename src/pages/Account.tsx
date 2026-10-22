@@ -1,7 +1,7 @@
 // Sign in, profile, cloud saves, published maps and (for moderators) reports.
 import { useEffect, useState, type FormEvent } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { accountsEnabled, backendMode, setUser, useAuthReady, useBackend, useUser, type CloudProjectMeta, type HubMapMeta, type HubReport, type User } from '../lib/backend'
+import { accountsEnabled, backendMode, hubEnabled, setUser, useAuthReady, useBackend, useUser, type CloudProjectMeta, type HubMapMeta, type HubReport, type User } from '../lib/backend'
 import { db } from '../lib/db'
 import { fmtBytes } from '../lib/files'
 import { Avatar, Field, confirmDialog, timeAgo, toast, toastError, useBusy } from '../ui'
@@ -187,8 +187,8 @@ export default function Account() {
       <h1>Account</h1>
       <Profile user={user} />
       <CloudSaves />
-      <Published />
-      {user.is_moderator && <Moderation />}
+      {hubEnabled && <Published />}
+      {hubEnabled && user.is_moderator && <Moderation />}
     </div>
   )
 }

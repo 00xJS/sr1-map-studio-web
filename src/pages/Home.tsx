@@ -4,7 +4,7 @@ import { db, requestPersistence, type ProjectRecord } from '../lib/db'
 import { newProject, normalizeProject, uid } from '../lib/project'
 import { dataPackStatus, type DataPackStatus } from '../lib/datapack'
 import { downloadBlob } from '../lib/exporter'
-import { accountsEnabled } from '../lib/backend'
+import { accountsEnabled, hubEnabled } from '../lib/backend'
 import { FileButton, confirmDialog, infoDialog, timeAgo, toastError, useBusy } from '../ui'
 
 const CloudSection = lazy(() => import('./CloudSection').then((m) => ({ default: m.CloudSection })))
@@ -79,7 +79,7 @@ export default function Home() {
     <div className="page">
       <section className="hero">
         <h1>Build <b>Saints Row 1</b> maps in your browser</h1>
-        <p>Import your models, place spawns, glass, props and lights, then export a ready-to-install map for Saints Reborn. Your work saves automatically in this browser{accountsEnabled ? ', and you can sync it to your account and share it on the hub' : ''}.</p>
+        <p>Import your models, place spawns, glass, props and lights, then export a ready-to-install map for Saints Reborn. Your work saves automatically in this browser{accountsEnabled ? ', and you can sync it to your account' : ''}{hubEnabled ? ' and share it on the hub' : ''}. To pass a map to someone, use <b>Backup</b> and they open it with <b>Import project…</b>.</p>
         <div className="row wrap">
           <button className="primary" onClick={create}>+ New map</button>
           <FileButton multiple accept=".zip,.json,.obj,.mtl,.glb,.gltf,.fbx,.png,.jpg,.jpeg,.tga,.bmp,.dds" onFiles={importFiles} disabled={busy}

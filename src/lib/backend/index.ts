@@ -27,6 +27,8 @@ export function getBackend(): Promise<Backend | null> {
 
 export const backendMode = mode
 export const accountsEnabled = mode !== 'none'
+/** Public hub publishing: off unless VITE_HUB=on (the simulated local server turns it on unless VITE_HUB=off). */
+export const hubEnabled = accountsEnabled && (env.VITE_HUB === 'on' || (mode === 'local' && env.VITE_HUB !== 'off'))
 
 const useAuth = create<{ user: User | null; ready: boolean }>(() => ({ user: null, ready: !accountsEnabled }))
 

@@ -13,6 +13,10 @@ export default function About() {
         <p className="small">Free software under the GNU General Public License v3.0 or later, like the desktop SR1 Map Studio and the Saints Reborn Map Converter it builds on. The full source of this site, including the Python modules it runs, is published with it.</p>
       </div>
       <div className="card">
+        <h3>Starter textures</h3>
+        <p className="small">The texture studio's starter library comes from <a href="https://polyhaven.com" target="_blank" rel="noreferrer">Poly Haven</a> (CC0, public domain). Generated textures are made from scratch in your browser. Both are free to use and share in your maps.</p>
+      </div>
+      <div className="card">
         <h3>Game data</h3>
         <p className="small">This site doesn't host or distribute any Saints Row files. Reference files load from your own copy of the SR1 Map Studio package and stay in your browser; exported maps are built and downloaded on your device. The hub shares editable projects made of your own models and textures. Saints Row is a trademark of its owners; this project is not affiliated with them.</p>
       </div>

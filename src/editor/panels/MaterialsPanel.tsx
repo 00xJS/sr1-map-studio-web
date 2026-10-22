@@ -1,10 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react'
 import { useEditor } from '../store'
 import * as act from '../actions'
 import { FileButton, useBusy } from '../../ui'
 import { catalogs } from '../../lib/catalogs'
 import { loadModel, textureUrl } from '../../lib/assets'
 import { baseName, isCustomNative, isGlass } from '../../lib/project'
+
+const TextureStudio = lazy(() => import('../TextureStudio').then((m) => ({ default: m.TextureStudio })))
 
 interface Row { index: number; item: string; mat: string; tex: string; alpha: boolean; surface: number; native: boolean; custom: boolean }
 
@@ -22,6 +24,7 @@ export function MaterialsPanel() {
   const [mats, setMats] = useState<Record<string, string[]>>({})
   const [query, setQuery] = useState('')
   const [run] = useBusy()
+  const [studio, setStudio] = useState<{ index: number; mat: string } | null>(null)
 
   useEffect(() => {
     let live = true
@@ -70,7 +73,8 @@ export function MaterialsPanel() {
                       <div className="col" style={{ gap: 2 }}>
                         <span className={r.tex ? 'small' : 'small bad'} style={{ maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis' }}>{r.tex ? baseName(r.tex) : 'missing'}</span>
                         <div className="row">
-                          <FileButton className="sm" accept="image/*,.tga,.dds,.tif,.tiff" onFiles={([f]) => run(() => act.assignTexture(r.index, r.mat, f))}>Assign</FileButton>
+                          <FileButton className="sm" accept="image/*,.tga,.dds,.tif,.tiff" onFiles={([f]) => run(() => act.assignTexture(r.index, r.mat, f))} title="Use an image file as it is">Assign</FileButton>
+                          <button className="sm" onClick={() => setStudio({ index: r.index, mat: r.mat })} title="From a photo or camera, generated, or from the free starter library">Create…</button>
                           {r.tex && !r.native && <button className="sm quiet" onClick={() => update('Clear texture', (d) => { d.scene_items[r.index].textures[r.mat] = '' })}>Clear</button>}
                         </div>
                       </div>
@@ -92,6 +96,7 @@ export function MaterialsPanel() {
           </tbody>
         </table>
       </div>
+      {studio && <Suspense fallback={null}><TextureStudio index={studio.index} mat={studio.mat} onClose={() => setStudio(null)} /></Suspense>}
       <p className="faint small">Surface type sets footsteps, bullet impacts and decals (exported as the texture's physical suffix, e.g. _{catalogs.surface_suffixes[0]}). Alpha is off unless you opt in: in Halo-style diffuse maps alpha is often a detail mask.</p>
     </>
   )

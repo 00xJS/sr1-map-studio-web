@@ -171,3 +171,12 @@ and use `npx netlify dev` so `/api/publish` runs too.
   them if you upload them again.
 - The download counter can be inflated by anyone calling its RPC, and the remix counter by any signed-in user.
   Likes are one per account. Counters only affect sorting.
+
+## Turning the hub on or off
+
+Publishing to the public hub is **off** unless both of these are set (sign-in and cloud saves work either way):
+
+- `VITE_HUB=on` (Builds): shows the Hub page and the Publish button.
+- `HUB_ENABLED=true` (Functions): lets `/api/publish` accept new maps. Unpublishing always works.
+
+With the hub off, players share maps with **Backup** (a `.sr1map.zip` with every file) and **Import project…**.

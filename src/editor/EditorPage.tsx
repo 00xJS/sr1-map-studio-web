@@ -12,7 +12,7 @@ import { ExportPanel } from './panels/ExportPanel'
 import { db } from '../lib/db'
 import { normalizeProject } from '../lib/project'
 import { py } from '../lib/py'
-import { accountsEnabled } from '../lib/backend'
+import { accountsEnabled, hubEnabled } from '../lib/backend'
 import { confirmDialog, toast, toastError } from '../ui'
 
 const CloudButton = lazy(() => import('./CloudButton').then((m) => ({ default: m.CloudButton })))
@@ -166,7 +166,7 @@ function TopBar({ onPublish }: { onPublish: () => void }) {
         {pyStatus === 'ready' ? 'Exporter ready' : pyStatus === 'idle' ? 'Exporter idle' : pyStatus}
       </span>
       {accountsEnabled && <Suspense fallback={null}><CloudButton projectId={projectId} /></Suspense>}
-      {accountsEnabled && <button className="sm" onClick={async () => { await saveNow(true); onPublish() }}>Publish</button>}
+      {hubEnabled && <button className="sm" onClick={async () => { await saveNow(true); onPublish() }}>Publish</button>}
       <button className="sm primary" onClick={() => st().set({ tab: 'export' })}>Export</button>
       <button className="sm quiet" onClick={() => confirmDialog('Keyboard & mouse', 'Left drag: orbit · Right drag: pan · Wheel: zoom\nWASD / Q E: fly (Shift = faster) · F: focus selection\n1 / 2 / 3: move / rotate / scale gizmo\nCtrl+Z / Ctrl+Shift+Z: undo / redo\nCtrl+D: duplicate · Delete: remove · Ctrl+S: save\nDrag assets from the Assets tab onto the map.', { confirm: 'Got it', cancel: null })}>?</button>
     </div>

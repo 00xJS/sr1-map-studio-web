@@ -149,13 +149,13 @@ export function Check(props: { checked: boolean; onChange: (v: boolean) => void;
 }
 
 /** A button that opens a file picker. */
-export function FileButton(props: { accept?: string; multiple?: boolean; directory?: boolean; onFiles: (f: File[]) => void; children: ReactNode; className?: string; disabled?: boolean; title?: string }) {
+export function FileButton(props: { accept?: string; multiple?: boolean; directory?: boolean; capture?: 'environment' | 'user'; onFiles: (f: File[]) => void; children: ReactNode; className?: string; disabled?: boolean; title?: string }) {
   const ref = useRef<HTMLInputElement>(null)
   return (
     <>
       <button className={props.className} disabled={props.disabled} title={props.title} onClick={() => ref.current?.click()}>{props.children}</button>
       <input
-        ref={ref} type="file" hidden accept={props.accept} multiple={props.multiple}
+        ref={ref} type="file" hidden accept={props.accept} multiple={props.multiple} capture={props.capture}
         {...(props.directory ? { webkitdirectory: '', directory: '' } as any : {})}
         onChange={(e) => { const f = [...(e.target.files || [])]; e.target.value = ''; if (f.length) props.onFiles(f) }}
       />

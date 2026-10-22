@@ -1,0 +1,304 @@
+{
+ "source": "Poly Haven (polyhaven.com)",
+ "license": "CC0 1.0",
+ "textures": [
+  {
+   "id": "red_brick",
+   "name": "Red brick",
+   "surface": 0,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/red_brick",
+   "license": "CC0"
+  },
+  {
+   "id": "brick_4",
+   "name": "Old brick",
+   "surface": 0,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/brick_4",
+   "license": "CC0"
+  },
+  {
+   "id": "medieval_blocks_03",
+   "name": "Stone blocks",
+   "surface": 0,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/medieval_blocks_03",
+   "license": "CC0"
+  },
+  {
+   "id": "concrete_floor_worn_001",
+   "name": "Worn concrete floor",
+   "surface": 0,
+   "authors": [
+    "Dimitrios Savva",
+    "Rico Cilliers"
+   ],
+   "source": "https://polyhaven.com/a/concrete_floor_worn_001",
+   "license": "CC0"
+  },
+  {
+   "id": "concrete_wall_003",
+   "name": "Concrete wall",
+   "surface": 0,
+   "authors": [
+    "Dimitrios Savva",
+    "Rico Cilliers"
+   ],
+   "source": "https://polyhaven.com/a/concrete_wall_003",
+   "license": "CC0"
+  },
+  {
+   "id": "cracked_concrete_wall",
+   "name": "Cracked concrete",
+   "surface": 0,
+   "authors": [
+    "Dimitrios Savva",
+    "Rico Cilliers"
+   ],
+   "source": "https://polyhaven.com/a/cracked_concrete_wall",
+   "license": "CC0"
+  },
+  {
+   "id": "beige_wall_001",
+   "name": "Beige plaster wall",
+   "surface": 5,
+   "authors": [
+    "Dimitrios Savva",
+    "Rico Cilliers"
+   ],
+   "source": "https://polyhaven.com/a/beige_wall_001",
+   "license": "CC0"
+  },
+  {
+   "id": "painted_plaster_wall",
+   "name": "Painted plaster",
+   "surface": 5,
+   "authors": [
+    "Amal Kumar"
+   ],
+   "source": "https://polyhaven.com/a/painted_plaster_wall",
+   "license": "CC0"
+  },
+  {
+   "id": "asphalt_02",
+   "name": "Asphalt",
+   "surface": 0,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/asphalt_02",
+   "license": "CC0"
+  },
+  {
+   "id": "asphalt_01",
+   "name": "Patched asphalt",
+   "surface": 0,
+   "authors": [
+    "Dario Barresi",
+    "Charlotte Baglioni"
+   ],
+   "source": "https://polyhaven.com/a/asphalt_01",
+   "license": "CC0"
+  },
+  {
+   "id": "cobblestone_floor_04",
+   "name": "Cobblestone",
+   "surface": 0,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/cobblestone_floor_04",
+   "license": "CC0"
+  },
+  {
+   "id": "metal_plate",
+   "name": "Metal plate",
+   "surface": 15,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/metal_plate",
+   "license": "CC0"
+  },
+  {
+   "id": "rusty_metal_02",
+   "name": "Rusty metal",
+   "surface": 15,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/rusty_metal_02",
+   "license": "CC0"
+  },
+  {
+   "id": "corrugated_iron",
+   "name": "Corrugated iron",
+   "surface": 16,
+   "authors": [
+    "Jenelle van Heerden",
+    "Dimitrios Savva"
+   ],
+   "source": "https://polyhaven.com/a/corrugated_iron",
+   "license": "CC0"
+  },
+  {
+   "id": "weathered_brown_planks",
+   "name": "Weathered planks",
+   "surface": 21,
+   "authors": [
+    "Dimitrios Savva",
+    "Rico Cilliers"
+   ],
+   "source": "https://polyhaven.com/a/weathered_brown_planks",
+   "license": "CC0"
+  },
+  {
+   "id": "wood_floor",
+   "name": "Wood floor",
+   "surface": 21,
+   "authors": [
+    "Dimitrios Savva"
+   ],
+   "source": "https://polyhaven.com/a/wood_floor",
+   "license": "CC0"
+  },
+  {
+   "id": "plywood",
+   "name": "Plywood",
+   "surface": 21,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/plywood",
+   "license": "CC0"
+  },
+  {
+   "id": "floor_tiles_06",
+   "name": "Floor tiles",
+   "surface": 3,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/floor_tiles_06",
+   "license": "CC0"
+  },
+  {
+   "id": "large_floor_tiles_02",
+   "name": "Large floor tiles",
+   "surface": 3,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/large_floor_tiles_02",
+   "license": "CC0"
+  },
+  {
+   "id": "marble_01",
+   "name": "Marble",
+   "surface": 13,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/marble_01",
+   "license": "CC0"
+  },
+  {
+   "id": "brown_mud_dry",
+   "name": "Dry mud",
+   "surface": 4,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/brown_mud_dry",
+   "license": "CC0"
+  },
+  {
+   "id": "forrest_ground_01",
+   "name": "Forest ground",
+   "surface": 4,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/forrest_ground_01",
+   "license": "CC0"
+  },
+  {
+   "id": "leafy_grass",
+   "name": "Grass",
+   "surface": 11,
+   "authors": [
+    "Charlotte Baglioni"
+   ],
+   "source": "https://polyhaven.com/a/leafy_grass",
+   "license": "CC0"
+  },
+  {
+   "id": "aerial_grass_rock",
+   "name": "Grass and rocks",
+   "surface": 11,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/aerial_grass_rock",
+   "license": "CC0"
+  },
+  {
+   "id": "rocks_ground_02",
+   "name": "Rocky ground",
+   "surface": 12,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/rocks_ground_02",
+   "license": "CC0"
+  },
+  {
+   "id": "sand_01",
+   "name": "Sand",
+   "surface": 19,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/sand_01",
+   "license": "CC0"
+  },
+  {
+   "id": "rock_face_03",
+   "name": "Rock face",
+   "surface": 0,
+   "authors": [
+    "Dario Barresi",
+    "Rico Cilliers"
+   ],
+   "source": "https://polyhaven.com/a/rock_face_03",
+   "license": "CC0"
+  },
+  {
+   "id": "roof_slates_03",
+   "name": "Roof slates",
+   "surface": 0,
+   "authors": [
+    "Rob Tuytel"
+   ],
+   "source": "https://polyhaven.com/a/roof_slates_03",
+   "license": "CC0"
+  },
+  {
+   "id": "gravel_concrete_03",
+   "name": "Gravel concrete",
+   "surface": 12,
+   "authors": [
+    "Charlotte Baglioni"
+   ],
+   "source": "https://polyhaven.com/a/gravel_concrete_03",
+   "license": "CC0"
+  }
+ ]
+}

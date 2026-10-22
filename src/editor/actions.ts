@@ -232,14 +232,19 @@ export async function sceneAudit(): Promise<string> {
   return lines.join('\n')
 }
 
-export async function assignTexture(index: number, mat: string, file: File) {
+/** surface: also set the material's physical surface (texture studio presets know theirs). */
+export async function assignTexture(index: number, mat: string, file: File, surface?: number) {
   const s = await importImage(file)
   update('Assign texture', (d) => {
     d.files[s.vpath] = s.ref
     const it = d.scene_items[index]
     if (isCustomNative(it)) it.glass_custom_texture = s.vpath
-    else it.textures[mat] = s.vpath
+    else {
+      it.textures[mat] = s.vpath
+      if (surface !== undefined && !isGlass(it)) (it.surface_ids ||= {})[mat] = surface
+    }
   })
+  if (s.note) log(s.note)
   log(`${mat} -> ${file.name}`)
 }
 
@@ -247,7 +252,9 @@ export async function setProjectFile(key: 'sky_texture' | 'minimap_texture' | 'b
   if (!file) { update('Clear ' + key, (d) => { d.settings[key] = '' }); return }
   const s = key === 'bbcity_donor' || key === 'cts_template'
     ? await import('../lib/files').then((f) => f.storeFile(file, file.name, 'game'))
-    : await importImage(file)
+    : await importImage(file, key === 'minimap_texture' ? 1024 : 2048)
+  const note = (s as { note?: string }).note
+  if (note) log(note)
   update('Set ' + key, (d) => { d.files[s.vpath] = s.ref; d.settings[key] = s.vpath })
 }
 

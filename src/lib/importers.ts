@@ -6,6 +6,7 @@ import { GLTFLoader } from 'three/examples/jsm/loaders/GLTFLoader.js'
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { parseMtl, parseObj, type ObjModel } from './geometry'
 import { storeFile, type StoredFile } from './files'
+import { prepareTexture, textureSize } from './images'
 import type { FileRef } from './project'
 
 export interface ImportedModel {
@@ -62,7 +63,12 @@ async function importObj(file: File, byName: Map<string, File>, all: File[]): Pr
       const img = byName.get(lower(base(tex)))
       if (!img) { warnings.push(`Texture ${base(tex)} for ${mat} was not selected.`); continue }
       let s = stored.get(img)
-      if (!s) { s = await storeFile(img, img.name); stored.set(img, s) }
+      if (!s) {
+        const prepared = await prepareTexture(img)
+        if (prepared.note) warnings.push(prepared.note)
+        s = await storeFile(prepared.file, prepared.file.name)
+        stored.set(img, s)
+      }
       refs[s.vpath] = s.ref
       textures[mat] = s.vpath
     }
@@ -84,10 +90,12 @@ const normalizeName = (name: string, used: Set<string>) => {
 
 async function imageToPng(image: CanvasImageSource & { width: number; height: number }): Promise<Blob | null> {
   if (!image || !image.width || !image.height) return null
-  const canvas = new OffscreenCanvas(image.width, image.height)
+  const [w, h] = textureSize(image.width, image.height, 2048)
+  const canvas = new OffscreenCanvas(w, h)
   const ctx = canvas.getContext('2d')
   if (!ctx) return null
-  ctx.drawImage(image, 0, 0)
+  ctx.imageSmoothingQuality = 'high'
+  ctx.drawImage(image, 0, 0, w, h)
   return canvas.convertToBlob({ type: 'image/png' })
 }
 
@@ -200,7 +208,9 @@ async function bakeToObj(root: THREE.Object3D, file: File, flipV: boolean, warni
   return { name: stem(file.name), objPath: objStored.vpath, sourceName: file.name, textures, alpha, triangles, files: refs, model, warnings }
 }
 
-export async function importImage(file: File): Promise<StoredFile> {
+/** A texture image, turned upright and capped at maxSize (see images.ts). */
+export async function importImage(file: File, maxSize = 2048): Promise<StoredFile & { note?: string }> {
   if (!isImage(file.name)) throw new Error('Choose an image: PNG, JPG, TGA, BMP, TIFF or DDS.')
-  return storeFile(file, file.name)
+  const prepared = await prepareTexture(file, maxSize)
+  return { ...(await storeFile(prepared.file, prepared.file.name)), note: prepared.note }
 }
