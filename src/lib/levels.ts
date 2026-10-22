@@ -1,7 +1,7 @@
 // Game-mode entries for multiplayer_levels_extra.xtbl and the marker checks
-// each mode needs. Rules from research report Z (saints-reborn-research):
-// mode names are an exact enum, IDs must be unique across every installed
-// pack, Protect Tha Pimp uses its own <map>_ptp.cts.
+// each mode needs. The game only accepts its exact mode names, level IDs must
+// be unique across every installed map pack (Saints Reborn's map check), and
+// Protect Tha Pimp loads its own <map>_ptp.cts, as the retail PTP maps do.
 import { PIMP_EXIT, SPAWN_TYPES, type GameMode, type Marker, type ProjectSettings } from './project'
 
 export interface LevelEntry {

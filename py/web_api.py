@@ -37,7 +37,8 @@ from weapon_catalog_v042 import WEAPON_CATALOG
 STUDIO = Path('/studio')
 WORK = Path('/work')
 # The desktop list also offered 'Pimp exit (experimental)'; the game has no
-# "pimp exit" trigger action, so it is not offered (research report Z).
+# "pimp exit" trigger action (retail CTS files only use "pimp enter"), so it
+# is not offered.
 PIMP_EXIT = 'Pimp exit (experimental)'
 MARKER_TYPES = ['Shared spawn', 'Red team spawn', 'Blue team spawn', 'Weapon pickup', 'Vehicle spawn',
                 'Chains drop-off', 'Pimp entrance', 'Sphere trigger (custom)',
