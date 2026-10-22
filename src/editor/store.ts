@@ -21,6 +21,8 @@ interface EditorState {
   saveState: SaveState
   gizmo: GizmoMode
   step: number
+  /** Gizmo moves in `step` units and rotates in 15° steps. */
+  snap: boolean
   wireframe: boolean
   collisionView: 'off' | 'faces'
   soloMaterial: string | null
@@ -53,6 +55,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   saveState: 'saved',
   gizmo: 'translate',
   step: 0.5,
+  snap: false,
   wireframe: false,
   collisionView: 'off',
   soloMaterial: null,
@@ -133,3 +136,5 @@ useEditor.subscribe((s, prev) => {
 })
 
 export const currentProject = () => useEditor.getState().project
+
+if (import.meta.env.DEV) (globalThis as any).__editor = useEditor

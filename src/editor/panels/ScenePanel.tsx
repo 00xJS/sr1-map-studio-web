@@ -6,6 +6,7 @@ import { catalogs } from '../../lib/catalogs'
 import { isCustomNative, isGlass, isProp, type SceneItem, type Vec3 } from '../../lib/project'
 import { loadModel } from '../../lib/assets'
 import { getViewer } from '../Viewport'
+import { SHAPE_PRESETS, type Shape } from '../../lib/shapes'
 
 const STEPS = [['Fine', 0.05], ['Normal', 0.5], ['Coarse', 5]] as const
 const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
@@ -53,6 +54,19 @@ export function ScenePanel() {
         </div>
         <p className="faint small">{busy ? 'Importing…' : 'Select an OBJ together with its MTL and textures (usually in the same folder you exported it to), or a GLB/glTF/FBX. You can also drop files on the viewport.'}</p>
       </div>
+      <div className="group">
+        <span className="section-title">Add shape</span>
+        <div className="row wrap">
+          {Object.entries(SHAPE_PRESETS).map(([key, p]) => (
+            <button key={key} className="sm" title={p.hint} disabled={busy} onClick={() => run(() => {
+              const v = getViewer()
+              const c = v?.center() ?? [0, 0, 0]
+              return act.addShape(key, c as Vec3, v?.surfaceBelow(c[0], c[1] + 50, c[2]) ?? null)
+            })}>{p.label}</button>
+          ))}
+        </div>
+        <p className="faint small">Block out a map without other software: shapes are placed where the camera looks, resting on whatever is below. Textures keep their real-world size as you resize.</p>
+      </div>
       {it && <ObjectEditor key={it.uid} it={it} index={index} step={step} />}
       <div className="row wrap">
         <button className="sm" onClick={() => run(async () => infoDialog('Scene audit', <pre>{await act.sceneAudit()}</pre>))}>Audit scene</button>
@@ -72,6 +86,7 @@ function ObjectEditor({ it, index, step }: { it: SceneItem; index: number; step:
 
   return (
     <>
+      {it.shape && <ShapeEditor shape={it.shape} index={index} />}
       <div className="group">
         <div className="row between"><span className="section-title">Transform</span>
           <div className="btn-group">
@@ -219,6 +234,32 @@ function NativeControls({ it, index }: { it: SceneItem; index: number }) {
         </Field>
       )}
       {glass && !custom && <p className="faint small">Native pane: {catalogs.glass_size.map((v) => v.toFixed(2)).join(' × ')} game units with its own collision and shatter effect. Size is fixed.</p>}
+    </div>
+  )
+}
+
+function ShapeEditor({ shape, index }: { shape: Shape; index: number }) {
+  const [run] = useBusy()
+  const set = (patch: Partial<Shape>) => run(() => act.updateShape(index, patch))
+  const dim = (i: number, label: string) => (
+    <Field label={label}><NumberInput value={shape.size[i]} step={0.5} min={0.1} max={2000} onChange={(v) => {
+      const size = [...shape.size] as Vec3
+      size[i] = v
+      set({ size })
+    }} /></Field>
+  )
+  return (
+    <div className="group">
+      <span className="section-title">Shape</span>
+      <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>
+        {dim(0, 'Width (X)')}{dim(1, 'Height (Y)')}{dim(2, 'Depth (Z)')}
+      </div>
+      <div className="form-grid">
+        {shape.kind === 'stairs' && <Field label="Steps"><NumberInput value={shape.segments ?? 8} step={1} digits={0} min={1} max={64} onChange={(v) => set({ segments: Math.round(v) })} /></Field>}
+        {shape.kind === 'cylinder' && <Field label="Sides"><NumberInput value={shape.segments ?? 16} step={1} digits={0} min={3} max={64} onChange={(v) => set({ segments: Math.round(v) })} /></Field>}
+        <Field label="Texture repeats every" hint="units; smaller = smaller bricks and tiles"><NumberInput value={shape.tile} step={0.5} min={0.1} max={100} onChange={(v) => set({ tile: v })} /></Field>
+      </div>
+      <p className="faint small">Top faces use the "top" material, everything else "side": change either in Materials → Create….</p>
     </div>
   )
 }

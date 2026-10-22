@@ -32,6 +32,10 @@ import sr1_physical_materials as physical
 import sr1_sidecars
 from sr1_native_limits import MAX_NATIVE_OBJECTS, MAX_NATIVE_TRIANGLES, MIN_NATIVE_AXIS, MAX_NATIVE_AXIS
 from vehicle_catalog_v041 import VEHICLE_CATALOG
+import fast_dxt
+
+# Same output as the original compressor, about 20x faster (see fast_dxt.py).
+fast_dxt.install()
 from weapon_catalog_v042 import WEAPON_CATALOG
 
 STUDIO = Path('/studio')

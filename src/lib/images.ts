@@ -73,6 +73,14 @@ export async function prepareTexture(file: File, maxSize = 2048): Promise<Prepar
   }
 }
 
+/** RGBA pixels (size × size) as a PNG file. Browser only. */
+export async function pixelsToPng(px: Uint8ClampedArray, size: number, name: string): Promise<File> {
+  const c = new OffscreenCanvas(size, size)
+  c.getContext('2d')!.putImageData(new ImageData(px, size, size), 0, 0)
+  const blob = await c.convertToBlob({ type: 'image/png' })
+  return new File([blob], name, { type: 'image/png' })
+}
+
 // ---------------- pixel tools for the texture studio ----------------
 
 /**

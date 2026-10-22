@@ -6,6 +6,9 @@ import { dataPackStatus } from './datapack'
 import type { Marker, Project, ProjectSettings } from './project'
 import { checkModes, levelEntries } from './levels'
 
+/** entries: the zip's files by path ("<folder>/levels/..."), for installing without unzipping. */
+export interface ExportOutput { result: ExportResult; zip: Blob; folder: string; entries: Record<string, Uint8Array> }
+
 export interface ExportResult {
   map_name: string
   files: string[]
@@ -14,7 +17,7 @@ export interface ExportResult {
 
 const strip = <T extends { uid?: string }>(x: T) => { const { uid: _u, ...rest } = x; return rest }
 
-export async function runExport(project: Project, onLog: (t: string) => void): Promise<{ result: ExportResult; zip: Blob; folder: string }> {
+export async function runExport(project: Project, onLog: (t: string) => void): Promise<ExportOutput> {
   const status = await dataPackStatus()
   if (!status.ready) throw new Error('Set up your data pack first (Data pack page): the exporter needs the Beaver Creek map template from your SR1 Map Studio package.')
   const modeCheck = checkModes(project.settings, project.markers)
@@ -53,7 +56,7 @@ export async function runExport(project: Project, onLog: (t: string) => void): P
   Object.assign(entries, packageMetadata(folder, result.map_name, s.display_name || result.map_name, s, project.markers))
   entries[`${folder}/MAP_STUDIO_EXPORT.txt`] = strToU8(exportNotes(project, result))
   const zip = new Blob([zipSync(entries, { level: 6 })], { type: 'application/zip' })
-  return { result, zip, folder }
+  return { result, zip, folder, entries }
 }
 
 const CRLF = '\r\n'

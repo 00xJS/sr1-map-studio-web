@@ -11,6 +11,11 @@ through [Pyodide](https://pyodide.org); the editor interface is rebuilt with Rea
   drop into `SaintsReborn/dist/maps`, with Gangsta Brawl, Big Ass Chains (team and solo) and
   Protect Tha Pimp entries (PTP gets its own `<map>_ptp.cts`), stable level IDs and an optional
   random time and weather.
+- **Building and textures:** block-out shapes (floor, wall, box, platform, ramp, stairs, pillar)
+  with world-scaled texture mapping; grid and angle snapping; a texture studio (photo or camera,
+  a generator of 11 tiling materials, a starter library of 29 CC0 textures) that also sets the
+  physical surface; "Install to game" writes exports straight into `SaintsReborn/dist/maps`
+  (Chrome/Edge).
 - **Phase 2, accounts:** sign in, save projects to the cloud and open them on another device.
 - **Phase 3, hub:** publish projects, browse/search/sort, like, remix, report and moderate.
 
@@ -46,6 +51,7 @@ Deploying with Supabase and Netlify: see [docs/DEPLOY.md](docs/DEPLOY.md).
 | --- | --- |
 | `studio-py/` | The desktop package's Python modules, **unmodified** (Qt UI and tests excluded). |
 | `py/web_api.py` | Bridge: repeats what the desktop `MainWindow` did around each exporter call, without Qt. |
+| `py/fast_dxt.py` | Vectorized texture compression, byte-identical to the original and about 20× faster (`py -3 tests/fast_dxt_check.py`). |
 | `src/lib/py.worker.ts`, `py.ts` | Pyodide worker and its client. |
 | `src/lib/geometry.ts` | JS port of the OBJ parser and scene transforms (must match the Python face order). |
 | `src/editor/` | Editor UI, three.js viewer, actions, undo/redo store. |

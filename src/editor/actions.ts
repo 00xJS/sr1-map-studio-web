@@ -8,6 +8,9 @@ import { groundOffset, meshPivot, withPivot } from '../lib/geometry'
 import { py } from '../lib/py'
 import { catalogs } from '../lib/catalogs'
 import { isCustomNative, isGlass, isProp, newLight, newMarker, referencedPaths, uid, type Asset, type FileRef, type Project, type SceneItem, type Vec3 } from '../lib/project'
+import { SHAPE_PRESETS, shapeLabel, shapeName, shapeObj, type Shape } from '../lib/shapes'
+import { storeFile } from '../lib/files'
+import { parseObj } from '../lib/geometry'
 import { confirmDialog } from '../ui'
 
 const log = (t: string) => useEditor.getState().log(t)
@@ -287,4 +290,68 @@ export function addLight(position: Vec3) {
 export function snapPoint(raycastDown: (x: number, y: number, z: number) => number | null, pos: Vec3): Vec3 | null {
   const y = raycastDown(pos[0], pos[1], pos[2])
   return y === null ? null : [pos[0], y + 0.12, pos[2]]
+}
+
+// ---------------- block-out shapes ----------------
+
+async function defaultShapeTextures(): Promise<{ files: Record<string, FileRef>; top: string; side: string }> {
+  const { generate, defaultParams } = await import('../lib/procedural')
+  const { pixelsToPng } = await import('../lib/images')
+  const make = async (kind: 'concrete' | 'brick', name: string) => {
+    const file = await pixelsToPng(generate({ ...defaultParams(kind, 512), seed: 1 }), 512, name)
+    return importImage(file)
+  }
+  const top = await make('concrete', 'blockout_top.png')
+  const side = await make('brick', 'blockout_side.png')
+  return { files: { [top.vpath]: top.ref, [side.vpath]: side.ref }, top: top.vpath, side: side.vpath }
+}
+
+async function storeShape(shape: Shape) {
+  const text = shapeObj(shape)
+  const stored = await storeFile(new Blob([text], { type: 'model/obj' }), `${shape.kind}.obj`)
+  cacheModel(stored.vpath, parseObj(text))
+  return stored
+}
+
+/** Drop file records nothing refers to any more (e.g. a shape's previous OBJ). */
+function pruneFiles(d: Project) {
+  const live = new Set(referencedPaths(d))
+  for (const path of Object.keys(d.files)) if (!live.has(path)) delete d.files[path]
+}
+
+/** Adds a block-out shape at the camera target, resting on the surface below if there is one. */
+export async function addShape(presetKey: string, at: Vec3, groundY: number | null) {
+  const preset = SHAPE_PRESETS[presetKey]
+  if (!preset) return
+  const shape = structuredClone(preset.shape)
+  const stored = await storeShape(shape)
+  const tex = await defaultShapeTextures()
+  const item: SceneItem = {
+    uid: uid(), name: shapeName(preset.label, shape), path: stored.vpath, source_path: stored.vpath, shape,
+    position: [at[0], groundY ?? 0, at[2]], rotation: [0, 0, 0], scale: 1,
+    textures: { top: tex.top, side: tex.side }, alpha: { top: false, side: false }, surface_ids: { top: 0, side: 0 }, physics_intent: 'Static',
+  }
+  update('Add ' + preset.label.toLowerCase(), (d) => {
+    Object.assign(d.files, tex.files, { [stored.vpath]: stored.ref })
+    d.scene_items.push(item)
+  })
+  useEditor.getState().select({ kind: 'item', index: currentProject()!.scene_items.length - 1 })
+  log(`Added ${preset.label.toLowerCase()} (${shape.size.join(' × ')}). Change its textures in Materials → Create….`)
+}
+
+/** Regenerates a shape's mesh after its size, steps/sides or texture scale change. */
+export async function updateShape(index: number, patch: Partial<Shape>) {
+  const it = currentProject()?.scene_items[index]
+  if (!it?.shape) return
+  const shape: Shape = { ...it.shape, ...patch }
+  const stored = await storeShape(shape)
+  update('Resize shape', (d) => {
+    const x = d.scene_items[index]
+    x.shape = shape
+    x.path = x.source_path = stored.vpath
+    const label = shapeLabel(x.name)
+    if (label) x.name = shapeName(label, shape)
+    d.files[stored.vpath] = stored.ref
+    pruneFiles(d as Project)
+  }, { merge: 'shape' + index })
 }

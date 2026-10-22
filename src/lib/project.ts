@@ -35,6 +35,8 @@ export interface SceneItem {
   native_original_name?: string
   native_prop_original_name?: string
   triangles?: number
+  /** Block-out shape this item's OBJ was generated from (see shapes.ts). */
+  shape?: import('./shapes').Shape
   [key: string]: unknown
 }
 

@@ -16,6 +16,8 @@ export interface ViewOptions {
   collisionView: 'off' | 'faces'
   soloMaterial: string | null
   faceRange: [number, number]
+  snap?: boolean
+  step?: number
   readOnly?: boolean
 }
 
@@ -495,6 +497,10 @@ export class Viewer {
     if (sel.kind === 'marker' && mode === 'scale') mode = 'translate'
     if (it && mode === 'scale' && isGlass(it) && !isCustomNative(it)) mode = 'translate'
     this.gizmo.setMode(mode)
+    const snap = !!this.opts.snap
+    this.gizmo.setTranslationSnap(snap ? this.opts.step ?? 0.5 : null)
+    this.gizmo.setRotationSnap(snap ? Math.PI / 12 : null)
+    this.gizmo.setScaleSnap(snap ? 0.1 : null)
     this.gizmo.setSpace(mode === 'rotate' && sel.kind === 'item' ? 'local' : 'world')
     const yawOnly = sel.kind === 'marker' && mode === 'rotate'
     this.gizmo.showX = !yawOnly

@@ -159,8 +159,8 @@ label.check { display: inline-flex; align-items: center; gap: 7px; cursor: point
 .viewport-overlay > * { pointer-events: auto; }
 .viewport-hint { position: absolute; left: 10px; bottom: 10px; font-size: 11px; color: var(--text-faint); pointer-events: none; text-shadow: 0 1px 2px #000; }
 .viewport-banner { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); background: var(--accent-soft); border: 1px solid var(--accent); padding: 6px 12px; border-radius: 99px; font-weight: 600; display: flex; gap: 10px; align-items: center; }
-.empty-viewport { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; }
-.empty-viewport .card { max-width: 420px; align-items: center; }
+.empty-viewport { position: absolute; inset: 0; display: grid; place-items: center; text-align: center; pointer-events: none; }
+.empty-viewport .card { max-width: 420px; align-items: center; pointer-events: auto; }
 .dropzone-active { outline: 2px dashed var(--accent); outline-offset: -8px; }
 
 .side { border-left: 1px solid var(--line); background: var(--bg-raised); display: flex; flex-direction: column; min-height: 0; }

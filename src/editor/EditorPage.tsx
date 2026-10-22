@@ -79,6 +79,7 @@ function useShortcuts() {
       else if (e.key === '1') st.set({ gizmo: 'translate' })
       else if (e.key === '2') st.set({ gizmo: 'rotate' })
       else if (e.key === '3') st.set({ gizmo: 'scale' })
+      else if (e.key.toLowerCase() === 'g') st.set({ snap: !st.snap })
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -135,6 +136,7 @@ function TopBar({ onPublish }: { onPublish: () => void }) {
   const undoLabel = useEditor((s) => s.past[s.past.length - 1]?.label)
   const gizmo = useEditor((s) => s.gizmo)
   const wireframe = useEditor((s) => s.wireframe)
+  const snap = useEditor((s) => s.snap)
   const collision = useEditor((s) => s.collisionView)
   const doubleSided = useEditor((s) => s.project!.settings.double_sided)
   const update = useEditor((s) => s.update)
@@ -156,6 +158,7 @@ function TopBar({ onPublish }: { onPublish: () => void }) {
           <button key={k} className={'sm' + (gizmo === k ? ' on' : '')} onClick={() => st().set({ gizmo: k })} title={`${label} (${i + 1})`}>{label}</button>
         ))}
       </div>
+      <button className={'sm' + (snap ? ' on' : '')} onClick={() => st().set({ snap: !snap })} title="Move in steps of the Scene tab's Fine/Normal/Coarse size and rotate in 15° steps (G)">Snap</button>
       <button className={'sm' + (wireframe ? ' on' : '')} onClick={() => st().set({ wireframe: !wireframe })}>Wireframe</button>
       <button className={'sm' + (!doubleSided ? ' on' : '')} onClick={() => update('Backface culling', (d) => { d.settings.double_sided = !doubleSided })} title="On = normal one-sided SR1 rendering. Off also exports reversed render-only copies so both sides show in game.">Cull backfaces</button>
       <button className={'sm' + (collision === 'faces' ? ' on' : '')} onClick={() => st().set({ collisionView: collision === 'faces' ? 'off' : 'faces' })}>Collision</button>

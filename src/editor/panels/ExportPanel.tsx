@@ -2,11 +2,12 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useEditor, saveNow } from '../store'
 import * as act from '../actions'
-import { Check, Field, FileButton, NumberInput, toastError } from '../../ui'
+import { Check, Field, FileButton, NumberInput, confirmDialog, toastError } from '../../ui'
 import { dataPackStatus, hasGroup, type DataPackStatus } from '../../lib/datapack'
 import { downloadBlob, runExport, type ExportResult } from '../../lib/exporter'
 import { GAME_MODES, SPAWN_TYPES, baseName, type ProjectSettings } from '../../lib/project'
 import { checkModes, levelEntries } from '../../lib/levels'
+import { installSupported, mapFolderExists, mapsFolder, rememberedMapsFolder, writeMap } from '../../lib/install'
 
 const sanitize = (s: string) => s.trim().replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()
 
@@ -16,9 +17,10 @@ export function ExportPanel() {
   const s = project.settings
   const [pack, setPack] = useState<DataPackStatus | null>(null)
   const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<{ r: ExportResult; zip: Blob; folder: string } | null>(null)
+  const [result, setResult] = useState<{ r: ExportResult; zip: Blob; folder: string; installedTo?: string } | null>(null)
   const [error, setError] = useState('')
-  useEffect(() => { dataPackStatus().then(setPack) }, [])
+  const [mapsDir, setMapsDir] = useState<string | null>(null)
+  useEffect(() => { dataPackStatus().then(setPack); rememberedMapsFolder().then(setMapsDir) }, [])
   const set = <K extends keyof ProjectSettings>(k: K, v: ProjectSettings[K], merge = false) =>
     update('Export setting', (d) => { d.settings[k] = v }, merge ? { merge: 'set-' + k } : undefined)
 
@@ -35,16 +37,31 @@ export function ExportPanel() {
   problems.push(...modeCheck.errors)
   const entries = levelEntries(name || 'map', s.modes, project.markers)
 
-  const exportNow = async () => {
-    setBusy(true); setError(''); setResult(null)
+  const exportNow = async (target: 'install' | 'download', chooseFolder = false) => {
+    setError(''); setResult(null)
     const log = useEditor.getState().log
     try {
+      // Ask for the folder first: browsers only show folder pickers right after a click.
+      const maps = target === 'install' ? await mapsFolder(chooseFolder) : null
+      if (maps) setMapsDir(maps.name)
+      setBusy(true)
       await saveNow()
       const out = await runExport(project, log)
-      setResult({ r: out.result, zip: out.zip, folder: out.folder })
       log(`Export complete: ${out.result.files.length} map files.`)
-      downloadBlob(out.zip, `${out.folder}.zip`)
+      if (maps) {
+        if (await mapFolderExists(maps, out.folder) && !(await confirmDialog('Replace installed map?', `maps/${out.folder} already exists. Its files will be replaced with this export.`, { confirm: 'Replace' }))) {
+          setResult({ r: out.result, zip: out.zip, folder: out.folder })
+          return
+        }
+        const n = await writeMap(maps, out.entries)
+        log(`Installed ${n} files to maps/${out.folder}.`)
+        setResult({ r: out.result, zip: out.zip, folder: out.folder, installedTo: `${maps.name}/${out.folder}` })
+      } else {
+        setResult({ r: out.result, zip: out.zip, folder: out.folder })
+        downloadBlob(out.zip, `${out.folder}.zip`)
+      }
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return // folder picker cancelled
       const msg = err instanceof Error ? err.message : String(err)
       setError(msg)
       log('Export failed: ' + msg)
@@ -118,9 +135,22 @@ export function ExportPanel() {
       </div>
 
       {problems.length > 0 && <div className="callout bad"><div className="col">{problems.map((p) => <span key={p}>{p}</span>)}</div></div>}
-      <button className="primary" style={{ padding: '10px' }} disabled={busy || problems.length > 0} onClick={exportNow}>
-        {busy ? 'Exporting… (see build log)' : 'Export Saints Row map →'}
-      </button>
+      {installSupported() ? (
+        <div className="col">
+          <button className="primary" style={{ padding: '10px' }} disabled={busy || problems.length > 0} onClick={() => exportNow('install')}>
+            {busy ? 'Exporting… (see build log)' : 'Export and install to game →'}
+          </button>
+          <div className="row wrap">
+            <span className="faint small grow">{mapsDir ? <>Installs into your <code>{mapsDir}</code> folder.</> : <>The first time, choose <code>SaintsReborn/dist/maps</code> (or the SaintsReborn folder).</>}</span>
+            {mapsDir && <button className="sm quiet" disabled={busy || problems.length > 0} onClick={() => exportNow('install', true)}>Change folder</button>}
+            <button className="sm" disabled={busy || problems.length > 0} onClick={() => exportNow('download')}>Download zip instead</button>
+          </div>
+        </div>
+      ) : (
+        <button className="primary" style={{ padding: '10px' }} disabled={busy || problems.length > 0} onClick={() => exportNow('download')}>
+          {busy ? 'Exporting… (see build log)' : 'Export Saints Row map →'}
+        </button>
+      )}
       {error && <div className="callout bad"><pre style={{ margin: 0, whiteSpace: 'pre-wrap', maxHeight: 260, overflow: 'auto' }} className="small mono">{error}</pre></div>}
       {result && (
         <div className="callout ok">
@@ -128,7 +158,9 @@ export function ExportPanel() {
             <b>Export complete</b>
             <span className="small">Render: {result.r.summary.render_triangles?.toLocaleString()} triangles in {result.r.summary.render_meshes} mesh(es), {result.r.summary.material_batches} material batches.</span>
             <span className="small">Collision: {result.r.summary.collision_triangles?.toLocaleString()}/{result.r.summary.source_triangles?.toLocaleString()} source triangles. Native objects: {result.r.summary.native_objects}. Lights: {result.r.summary.lights}.</span>
-            <span className="small">Unzip <b>{result.folder}</b> into <code>SaintsReborn/dist/maps</code>, then start the game.</span>
+            <span className="small">{result.installedTo
+              ? <>Installed to <code>{result.installedTo}</code>. Start (or restart) the game and look for it in a private party.</>
+              : <>Unzip <b>{result.folder}</b> into <code>SaintsReborn/dist/maps</code>, then start the game.</>}</span>
             <div className="row"><button className="sm" onClick={() => downloadBlob(result.zip, `${result.folder}.zip`)}>Download again</button></div>
           </div>
         </div>
