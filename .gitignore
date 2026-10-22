@@ -6,3 +6,5 @@ public/py/studio.zip
 .netlify
 *.tsbuildinfo
 public/py/version.json
+__pycache__/
+*.pyc
