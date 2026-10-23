@@ -4,6 +4,7 @@ import { MORE_PREFABS } from './prefabsMore'
 import { INTERIOR_PREFABS } from './prefabsInterior'
 import { PHYSICS_PREFABS } from './prefabsPhysics'
 import { ROAD_PREFABS } from './roads'
+import { BUILDING_PREFABS } from './prefabsBuildings'
 
 export type CategorizedPrefab = PrefabDef & { category: string }
 
@@ -20,6 +21,7 @@ export const ALL_PREFABS: Record<string, CategorizedPrefab> = {
   ...INTERIOR_PREFABS,
   ...PHYSICS_PREFABS,
   ...ROAD_PREFABS,
+  ...BUILDING_PREFABS,
 }
 
-export const PREFAB_CATEGORIES = ['Buildings', 'Rooms', 'Furniture', 'Street', 'Vehicles', 'Nature', 'Paintball', 'Cyber', 'Fun & games', 'Military', 'Industrial', 'Sports', 'Physics']
+export const PREFAB_CATEGORIES = ['Buildings', 'Shops', 'Neighbourhood', 'Rooms', 'Furniture', 'Street', 'Vehicles', 'Nature', 'Paintball', 'Cyber', 'Fun & games', 'Military', 'Industrial', 'Sports', 'Physics']
