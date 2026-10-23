@@ -165,7 +165,7 @@ const trailerWheels = (L: Lf): Part[] => [box('Trailer chassis', [3.4, 0.5, 6.4]
 // ---------------- prefabs ----------------
 
 const CARS: Record<string, PrefabDef & { category: string }> = {
-  sedan: { category: 'Vehicles', label: 'Sedan', hint: 'A four-door family car', ...pfp('Sedan', [paintParam('#2a5ab8')], (L, p) => auto(L, paintOf(p), { len: 9, cab: [-2.6, 1.4] })) },
+  sedan: { category: 'Vehicles', label: 'Sedan', hint: 'A four-door family car', ...pfp('Sedan', [paintParam('#2a5ab8')], (L, p) => auto(L, paintOf(p), { len: 9.8, cab: [-2.9, 1.5] })) },
   hatchback: { category: 'Vehicles', label: 'Hatchback', hint: 'A short city car with a hatch at the back', ...pfp('Hatchback', [paintParam('#2f8a3a')], (L, p) => [
     ...auto(L, paintOf(p), { len: 7.4, cab: [-3.3, 0.9], cabH: 1.25 }),
     box('Rear wiper', [0.8, 0.08, 0.08], L(0, 2.3, -3.42), TRIM),
@@ -243,17 +243,17 @@ const CARS: Record<string, PrefabDef & { category: string }> = {
     box('Door rail', [4.34, 0.1, 3], L(0, 3.5, -1.8), TRIM),
   ]) },
   taxi: { category: 'Vehicles', label: 'Taxi', hint: 'A cab with a roof sign and a black stripe', ...pfp('Taxi', [paintParam('#e0b020', [['#e0b020', 'Yellow'], ['#e8e8e8', 'White'], ['#2f8a3a', 'Green']])], (L, p) => [
-    ...auto(L, paintOf(p), { len: 9, cab: [-2.6, 1.4] }),
-    { ...box('Taxi sign', [1.8, 0.6, 0.7], L(0, 3.03, -0.6), YELLOW, glow('#fff2b0', '#d8c060', 721)), bevel: 0.12 },
-    box('Taxi stripe', [4.04, 0.3, 7], L(0, 1.15, -0.2), STRIPE_BLACK),
+    ...auto(L, paintOf(p), { len: 10.7, w: 4.4, cab: [-3.1, 1.6] }),
+    { ...box('Taxi sign', [1.8, 0.6, 0.7], L(0, 3.03, -0.7), YELLOW, glow('#fff2b0', '#d8c060', 721)), bevel: 0.12 },
+    box('Taxi stripe', [4.44, 0.3, 8.4], L(0, 1.15, -0.2), STRIPE_BLACK),
   ]) },
   policecar: { category: 'Vehicles', label: 'Police car', hint: 'A patrol car with a light bar and a push bar', ...pfp('Police car', [sel('livery', 'Livery', [['bw', 'Black and white'], ['blue', 'White and blue'], ['white', 'All white']], 'bw')], (L, p) => {
     const body = p.livery === 'bw' ? BLACK : WHITE, door = p.livery === 'blue' ? paint('#2a5ab8') : WHITE
     return [
-      ...auto(L, body, { len: 9, cab: [-2.6, 1.4] }),
-      box('Door panel', [4.04, 1.0, 4.0], L(0, 0.6, -0.6), door, door),
-      ...lightBar(L, 3.03, -0.4),
-      box('Push bar', [2.6, 1.0, 0.25], L(0, 0.5, 4.75), TRIM),
+      ...auto(L, body, { len: 10.9, w: 4.4, cab: [-3.2, 1.6] }),
+      box('Door panel', [4.44, 1.0, 4.4], L(0, 0.6, -0.8), door, door),
+      ...lightBar(L, 3.03, -0.5),
+      box('Push bar', [2.6, 1.0, 0.25], L(0, 0.5, 5.65), TRIM),
     ]
   }) },
   limo: { category: 'Vehicles', label: 'Limousine', hint: 'A stretched limo with tinted windows', ...pfp('Limo', [paintParam('#202020', [['#202020', 'Black'], ['#e8e8e8', 'White'], ['#e070b0', 'Pink']])], (L, p) => {

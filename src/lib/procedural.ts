@@ -158,6 +158,8 @@ export const BANNERS = [
   'KEEP OUT', 'HARD HATS', 'FRESH FISH', 'NOODLES', 'SKATE AT OWN RISK', 'NO PARKING', 'EXIT 12', 'RED', 'BLUE',
   // Just the splat, for things seen from every side (a word would read backwards on half of them).
   '',
+  // Street signs (added at the end so earlier picks keep their words).
+  'STOP', 'PHONE', 'MAIL', 'BUS STOP', 'ONE WAY', 'SPEED LIMIT 35', 'TAXI', 'POLICE',
 ]
 
 /** A 5 × 7 pixel font: seven rows of five bits per letter. */

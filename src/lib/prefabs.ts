@@ -172,7 +172,7 @@ export const wheels = (L: (dx: number, dy: number, dz: number) => Vec3, track: n
   ]))
 
 /** A car: rounded body, glass cabin with a painted roof, lights, bumpers and round wheels. The front is +Z. */
-export function car(x: number, z: number, rot: number, paint: Tex, y = 1, len = 8): Part[] {
+export function car(x: number, z: number, rot: number, paint: Tex, y = 1, len = 9.6): Part[] {
   const f = len / 2
   return group(gid('Car', x, y, z), local(x, y, z, rot, (L) => [
     { ...box('Car body', [4, 1.35, len], L(0, 0.5, 0), paint, paint), bevel: 0.4 },
@@ -222,22 +222,22 @@ export function lamp(x: number, z: number, y = 1, rot = 0): Part[] {
 
 export function bench(x: number, z: number, rot = 0, y = 1): Part[] {
   return group(gid('Bench', x, y, z), local(x, y, z, rot, (L) => [
-    box('Seat', [4, 0.25, 1.1], L(0, 0.75, 0), PB.wood),
-    box('Backrest', [4, 0.9, 0.2], L(0, 1.05, -0.5), PB.wood),
-    box('Bench leg', [0.2, 0.75, 1], L(-1.7, 0, 0), PB.black), box('Bench leg', [0.2, 0.75, 1], L(1.7, 0, 0), PB.black),
+    box('Seat', [5.2, 0.25, 1.3], L(0, 0.75, 0), PB.wood),
+    box('Backrest', [5.2, 0.9, 0.2], L(0, 1.05, -0.6), PB.wood),
+    box('Bench leg', [0.2, 0.75, 1.2], L(-2.3, 0, 0), PB.black), box('Bench leg', [0.2, 0.75, 1.2], L(2.3, 0, 0), PB.black),
   ]))
 }
 
 export function dumpster(x: number, z: number, rot = 0, y = 1): Part[] {
   return group(gid('Dumpster', x, y, z), local(x, y, z, rot, (L) => [
-    { ...box('Dumpster', [6, 2.6, 3], L(0, 0.3, 0), PB.boxGreen), bevel: 0.15 },
-    ramp('Dumpster lid', [6, 0.4, 3.2], L(0, 2.9, 0), PB.black, PB.black, 180),
-    ...[[-2.6, -1.2], [2.6, -1.2], [-2.6, 1.2], [2.6, 1.2]].map(([a, b]) => box('Caster', [0.3, 0.3, 0.3], L(a, 0, b), PB.black)),
+    { ...box('Dumpster', [5.96, 3.3, 3.8], L(0, 0.3, 0), PB.boxGreen), bevel: 0.15 },
+    ramp('Dumpster lid', [5.96, 0.5, 4], L(0, 3.6, 0), PB.black, PB.black, 180),
+    ...[[-2.6, -1.6], [2.6, -1.6], [-2.6, 1.6], [2.6, 1.6]].map(([a, b]) => box('Caster', [0.3, 0.3, 0.3], L(a, 0, b), PB.black)),
   ]))
 }
 
 export function trafficCone(x: number, z: number, y = 1): Part[] {
-  return group(gid('Cone', x, y, z), [box('Cone base', [1, 0.1, 1], [x, y, z], PB.orange), { ...cyl('Traffic cone', 0.8, 1.4, [x, y + 0.1, z], PB.orange, PB.orange, 10), taper: 0.15 }])
+  return group(gid('Cone', x, y, z), [box('Cone base', [0.72, 0.06, 0.72], [x, y, z], PB.orange), { ...cyl('Traffic cone', 0.6, 1.06, [x, y + 0.06, z], PB.orange, PB.orange, 10), taper: 0.15 }])
 }
 
 // ---------------- scenes ----------------
@@ -301,7 +301,7 @@ export const PREFABS: Record<string, PrefabDef> = {
   office: { label: 'Office tower', hint: 'A glass office tower', params: buildingParams(22, 22, 42, 'office'), make: (x, z, rot, y, p) => buildingFrom(x, z, rot, y, prefabParams(PREFABS.office, p), 'Office') },
   warehouse: { label: 'Warehouse', hint: 'A big shed with a roll-up door', params: buildingParams(30, 20, 12, 'warehouse'), make: (x, z, rot, y, p) => buildingFrom(x, z, rot, y, prefabParams(PREFABS.warehouse, p), 'Warehouse') },
   car: {
-    label: 'Car', hint: 'A parked car', params: [{ key: 'color', label: 'Paint', kind: 'select', options: CAR_COLORS, default: '#b8322a' }, { key: 'len', label: 'Length', kind: 'number', min: 6, max: 16, step: 0.5, default: 8 }],
+    label: 'Car', hint: 'A parked car', params: [{ key: 'color', label: 'Paint', kind: 'select', options: CAR_COLORS, default: '#b8322a' }, { key: 'len', label: 'Length', kind: 'number', min: 6, max: 16, step: 0.5, default: 9.6 }],
     make: (x, z, rot, y, p) => { const q = prefabParams(PREFABS.car, p); return car(x, z, rot, carPaint(String(q.color), 341 + CAR_COLORS.findIndex(([c]) => c === q.color)), y, +q.len) },
   },
   tree: {
@@ -318,10 +318,10 @@ export const PREFABS: Record<string, PrefabDef> = {
   cones: { label: 'Traffic cones', hint: 'Three cones', make: (x, z, rot, y) => ([[-1.5, 0], [0, 0.6], [1.5, 0]] as const).flatMap(([a, b]) => { const [ox, oz] = turn(a, b, rot); return trafficCone(x + ox, z + oz, y) }) },
   busstop: {
     label: 'Bus stop', hint: 'A shelter with a bench', make: (x, z, rot, y) => group(gid('Bus stop', x, y, z), local(x, y, z, rot, (L) => [
-      box('Shelter back', [8, 3.5, 0.2], L(0, 0, -1.4), STORE, STORE, 0, 3.5),
-      box('Shelter side', [0.2, 3.5, 3], L(-4, 0, 0), STORE, STORE, 0, 3.5),
-      { ...box('Shelter roof', [8.6, 0.3, 3.4], L(0, 3.5, 0), PB.steel), bevel: 0.1 },
-      box('Shelter bench', [6, 0.25, 0.9], L(0, 0.8, -0.8), PB.wood),
+      box('Shelter back', [9, 5.8, 0.2], L(0, 0, -1.4), STORE, STORE, 0, 5.8),
+      box('Shelter side', [0.2, 5.8, 3], L(-4.5, 0, 0), STORE, STORE, 0, 5.8),
+      { ...box('Shelter roof', [9.4, 0.3, 3.6], L(0, 5.8, 0), PB.steel), bevel: 0.1 },
+      box('Shelter bench', [6, 0.25, 0.9], L(0, 0.9, -0.8), PB.wood),
     ])),
   },
   stall: {
@@ -395,8 +395,8 @@ export const PREFABS: Record<string, PrefabDef> = {
   },
   picnic: {
     label: 'Picnic table', hint: 'A table with two benches', make: (x, z, rot, y) => group(gid('Picnic table', x, y, z), local(x, y, z, rot, (L) => [
-      box('Table top', [6, 0.25, 2.2], L(0, 1.45, 0), PB.wood), box('Table leg', [0.25, 1.45, 2], L(-2.4, 0, 0), PB.wood), box('Table leg', [0.25, 1.45, 2], L(2.4, 0, 0), PB.wood),
-      box('Bench seat', [6, 0.2, 0.8], L(0, 0.8, -1.7), PB.wood), box('Bench seat', [6, 0.2, 0.8], L(0, 0.8, 1.7), PB.wood),
+      box('Table top', [4.6, 0.25, 2.2], L(0, 1.45, 0), PB.wood), box('Table leg', [0.25, 1.45, 2], L(-1.8, 0, 0), PB.wood), box('Table leg', [0.25, 1.45, 2], L(1.8, 0, 0), PB.wood),
+      box('Bench seat', [4.6, 0.2, 0.8], L(0, 0.8, -1.7), PB.wood), box('Bench seat', [4.6, 0.2, 0.8], L(0, 0.8, 1.7), PB.wood),
     ])),
   },
   fountain: {

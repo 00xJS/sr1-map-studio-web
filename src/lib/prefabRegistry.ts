@@ -13,6 +13,7 @@ import { BUILDING_PREFABS } from './prefabsBuildings'
 import { CYBER_LIFE_PREFABS } from './prefabsCyberLife'
 import { URBAN_LIFE_PREFABS } from './prefabsUrbanLife'
 import { LIFE_PREFABS } from './prefabsPaintballLife'
+import { SR1_STYLE_PREFABS } from './prefabsSR1Style'
 
 export type CategorizedPrefab = PrefabDef & { category: string }
 
@@ -38,5 +39,6 @@ export const ALL_PREFABS: Record<string, CategorizedPrefab> = {
   ...CYBER_LIFE_PREFABS,
   ...URBAN_LIFE_PREFABS,
   ...LIFE_PREFABS,
+  ...SR1_STYLE_PREFABS,
 }
-export const PREFAB_CATEGORIES = ['Buildings', 'Shops', 'Neighbourhood', 'Venues', 'Rooms', 'Furniture', 'Street', 'Vehicles', 'Nature', 'Industrial', 'Construction', 'Military', 'Paintball', 'Cover', 'Obstacles', 'Cyber', 'Fun & games', 'Sports', 'Physics']
+export const PREFAB_CATEGORIES = ['Buildings', 'Shops', 'Neighbourhood', 'Venues', 'Rooms', 'Furniture', 'Street', 'Vehicles', 'Nature', 'Industrial', 'Construction', 'Military', 'Paintball', 'Cover', 'Obstacles', 'Cyber', 'Fun & games', 'Sports', 'Physics', 'Saints Row style']
