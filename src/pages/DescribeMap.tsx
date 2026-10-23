@@ -2,7 +2,7 @@
 // sentence; the AI picks the map wizard's options plus a few extra edits,
 // you see it from above, and create it (or fine-tune it in the wizard).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { DENSITY, LAYOUTS, SETTINGS, newSeed, wizardSample, type WizardOptions } from '../lib/mapWizard'
+import { LAYOUTS, SETTINGS, busyLabel, busyOf, newSeed, wizardSample, type WizardOptions } from '../lib/mapWizard'
 import { askWithRepair, describePrompt, formatReminder, modelProfile, partialReply, setLibraryTextures, stripThinking } from '../lib/aiChat'
 import { describeEdit, heuristicPlan, planFromModel, type MapPlan } from '../lib/aiReview'
 import type { PendingEdits } from '../lib/pendingEdits'
@@ -69,7 +69,7 @@ export function DescribeMap({ busy, onCreate, onTune }: { busy: boolean; onCreat
           <div className="col describe-plan card">
             <span>{plan.reply}</span>
             <span className="small muted">
-              {SETTINGS[plan.options.setting].icon} {SETTINGS[plan.options.setting].label} · {LAYOUTS[plan.options.layout].label} · {plan.options.players} players · {DENSITY[plan.options.density].label}
+              {SETTINGS[plan.options.setting].icon} {SETTINGS[plan.options.setting].label} · {LAYOUTS[plan.options.layout].label} · {plan.options.players} players · {busyLabel(busyOf(plan.options))}
             </span>
             {!!plan.then.length && (
               <div className="small">

@@ -13,8 +13,9 @@ const weapons = new Set(catalogs.weapons.map(([, id]) => id))
 describe('new map wizard', () => {
   for (const setting of Object.keys(SETTINGS) as WizardSetting[]) for (const layout of Object.keys(LAYOUTS) as WizardLayout[]) {
     it(`${setting} / ${layout}: fair, playable maps for every seed`, () => {
-      for (const [seed, players, density] of [[1, 12, 'normal'], [77, 8, 'packed'], [4242, 4, 'open'], [9001, 10, 'packed']] as const) {
-        const o = { setting, layout, players, density, seed }
+      // The last one is the top of the busy scale, about three times Packed.
+      for (const [seed, players, density, busy] of [[1, 12, 'normal', undefined], [77, 8, 'packed', undefined], [4242, 4, 'open', undefined], [9001, 10, 'packed', 100]] as const) {
+        const o = { setting, layout, players, density, seed, busy }
         const s = wizardSample(o)
         const where = `seed ${seed}`
         const problems: string[] = []

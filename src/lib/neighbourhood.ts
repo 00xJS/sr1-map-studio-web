@@ -50,6 +50,10 @@ const GROUND = {
   industrial: { lot: PB.floorWorn, park: U.grass, plaza: PB.concrete },
   paintball: { lot: PB.dirt, park: PB.turf, plaza: PB.planks },
   cyber: { lot: CY.panel, park: CY.gridLime, plaza: CY.fineGrid },
+  suburbs: { lot: U.walk, park: U.grass, plaza: U.plazaTiles },
+  docks: { lot: PB.concrete, park: U.grass, plaza: PB.diamond },
+  construction: { lot: PB.dirt, park: U.grass, plaza: PB.concrete },
+  military: { lot: PB.sand, park: PB.dirt, plaza: PB.concrete },
 } as const
 const HILL_TEX = TERRAIN_TEX
 

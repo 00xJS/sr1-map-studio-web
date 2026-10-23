@@ -1,7 +1,7 @@
 // The "Map wizard" tab of the Start a map dialog: pick a setting, a layout,
 // how many players and how busy, see it from above, reroll until you like it.
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { DENSITY, LAYOUTS, SETTINGS, newSeed, wizardSample, type WizardDensity, type WizardLayout, type WizardOptions, type WizardSetting } from '../lib/mapWizard'
+import { DENSITY, LAYOUTS, SETTINGS, busyLabel, busyOf, densityFor, newSeed, wizardSample, type WizardLayout, type WizardOptions, type WizardSetting } from '../lib/mapWizard'
 import { mapSize } from '../lib/sampleScale'
 import type { Sample } from '../lib/sampleKit'
 
@@ -68,6 +68,7 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
   const set = (patch: Partial<WizardOptions>) => setO((x) => ({ ...x, ...patch }))
   const sample = useMemo(() => wizardSample(o), [o])
   const size = mapSize(sample)
+  const level = busyOf(o)
   const count = (...t: string[]) => sample.markers.filter(([m]) => t.includes(m)).length
   return (
     <div className="wizard">
@@ -102,12 +103,13 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
               {PLAYERS.map((n) => <button key={n} className={'sm' + (o.players === n ? ' on' : '')} onClick={() => set({ players: n })}>{n}</button>)}
             </div>
           </div>
-          <div className="col" style={{ gap: 6 }}>
-            <span className="section-title">How busy</span>
-            <div className="row">
-              {(Object.keys(DENSITY) as WizardDensity[]).map((k) => <button key={k} className={'sm' + (o.density === k ? ' on' : '')} onClick={() => set({ density: k })}>{DENSITY[k].label}</button>)}
-            </div>
-          </div>
+          <label className="col grow" style={{ gap: 6, minWidth: 200 }}>
+            <span className="section-title">How busy <span className="faint">{busyLabel(level)}</span></span>
+            <input type="range" min={0} max={100} step={5} value={level} list="wizard-busy" onChange={(e) => set({ busy: +e.target.value, density: densityFor(+e.target.value) })}
+              title="How much is built and how many props: Open, Normal, Packed, up to about three times Packed" />
+            <datalist id="wizard-busy">{Object.values(DENSITY).map((d) => <option key={d.label} value={d.busy} label={d.label} />)}</datalist>
+            <span className="row faint small" style={{ justifyContent: 'space-between' }}><span>Open</span><span>Packed</span><span>3× packed</span></span>
+          </label>
         </div>
         <label className="col" style={{ gap: 6 }}>
           <span className="section-title">Name</span>
