@@ -37,7 +37,7 @@
   "players": 12,
   "spawns": 36,
   "weapons": 22,
-  "lights": 25
+  "lights": 24
  },
  "u_downtown": {
   "widthM": 101,
@@ -256,7 +256,7 @@
   "lights": 24
  },
  "pb_speedball": {
-  "widthM": 58,
+  "widthM": 82,
   "depthM": 98,
   "players": 12,
   "spawns": 36,

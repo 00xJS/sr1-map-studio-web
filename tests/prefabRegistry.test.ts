@@ -12,12 +12,13 @@ import { GAMEPLAY_PREFABS } from '../src/lib/prefabsGameplay'
 import { ROAD_PREFABS } from '../src/lib/roads'
 import { BUILDING_PREFABS } from '../src/lib/prefabsBuildings'
 import { CYBER_LIFE_PREFABS } from '../src/lib/prefabsCyberLife'
+import { LIFE_PREFABS } from '../src/lib/prefabsPaintballLife'
 
 // Prefab packs are written separately and merged into one registry, where a later pack would
 // silently replace an earlier one's piece of the same name.
 const PACKS: Record<string, Record<string, unknown>> = {
   PREFABS, MORE_PREFABS, INTERIOR_PREFABS, PHYSICS_PREFABS, NATURE_PREFABS, VEHICLE_PREFABS, INDUSTRIAL_PREFABS,
-  INTERIOR2_PREFABS, GAMEPLAY_PREFABS, ROAD_PREFABS, BUILDING_PREFABS, CYBER_LIFE_PREFABS,
+  INTERIOR2_PREFABS, GAMEPLAY_PREFABS, ROAD_PREFABS, BUILDING_PREFABS, CYBER_LIFE_PREFABS, LIFE_PREFABS,
 }
 
 describe('prefab registry', () => {

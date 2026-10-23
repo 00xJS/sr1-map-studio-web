@@ -31,6 +31,9 @@ function aabb(p: Part): Box {
 
 const touches = (a: Box, b: Box) =>
   a.x0 <= b.x1 + EPS && b.x0 <= a.x1 + EPS && a.z0 <= b.z1 + EPS && b.z0 <= a.z1 + EPS && a.y0 <= b.y1 + EPS && b.y0 <= a.y1 + EPS
+/** Within `gap` of each other (props this close belong together: a tire row, a stall's posts, a hoop's board). */
+const near = (a: Box, b: Box, gap: number) =>
+  a.x0 <= b.x1 + gap && b.x0 <= a.x1 + gap && a.z0 <= b.z1 + gap && b.z0 <= a.z1 + gap && a.y0 <= b.y1 + gap && b.y0 <= a.y1 + gap
 /** Touching side by side rather than one resting on the other. */
 const beside = (a: Box, b: Box) => touches(a, b) && Math.abs(a.y0 - b.y1) > EPS && Math.abs(b.y0 - a.y1) > EPS
 
@@ -77,8 +80,8 @@ function terrainBlocks(p: Part, x: number, y: number, z: number) {
 export function spreadSample(s: Sample, k: number): Sample {
   if (k === 1) return s
   const boxes = s.parts.map(aabb)
-  // Parts of a prefab (a group) move as one piece and keep their size, unless marked big.
-  const big = s.parts.map((p) => !!p.big || (!p.group && Math.max(p.size[0], p.size[2]) >= BIG && !KEEP.test(p.label)))
+  // The parts of a placed prefab stay one piece of its own size.
+  const big = s.parts.map((p) => !p.group && (!!p.big || (Math.max(p.size[0], p.size[2]) >= BIG && !KEEP.test(p.label))))
   // A small piece wedged between two structures (a bridge, a step) has to stretch with them.
   s.parts.forEach((p, i) => {
     if (big[i] || p.group || KEEP.test(p.label)) return
@@ -94,7 +97,7 @@ export function spreadSample(s: Sample, k: number): Sample {
   s.parts.forEach((_, i) => {
     if (big[i]) return
     for (let j = i + 1; j < s.parts.length; j++) {
-      if (!big[j] && ((!!s.parts[i].group && s.parts[i].group === s.parts[j].group) || (!(leans[i] && leans[j]) && touches(boxes[i], boxes[j])))) parent[find(i)] = find(j)
+      if (!big[j] && ((!!s.parts[i].group && s.parts[i].group === s.parts[j].group) || (!(leans[i] && leans[j]) && near(boxes[i], boxes[j], 0.5)))) parent[find(i)] = find(j)
     }
   })
   const groups = new Map<number, number[]>()
@@ -134,7 +137,13 @@ export function spreadSample(s: Sample, k: number): Sample {
     return [pos[0] * k, pos[1], pos[2] * k]
   }
   const markers = s.markers.map(([type, pos, patch]): MarkerSpec => [type, settle(parts, moveMarker(pos)), patch])
-  const lights = s.lights?.map(([p, c]): [Vec3, Vec3?] => [[p[0] * k, p[1], p[2] * k], c])
+  // A light hung on a prop (a lantern, a lamp) moves with it; the rest spread with the map.
+  const lights = s.lights?.map(([p, c]): [Vec3, Vec3?] => {
+    const i = s.parts.findIndex((q, j) => !big[j] && over(q, p[0], p[2], 0.5) && p[1] >= q.at[1] && p[1] <= q.at[1] + q.size[1] + 1)
+    if (i < 0) return [[p[0] * k, p[1], p[2] * k], c]
+    const [dx, dz] = shift.get(find(i))!
+    return [[p[0] + dx, p[1], p[2] + dz], c]
+  })
   return { ...s, parts, markers, lights }
 }
 

@@ -354,9 +354,14 @@ export const PREFABS: Record<string, PrefabDef> = {
   },
   scaffold: {
     label: 'Scaffolding', hint: 'Two levels of planks on a pipe frame', make: (x, z, rot, y) => group(gid('Scaffold', x, y, z), local(x, y, z, rot, (L) => [
-      ...[-5, 0, 5].flatMap((a) => [-1.2, 1.2].map((b) => box('Scaffold pole', [0.2, 10, 0.2], L(a, 0, b), PB.steel))),
-      box('Scaffold deck', [11, 0.25, 2.8], L(0, 4.5, 0), PB.plywood), box('Scaffold deck', [11, 0.25, 2.8], L(0, 9, 0), PB.plywood),
-      box('Toe board', [11, 0.6, 0.1], L(0, 9.25, 1.3), PB.plywood), stairs('Scaffold stairs', [2, 4.5, 6], L(-8, 0, 0), PB.steel, PB.steel, 270, 8),
+      ...[-5, 0, 5].flatMap((a) => [-1.95, 1.95].map((b) => box('Scaffold pole', [0.2, 10, 0.2], L(a, 0, b), PB.steel))),
+      box('Scaffold deck', [11, 0.25, 4], L(0, 4.5, 0), PB.plywood),
+      // The top deck leaves a gap over the stairs up from the first one.
+      box('Scaffold deck', [4.5, 0.25, 4], L(-3.25, 9, 0), PB.plywood), box('Scaffold deck', [2.5, 0.25, 4], L(4.25, 9, 0), PB.plywood),
+      box('Scaffold deck', [4, 0.25, 2.2], L(1, 9, -0.9), PB.plywood),
+      box('Toe board', [4.5, 0.6, 0.1], L(-3.25, 9.25, 1.95), PB.plywood), box('Toe board', [2.5, 0.6, 0.1], L(4.25, 9.25, 1.95), PB.plywood),
+      stairs('Scaffold stairs', [2, 4.5, 6], L(-8, 0, 0), PB.steel, PB.steel, 270, 8),
+      stairs('Scaffold stairs', [1.6, 4.5, 4], L(1, 4.75, 1.1), PB.steel, PB.steel, 270, 9),
     ])),
   },
   tower: {
