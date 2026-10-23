@@ -35,7 +35,4 @@ export const ALL_PREFABS: Record<string, CategorizedPrefab> = {
   ...BUILDING_PREFABS,
   ...CYBER_LIFE_PREFABS,
 }
-
-export const PREFAB_CATEGORIES = ['Buildings', 'Rooms', 'Furniture', 'Street', 'Vehicles', 'Nature', 'Paintball', 'Cyber', 'Fun & games', 'Military', 'Industrial', 'Construction', 'Sports', 'Physics']
-export const PREFAB_CATEGORIES = ['Buildings', 'Rooms', 'Furniture', 'Venues', 'Street', 'Vehicles', 'Nature', 'Paintball', 'Cover', 'Cyber', 'Fun & games', 'Obstacles', 'Military', 'Industrial', 'Sports', 'Physics']
-export const PREFAB_CATEGORIES = ['Buildings', 'Shops', 'Neighbourhood', 'Rooms', 'Furniture', 'Street', 'Vehicles', 'Nature', 'Paintball', 'Cyber', 'Fun & games', 'Military', 'Industrial', 'Sports', 'Physics']
+export const PREFAB_CATEGORIES = ['Buildings', 'Shops', 'Neighbourhood', 'Venues', 'Rooms', 'Furniture', 'Street', 'Vehicles', 'Nature', 'Industrial', 'Construction', 'Military', 'Paintball', 'Cover', 'Obstacles', 'Cyber', 'Fun & games', 'Sports', 'Physics']

@@ -373,7 +373,7 @@
   "players": 12,
   "spawns": 36,
   "weapons": 22,
-  "lights": 25
+  "lights": 24
  },
  "cy_circuit": {
   "widthM": 92,
@@ -404,7 +404,7 @@
   "depthM": 92,
   "players": 12,
   "spawns": 36,
-  "weapons": 23,
+  "weapons": 22,
   "lights": 25
  },
  "cy_pyramid": {
@@ -436,8 +436,8 @@
   "depthM": 118,
   "players": 12,
   "spawns": 36,
-  "weapons": 23,
-  "lights": 24
+  "weapons": 22,
+  "lights": 25
  },
  "cy_lanes": {
   "widthM": 62,

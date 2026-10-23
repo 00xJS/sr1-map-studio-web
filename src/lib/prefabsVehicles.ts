@@ -54,7 +54,6 @@ const SHUTTER: Tex = { gen: 'garage_door', tweak: { color: '#b4b8bc', accent: '#
 const SILVER: Tex = { gen: 'metal_plate', tweak: { color: '#a8adb2', accent: '#7a7f84', scale: 10, wear: 0.1, seed: 713 }, surface: 15 }
 const WIRE: Tex = { gen: 'tiles', tweak: { color: '#3a3c40', accent: '#c8cacc', scale: 10, wear: 0, seed: 714 }, surface: 15 }
 const WOOD_HULL: Tex = { gen: 'wood_planks', tweak: { color: '#8a5a32', accent: '#5a3a1e', scale: 6, wear: 0.3, seed: 715 }, surface: 21 }
-const DIRT_LOAD: Tex = { gen: 'dirt', tweak: { color: '#5a4430', accent: '#3a2a1c', wear: 0.5, seed: 716 } }
 const SCOOP: Tex = solid('#f0a0c8', '#d080a8', 717)
 const CONE: Tex = { gen: 'wood_planks', tweak: { color: '#c89850', accent: '#9a7034', scale: 8, seed: 718 } }
 const CINDER: Tex = PB.cinder
@@ -446,12 +445,6 @@ const SMALL: Record<string, PrefabDef & { category: string }> = {
     box('Handle', [2.6, 0.18, 0.18], L(0, 3.6, -2.05), PB.red), ...[-1.1, 1.1].map((x) => box('Handle arm', [0.08, 0.1, 0.45], L(x, 3.4, -1.9), CHROME)),
     ...[-0.95, 0.95].map((x) => box('Base rail', [0.1, 0.1, 3.4], L(x, 0.5, -0.1), CHROME)),
     ...[[-0.95, -1.5], [0.95, -1.5], [-0.95, 1.3], [0.95, 1.3]].flatMap(([x, z]) => [box('Leg', [0.1, 1.1, 0.1], L(x, 0.5, z), CHROME), lying('Caster', 0.5, 0.2, L(x, 0, z), PB.black, PB.black, 8)]),
-  ]) },
-  wheelbarrow: { category: 'Vehicles', label: 'Wheelbarrow', hint: 'A builder’s barrow full of dirt', make: pf('Wheelbarrow', (L) => [
-    { ...box('Tray', [2.6, 1.0, 3.2], L(0, 1.2, 0.3), DIRT_LOAD, PB.green), bevel: 0.3 },
-    ...wheel1(L, 0, 2.4, 1.4, 0.35, PB.steel),
-    ...[-0.3, 0.3].map((x) => box('Wheel bracket', [0.1, 0.6, 1.0], L(x, 0.6, 2.1), PB.steel)),
-    ...[-0.9, 0.9].flatMap((x) => [box('Handle', [0.15, 0.15, 5], L(x, 1.0, -0.4), PB.wood), box('Leg', [0.15, 1.0, 0.15], L(x, 0, -1.2), PB.steel), box('Grip', [0.2, 0.2, 0.6], L(x, 1.0, -3.0), PB.black)]),
   ]) },
 }
 

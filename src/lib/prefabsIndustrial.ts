@@ -283,7 +283,7 @@ const MILITARY: Record<string, PrefabDef & { category: string }> = {
     { ...box('Canvas cover', [5.6, 3.6, 10.6], L(0, 3.2, -2.7), CANVAS, CANVAS), bevel: 0.8 },
     ...wheels(L, 4.8, [-6, -3.2, 8.2], 2.1, 0.8),
   ]) },
-  helicopter: { category: 'Military', label: 'Helicopter', hint: 'A parked helicopter on skids (scenery)', make: pf('Helicopter', (L) => [
+  armyheli: { category: 'Military', label: 'Military helicopter', hint: 'A parked military helicopter on skids (scenery)', make: pf('Military helicopter', (L) => [
     ...[-1, 1].flatMap((s) => [lying('Skid', 0.35, 10, L(s * 2.2, 0, 0), OLIVE_DARK, OLIVE_DARK, 6, 90), box('Skid strut', [0.25, 1.3, 0.25], L(s * 2.1, 0.2, 2.5), OLIVE_DARK), box('Skid strut', [0.25, 1.3, 0.25], L(s * 2.1, 0.2, -2.5), OLIVE_DARK)]),
     { ...box('Fuselage', [4, 3.6, 8], L(0, 1.4, -0.5), OLIVE), bevel: 0.9 },
     { ...box('Cockpit', [3.6, 2.8, 2.6], L(0, 1.5, 3.8), GLASS, GLASS), bevel: 0.8 },
