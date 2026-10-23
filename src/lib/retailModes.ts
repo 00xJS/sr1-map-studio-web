@@ -3,6 +3,7 @@
 // here must match the Python modules. Nothing here has been tried in game yet.
 import type { CheckItem } from './checklist'
 import type { GameMode, Marker, Vec3 } from './project'
+import { ITEM_PROP } from './gameObjects/items'
 
 export const BOR: GameMode = 'Blinged Out Ride'
 
@@ -18,7 +19,7 @@ export const BOR_CASH = 'BOR cash spawn'
 export const SOUND_ZONE = 'Sound zone'
 
 export const BOR_TYPES = [BOR_CAR_RED, BOR_CAR_BLUE, BOR_GARAGE_RED, BOR_GARAGE_BLUE, BOR_CHOP, BOR_ENTRANCE, BOR_DOOR, BOR_VICTORY, BOR_CASH]
-export const RETAIL_MARKER_TYPES = [...BOR_TYPES, SOUND_ZONE]
+export const RETAIL_MARKER_TYPES = [...BOR_TYPES, SOUND_ZONE, ITEM_PROP]
 
 /** Box triggers and their default size in metres (width, height, depth). */
 export const BOR_BOXES: Record<string, Vec3> = {
@@ -54,6 +55,7 @@ export function retailMarkerDefaults(type: string): Partial<Marker> {
   if (type in BOR_BOXES) return { size: [...BOR_BOXES[type]] as Vec3 }
   if (type === BOR_CAR_RED || type === BOR_CAR_BLUE) return { vehicle: BOR_DEFAULT_CAR }
   if (type === SOUND_ZONE) return { shape: 'sphere', radius: SOUND_DEFAULT_RADIUS, size: [...SOUND_DEFAULT_BOX] as Vec3, volume: SOUND_DEFAULT_VOLUME, sound: '' }
+  if (type === ITEM_PROP) return { item: '' }
   return {}
 }
 
@@ -68,6 +70,7 @@ export const RETAIL_MARKER_HINTS: Record<string, string> = {
   [BOR_VICTORY]: 'The victory garage in Blinged Out Ride: drive the fully blinged ride in here to win.',
   [BOR_CASH]: 'Where cash appears in Blinged Out Ride. Place 6 or more around the map.',
   [SOUND_ZONE]: 'A sphere or box that plays a sound from your game, like birds, traffic or room tone.',
+  [ITEM_PROP]: 'A small object the game places by name, like a weapon pickup: a chair, a flag, a barrel… Not yet tried in game.',
 }
 
 /** What Blinged Out Ride still needs, in words ([] when the map has all of it). */
@@ -118,4 +121,4 @@ export function retailChecklist(modes: GameMode[], markers: Marker[]): CheckItem
 }
 
 /** Marker types the spawn tool offers for the modes chosen: BOR markers only while Blinged Out Ride is. */
-export const retailToolMarkers = (modes: GameMode[]) => [...(modes.includes(BOR) ? BOR_TYPES : []), SOUND_ZONE]
+export const retailToolMarkers = (modes: GameMode[]) => [...(modes.includes(BOR) ? BOR_TYPES : []), SOUND_ZONE, ITEM_PROP]

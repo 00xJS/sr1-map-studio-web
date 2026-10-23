@@ -5,7 +5,7 @@
 // read from a File by slicing just its bytes. Nothing but the directory and the entries asked for is read.
 // Compressed and condensed packfiles (preload.vpp_xbox2) hold one zlib stream for all entries: it is inflated in
 // chunks only as far as the entry asked for, keeping just that entry's bytes.
-import { Unzlib, inflateSync } from 'fflate'
+import { Inflate, Unzlib, inflateSync } from 'fflate'
 
 const up = (x: number) => (x + 2047) & ~2047
 
@@ -19,6 +19,8 @@ export interface Vpp {
   has(name: string): boolean
   list(): string[]
   read(name: string): Promise<Uint8Array>
+  /** The first `bytes` bytes of an entry (or all of it, if shorter), inflating no more than that needs. */
+  readHead(name: string, bytes: number): Promise<Uint8Array>
 }
 
 async function readRange(src: VppSource, start: number, end: number): Promise<Uint8Array> {
@@ -79,6 +81,19 @@ export async function openVpp(src: VppSource, label = 'packfile'): Promise<Vpp> 
       fin.set([1, 0, 0, 0xff, 0xff], body.length)
       const out = inflateSync(fin)
       return out.length > e.size ? out.subarray(0, e.size) : out
+    },
+    async readHead(name, bytes) {
+      const e = entries.get(name.toLowerCase())
+      if (!e) throw new Error(name + ' not in ' + label)
+      const want = Math.min(bytes, e.size)
+      if (!comp) return readRange(src, dataAt + e.at, dataAt + e.at + want)
+      if (cond) return (await readCondensed(src, dataAt, e, label)).subarray(0, want)
+      // Raw deflate after the 2-byte zlib header, fed a slice at a time until enough has come out.
+      const out = new Uint8Array(want)
+      let got = 0
+      const inf = new Inflate((chunk) => { const n = Math.min(chunk.length, want - got); if (n > 0) { out.set(chunk.subarray(0, n), got); got += n } })
+      for (let at = e.at + 2, end = e.at + e.ssize; at < end && got < want; at += 65536) inf.push(await readRange(src, at, Math.min(end, at + 65536)), false)
+      return out.subarray(0, got)
     },
   }
 }

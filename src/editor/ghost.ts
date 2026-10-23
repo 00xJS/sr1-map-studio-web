@@ -10,8 +10,9 @@ import { readMyPrefab } from './myPrefabs'
 
 const PLAIN: Tex = { gen: 'concrete', tweak: { color: '#c9ced6', accent: '#9aa1ab', wear: 0.1, seed: 900 } }
 
-/** Builds the 3D object for a Shape-tool choice ("box", "prefab:<key>", "mine:<id>"), origin at its feet. */
+/** Builds the 3D object for a Shape-tool choice ("box", "prefab:<key>", "mine:<id>", "game:<id>"), origin at its feet. */
 async function build(toolShape: string): Promise<THREE.Object3D | null> {
+  if (toolShape.startsWith('game:')) return (await import('./gameObjectActions')).gameGhost(toolShape.slice(5))
   if (toolShape.startsWith('prefab:')) {
     const parts = prefabParts(toolShape.slice(7))
     return parts.length ? partsObject(parts) : null

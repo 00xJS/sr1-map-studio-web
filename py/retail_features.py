@@ -5,7 +5,7 @@ web_api.py calls three things from here:
   are kept out of the main CTS and written by these modules instead.
 - crates(...): picks the smashing-crate profile or its fallback before the
   object profiles are written, and adds the crate effect afterwards.
-- finish(...): the Blinged Out Ride CTS and table, then the sound zones.
+- finish(...): the Blinged Out Ride CTS and table, then the sound zones and the item props.
 """
 from __future__ import annotations
 
@@ -13,10 +13,11 @@ from pathlib import Path
 
 import bor_mode
 import crate_debris
+import item_props
 import sound_zones
 import map_features
 
-EXTRA_TYPES = set(bor_mode.TYPES) | {sound_zones.TYPE}
+EXTRA_TYPES = set(bor_mode.TYPES) | {sound_zones.TYPE, item_props.TYPE}
 CRATE_DONOR = Path('/work/game/crate_debris')
 
 
@@ -67,4 +68,6 @@ def finish(spec, out_dir, base, markers, world_scale, mirror_x, origin, space, l
         log('Blinged Out Ride markers are only used when the Blinged Out Ride mode is selected.')
     zones = sound_zones.collect(markers, world_scale, mirror_x, origin, space, log)
     out['sound_zones'] = sound_zones.write(out_dir, base, zones, map_features.add_include, log)
+    props = item_props.collect(markers, world_scale, mirror_x, origin, space, log)
+    out['item_props'] = item_props.write(out_dir, base, props, log)
     return out

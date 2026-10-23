@@ -7,6 +7,8 @@ import type { Marker, Vec3 } from '../lib/project'
 import {
   BOR_BOXES, BOR_CARS, BOR_CAR_BLUE, BOR_CAR_RED, BOR_DEFAULT_CAR, SOUND_DEFAULT_BOX, SOUND_DEFAULT_RADIUS, SOUND_DEFAULT_VOLUME, SOUND_ZONE,
 } from '../lib/retailModes'
+import { GameItemFields } from './GameItemFields'
+import { ITEM_PROP } from '../lib/gameObjects/items'
 import { canPickFolder, gamePack, loadSoundNames, soundLabel, soundNamesLoaded, addPickedFiles, CITY_PACK, FOLEY_PACK } from '../lib/gameFiles'
 
 type Set = (label: string, fn: (d: Marker) => void, merge?: string) => void
@@ -15,6 +17,7 @@ export function RetailMarkerFields({ m, index, set }: { m: Marker; index: number
   if (m.type in BOR_BOXES) return <BoxSize m={m} set={set} fallback={BOR_BOXES[m.type]} hint="The trigger box, in metres. It starts at the marker and turns with it." />
   if (m.type === BOR_CAR_RED || m.type === BOR_CAR_BLUE) return <TeamCar m={m} index={index} set={set} />
   if (m.type === SOUND_ZONE) return <SoundZone m={m} set={set} />
+  if (m.type === ITEM_PROP) return <GameItemFields m={m} set={set} />
   return null
 }
 
