@@ -1,0 +1,136 @@
+// Thumbnails for the prefab browser: small 3D pictures drawn in this browser
+// from each prefab's own parts (no pictures ship with the site), kept in
+// IndexedDB so each is drawn once. A picture is drawn only while a tile that
+// shows it is on screen, the newest request first, one at a time, so scrolling
+// through hundreds of prefabs stays smooth. A prefab whose parts change gets a
+// new picture by itself (its signature is a hash of its parts).
+import { openDb } from './db'
+import { hashText, prefabParts } from './prefabIndex'
+import type { ThumbBundle } from './prefabRender'
+
+/** Bump to redraw every thumbnail (after changing how they look). */
+const VERSION = 1
+const PREFIX = 'prefabThumb:'
+
+interface Cached { sig: string; blob: Blob }
+type Listener = (url: string | null) => void
+
+/** How the thumbnails have done this session (shown nowhere; handy in the console). */
+export const thumbStats = { drawn: 0, fromCache: 0, failed: 0, drawMs: 0 }
+
+const ready = new Map<string, string | null>()
+const listeners = new Map<string, Set<Listener>>()
+const queue: string[] = []
+const mine = new Map<string, { sig: string; bundle: ThumbBundle }>()
+const sigs = new Map<string, string>()
+let running = false
+
+const req = <T>(r: IDBRequest<T>) => new Promise<T>((ok, no) => { r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error) })
+
+let cache: Promise<Map<string, Cached>> | null = null
+/** Every stored thumbnail, read in one go the first time one is needed. */
+function loadCache() {
+  return (cache ??= (async () => {
+    const out = new Map<string, Cached>()
+    try {
+      const store = (await openDb()).transaction('meta').objectStore('meta')
+      const range = IDBKeyRange.bound(PREFIX, PREFIX + '￿')
+      const [keys, values] = await Promise.all([req(store.getAllKeys(range)), req(store.getAll(range))])
+      keys.forEach((k, i) => out.set(String(k).slice(PREFIX.length), values[i] as Cached))
+    } catch { /* storage blocked (private window): draw them each time */ }
+    return out
+  })())
+}
+
+async function save(key: string, value: Cached) {
+  try { await req((await openDb()).transaction('meta', 'readwrite').objectStore('meta').put(value, PREFIX + key)) } catch { /* full or blocked: fine, it is redrawn next time */ }
+}
+
+function signature(key: string): string | null {
+  if (key.startsWith('mine:')) { const m = mine.get(key); return m ? `${VERSION}:${m.sig}` : null }
+  let s = sigs.get(key)
+  if (s === undefined) { s = `${VERSION}:${hashText(JSON.stringify(prefabParts(key.slice(7))))}`; sigs.set(key, s) }
+  return s
+}
+
+let renderer: Promise<typeof import('./prefabRender')> | null = null
+async function draw(key: string): Promise<Blob | null> {
+  const r = await (renderer ??= import('./prefabRender'))
+  if (key.startsWith('prefab:')) return r.drawParts(prefabParts(key.slice(7)))
+  const m = mine.get(key)
+  return m ? r.drawBundle(m.bundle) : null
+}
+
+function finish(key: string, url: string | null) {
+  ready.set(key, url)
+  const ls = listeners.get(key)
+  listeners.delete(key)
+  ls?.forEach((fn) => fn(url))
+}
+
+async function pump() {
+  if (running) return
+  running = true
+  try {
+    const stored = await loadCache()
+    while (queue.length) {
+      const key = queue.pop()!
+      if (!listeners.has(key) || ready.has(key)) continue
+      let url: string | null = null
+      try {
+        const sig = signature(key)
+        const hit = stored.get(key)
+        if (sig && hit?.sig === sig) { url = URL.createObjectURL(hit.blob); thumbStats.fromCache++ }
+        else if (sig) {
+          const t0 = performance.now()
+          const blob = await draw(key)
+          thumbStats.drawMs += performance.now() - t0
+          if (blob) {
+            thumbStats.drawn++
+            stored.set(key, { sig, blob })
+            void save(key, { sig, blob })
+            url = URL.createObjectURL(blob)
+          }
+          // Let the page breathe between drawings.
+          await new Promise((ok) => setTimeout(ok, 0))
+        }
+      } catch (e) {
+        thumbStats.failed++
+        console.warn('Prefab thumbnail', key, e)
+      }
+      finish(key, url)
+    }
+  } finally { running = false }
+}
+
+/** The picture for a key if it is already known (undefined: not yet; null: none could be drawn). */
+export const readyThumb = (key: string) => ready.get(key)
+
+/**
+ * Asks for the thumbnail of "prefab:<key>" or "mine:<id>" (a saved piece also passes
+ * its bundle and something that changes when it does). Calls back once with an
+ * object URL, or null if it can't be drawn. Unsubscribe when the tile scrolls out
+ * of view: a picture nobody is waiting for is not drawn.
+ */
+export function subscribeThumb(key: string, fn: Listener, saved?: { sig: string; bundle: ThumbBundle }): () => void {
+  if (saved) {
+    const old = mine.get(key)
+    if (old && old.sig !== saved.sig) ready.delete(key)
+    mine.set(key, saved)
+  }
+  if (ready.has(key)) { fn(ready.get(key)!); return () => {} }
+  let ls = listeners.get(key)
+  if (!ls) listeners.set(key, (ls = new Set()))
+  ls.add(fn)
+  const at = queue.indexOf(key)
+  if (at >= 0) queue.splice(at, 1)
+  queue.push(key)
+  void pump()
+  return () => {
+    ls!.delete(fn)
+    if (ls!.size || listeners.get(key) !== ls) return
+    listeners.delete(key)
+    const i = queue.indexOf(key)
+    if (i >= 0) queue.splice(i, 1)
+  }
+}

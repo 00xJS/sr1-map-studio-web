@@ -4,6 +4,7 @@ import { breakMerge, setThumbnailProvider, useEditor } from './store'
 import { addLight, addMarker, addPrefab, addShape, placeAsset, removeTarget } from './actions'
 import { paintAt, pickAt } from './paint'
 import { ToolOptions, ToolStrip, chooseTool } from './Tools'
+import { PrefabBrowser } from './PrefabBrowser'
 import { toast, toastError } from '../ui'
 import type { Vec3 } from '../lib/project'
 import { placeMyPrefab } from './myPrefabs'
@@ -31,14 +32,19 @@ function snapped(p: Vec3): Vec3 {
   return [r(p[0]), p[1], r(p[2])]
 }
 
+/** Places a shape preset, prefab ("prefab:<key>") or saved piece ("mine:<id>") on a surface point. */
+function placeShape(shape: string, point: Vec3) {
+  if (shape.startsWith('prefab:')) addPrefab(shape.slice(7), snapped(point), point[1]).catch(toastError)
+  else if (shape.startsWith('mine:')) { try { placeMyPrefab(shape.slice(5), snapped(point)) } catch (err) { toastError(err) } }
+  else addShape(shape, snapped(point), point[1]).catch(toastError)
+}
+
 /** A tool click on a surface. Returns true if the active tool handled it. */
 function useTool(point: Vec3, item: number, face: number): boolean {
   const st = useEditor.getState()
   switch (st.tool) {
     case 'shape':
-      if (st.toolShape.startsWith('prefab:')) addPrefab(st.toolShape.slice(7), snapped(point), point[1]).catch(toastError)
-      else if (st.toolShape.startsWith('mine:')) { try { placeMyPrefab(st.toolShape.slice(5), snapped(point)) } catch (err) { toastError(err) } }
-      else addShape(st.toolShape, snapped(point), point[1]).catch(toastError)
+      placeShape(st.toolShape, point)
       return true
     case 'spawn':
       addMarker(st.toolSpawn, snapped(point))
@@ -238,7 +244,9 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
         const st = useEditor.getState()
         if (st.placeMode === 'decal' && mode === 'click') { placePendingDecal(point, normal).catch(toastError); return }
         if (mode === 'drop') {
-          placeAsset(Number(data), point).catch(toastError)
+          // From the prefab browser: "prefab:<key>" or "mine:<id>"; otherwise an asset library index.
+          if (data && /^(prefab|mine):/.test(data)) placeShape(data, point)
+          else placeAsset(Number(data), point).catch(toastError)
           return
         }
         if (st.placeMode === 'marker') {
@@ -312,6 +320,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
       {walking ? <WalkHud /> : <>
       <ToolStrip />
       <ToolOptions />
+      <PrefabBrowser />
       {placeMode && (
         <div className="viewport-banner">
           {placeMode === 'marker' ? 'Click the map to place a marker' : placeMode === 'light' ? 'Click the map to place a light' : placeMode === 'decal' ? 'Click a wall to stick your tag on it (as many as you like)' : 'Click a triangle to pick its collision face'}

@@ -318,8 +318,45 @@ button.big { padding: 12px; font-size: 15px; }
 .catalog-card .pic .new { position: absolute; top: 8px; left: 8px; font-size: 11px; }
 .catalog-card .body { padding: 10px 12px 12px; display: flex; flex-direction: column; gap: 6px; flex: 1; }
 .catalog-card .body b { font-size: 15px; }
-.prefab-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
-.prefab-group { gap: 8px; }
+
+/* ---------- prefab browser (editor/PrefabBrowser.tsx) and prefab tiles ---------- */
+.prefab-browser { position: absolute; left: 76px; top: var(--prefab-top, 56px); bottom: 10px; width: min(384px, calc(100% - 92px)); display: flex; flex-direction: column; background: rgba(20, 16, 23, 0.97); border: 1px solid var(--line-strong); border-radius: 10px; box-shadow: var(--shadow); z-index: 7; overflow: hidden; }
+.prefab-head { display: flex; align-items: center; gap: 8px; padding: 8px 8px 6px 12px; }
+.prefab-head b { white-space: nowrap; }
+.prefab-head input { min-width: 0; }
+.prefab-tabs { display: flex; gap: 4px; padding: 0 8px 8px; overflow-x: auto; scrollbar-width: thin; flex: none; border-bottom: 1px solid var(--line); }
+.prefab-tabs button { flex: none; white-space: nowrap; }
+.prefab-scroll { flex: 1; overflow-y: auto; padding: 4px 8px 10px; overscroll-behavior: contain; }
+.prefab-section h4 { margin: 8px 2px 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.prefab-section { content-visibility: auto; contain-intrinsic-size: auto 400px; }
+.prefab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+.prefab-tile { position: relative; }
+.prefab-pick { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 4px 4px 5px; background: #1b141e; border: 1px solid var(--line); border-radius: 8px; color: var(--text); text-align: center; white-space: normal; overflow-wrap: anywhere; justify-content: flex-start; }
+button.prefab-pick:hover { background: var(--bg-hover); border-color: var(--accent); }
+.prefab-tile.on .prefab-pick { background: var(--accent-soft); border-color: var(--accent); }
+.prefab-label { font-size: 11px; line-height: 1.2; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; min-height: 2.4em; }
+.prefab-thumb { display: block; width: 100%; aspect-ratio: 1; border-radius: 6px; background: radial-gradient(circle at 50% 45%, #2c2130, #17121a 70%); position: relative; overflow: hidden; flex: none; }
+.prefab-thumb img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: contain; }
+.prefab-thumb.loading::after { content: ''; position: absolute; inset: 0; background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.06) 50%, transparent 70%); background-size: 200% 100%; animation: prefab-shimmer 1.2s linear infinite; }
+@keyframes prefab-shimmer { from { background-position: 150% 0; } to { background-position: -50% 0; } }
+.prefab-thumb-none { position: absolute; inset: 0; display: grid; place-items: center; color: var(--text-faint); font-size: 22px; }
+.prefab-fav { position: absolute; top: 3px; right: 3px; width: 24px; height: 24px; padding: 0; justify-content: center; font-size: 13px; line-height: 1; background: rgba(12, 10, 15, 0.7); border-color: transparent; color: var(--text-faint); opacity: 0; }
+.prefab-tile:hover .prefab-fav, .prefab-fav:focus-visible, .prefab-fav.on { opacity: 1; }
+.prefab-fav.on { color: var(--warn); }
+.prefab-fav:hover { color: var(--warn); background: rgba(12, 10, 15, 0.9); }
+.prefab-hint { padding: 7px 12px; border-top: 1px solid var(--line); min-height: 34px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: none; }
+.prefab-empty { padding: 24px 8px; align-items: center; gap: 10px; }
+.prefab-button .prefab-thumb { width: 22px; border-radius: 4px; }
+.catalog-prefabs { grid-template-columns: repeat(auto-fill, minmax(116px, 1fr)); gap: 10px; }
+.catalog-prefabs .prefab-label { font-size: 12px; }
+@media (pointer: coarse) { .prefab-fav { opacity: 1; } }
+@media (max-width: 900px), (max-height: 780px) { .prefab-browser { left: 62px; width: min(384px, calc(100% - 72px)); } }
+@media (max-width: 700px) {
+  /* Phones: a bottom sheet over the side panel; it closes once a piece is picked. */
+  .prefab-browser { position: fixed; left: 0; right: 0; top: auto; bottom: 0; width: auto; height: min(72vh, 620px); border-radius: 14px 14px 0 0; z-index: 40; }
+  .prefab-grid { grid-template-columns: repeat(auto-fill, minmax(76px, 1fr)); }
+  .catalog-prefabs { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); }
+}
 
 /* AI chat */
 .ai-chat { position: fixed; right: 16px; bottom: 16px; width: min(400px, calc(100vw - 32px)); max-height: min(70vh, 640px); display: flex; flex-direction: column; background: var(--bg-panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.45); z-index: 60; }

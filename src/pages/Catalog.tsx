@@ -1,11 +1,12 @@
 // The map catalog: every sample map, with its preview, size and what it holds.
 // New samples appear here as soon as they are added to the sample list.
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { SAMPLES, THEMES, THEME_INFO, hasCompact, type Sample, type SampleStats, type Theme } from '../lib/samples'
 import { startFromSample } from './sampleStart'
 import { Modal, toastError } from '../ui'
-import { ALL_PREFABS, PREFAB_CATEGORIES } from '../lib/prefabRegistry'
+import { prefabCategories, prefabEntries, searchPrefabs } from '../lib/prefabIndex'
+import { PrefabThumb } from '../editor/PrefabThumb'
 
 const NEW_DAYS = 30
 const isNew = (s: Sample) => !!s.added && Date.now() - Date.parse(s.added) < NEW_DAYS * 864e5
@@ -74,22 +75,37 @@ export default function Catalog() {
           </article>
         ))}
       </div>
-      <section className="col" style={{ gap: 8, marginTop: 24 }}>
-        <h2>Prefab pieces <span className="faint small">{Object.keys(ALL_PREFABS).length}</span></h2>
-        <p className="small muted">Ready-made pieces to build your own games with: in the editor, pick the <b>Shape</b> tool, choose a prefab from the <b>Prefabs…</b> list, and click the map. Each one is a single object you can move, turn, copy and repaint.</p>
-        <div className="prefab-groups">
-          {PREFAB_CATEGORIES.map((c) => {
-            const list = Object.values(ALL_PREFABS).filter((p) => p.category === c)
-            return (
-              <div key={c} className="card prefab-group">
-                <b>{c} <span className="faint small">{list.length}</span></b>
-                <div className="chips">{list.map((p) => <span key={p.label} className="chip" title={p.hint}>{p.label}</span>)}</div>
-              </div>
-            )
-          })}
-        </div>
-      </section>
+      <PrefabPieces />
       {progress && <Modal title="Building map"><div className="col"><div className="progress"><div /></div><span className="small muted">{progress}</span></div></Modal>}
     </div>
+  )
+}
+
+/** Every prefab, by category, with its picture (drawn in this browser the first time it is shown). */
+function PrefabPieces() {
+  const all = prefabEntries()
+  const cats = useMemo(() => prefabCategories(all), [all])
+  const [cat, setCat] = useState(cats[0])
+  const [query, setQuery] = useState('')
+  const shown = query.trim() ? searchPrefabs(all, query) : all.filter((e) => e.category === cat)
+  return (
+    <section className="col" style={{ gap: 8, marginTop: 24 }}>
+      <h2>Prefab pieces <span className="faint small">{all.length}</span></h2>
+      <p className="small muted">Ready-made pieces to build your own games with: in the editor, pick the <b>Shape</b> tool, open <b>Prefabs…</b>, and click a piece, then the map (or drag it onto the map). Each one is a single object you can move, turn, copy and repaint.</p>
+      <div className="row wrap">
+        <input type="search" placeholder="Search prefabs" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search prefabs" style={{ maxWidth: 240 }} />
+        {cats.map((c) => (
+          <button key={c} className={'sm' + (!query.trim() && cat === c ? ' on' : '')} onClick={() => { setCat(c); setQuery('') }}>{c} <span className="faint">{all.filter((e) => e.category === c).length}</span></button>
+        ))}
+      </div>
+      {query.trim() && <span className="small muted">{shown.length} found</span>}
+      <div className="prefab-grid catalog-prefabs">
+        {shown.map((e) => (
+          <div key={e.shape} className="prefab-tile" title={e.hint}>
+            <div className="prefab-pick"><PrefabThumb shape={e.shape} /><span className="prefab-label">{e.label}</span></div>
+          </div>
+        ))}
+      </div>
+    </section>
   )
 }
