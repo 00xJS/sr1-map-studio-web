@@ -36,6 +36,10 @@ export interface SceneItem {
   native_prop_original_name?: string
   /** Stock damage profile for a native object (a weight or breaking preset); unset = the mode's default. */
   native_profile?: string
+  /** Physics prop behaviour preset (see physicsProps.ts), collision shape and a lowered centre of mass. */
+  physics_preset?: string
+  physics_shape?: 'box' | 'sphere' | 'cylinder' | 'hull' | 'parts'
+  physics_bottom_heavy?: boolean
   /** Players can swim in it: exported as water (no collision, see-through, water surface). */
   swimmable_water?: boolean
   /** With swimmable_water: only these materials are the water (a prefab's water part); unset = the whole object. */

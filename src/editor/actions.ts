@@ -383,6 +383,7 @@ async function prefabItem(key: string, params: Record<string, number | string>, 
 export async function addPrefab(key: string, at: Vec3, groundY: number | null, o: { rot?: number; params?: Record<string, number | string> } = {}) {
   const def = ALL_PREFABS[key]
   if (!def) return
+  if ((def as { physicsSet?: boolean }).physicsSet) return (await import('./physicsActions')).addPhysicsSet(key, at, groundY, o.rot ?? 0)
   const { item, files } = await prefabItem(key, o.params ?? {}, [at[0], groundY ?? 0, at[2]], o.rot ?? 0)
   update('Add ' + def.label.toLowerCase(), (d) => {
     Object.assign(d.files, files)

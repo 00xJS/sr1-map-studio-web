@@ -21,6 +21,8 @@ import traceback
 from collections import Counter
 from pathlib import Path
 
+# First: raises the native-object budget before the exporter modules read it.
+import physics_props as physics
 import sr1_obj_core as v13
 import sr1_scene
 import sr1_cts
@@ -425,6 +427,7 @@ def _export(s, log):
     if wanted_profiles:
         placements = result.get('native_glass', {}).get('placements', [])
         features.set_profiles(chunk, {placements[j]['source']: name for j, name in wanted_profiles.items()}, log)
+    physics.apply_shapes(chunk, glass_items, result.get('native_glass', {}).get('placements', []), _parse, ws, mirror, log)
     rect = s.get('minimap_rect')
     if rect and opt('minimap_texture'):
         _write_minimap_region(out, base, [float(v) for v in rect], fixed_origin, ws, bool(s.get('mirror_x', True)), log)

@@ -620,7 +620,7 @@
   }
  },
  "limits": {
-  "max_native_objects": 32,
+  "max_native_objects": 96,
   "max_native_triangles": 4096,
   "min_native_axis": 0.01,
   "max_native_axis": 25.0,

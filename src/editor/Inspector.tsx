@@ -20,6 +20,7 @@ import { GAME_MODES, isCustomNative, isGlass, type Light, type Marker, type Scen
 import { ALL_PREFABS } from '../lib/prefabRegistry'
 import { prefabParams } from '../lib/prefabs'
 import { AMBIENCE_OPTIONS, ambienceHint, waterHint } from '../lib/mapFeatures'
+import { PhysicsPanel } from './PhysicsPanel'
 
 const TextureStudio = lazy(() => import('./TextureStudio').then((m) => ({ default: m.TextureStudio })))
 const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
@@ -236,6 +237,7 @@ function MultiInspector({ indices }: { indices: number[] }) {
         <span className="section-title">Picked</span>
         <span className="small muted">{[...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(', ')}</span>
       </div>
+      <PhysicsPanel indices={indices} />
     </>
   )
 }
@@ -288,6 +290,7 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
           </Check>
         </div>
       )}
+      <PhysicsPanel indices={[index]} />
       <MoreOptions tab="scene">More options: breakable, movable or explosive, exact position</MoreOptions>
     </>
   )

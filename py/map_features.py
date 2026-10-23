@@ -324,6 +324,14 @@ MOVABLE_PROFILES = {
     "Cardboard Box  0.5'x0.5'x0.5'1": 'Small cardboard box, 5 lb',
     "Cardboard Box  1'x1'x1'": 'Cardboard box, 15 lb',
     "Cardboard Box  4'x4'x4'": 'Big cardboard box, 200 lb',
+    # Physics-prop behaviours (see physics_props.py for their shapes).
+    'Tire': 'Rolls and bounces (tire), 10 lb',
+    'Red Ball': 'Very bouncy ball that cannot break, 4 lb',
+    'SoccerBall': 'Soccer ball, 5 lb',
+    "Iron Object 1'x1'x1'": 'Metal block, 10 lb',
+    'Trashcan': 'Trash can that cannot break, 50 lb',
+    'CableSpool': 'Heavy cable spool, 500 lb',
+    'Log Timber': 'Very heavy log that only cars and blasts move, 2000 lb',
 }
 BREAKING_PROFILES = {
     'Can': 'Breaks when shot (like a can), 7 lb',
@@ -351,7 +359,7 @@ def prepare_breakables(items):
         if it.get('native_prefab') == 'sr1_native_custom_mesh_glass_experiment' and it.get('native_breakable_kind') == 'wood' and not behaviour:
             it['native_prop_behavior'] = 'movable'
             wanted[j] = profile if profile in BREAKING_PROFILES else DEFAULT_BREAKING
-        elif behaviour == 'movable' and profile in MOVABLE_PROFILES and profile != 'Crate Small':
+        elif behaviour == 'movable' and (profile in MOVABLE_PROFILES or profile in BREAKING_PROFILES) and profile != 'Crate Small':
             wanted[j] = profile
         j += 1
     return wanted

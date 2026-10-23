@@ -44,6 +44,10 @@ drop-offs and lights already placed. Start one and change anything.
   and paste them, even into another map.
 - **Save your own pieces.** Built a street corner you like? Save it as *My prefab* and drop it into
   any map.
+- **Physics props.** Pick any object or model and make it a light crate, something heavy, a tire
+  that rolls, a bouncy ball, a propane tank that explodes or a prop that breaks. Its collision is
+  fitted to the model (box, ball, cylinder, wrapped or separate parts). Ready-made sets: a crate
+  tower, a tire ramp, a propane chain reaction and bowling pins.
 
 ![Changing a building's size and style](docs/screenshots/building.jpg)
 
@@ -53,6 +57,10 @@ Press **🚶 Walk** to drop into your map at player height, starting on a spawn.
 climb the stairs and ramps, and check every sight line before you export. Press **V** to see your
 player from behind. The **free camera** works like the desktop editor: hold the right mouse button
 to look around and fly with WASD.
+
+Physics props come alive while you walk: shoot them (click), blow them up (right-click or **G**),
+kick them (**F**) or walk into them, and **T** puts them back. It's a rough preview; the game uses
+its own physics.
 
 ![Walking through a map](docs/screenshots/walk.jpg)
 
