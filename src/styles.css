@@ -331,6 +331,16 @@ button.big { padding: 12px; font-size: 15px; }
 .ai-msg.error { color: var(--bad); }
 .ai-input { padding: 8px; border-top: 1px solid var(--line); gap: 6px; align-items: flex-end; }
 .ai-input textarea { flex: 1; resize: none; }
+.ai-thinking::after { content: ''; display: inline-block; width: 1.2em; animation: ai-dots 1.2s steps(4) infinite; overflow: hidden; vertical-align: bottom; }
+@keyframes ai-dots { from { width: 0 } to { width: 1.2em } }
+.ai-thought { max-height: 6.5em; overflow: hidden; font-style: italic; mask-image: linear-gradient(transparent, #000 40%); -webkit-mask-image: linear-gradient(transparent, #000 40%); }
+.ai-review { gap: 6px; margin-top: 4px; white-space: normal; }
+.ai-review-row { padding: 6px 8px; border-radius: 6px; border-left: 3px solid var(--line); background: var(--bg-panel); display: flex; flex-direction: column; gap: 4px; }
+.ai-review-row.good { border-left-color: var(--ok); }
+.ai-review-row.ok { border-left-color: var(--warn); }
+.ai-review-row.bad { border-left-color: var(--bad); }
+.describe-plan { gap: 8px; }
+.describe-plan ul { margin: 0; padding-left: 18px; }
 
 /* Walk-through */
 .walk-crosshair { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; pointer-events: none; z-index: 5; }
