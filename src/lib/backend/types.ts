@@ -122,4 +122,7 @@ export interface Backend {
   listReports(): Promise<HubReport[]>
   resolveReport(id: string, action: 'dismiss' | 'hide'): Promise<void>
   setHidden(mapId: string, hidden: boolean): Promise<void>
+
+  /** Supabase only: the signed-in session's token, for the play-link function. */
+  accessToken?(): Promise<string | null>
 }

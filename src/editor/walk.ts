@@ -112,6 +112,8 @@ export class Walker {
   private third = false
   private start: { at: Vec3; yaw: number }
   private off: (() => void)[] = []
+  /** Touch controls: stick position (x right, y forward, each -1..1), added to the keys. */
+  readonly stick = { x: 0, y: 0 }
   onState?: (s: WalkState) => void
 
   constructor(private host: WalkHost, at: Vec3, yawDeg: number, private onExit: () => void, body?: WalkBody | null) {
@@ -124,7 +126,8 @@ export class Walker {
       t.addEventListener(type, fn as EventListener, opts)
       this.off.push(() => t.removeEventListener(type, fn as EventListener, opts))
     }
-    on(host.canvas, 'click', () => { if (document.pointerLockElement !== host.canvas) void host.canvas.requestPointerLock() })
+    // Phones have no pointer lock (iOS Safari lacks the method): touch controls drive the walker there.
+    on(host.canvas, 'click', () => { if (document.pointerLockElement !== host.canvas) void host.canvas.requestPointerLock?.()?.catch?.(() => {}) })
     on(document, 'pointerlockchange', () => this.emit())
     on<MouseEvent>(document, 'mousemove', (e) => {
       if (document.pointerLockElement !== host.canvas) return
@@ -142,6 +145,21 @@ export class Walker {
     on<KeyboardEvent>(window, 'keyup', (e) => { this.keys.delete(e.key.toLowerCase()) }, { capture: true })
     on(window, 'blur', () => this.keys.clear())
   }
+
+  /** Turns the view by a drag, in pixels (touch look). */
+  look(dx: number, dy: number, speed = 0.005) {
+    this.yaw -= dx * speed
+    this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - dy * speed))
+  }
+
+  /** Holds or releases a key from an on-screen button (' ' jump, 'c' crouch, 'shift' run). */
+  press(key: string, down: boolean) {
+    if (down) this.keys.add(key); else this.keys.delete(key)
+    if (key === 'shift') this.emit()
+  }
+
+  /** Facing angle in radians (0 faces −Z, turning left is positive). */
+  get heading() { return this.yaw }
 
   /** Back to a spot, facing the marker way (yaw 0 faces −Z). */
   respawn(at: Vec3, yawDeg: number) {
@@ -244,7 +262,12 @@ export class Walker {
     if (k.has('s') || k.has('arrowdown')) want.sub(fwd)
     if (k.has('d') || k.has('arrowright')) want.add(right)
     if (k.has('a') || k.has('arrowleft')) want.sub(right)
-    const pace = this.crouched ? CROUCH_SPEED : k.has('shift') ? RUN : WALK
+    const keyed = want.lengthSq() > 0
+    const stick = keyed ? 0 : Math.min(1, Math.hypot(this.stick.x, this.stick.y))
+    if (stick > 0.05) want.addScaledVector(fwd, this.stick.y).addScaledVector(right, this.stick.x)
+    let pace = this.crouched ? CROUCH_SPEED : k.has('shift') ? RUN : WALK
+    // The stick walks slower when half pushed and runs when pushed all the way.
+    if (stick > 0.05) pace = !this.crouched && !k.has('shift') && stick > 0.9 ? RUN : pace * stick
     if (want.lengthSq()) this.moveFlat(want.normalize().multiplyScalar(pace * dt), height)
     this.pushOut()
 

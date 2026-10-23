@@ -11,6 +11,7 @@ const Hub = lazy(() => import('./pages/Hub'))
 const HubMap = lazy(() => import('./pages/HubMap'))
 const Account = lazy(() => import('./pages/Account'))
 const Catalog = lazy(() => import('./pages/Catalog'))
+const Play = lazy(() => import('./play/PlayPage'))
 
 export function Shell({ children }: { children: ReactNode }) {
   const user = useUser()
@@ -53,6 +54,9 @@ export default function App() {
       <Suspense fallback={<Loading />}>
         <Routes>
           <Route path="/editor/:id" element={<ErrorBoundary label="The editor hit an error"><Editor /></ErrorBoundary>} />
+          <Route path="/play" element={<ErrorBoundary label="Play mode hit an error"><Play /></ErrorBoundary>} />
+          <Route path="/play/s/:token" element={<ErrorBoundary label="Play mode hit an error"><Play /></ErrorBoundary>} />
+          <Route path="/play/:id" element={<ErrorBoundary label="Play mode hit an error"><Play /></ErrorBoundary>} />
           <Route path="/" element={<Shell><Home /></Shell>} />
           <Route path="/maps" element={<Shell><Catalog /></Shell>} />
           <Route path="/setup" element={<Shell><Setup /></Shell>} />

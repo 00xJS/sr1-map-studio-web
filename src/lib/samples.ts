@@ -8,6 +8,7 @@ import { compoundObj, shapeName, shapeObj, type Shape } from './shapes'
 import { KINDS, defaultParams, generate } from './procedural'
 import { pixelsToPng } from './images'
 import { storeFile } from './files'
+import { tagRecipe } from './recipes'
 import { ALL_MODES, GB, box, turn, type Part, type Sample, type Tex, type Theme } from './sampleKit'
 import { PAINTBALL } from './samplesPaintball'
 import { CYBER } from './samplesCyber'
@@ -218,12 +219,12 @@ function storedTexture(t: Tex) {
       if ('lib' in t) {
         const r = await fetch(`/textures/${t.lib}.jpg`)
         if (!r.ok) throw new Error(`Starter texture ${t.lib} could not be loaded.`)
-        const s = await storeFile(await r.blob(), `${t.lib}.jpg`)
+        const s = await storeFile(tagRecipe(await r.blob(), { lib: t.lib }), `${t.lib}.jpg`)
         return { vpath: s.vpath, surface: t.surface, ref: s.ref }
       }
       const size = texSize(t.gen)
       const params = { ...defaultParams(t.gen, size), ...t.tweak, size }
-      const s = await storeFile(await pixelsToPng(generate(params), size, `${t.gen}_${params.seed}.png`), `${t.gen}_${params.seed}.png`)
+      const s = await storeFile(tagRecipe(await pixelsToPng(generate(params), size, `${t.gen}_${params.seed}.png`), { gen: params }), `${t.gen}_${params.seed}.png`)
       return { vpath: s.vpath, surface: t.surface ?? KINDS[t.gen].surface, ref: s.ref }
     })()
     p.catch(() => texCache.delete(key))

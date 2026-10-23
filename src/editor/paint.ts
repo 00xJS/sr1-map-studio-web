@@ -6,6 +6,7 @@ import * as act from './actions'
 import { loadModel, textureUrl } from '../lib/assets'
 import { KINDS, defaultParams, generate, type TextureKind } from '../lib/procedural'
 import { pixelsToPng } from '../lib/images'
+import { tagRecipe } from '../lib/recipes'
 import { baseName, isCustomNative, isGlass } from '../lib/project'
 
 export interface LibraryEntry { id: string; name: string; surface: number; authors: string[]; source: string }
@@ -64,8 +65,8 @@ function swatchFile(s: Exclude<Swatch['source'], { kind: 'file' }>, key: string)
   let f = files.get(key)
   if (!f) {
     f = s.kind === 'library'
-      ? fetch(`/textures/${s.id}.jpg`).then((r) => r.blob()).then((b) => new File([b], `${s.id}.jpg`, { type: 'image/jpeg' }))
-      : pixelsToPng(generate(s.params), s.params.size, `${s.params.kind}_${s.params.seed}_${s.params.size}.png`)
+      ? fetch(`/textures/${s.id}.jpg`).then((r) => r.blob()).then((b) => tagRecipe(new File([b], `${s.id}.jpg`, { type: 'image/jpeg' }), { lib: s.id }))
+      : pixelsToPng(generate(s.params), s.params.size, `${s.params.kind}_${s.params.seed}_${s.params.size}.png`).then((f) => tagRecipe(f, { gen: s.params }))
     f.catch(() => files.delete(key))
     files.set(key, f)
   }

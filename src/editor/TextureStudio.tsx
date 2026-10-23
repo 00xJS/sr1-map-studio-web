@@ -8,6 +8,7 @@ import { Check, Field, FileButton, Modal, toastError, useBusy } from '../ui'
 import { catalogs } from '../lib/catalogs'
 import { flattenLighting, makeSeamless } from '../lib/images'
 import { KINDS, defaultParams, generate, type GenParams, type TextureKind } from '../lib/procedural'
+import { tagRecipe } from '../lib/recipes'
 
 type Tab = 'photo' | 'generate' | 'library'
 const SIZES = [256, 512, 1024, 2048]
@@ -189,7 +190,7 @@ function GenerateTab({ size, onPreview, make, onSurface }: TabProps & { size: nu
   useEffect(() => { onSurface(KINDS[p.kind].surface) }, [p.kind])
   useEffect(() => {
     const t = setTimeout(() => onPreview(toCanvas(generate({ ...p, size: 256 }), 256)), 40)
-    make.current = async () => canvasFile(toCanvas(generate({ ...p, size }), size), `${p.kind}_${p.seed}_${size}.png`)
+    make.current = async () => tagRecipe(await canvasFile(toCanvas(generate({ ...p, size }), size), `${p.kind}_${p.seed}_${size}.png`), { gen: { ...p, size } })
     return () => clearTimeout(t)
   }, [p, size])
   return (
@@ -236,7 +237,7 @@ function LibraryTab({ onPreview, make, onSurface }: TabProps & { onSurface: (n: 
     onSurface(t.surface)
     const blob = await (await fetch(`/textures/${t.id}.jpg`)).blob()
     onPreview(await createImageBitmap(blob))
-    make.current = async () => new File([blob], `${t.id}.jpg`, { type: 'image/jpeg' })
+    make.current = async () => tagRecipe(new File([blob], `${t.id}.jpg`, { type: 'image/jpeg' }), { lib: t.id })
   }
   return (
     <>

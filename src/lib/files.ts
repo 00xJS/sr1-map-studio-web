@@ -3,6 +3,7 @@
 import { db, sha256 } from './db'
 import { fileVPath, type FileRef } from './project'
 import { gameSignature } from './hubRules'
+import { recipeOf } from './recipes'
 
 export interface StoredFile { vpath: string; ref: FileRef }
 
@@ -11,7 +12,8 @@ export async function storeFile(data: Blob, name: string, origin: FileRef['origi
   if (!(await db.hasBlob(hash))) await db.putBlob(hash, data)
   const type = data.type || guessType(name)
   const gameData = await looksLikeGameFile(data, name)
-  return { vpath: fileVPath(hash, name), ref: { hash, size: data.size, name, type, origin: gameData ? 'game' : origin } }
+  const recipe = gameData ? undefined : recipeOf(data)
+  return { vpath: fileVPath(hash, name), ref: { hash, size: data.size, name, type, origin: gameData ? 'game' : origin, ...(recipe ? { recipe } : {}) } }
 }
 
 export function guessType(name: string): string {

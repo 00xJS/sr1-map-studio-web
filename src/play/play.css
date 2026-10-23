@@ -1,0 +1,51 @@
+/* Play mode (/play/...): full-screen map with a HUD, minimap and touch controls. */
+.play-page { position: fixed; inset: 0; background: var(--bg); overflow: hidden; touch-action: none; user-select: none; -webkit-user-select: none; }
+.play-canvas { position: absolute; inset: 0; }
+.play-screen { min-height: 100vh; min-height: 100dvh; display: flex; align-items: center; justify-content: center; padding: 16px; }
+.play-screen.overlay { position: absolute; inset: 0; min-height: 0; background: rgba(8, 6, 10, 0.55); z-index: 20; }
+.play-card { width: min(440px, 100%); max-height: calc(100dvh - 32px); overflow: auto; display: flex; flex-direction: column; gap: 12px; }
+.play-card h2 { margin: 0; }
+.play-run { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 10px 12px; text-align: left; width: 100%; }
+.play-run .small { opacity: 0.8; font-weight: normal; }
+.play-big-time { font-size: 44px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: 1px; }
+.play-screen .ok, .play-card .ok { color: var(--ok); }
+.play-card .bad { color: var(--bad); }
+
+.play-hud { position: absolute; left: 12px; top: 12px; z-index: 6; background: rgba(12, 11, 15, 0.78); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 12px; display: flex; flex-direction: column; gap: 3px; max-width: min(320px, calc(100% - 170px)); pointer-events: none; }
+.play-time { font-size: 26px; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1.1; }
+.play-inv { display: flex; flex-wrap: wrap; gap: 4px; }
+.play-minimap-wrap { position: absolute; right: 12px; top: 12px; z-index: 6; pointer-events: none; }
+.play-minimap { display: block; border-radius: 50%; border: 2px solid var(--line-strong); box-shadow: var(--shadow); }
+.play-feed { position: absolute; left: 50%; top: 18%; transform: translateX(-50%); z-index: 7; display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
+.play-feed-item { padding: 6px 14px; border-radius: 99px; font-weight: 700; background: rgba(12, 11, 15, 0.85); border: 1px solid var(--line-strong); animation: play-pop 0.25s ease-out; white-space: nowrap; }
+.play-feed-item.gold { color: #ffd77a; border-color: #8a6a1c; }
+.play-feed-item.pink { color: var(--accent-text); border-color: var(--accent); }
+.play-feed-item.ok { color: var(--ok); }
+@keyframes play-pop { from { transform: scale(0.8); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+.play-hint { position: absolute; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 6; background: rgba(12, 11, 15, 0.82); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px 14px; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; pointer-events: none; width: max-content; max-width: calc(100% - 32px); }
+.play-menu-btn { position: absolute; right: 12px; bottom: 12px; z-index: 6; }
+
+/* Touch: left half moves, right half looks, round buttons bottom right. */
+.play-touch { position: absolute; inset: 0; z-index: 5; }
+.play-touch-move, .play-touch-look { position: absolute; top: 30%; bottom: 0; touch-action: none; }
+.play-touch-move { left: 0; width: 45%; }
+.play-touch-look { right: 0; width: 55%; top: 0; }
+.play-touch-hint { position: absolute; bottom: 22px; left: 24px; font-size: 12px; color: rgba(255, 255, 255, 0.45); pointer-events: none; }
+.play-touch-look .play-touch-hint { left: auto; right: 24px; bottom: 200px; }
+.play-stick { position: fixed; width: 112px; height: 112px; margin: -56px 0 0 -56px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35); background: rgba(12, 11, 15, 0.25); pointer-events: none; }
+.play-stick > div { position: absolute; left: 50%; top: 50%; width: 48px; height: 48px; margin: -24px 0 0 -24px; border-radius: 50%; background: rgba(255, 66, 191, 0.65); }
+.play-touch-buttons { position: absolute; right: 14px; bottom: 18px; display: grid; grid-template-columns: repeat(2, auto); gap: 10px; align-items: end; justify-items: center; }
+.play-round { width: 54px; height: 54px; border-radius: 50%; padding: 0; justify-content: center; font-size: 20px; background: rgba(20, 16, 23, 0.78); touch-action: none; }
+.play-round.big { width: 72px; height: 72px; font-size: 26px; }
+.play-round.on { background: var(--accent-soft); border-color: var(--accent); }
+
+@media (max-width: 600px) {
+  .play-hud { left: 8px; top: 8px; padding: 6px 10px; max-width: calc(100% - 140px); }
+  .play-time { font-size: 20px; }
+  .play-minimap-wrap { right: 8px; top: 8px; }
+}
+
+/* Share dialog */
+.share-link { display: flex; gap: 6px; }
+.share-link input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; }
+.share-issues { margin: 0; padding-left: 18px; max-height: 160px; overflow: auto; }

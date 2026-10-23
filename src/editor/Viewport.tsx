@@ -85,8 +85,10 @@ const SPAWNS = ['Shared spawn', 'Red team spawn', 'Blue team spawn']
 
 type CharState = { kind: 'idle' | 'loading' | 'on' | 'off' | 'error'; text?: string; folder?: string }
 
-/** Third person with the user's own Saints Row player, read from their game folder in the browser (nothing is uploaded). */
-function MyCharacter() {
+/** Third person with the user's own Saints Row player, read from their game folder in the browser (nothing is uploaded).
+ *  `viewer`: the viewer to put the character in (default: the editor's). */
+export function MyCharacter({ viewer }: { viewer?: () => Viewer | null } = {}) {
+  const target = () => viewer?.() ?? active
   const [st, setSt] = useState<CharState>({ kind: 'idle' })
   const input = useRef<HTMLInputElement | null>(null)
   const run = async (p: Promise<PlayerModel | null>) => {
@@ -94,7 +96,7 @@ function MyCharacter() {
     try {
       const m = await p
       if (!m) { setSt((s) => ({ kind: 'idle', folder: s.folder })); return }
-      active?.setWalkBody(m)
+      target()?.setWalkBody(m)
       setSt({ kind: 'on', text: m.summary })
     } catch (e) {
       setSt((s) => ({ kind: 'error', text: (e as Error).message, folder: s.folder }))
@@ -122,7 +124,7 @@ function MyCharacter() {
   }
   const standIn = (e: ReactMouseEvent<HTMLButtonElement>) => {
     e.currentTarget.blur()
-    active?.setWalkBody(null)
+    target()?.setWalkBody(null)
     setSt({ kind: 'off' })
   }
   const picked = (files: FileList | null) => {

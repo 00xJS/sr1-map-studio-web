@@ -391,6 +391,15 @@ export class Viewer {
   /** Moves the walker to another spot without leaving the walk. */
   walkTo(at: Vec3, yaw: number) { this.walker?.respawn(at, yaw) }
 
+  /** The running walk (position, touch input), or null. */
+  get walk(): Walker | null { return this.walker }
+
+  /** Resolves once every object's model has loaded or failed (start a walk after it, so all of them are solid). */
+  async whenLoaded() {
+    await Promise.allSettled([...this.geos.values()])
+    await new Promise((r) => setTimeout(r, 0)) // the meshes attach in the models' own handlers
+  }
+
   stopWalk() {
     if (!this.walker) return
     this.walker.dispose()
