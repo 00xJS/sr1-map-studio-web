@@ -1,97 +1,78 @@
-# SR1 Map Studio (web)
+# SR1 Map Studio
 
-A browser version of **SR1 Map Studio v1.13**, the Saints Row 1 / Saints Reborn map editor, with
-cloud saves and a community hub. The original Python exporter runs unmodified inside the browser
-through [Pyodide](https://pyodide.org); the editor interface is rebuilt with React and three.js.
+**Build Saints Row 1 multiplayer maps in your browser, then play them in Saints Reborn.**
 
-- **Phase 1, editor:** import OBJ (+MTL, textures), GLB, glTF or FBX; move/rotate/scale with gizmos,
-  pivots, undo/redo and autosave; textures, alpha and surface types; spawns, weapons, vehicles,
-  triggers and NPC markers; point lights; breakable glass and wood; movable and explosive props;
-  the collision face editor; importing a map from your own game files; export to a folder you
-  drop into `SaintsReborn/dist/maps`, with Gangsta Brawl, Big Ass Chains (team and solo) and
-  Protect Tha Pimp entries (PTP gets its own `<map>_ptp.cts`), stable level IDs and an optional
-  random time and weather.
-- **Building and textures:** block-out shapes (floor, wall, box, platform, ramp, stairs, pillar)
-  with world-scaled texture mapping; grid and angle snapping; a texture studio (photo or camera,
-  a generator of 11 tiling materials, a starter library of 29 CC0 textures) that also sets the
-  physical surface; "Install to game" writes exports straight into `SaintsReborn/dist/maps`
-  (Chrome/Edge).
-- **Start with nothing:** 57 sample maps in four themes (5 starters, 27 urban, 13 urban paintball,
-  12 cyber), listed on the **Map catalog** page (`/maps`), built in the browser from shapes and free
-  textures. Every map builds at retail multiplayer size (about 70-120 m across, for 8-12 players):
-  compact designs are spread ×2 (`sampleScale.ts`) and given extra cover, then filled with 20+
-  spawns, ~22 scattered weapons, 4 drop-offs and lights (`samplePopulate.ts`). Layouts live in
-  `src/lib/samples*.ts`; the previews in `public/samples` are rendered by the editor itself.
-  A detail pass (`sampleDetail.ts`) turns building blocks into generated buildings (storefront,
-  windows by floor, ledges, cornice, parapet, water tanks, AC units, fire escapes) and plain boxes
-  into prefab cars, buses, benches and dumpsters (`prefabs.ts`). Each prefab exports as one
-  object with several materials. Prefabs are also in the editor's Shape tool;
-  a Paint-style tool strip (select/rotate/scale, shape, paint bucket, eyedropper, spawn, weapon,
-  light, eraser) with a texture palette.
-- **Simple and Advanced modes:** Simple (the default) has one side panel that shows whatever is
-  selected, or a "ready to play" checklist when nothing is; a first-run tour; camera buttons; and
-  one Play button that checks, names, builds and installs the map. Advanced keeps every setting in
-  tabs.
-- **Phase 2, accounts:** sign in, save projects to the cloud and open them on another device.
-- **Phase 3, hub:** publish projects, browse/search/sort, like, remix, report and moderate.
+### ▶ [sr1-mapstudio.netlify.app](https://sr1-mapstudio.netlify.app)
 
-## Game data policy
+Nothing to install. Open the site, start a map, press **Play**.
 
-The site never hosts or uploads Saints Row files.
+![The editor with Downtown Crossroads open](docs/screenshots/editor.jpg)
 
-- The exporter needs reference files (Beaver Creek template, glass/prop prefabs, sky presets, CTS
-  templates). Each user loads them once from their own copy of the SR1 Map Studio package on the
-  **Data pack** page; they're checked against the package's SHA-256 list and stored only in the browser.
-- Files that come from a game install (CTS templates, BBCity donors, maps imported from the game)
-  are marked `origin: 'game'`. They stay on the device: they're never uploaded to cloud saves, and a
-  project that uses them can't be published.
-- The hub shares projects (your meshes, textures, markers, lights, settings), never exported maps.
-  The publish function re-checks every stored file and rejects Saints Row formats.
+## Start a map in seconds
 
-## Develop
+**Map wizard.** Pick a setting (Downtown, Industrial, Paintball or Cyber), a layout (city blocks,
+a big plaza, three lanes, a ring arena or high ground), how many players and how busy you want it.
+You see the map from above before you build it. Don't like it? Press **Reroll** for a new one.
+Every map comes out fair: both teams get the same layout, turned around.
 
-```sh
-npm install
-npm run dev
-```
+![The map wizard](docs/screenshots/wizard.jpg)
 
-`npm run dev` bundles the Python (`studio-py/` + `py/`) into `public/py/studio.zip` and starts Vite.
-Set `VITE_BACKEND=local` in `.env.development.local` to try accounts, cloud saves and the hub against a
-simulated server in IndexedDB. `npm test` runs the hub-rule tests; `npm run build` type-checks and builds.
+**Map catalog.** 57 ready-made maps across four themes: city streets, parks, docks, train
+yards, paintball fields, neon arenas and more. Each one is sized like the retail Gangsta Brawl and
+Big Ass Chains maps (8–12 players), with plenty of spawns, weapons scattered everywhere, chains
+drop-offs and lights already placed. Start one and change anything.
 
-Deploying with Supabase and Netlify: see [docs/DEPLOY.md](docs/DEPLOY.md).
+![The map catalog](docs/screenshots/catalog.jpg)
 
-## Layout
+## Build it your way
 
-| Path | What it is |
-| --- | --- |
-| `studio-py/` | The desktop package's Python modules, **unmodified** (Qt UI and tests excluded). |
-| `py/web_api.py` | Bridge: repeats what the desktop `MainWindow` did around each exporter call, without Qt. |
-| `py/fast_dxt.py` | Vectorized texture compression, byte-identical to the original and about 20× faster (`py -3 tests/fast_dxt_check.py`). |
-| `src/lib/py.worker.ts`, `py.ts` | Pyodide worker and its client. |
-| `src/lib/geometry.ts` | JS port of the OBJ parser and scene transforms (must match the Python face order). |
-| `src/editor/` | Editor UI, three.js viewer, actions, undo/redo store. |
-| `src/lib/backend/` | Account/hub API: `supabase.ts` (production), `local.ts` (simulated). |
-| `src/lib/hubRules.ts` | Publish rules shared by the browser and `netlify/functions/publish.mts`. |
-| `supabase/migrations/` | Database schema, row-level security and storage policies. |
+- **Click to place.** Floors, walls, ramps, stairs, pillars and roofs, or 90+ ready-made pieces:
+  buildings, cars, trees, street lamps, bus stops, paintball bunkers, containers, forklifts,
+  neon pillars, jump pads and more.
+- **Change any piece after placing it.** Make a building taller, switch it from shops to offices,
+  repaint a car. It rebuilds in place.
+- **Paint with real textures.** Brick, concrete, asphalt, metal, grass, neon grids, or a photo
+  you take with your phone.
+- **Pick several things at once** (Shift+click), move and turn them together, group them, copy
+  and paste them, even into another map.
+- **Save your own pieces.** Built a street corner you like? Save it as *My prefab* and drop it into
+  any map.
 
-Project files keep the desktop scene-item schema, so the original Python reads them unchanged.
-Desktop `.sr1map.json` projects can be imported from the home page together with their files.
+![Changing a building's size and style](docs/screenshots/building.jpg)
 
-## Updating the exporter
+## Just say what you want
 
-Copy the new desktop version's Python modules into `studio-py/`, then run
-`py -3 scripts/dump-catalogs.py` to refresh the marker/weapon/vehicle catalogs, and check
-`src/lib/datapack-manifest.json` against the new `PACKAGE_MANIFEST.json`.
+The **map assistant** lets you describe changes in plain words: *"add more cover in the middle"*,
+*"put two sniper rifles up high"*, *"is this map fair for both teams?"*. It makes the edits for you,
+and one click undoes them. It runs on NVIDIA's free AI models with your own free key from
+[build.nvidia.com](https://build.nvidia.com).
 
-## Verified
+![The map assistant](docs/screenshots/assistant.jpg)
 
-- The exporter self-test passes in the browser.
-- An export from the editor is byte-identical to the same project exported by desktop Python (all six
-  map files: BBChunk, PEG, BBCity, HMAP, PVSV, CTS).
-- Not yet tested: loading exported maps in the game, and the Supabase backend against a real project.
+## Ready to play
 
-## License
+A checklist on the side tells you what the map still needs: ground to stand on, spawns, weapons,
+everything each game mode needs. When it's all green, press **Play**. Your map gets its own
+minimap, drawn from above, and goes straight into your Saints Reborn maps folder in Chrome or Edge (or download it as
+a zip to share).
 
-GPL-3.0-or-later (see `LICENSE`), like SR1 Map Studio and the Saints Reborn Map Converter by
-whompay that its map-format code is ported from (`studio-py/SOURCE_ATTRIBUTION.md`).
+Every map supports **Gangsta Brawl**, **Team Gangsta Brawl**, **Big Ass Chains**, **Team Big Ass
+Chains** and **Protect Tha Pimp**.
+
+![Putting the map in the game](docs/screenshots/play.jpg)
+
+## Good to know
+
+- **One-time setup.** Building a map needs the template files from your own copy of the SR1 Map
+  Studio package. The site walks you through loading them once; they stay in your browser.
+- **Your game files never leave your computer.** The site never hosts or uploads Saints Row files.
+- **Your maps save automatically** in your browser. Sign in to keep them in the cloud and open them
+  on another device.
+- **Bring your own models.** Import OBJ, GLB, glTF or FBX from Blender or any 3D app.
+- **Simple or Advanced.** Simple mode keeps things easy; Advanced shows every setting (glass and
+  breakables, movable props, collision, sky, weather and more).
+
+---
+
+Based on SR1 Map Studio and the Saints Reborn Map Converter by whompay. Free and open source under
+GPL-3.0-or-later. Working on the code? See [docs/DEVELOPING.md](docs/DEVELOPING.md).

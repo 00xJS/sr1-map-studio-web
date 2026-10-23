@@ -2,6 +2,7 @@
 // textures, spawns for every mode, weapons and lights. Built in the browser
 // from these descriptions, so they need no downloads or game files.
 // Coordinates are editor units (the default world scale of 0.5 halves them in game).
+import { ALL_PREFABS } from './prefabRegistry'
 import { newLight, newMarker, newProject, uid, type FileRef, type Light, type Marker, type Project, type SceneItem, type Vec3 } from './project'
 import { compoundObj, shapeName, shapeObj, type Shape } from './shapes'
 import { KINDS, defaultParams, generate } from './procedural'
@@ -286,7 +287,7 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
       textures[name] = tx.vpath; alpha[name] = false; surface_ids[name] = tx.surface
     }
     items.push({
-      uid: uid(), name: unit[0].group!.split('@')[0].replace(/[~|]+$/, ''), path: stored.vpath, source_path: stored.vpath,
+      uid: uid(), name: (unit[0].prefab && ALL_PREFABS[unit[0].prefab.key]?.label) || unit[0].group!.split('@')[0].replace(/[~|]+$/, ''), path: stored.vpath, source_path: stored.vpath,
       position: origin, rotation: [0, turnBy, 0], scale: 1, textures, alpha, surface_ids, physics_intent: 'Static',
       ...(tag ? { prefab: { key: tag.key, params: tag.params, defaults: { ...textures } } } : {}),
     })
