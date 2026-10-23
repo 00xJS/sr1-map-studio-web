@@ -6,12 +6,31 @@ import { SamplePicker } from './SamplePicker'
 import { queueEdits, type PendingEdits } from '../lib/pendingEdits'
 import { dataPackStatus, type DataPackStatus } from '../lib/datapack'
 import { downloadBlob } from '../lib/exporter'
-import { accountsEnabled, hubEnabled } from '../lib/backend'
-import { FileButton, confirmDialog, infoDialog, timeAgo, toastError, useBusy } from '../ui'
+import { accountsEnabled, hubEnabled, useBackend, type HubMapMeta } from '../lib/backend'
+import { SAMPLES, type Sample } from '../lib/samples'
+import { startFromSample } from './sampleStart'
+import { FileButton, Modal, confirmDialog, infoDialog, timeAgo, toastError, useBusy } from '../ui'
+import './home.css'
 
 const CloudSection = lazy(() => import('./CloudSection').then((m) => ({ default: m.CloudSection })))
+const HeroReel = lazy(() => import('./HeroReel'))
 
 type Meta = Omit<ProjectRecord, 'project'>
+
+/** Maps the hero circles, one a day: ones that build in a second or two. */
+const REEL = ['pb_speedball', 'cy_grid', 'rooftops', 'arena'].filter((id) => SAMPLES.some((s) => s.id === id))
+const reelSample = () => SAMPLES.find((s) => s.id === REEL[Math.floor(Date.now() / 864e5) % REEL.length]) ?? SAMPLES[0]
+
+/** Catalog picks for the home page: the newest first, then one of each theme. */
+function catalogPicks(n: number): Sample[] {
+  const byNew = [...SAMPLES].filter((s) => s.added).sort((a, b) => (b.added ?? '').localeCompare(a.added ?? ''))
+  const out: Sample[] = []
+  const add = (s?: Sample) => { if (s && !out.includes(s) && out.length < n) out.push(s) }
+  byNew.slice(0, 2).forEach(add)
+  for (const theme of ['Urban', 'Urban paintball', 'Cyber', 'Starter']) add(SAMPLES.find((s) => s.theme === theme && !out.includes(s)))
+  SAMPLES.forEach(add)
+  return out
+}
 
 function Thumb({ blob }: { blob?: Blob }) {
   const [url, setUrl] = useState<string>()
@@ -24,20 +43,47 @@ function Thumb({ blob }: { blob?: Blob }) {
   return <div className="thumb">{url ? <img src={url} alt="" /> : <span>No preview yet</span>}</div>
 }
 
+/** This week's Showcase pick, when the site has a Showcase. */
+function ShowcaseTeaser() {
+  const b = useBackend()
+  const [m, setM] = useState<HubMapMeta | null>(null)
+  useEffect(() => { b?.mapOfWeek().then(setM, () => {}) }, [b])
+  if (!m) return null
+  return (
+    <Link to={`/showcase/${m.id}`} className="teaser card">
+      <div className="pic">{m.thumbnail_url && <img src={m.thumbnail_url} alt="" />}</div>
+      <div className="col" style={{ gap: 4 }}>
+        <span className="section-title">Showcase · map of the week</span>
+        <b>{m.title}</b>
+        <span className="small muted">by {m.author.name}{m.ratings ? ` · ★ ${m.rating.toFixed(1)}` : ''}</span>
+      </div>
+    </Link>
+  )
+}
+
 export default function Home() {
   const nav = useNavigate()
   const [projects, setProjects] = useState<Meta[] | null>(null)
   const [pack, setPack] = useState<DataPackStatus | null>(null)
   const [run, busy] = useBusy()
-  const [picking, setPicking] = useState(false)
+  const [picking, setPicking] = useState<null | 'first' | 'any'>(null)
+  const [progress, setProgress] = useState<string | null>(null)
+  const [reel] = useState(reelSample)
+  const [live, setLive] = useState(false)
   const refresh = () => db.listProjects().then(setProjects)
   useEffect(() => { refresh(); dataPackStatus().then(setPack) }, [])
 
-  const open = async (p: Project, edits?: PendingEdits) => {
+  const open = async (p: Project, edits?: PendingEdits, first = false) => {
     await db.putProject({ id: p.id, name: p.name, updated_at: p.updated_at, project: p })
     if (edits) queueEdits(p.id, edits)
     void requestPersistence()
-    nav('/editor/' + p.id)
+    nav('/editor/' + p.id + (first ? '?first=1' : ''))
+  }
+
+  const start = async (s: Sample) => {
+    setProgress(`Building ${s.name}…`)
+    try { nav('/editor/' + (await startFromSample(s.id, false, (t) => setProgress(`${s.name}: ${t}`)))) }
+    catch (e) { toastError(e); setProgress(null) }
   }
 
   const duplicate = (id: string) => run(async () => {
@@ -79,32 +125,82 @@ export default function Home() {
   })
 
   return (
-    <div className="page">
-      <section className="hero">
-        <h1>Build <b>Saints Row 1</b> maps in your browser</h1>
-        <p>Import your models, place spawns, glass, props and lights, then export a ready-to-install map for Saints Reborn. Your work saves automatically in this browser{accountsEnabled ? ', and you can sync it to your account' : ''}{hubEnabled ? ' and share it on the hub' : ''}. To pass a map to someone, use <b>Backup</b> and they open it with <b>Import project…</b>.</p>
-        <div className="row wrap">
-          <button className="primary" onClick={() => setPicking(true)}>+ New map</button>
-          <FileButton multiple accept=".zip,.json,.obj,.mtl,.glb,.gltf,.fbx,.png,.jpg,.jpeg,.tga,.bmp,.dds" onFiles={importFiles} disabled={busy}
-            title="A .sr1map.zip backup, or a desktop .sr1map.json selected together with its models and textures">Import project…</FileButton>
-          <FileButton directory onFiles={importFiles} disabled={busy} title="Pick the folder that holds a desktop .sr1map.json and its files">Import desktop project folder…</FileButton>
+    <div className="page home">
+      <section className="home-hero">
+        <div className="home-hero-text">
+          <span className="section-title">Saints Row 1 multiplayer map editor</span>
+          <h1>Build <b>Saints Row 1</b> maps in your browser</h1>
+          <p>Generate a map in seconds, walk it at player height, then press Play to drop it into your game. Free and open source, and there's nothing to install.</p>
+          <div className="row wrap">
+            <button className="primary big" onClick={() => setPicking('first')}>Make your first map</button>
+            <Link to="/maps" className="btn big">Browse {SAMPLES.length} sample maps</Link>
+          </div>
+          <span className="small faint">Your maps save in this browser{accountsEnabled ? ', and you can sync them to your account' : ''}.</span>
+        </div>
+        <div className={'home-reel' + (live ? ' live' : '')}>
+          <img src={`/samples/${reel.id}.webp`} alt={`${reel.name}, a sample map`} />
+          <Suspense fallback={null}><HeroReel sampleId={reel.id} onReady={() => setLive(true)} /></Suspense>
+          <span className="reel-label">{live ? '● Live' : 'Sample map'} · {reel.name}</span>
         </div>
       </section>
+
+      <section className="first-map" aria-labelledby="first-map-title">
+        <div className="row between wrap">
+          <h2 id="first-map-title">Your first map in 60 seconds</h2>
+          <button className="primary" onClick={() => setPicking('first')}>Start now</button>
+        </div>
+        <ol className="path">
+          <li>
+            <span className="step-num">1</span>
+            <div className="col"><b>Generate <span className="faint small">· 15 s</span></b><span className="small muted">The map wizard: pick a setting, a layout and how many players, reroll until you like it.</span></div>
+          </li>
+          <li>
+            <span className="step-num">2</span>
+            <div className="col"><b>Walk it <span className="faint small">· 30 s</span></b><span className="small muted">Press <b>🚶 Walk</b> and run, jump and crouch through it at player height, spawn to spawn.</span></div>
+          </li>
+          <li>
+            <span className="step-num">3</span>
+            <div className="col"><b>Play <span className="faint small">· 15 s</span></b><span className="small muted">Press <b>▶ Play</b>: the map is built in your browser and installed into Saints Reborn.</span></div>
+          </li>
+        </ol>
+      </section>
+
+      <section className="col">
+        <div className="row between wrap"><h2>Start from a sample map</h2><Link to="/maps" className="small">All {SAMPLES.length} maps in the catalog →</Link></div>
+        <div className="home-catalog">
+          {catalogPicks(6).map((s) => (
+            <button key={s.id} className="catalog-tile" disabled={!!progress} onClick={() => start(s)} title={s.description}>
+              <div className="pic"><img src={`/samples/${s.id}.webp`} alt="" loading="lazy" /><span className="chip">{s.theme}</span></div>
+              <div className="txt"><b>{s.name}</b><span className="small muted">{s.description}</span></div>
+            </button>
+          ))}
+        </div>
+      </section>
+
+      {hubEnabled && <ShowcaseTeaser />}
 
       {pack && !pack.ready && (
         <div className="callout warn">
           <div className="col grow">
-            <b>One-time setup: load your data pack</b>
-            <span className="small">Exporting needs the map template and prefabs from your own copy of the SR1 Map Studio package. It stays in this browser and is never uploaded. You can edit maps without it.</span>
+            <b>One-time setup before you export: load your data pack</b>
+            <span className="small">Exporting needs the map template and prefabs from your own copy of the SR1 Map Studio package. It stays in this browser and is never uploaded. You can build and walk maps without it.</span>
           </div>
           <Link to="/setup" className="btn">Set up</Link>
         </div>
       )}
 
       <section className="col">
-        <div className="row between"><h2>My maps</h2><span className="faint small">Saved in this browser</span></div>
+        <div className="row between wrap">
+          <h2>My maps</h2>
+          <div className="row wrap">
+            <button className="sm" onClick={() => setPicking('any')}>+ New map</button>
+            <FileButton className="sm" multiple accept=".zip,.json,.obj,.mtl,.glb,.gltf,.fbx,.png,.jpg,.jpeg,.tga,.bmp,.dds" onFiles={importFiles} disabled={busy}
+              title="A .sr1map.zip backup, or a desktop .sr1map.json selected together with its models and textures">Import project…</FileButton>
+            <FileButton className="sm" directory onFiles={importFiles} disabled={busy} title="Pick the folder that holds a desktop .sr1map.json and its files">Import desktop folder…</FileButton>
+          </div>
+        </div>
         {projects === null ? <p className="muted">Loading…</p> : projects.length === 0 ? (
-          <div className="card"><p className="muted">No maps yet. Press <b>+ New map</b> to start from a sample or a blank map, or import a desktop SR1 Map Studio project.</p></div>
+          <div className="card"><p className="muted">No maps yet. Make one above, or import a desktop SR1 Map Studio project. Maps are saved in this browser; to pass one to someone, use <b>Backup</b> and they open it with <b>Import project…</b>.</p></div>
         ) : (
           <div className="grid-cards">
             {projects.map((m) => (
@@ -126,15 +222,19 @@ export default function Home() {
         )}
       </section>
 
-      {picking && <SamplePicker onClose={() => setPicking(false)} onBuilt={open} onBlank={() => open(newProject()).catch(toastError)} />}
-
       {accountsEnabled && <Suspense fallback={null}><CloudSection /></Suspense>}
 
-      <section className="steps">
-        <div className="card"><div className="row"><span className="step-num">1</span><h3>Import</h3></div><p className="muted small">Your own 3D models as OBJ (with its MTL and textures), GLB, glTF or FBX, exported from Blender or another 3D app, or downloaded from a model site. Or start from a map installed in <code>SaintsReborn/dist/maps</code>. Nothing else to install.</p></div>
-        <div className="card"><div className="row"><span className="step-num">2</span><h3>Build</h3></div><p className="muted small">Move, rotate and scale objects; set textures and surfaces; place spawns, weapons, vehicles, glass, props and lights.</p></div>
-        <div className="card"><div className="row"><span className="step-num">3</span><h3>Export</h3></div><p className="muted small">The original SR1 Map Studio exporter runs in your browser and gives you a folder to drop into <code>SaintsReborn/dist/maps</code>.</p></div>
+      <section className="col">
+        <h2>Bring your own models</h2>
+        <div className="steps">
+          <div className="card"><div className="row"><span className="step-num">1</span><h3>Import</h3></div><p className="muted small">Your own 3D models as OBJ (with its MTL and textures), GLB, glTF or FBX, exported from Blender or another 3D app. Or start from a map installed in <code>SaintsReborn/dist/maps</code>.</p></div>
+          <div className="card"><div className="row"><span className="step-num">2</span><h3>Build</h3></div><p className="muted small">Move, rotate and scale objects; set textures and surfaces; place spawns, weapons, vehicles, glass, props and lights.</p></div>
+          <div className="card"><div className="row"><span className="step-num">3</span><h3>Export</h3></div><p className="muted small">The original SR1 Map Studio exporter runs in your browser and gives you a folder to drop into <code>SaintsReborn/dist/maps</code>.</p></div>
+        </div>
       </section>
+
+      {picking && <SamplePicker onClose={() => setPicking(null)} onBuilt={(p, edits) => open(p, edits, picking === 'first')} onBlank={() => open(newProject()).catch(toastError)} />}
+      {progress && <Modal title="Building map"><div className="col"><div className="progress"><div /></div><span className="small muted">{progress}</span></div></Modal>}
     </div>
   )
 }

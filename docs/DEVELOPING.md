@@ -10,8 +10,8 @@ npm run dev
 ```
 
 `npm run dev` bundles the Python (`studio-py/` + `py/`) into `public/py/studio.zip` and starts Vite.
-Set `VITE_BACKEND=local` in `.env.development.local` to try accounts, cloud saves and the hub against a
-simulated server in IndexedDB. `npm test` runs the hub-rule tests; `npm run build` type-checks and builds.
+Set `VITE_BACKEND=local` in `.env.development.local` to try accounts, cloud saves and the Showcase against a
+simulated server in IndexedDB. `npm test` runs the tests (Showcase rules in `tests/showcase.test.ts`); `npm run build` type-checks and builds.
 
 Deploying with Supabase and Netlify: see [docs/DEPLOY.md](docs/DEPLOY.md).
 

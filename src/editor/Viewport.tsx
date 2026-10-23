@@ -20,6 +20,8 @@ let active: Viewer | null = null
 export const getViewer = () => active
 
 const TAB_FOR = { item: 'scene', marker: 'spawns', light: 'lights' } as const
+/** Touch screen without a mouse (tablets, phones). */
+const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
 
 /** With Snap on, click-placed things land on the grid. */
 function snapped(p: Vec3): Vec3 {
@@ -331,7 +333,8 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
       <CameraPad />
       <div className="viewport-hint">{freeCam
         ? 'Free camera: hold right mouse to look · WASD fly · Q/E down/up · Shift faster · Wheel: speed'
-        : 'Left-drag: spin · Right-drag: slide · Scroll: zoom · WASD fly · Esc: back to Move'}</div>
+        : coarse ? 'One finger: spin · Pinch: zoom · Two fingers: slide · Tap: select'
+        : 'Left-drag: spin · Right-drag: slide · Scroll: zoom · WASD fly · Esc: back to Move · ?: all shortcuts'}</div>
       </>}
     </div>
   )

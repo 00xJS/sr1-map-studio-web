@@ -2,6 +2,7 @@
 // Pure module: no DOM, IndexedDB or Node APIs. The client runs these checks
 // for good UX; the server runs them again on the stored bytes.
 import { baseName, isDataPackPath, normalizeProject, referencedPaths, type FileRef, type Project } from './project'
+import { cleanRecipe, recipeProblem } from './recipes'
 
 // ---------------- Saints Row game data ----------------
 
@@ -307,4 +308,112 @@ export async function preparePublish(
   }
   if (JSON.stringify(snapshot).length > MAX_SNAPSHOT_CHARS) problems.push('The project data is too large to publish (over 5 MB of scene data).')
   return { problems, snapshot, manifest, meta: clean }
+}
+
+// ---------------- Showcase ----------------
+//
+// The public Showcase only takes maps built from what the site makes itself:
+// starter-library textures (CC0), generated textures, block-out shapes and
+// prefabs. Each of those files carries a recipe (recipes.ts), and the Showcase
+// stores the recipes, never the files, so nobody's uploads go public. The only
+// images it stores are the author's own in-game screenshots and a thumbnail.
+
+export const MAX_SHOTS = 6
+
+/** Starter-library texture ids from public/textures/index.json. */
+export const libraryIdsFrom = (index: { textures?: { id: string }[] }) => new Set((index.textures ?? []).map((t) => t.id))
+
+const ITEM_FILE_KEYS = ['path', 'native_mesh_obj', 'glass_custom_texture'] as const
+// Fields that can hold paths on the author's own computer.
+const PRIVATE_ITEM_KEYS = ['source_path', 'original_import_path', 'native_original_name', 'native_prop_original_name']
+
+/** Settings files the Showcase keeps: a minimap or loading picture the exporter renders itself is dropped. */
+function settingsFiles(p: Project): [key: keyof Project['settings'], label: string][] {
+  const s = p.settings
+  const out: [keyof Project['settings'], string][] = [['sky_texture', 'Sky texture'], ['bbcity_donor', 'BBCity donor'], ['cts_template', 'CTS template']]
+  const customMinimap = s.minimap_mode === 'custom' || (!s.minimap_mode && !!s.minimap_texture)
+  if (customMinimap) out.push(['minimap_texture', 'Custom minimap picture'])
+  if (s.loading_mode === 'custom') out.push(['loading_image', 'Custom loading picture'])
+  return out
+}
+
+export interface ShowcasePlan {
+  /** Reasons the map can't go in the Showcase. */
+  blockers: string[]
+  /** What the Showcase stores: the map with recipe-only file records. */
+  snapshot: Project
+}
+
+export function showcasePlan(raw: Project, libraryIds: ReadonlySet<string>): ShowcasePlan {
+  const p: Project = JSON.parse(JSON.stringify(raw))
+  const blockers: string[] = []
+  const own = new Map<string, Set<string>>()
+  const broken: string[] = []
+  const used = new Set<string>()
+  const check = (path: unknown, owner: string) => {
+    if (typeof path !== 'string' || !path || isDataPackPath(path)) return
+    const ref = p.files?.[path]
+    if (!ref) { broken.push(`${owner} uses ${baseName(path)}, which is missing from this project.`); return }
+    if (!ref.recipe) { own.set(owner, (own.get(owner) ?? new Set()).add(ref.name)); return }
+    const why = recipeProblem(ref.recipe, libraryIds)
+    if (why) { broken.push(`${owner}: ${ref.name} has a broken recipe (${why}).`); return }
+    used.add(path)
+  }
+  for (const it of p.scene_items) {
+    const owner = `Object "${it.name || 'unnamed'}"`
+    for (const k of ITEM_FILE_KEYS) check(it[k], owner)
+    for (const t of Object.values(it.textures || {})) check(t, owner)
+  }
+  const s = p.settings
+  const kept = settingsFiles(p)
+  for (const [k, label] of kept) check(s[k], `${label} (map settings)`)
+  for (const [owner, names] of own) {
+    const list = [...names]
+    const shown = list.length > 3 ? `${list.slice(0, 3).join(', ')} and ${list.length - 3} more` : list.join(', ')
+    blockers.push(`${owner} uses ${list.length === 1 ? 'a file' : `${list.length} files`} you added yourself (${shown}). The Showcase only takes maps made from the site's own textures, shapes and prefabs: repaint it from the paint bucket or texture studio, or remove it.`)
+  }
+  blockers.push(...new Set(broken))
+  if (!p.scene_items.length) blockers.push('The map is empty.')
+
+  // The snapshot: recipe-only files, no library, nothing private.
+  const files: Project['files'] = {}
+  for (const path of used) {
+    const ref = p.files[path]
+    files[path] = { hash: String(ref.hash).slice(0, 64), size: 0, name: String(ref.name).slice(0, 120), type: String(ref.type || '').slice(0, 60), origin: 'user', recipe: cleanRecipe(ref.recipe!) }
+  }
+  p.files = files
+  p.asset_library = []
+  for (const it of p.scene_items) for (const k of PRIVATE_ITEM_KEYS) delete it[k]
+  for (const k of ['sky_texture', 'minimap_texture', 'loading_image', 'bbcity_donor', 'cts_template'] as const) {
+    if (!kept.some(([x]) => x === k)) (s as any)[k] = ''
+  }
+  return { blockers, snapshot: p }
+}
+
+export interface PreparedShowcase { problems: string[]; snapshot: Project; meta: PublishMeta }
+
+/** Every check before a map goes in the Showcase; the publish function runs this on the JSON it is sent. */
+export function prepareShowcase(
+  raw: unknown,
+  meta: { title: unknown; description: unknown; tags: unknown },
+  libraryIds: ReadonlySet<string>,
+): PreparedShowcase {
+  const problems = checkPublishMeta(meta)
+  const clean = problems.length ? { title: '', description: '', tags: [] } : cleanMeta(meta as PublishMeta)
+  let project: Project
+  try { project = normalizeProject(raw) } catch {
+    return { problems: [...problems, 'That is not a valid SR1 Map Studio project.'], snapshot: raw as Project, meta: clean }
+  }
+  const plan = showcasePlan(project, libraryIds)
+  problems.push(...plan.blockers)
+  if (JSON.stringify(plan.snapshot).length > MAX_SNAPSHOT_CHARS) problems.push('The map data is too large to publish (over 5 MB).')
+  return { problems, snapshot: plan.snapshot, meta: clean }
+}
+
+/** Screenshots and the thumbnail: small PNG, JPEG or WebP images only. */
+export function checkShots(shots: { size: number; head: Uint8Array }[]): string[] {
+  const problems: string[] = []
+  if (shots.length > MAX_SHOTS) problems.push(`Add at most ${MAX_SHOTS} screenshots.`)
+  shots.forEach((s, i) => { if (!isValidThumbnail(s.size, s.head)) problems.push(`Screenshot ${i + 1} must be a PNG, JPEG or WebP image of at most 2 MB.`) })
+  return problems
 }

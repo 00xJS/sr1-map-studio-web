@@ -18,7 +18,7 @@ export default function About() {
       </div>
       <div className="card">
         <h3>Game data</h3>
-        <p className="small">This site doesn't host or distribute any Saints Row files. Reference files load from your own copy of the SR1 Map Studio package and stay in your browser; exported maps are built and downloaded on your device. The hub shares editable projects made of your own models and textures. Saints Row is a trademark of its owners; this project is not affiliated with them.</p>
+        <p className="small">This site doesn't host or distribute any Saints Row files. Reference files load from your own copy of the SR1 Map Studio package and stay in your browser; exported maps are built and downloaded on your device. The Showcase, when a site turns it on, shares only how a map is built from Map Studio's own textures, shapes and prefabs, plus the author's screenshots. Saints Row is a trademark of its owners; this project is not affiliated with them.</p>
       </div>
       <div className="card">
         <h3>Limits carried over from the desktop version</h3>

@@ -1,7 +1,7 @@
 // Development stand-in for the server: accounts, cloud saves and the hub are
 // simulated in a separate IndexedDB database in this browser. Publishing runs
 // the same hubRules checks as the Netlify function so rejections can be tested.
-import { HEAD_BYTES, isValidThumbnail, preparePublish, type HubFile } from '../hubRules'
+import { HEAD_BYTES, checkShots, isValidThumbnail, libraryIdsFrom, prepareShowcase, type HubFile } from '../hubRules'
 import type { Project } from '../project'
 import {
   ConflictError, PublishRejected,
@@ -10,7 +10,7 @@ import {
 
 const DB_NAME = 'sr1-local-server'
 const SESSION_KEY = 'sr1-local-server:session'
-const STORES = ['users', 'cloud', 'blobs', 'maps', 'likes', 'reports', 'log'] as const
+const STORES = ['users', 'cloud', 'blobs', 'maps', 'likes', 'reports', 'log', 'ratings', 'featured'] as const
 type StoreName = (typeof STORES)[number]
 const MAX_PUBLISH_PER_DAY = 20
 
@@ -21,13 +21,14 @@ interface MapRow {
   snapshot: Project; files: HubFile[]; likes: number; remixes: number; downloads: number
   created_at: string; updated_at: string; remix_of: { id: string; title: string } | null
   hidden: boolean; version: number; thumb: Blob | null
+  shots?: Blob[]; rating_sum?: number; rating_count?: number
 }
 interface ReportRow { id: string; map_id: string; reason: ReportReason; details: string; reporter: string; status: HubReport['status']; created_at: string }
 
 let dbp: Promise<IDBDatabase> | null = null
 function open(): Promise<IDBDatabase> {
   dbp ??= new Promise((resolve, reject) => {
-    const req = indexedDB.open(DB_NAME, 1)
+    const req = indexedDB.open(DB_NAME, 2)
     req.onupgradeneeded = () => { for (const s of STORES) if (!req.result.objectStoreNames.contains(s)) req.result.createObjectStore(s) }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -158,14 +159,17 @@ export class LocalBackend implements Backend {
   private async viewer() { return this.getUser() }
   private canSee(m: MapRow, me: User | null) { return !m.hidden || m.owner === me?.id || !!me?.is_moderator }
 
-  private async toMeta(rows: MapRow[], me: User | null): Promise<HubMapMeta[]> {
+  private async toMeta(rows: MapRow[], me: User | null, withShots = false): Promise<HubMapMeta[]> {
     const users = new Map((await all<UserRow>('users')).map((u) => [u.id, u]))
     const liked = new Set(me ? (await keys('likes')).filter((k) => k.endsWith('|' + me.id)).map((k) => k.split('|')[0]) : [])
-    return rows.map((m) => ({
+    const stars = me ? await Promise.all(rows.map((m) => get<number>('ratings', `${m.id}|${me.id}`))) : []
+    return rows.map((m, i) => ({
       id: m.id, title: m.title, description: m.description, tags: m.tags,
       author: { id: m.owner, name: users.get(m.owner)?.name ?? 'Unknown' },
       thumbnail_url: thumbUrl('h/' + m.id, m.updated_at, m.thumb),
-      likes: m.likes, remixes: m.remixes, downloads: m.downloads,
+      likes: m.likes, rating: m.rating_count ? (m.rating_sum ?? 0) / m.rating_count : 0, ratings: m.rating_count ?? 0, my_rating: me ? stars[i] ?? 0 : undefined,
+      shots: withShots ? (m.shots ?? []).map((b, k) => thumbUrl(`s/${m.id}/${k}`, m.updated_at, b)!) : [],
+      remixes: m.remixes, downloads: m.downloads,
       created_at: m.created_at, updated_at: m.updated_at, remix_of: m.remix_of,
       liked_by_me: me ? liked.has(m.id) : undefined, hidden: m.hidden, project_id: m.owner === me?.id ? m.project_id : undefined,
     }))
@@ -185,7 +189,8 @@ export class LocalBackend implements Backend {
       })
     }
     const byNew = (a: MapRow, b: MapRow) => b.created_at.localeCompare(a.created_at)
-    rows.sort(q.sort === 'top' ? (a, b) => b.likes - a.likes || byNew(a, b) : q.sort === 'remixed' ? (a, b) => b.remixes - a.remixes || byNew(a, b) : byNew)
+    const avg = (m: MapRow) => (m.rating_count ? (m.rating_sum ?? 0) / m.rating_count : 0)
+    rows.sort(q.sort === 'top' ? (a, b) => avg(b) - avg(a) || (b.rating_count ?? 0) - (a.rating_count ?? 0) || byNew(a, b) : q.sort === 'remixed' ? (a, b) => b.remixes - a.remixes || byNew(a, b) : byNew)
     const start = (Math.max(1, q.page) - 1) * q.pageSize
     return { items: await this.toMeta(rows.slice(start, start + q.pageSize), me), total: rows.length }
   }
@@ -200,7 +205,7 @@ export class LocalBackend implements Backend {
     const me = await this.viewer()
     const m = await get<MapRow>('maps', id)
     if (!m || !this.canSee(m, me)) return null
-    const [meta] = await this.toMeta([m], me)
+    const [meta] = await this.toMeta([m], me, true)
     return { ...meta, project: m.snapshot }
   }
 
@@ -217,37 +222,34 @@ export class LocalBackend implements Backend {
     const since = new Date(Date.now() - 86400_000).toISOString()
     const log = (await all<{ uid: string; at: string }>('log')).filter((l) => l.uid === u.id && l.at > since)
     if (log.length >= MAX_PUBLISH_PER_DAY) throw new PublishRejected(`You can publish ${MAX_PUBLISH_PER_DAY} times a day. Try again tomorrow.`)
-    const cloud = await get<CloudRow>('cloud', `${u.id}/${input.projectId}`)
-    if (!cloud) throw new PublishRejected('Save this project to the cloud before publishing.')
     let existing: MapRow | undefined
     if (input.mapId) {
       existing = await get<MapRow>('maps', input.mapId)
-      if (!existing || existing.owner !== u.id) throw new PublishRejected('You can only update hub maps you published.')
+      if (!existing || existing.owner !== u.id) throw new PublishRejected('You can only update Showcase maps you published.')
     }
-    const prep = await preparePublish(cloud.project, input, async (hash) => {
-      const b = await get<Blob>('blobs', `u/${u.id}/${hash}`)
-      return b ? { size: b.size, head: new Uint8Array(await b.slice(0, HEAD_BYTES).arrayBuffer()) } : null
-    })
-    if (prep.problems.length) throw new PublishRejected("This map can't be published yet.", prep.problems)
+    const library = libraryIdsFrom(await fetch('/textures/index.json').then((r) => r.json()))
+    const prep = prepareShowcase(input.snapshot, input, library)
+    const blob = (hash: string) => get<Blob>('blobs', `u/${u.id}/${hash}`)
+    const head = async (b: Blob) => ({ size: b.size, head: new Uint8Array(await b.slice(0, HEAD_BYTES).arrayBuffer()) })
+    const shots = await Promise.all(input.shots.map(blob))
+    if (shots.some((b) => !b)) prep.problems.push("A screenshot hasn't finished uploading. Try again.")
+    else prep.problems.push(...checkShots(await Promise.all((shots as Blob[]).map(head))))
+    const thumbBlob = input.thumb ? await blob(input.thumb) : undefined
+    const th = thumbBlob ? await head(thumbBlob) : null
+    if (prep.problems.length) throw new PublishRejected("This map can't go in the Showcase yet.", prep.problems)
 
     const id = existing?.id ?? crypto.randomUUID()
-    for (const f of prep.manifest) {
-      const b = await get<Blob>('blobs', `u/${u.id}/${f.hash}`)
-      if (b) await put('blobs', `hub/${id}/${f.hash}`, b)
-    }
-    const keep = new Set(prep.manifest.map((f) => `hub/${id}/${f.hash}`))
-    for (const k of await keys('blobs', prefix(`hub/${id}/`))) if (!keep.has(k)) await del('blobs', k)
-
-    const thumb = cloud.thumb && isValidThumbnail(cloud.thumb.size, new Uint8Array(await cloud.thumb.slice(0, HEAD_BYTES).arrayBuffer())) ? cloud.thumb : null
     const r = prep.snapshot.remix_of
     const parent = r?.hub_id && r.hub_id !== id ? await get<MapRow>('maps', r.hub_id) : undefined
     const t = now()
     const row: MapRow = {
-      id, owner: u.id, project_id: input.projectId, ...prep.meta, snapshot: prep.snapshot, files: prep.manifest,
+      id, owner: u.id, project_id: input.projectId, ...prep.meta, snapshot: prep.snapshot, files: [],
       likes: existing?.likes ?? 0, remixes: existing?.remixes ?? 0, downloads: existing?.downloads ?? 0,
+      rating_sum: existing?.rating_sum ?? 0, rating_count: existing?.rating_count ?? 0,
       created_at: existing?.created_at ?? t, updated_at: t,
       remix_of: parent ? { id: parent.id, title: parent.title } : null,
-      hidden: existing?.hidden ?? false, version: (existing?.version ?? 0) + 1, thumb,
+      hidden: existing?.hidden ?? false, version: (existing?.version ?? 0) + 1,
+      thumb: thumbBlob && th && isValidThumbnail(th.size, th.head) ? thumbBlob : null, shots: shots as Blob[],
     }
     await put('maps', id, row)
     await put('log', crypto.randomUUID(), { uid: u.id, at: t })
@@ -262,6 +264,7 @@ export class LocalBackend implements Backend {
     await del('maps', mapId)
     await del('blobs', prefix(`hub/${mapId}/`))
     await del('likes', prefix(mapId + '|'))
+    await del('ratings', prefix(mapId + '|'))
     for (const r of await all<ReportRow>('reports')) if (r.map_id === mapId) await del('reports', r.id)
   }
 
@@ -285,6 +288,30 @@ export class LocalBackend implements Backend {
     if (liked) await put('likes', key, true)
     else await del('likes', key)
     await this.bump(mapId, 'likes', liked ? 1 : -1)
+  }
+  async setRating(mapId: string, stars: number) {
+    const u = await this.me()
+    const m = await get<MapRow>('maps', mapId)
+    if (!m || m.hidden) throw new Error('This map is not available.')
+    if (m.owner === u.id) throw new Error("You can't rate your own map.")
+    const key = `${mapId}|${u.id}`
+    const had = (await get<number>('ratings', key)) ?? 0
+    if (stars) await put('ratings', key, Math.max(1, Math.min(5, Math.round(stars))))
+    else await del('ratings', key)
+    const next = stars ? Math.max(1, Math.min(5, Math.round(stars))) : 0
+    await put('maps', mapId, { ...m, rating_sum: (m.rating_sum ?? 0) - had + next, rating_count: (m.rating_count ?? 0) - (had ? 1 : 0) + (next ? 1 : 0) })
+  }
+  async mapOfWeek(): Promise<HubMapMeta | null> {
+    const rows = (await all<MapRow>('maps')).filter((m) => !m.hidden)
+    const pick = await get<string>('featured', weekStart())
+    const score = (m: MapRow) => ((m.rating_sum ?? 0) + 10.5) / ((m.rating_count ?? 0) + 3)
+    const recent = (days: number) => rows.filter((m) => Date.now() - Date.parse(m.created_at) < days * 864e5).sort((a, b) => score(b) - score(a) || b.remixes - a.remixes)[0]
+    const m = rows.find((x) => x.id === pick) ?? recent(7) ?? recent(30)
+    return m ? (await this.toMeta([m], await this.viewer()))[0] : null
+  }
+  async featureMap(mapId: string) {
+    await this.mod()
+    await put('featured', weekStart(), mapId)
   }
   async recordRemix(mapId: string) { await this.bump(mapId, 'remixes', 1) }
   async recordDownload(mapId: string) { await this.bump(mapId, 'downloads', 1) }
@@ -326,4 +353,10 @@ export class LocalBackend implements Backend {
     const m = await get<MapRow>('maps', mapId)
     if (m) await put('maps', mapId, { ...m, hidden })
   }
+}
+
+/** Monday of this week (UTC), as the Supabase schema keys map-of-the-week picks. */
+function weekStart() {
+  const d = new Date()
+  return new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((d.getUTCDay() + 6) % 7))).toISOString().slice(0, 10)
 }

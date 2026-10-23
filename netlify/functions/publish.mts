@@ -1,12 +1,18 @@
-// POST   /api/publish  {projectId, title, description, tags, mapId?} -> {id}
-// DELETE /api/publish  {mapId}                                       -> {ok}
+// POST   /api/publish  {projectId, snapshot, title, description, tags, thumb?, shots, mapId?} -> {id}
+// DELETE /api/publish  {mapId}                                                          -> {ok}
 //
-// Publishing re-validates the caller's cloud save with the same rules as the
-// browser (src/lib/hubRules.ts) against the bytes actually stored, then copies
-// the files to hub/<mapId>/ and writes the hub_maps row. Only this function
-// (service role) can write to hub/.
+// The Showcase: re-checks the map with the same rules as the browser
+// (src/lib/hubRules.ts showcasePlan). Only maps made from the site's own
+// textures, shapes and prefabs pass, and only their recipes are stored. The
+// sole files copied to hub/<mapId>/ are the author's screenshots and thumbnail,
+// read back from their cloud storage and checked to be small images. Only this
+// function (service role) can write to hub/.
 import { createClient, type SupabaseClient } from '@supabase/supabase-js'
-import { HEAD_BYTES, isValidThumbnail, limitsFromEnv, preparePublish, supabaseProjectUrl } from '../../src/lib/hubRules'
+import { HEAD_BYTES, MAX_SHOTS, checkShots, isValidThumbnail, libraryIdsFrom, prepareShowcase, supabaseProjectUrl } from '../../src/lib/hubRules'
+import library from '../../public/textures/index.json'
+
+const LIBRARY = libraryIdsFrom(library)
+const HASH = /^[0-9a-f]{64}$/
 
 const BUCKET = 'blobs'
 const env = (k: string) => process.env[k] || ''
@@ -121,6 +127,9 @@ async function publish(admin: SupabaseClient, uid: string, body: any): Promise<R
   const { projectId, mapId } = body
   if (typeof projectId !== 'string' || !projectId || projectId.length > 64) return reject(400, 'Invalid project id.')
   if (mapId != null && (typeof mapId !== 'string' || !UUID.test(mapId))) return reject(400, 'Invalid map id.')
+  const shots: unknown = body.shots ?? []
+  if (!Array.isArray(shots) || shots.length > MAX_SHOTS || !shots.every((h) => typeof h === 'string' && HASH.test(h))) return reject(400, `Send at most ${MAX_SHOTS} screenshots.`)
+  if (body.thumb != null && (typeof body.thumb !== 'string' || !HASH.test(body.thumb))) return reject(400, 'Invalid thumbnail.')
 
   const perDay = Number(env('HUB_MAX_PUBLISH_PER_DAY')) || 20
   const since = new Date(Date.now() - 86400_000).toISOString()
@@ -128,41 +137,38 @@ async function publish(admin: SupabaseClient, uid: string, body: any): Promise<R
   if (recent.error) throw recent.error
   if ((recent.count ?? 0) >= perDay) return reject(429, `You can publish ${perDay} times a day. Try again tomorrow.`)
 
-  const { data: cloud, error: cloudError } = await admin.from('cloud_projects').select('project, has_thumb').eq('owner', uid).eq('id', projectId).maybeSingle()
-  if (cloudError) throw cloudError
-  if (!cloud) return reject(404, 'Save this project to the cloud before publishing.')
-
-  let existing: { id: string; owner: string; version: number } | null = null
+  let existing: { id: string; owner: string; version: number; shots: number } | null = null
   if (mapId) {
-    const r = await admin.from('hub_maps').select('id, owner, version').eq('id', mapId).maybeSingle()
+    const r = await admin.from('hub_maps').select('id, owner, version, shots').eq('id', mapId).maybeSingle()
     if (r.error) throw r.error
-    if (!r.data || r.data.owner !== uid) return reject(403, 'You can only update hub maps you published.')
+    if (!r.data || r.data.owner !== uid) return reject(403, 'You can only update Showcase maps you published.')
     existing = r.data
   }
 
-  const limits = limitsFromEnv(env('HUB_MAX_MAP_MB'))
-  const prep = await preparePublish(cloud.project, { title: body.title, description: body.description ?? '', tags: body.tags }, (hash) => readHead(admin, `u/${uid}/${hash}`), limits)
-  if (prep.problems.length) return reject(422, "This map can't be published yet.", prep.problems)
+  const prep = prepareShowcase(body.snapshot, { title: body.title, description: body.description ?? '', tags: body.tags }, LIBRARY)
+  const images = [...(shots as string[]), ...(body.thumb ? [body.thumb as string] : [])]
+  const heads = await Promise.all(images.map((h) => readHead(admin, `u/${uid}/${h}`)))
+  if (heads.some((h) => !h)) prep.problems.push("A screenshot hasn't finished uploading. Try again.")
+  else {
+    prep.problems.push(...checkShots(heads.slice(0, shots.length) as { size: number; head: Uint8Array }[]))
+    const t = body.thumb ? heads[heads.length - 1]! : null
+    if (t && !isValidThumbnail(t.size, t.head)) prep.problems.push('The thumbnail must be a PNG, JPEG or WebP image of at most 2 MB.')
+  }
+  if (prep.problems.length) return reject(422, "This map can't go in the Showcase yet.", prep.problems)
 
   const id = existing?.id ?? crypto.randomUUID()
   const folder = `hub/${id}`
   const present = new Set(existing ? await listAll(admin, folder) : [])
 
-  // Copy files first; the row (which makes them public) is written last.
+  // Images first; the row (which makes them public) is written last.
+  const names = [...(shots as string[]).map((_, i) => `shot-${i}`), ...(body.thumb ? ['thumb.webp'] : [])]
+  await removeAll(admin, names.filter((n) => present.has(n)).map((n) => `${folder}/${n}`))
   const copied: string[] = []
-  await mapLimit(prep.manifest.filter((f) => !present.has(f.hash)), 6, async (f) => {
-    const { error } = await admin.storage.from(BUCKET).copy(`u/${uid}/${f.hash}`, `${folder}/${f.hash}`)
-    if (error && !/exist/i.test(error.message)) throw error
-    copied.push(`${folder}/${f.hash}`)
+  await mapLimit(names.map((n, i) => [n, images[i]] as const), 4, async ([name, hash]) => {
+    const { error } = await admin.storage.from(BUCKET).copy(`u/${uid}/${hash}`, `${folder}/${name}`)
+    if (error) throw error
+    copied.push(`${folder}/${name}`)
   })
-  let hasThumb = false
-  const thumbPath = `u/${uid}/thumbs/${projectId}.webp`
-  const thumb = cloud.has_thumb ? await readHead(admin, thumbPath) : null
-  if (thumb && isValidThumbnail(thumb.size, thumb.head)) {
-    if (present.has('thumb.webp')) await removeAll(admin, [`${folder}/thumb.webp`])
-    const { error } = await admin.storage.from(BUCKET).copy(thumbPath, `${folder}/thumb.webp`)
-    hasThumb = !error
-  }
 
   // Ensure a profile exists (accounts created before the migration have none).
   await admin.from('profiles').upsert({ id: uid, display_name: 'Player-' + uid.replace(/-/g, '').slice(0, 6) }, { onConflict: 'id', ignoreDuplicates: true })
@@ -170,14 +176,15 @@ async function publish(admin: SupabaseClient, uid: string, body: any): Promise<R
   let remixOf: string | null = null, remixTitle: string | null = null
   const parentId = prep.snapshot.remix_of?.hub_id
   if (typeof parentId === 'string' && UUID.test(parentId) && parentId !== id) {
-    const p = await admin.from('hub_maps').select('id, title').eq('id', parentId).maybeSingle()
+    const p = await admin.from('hub_maps').select('id, title').eq('id', parentId).eq('showcase', true).maybeSingle()
     if (p.data) { remixOf = p.data.id; remixTitle = p.data.title }
   }
 
   const row = {
     title: prep.meta.title, description: prep.meta.description, tags: prep.meta.tags,
-    snapshot: prep.snapshot, files: prep.manifest, size_bytes: prep.manifest.reduce((a, f) => a + f.size, 0),
-    has_thumb: hasThumb, remix_of: remixOf, remix_of_title: remixTitle, project_id: projectId,
+    snapshot: prep.snapshot, files: [], size_bytes: heads.reduce((a, h) => a + (h?.size ?? 0), 0),
+    has_thumb: !!body.thumb, shots: shots.length, showcase: true,
+    remix_of: remixOf, remix_of_title: remixTitle, project_id: projectId,
     updated_at: new Date().toISOString(),
   }
   const write = existing
@@ -188,12 +195,10 @@ async function publish(admin: SupabaseClient, uid: string, body: any): Promise<R
     throw write.error
   }
 
-  // Files dropped from an updated map.
+  // Anything else in the folder: dropped screenshots, and files of a pre-Showcase version of this map.
   if (existing) {
-    const keep = new Set([...prep.manifest.map((f) => f.hash), 'thumb.webp'])
-    const stale = [...present].filter((n) => !keep.has(n))
-    if (!hasThumb && present.has('thumb.webp')) stale.push('thumb.webp')
-    await removeAll(admin, stale.map((n) => `${folder}/${n}`)).catch((e) => console.warn('Cleanup failed', e))
+    const keep = new Set(names)
+    await removeAll(admin, [...present].filter((n) => !keep.has(n)).map((n) => `${folder}/${n}`)).catch((e) => console.warn('Cleanup failed', e))
   }
 
   await admin.from('hub_publish_log').insert({ user_id: uid, map_id: id })

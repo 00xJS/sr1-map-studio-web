@@ -59,6 +59,8 @@ interface EditorState {
   update(label: string, recipe: (d: Draft<Project>) => void, opts?: { merge?: string }): void
   undo(): void
   redo(): void
+  /** Several undo (negative) or redo (positive) steps at once, as one history move. */
+  jumpTo(steps: number): void
   select(s: Selection): void
   /** Shift+click: add an object (and its group) to the selection, or take it out. */
   toggleItem(index: number): void
@@ -134,6 +136,24 @@ export const useEditor = create<EditorState>((set, get) => ({
     lastMerge = null
     set({ project: next.project, multi: keepIn(get().multi, next.project), future: future.slice(1), past: [...past, { project, label: next.label }], saveState: 'unsaved' })
     get().log('Redo: ' + next.label)
+  },
+  jumpTo(steps) {
+    let { past, project, future } = get()
+    if (!project || !steps) return
+    lastMerge = null
+    for (; steps < 0 && past.length; steps++) {
+      const prev = past[past.length - 1]
+      future = [{ project, label: prev.label }, ...future]
+      project = prev.project
+      past = past.slice(0, -1)
+    }
+    for (; steps > 0 && future.length; steps--) {
+      const next = future[0]
+      past = [...past, { project, label: next.label }]
+      project = next.project
+      future = future.slice(1)
+    }
+    set({ project, multi: keepIn(get().multi, project), past, future, saveState: 'unsaved' })
   },
   select(selection) {
     if (selection?.kind !== 'item') { set({ selection, multi: [] }); return }

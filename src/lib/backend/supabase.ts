@@ -10,7 +10,7 @@ import {
 
 const BUCKET = 'blobs'
 const URL_TTL = 3600
-const MAP_COLS = 'id, owner, project_id, title, description, tags, likes, remixes, downloads, created_at, updated_at, remix_of, remix_of_title, hidden, has_thumb, author:profiles!hub_maps_owner_fkey(id, display_name, avatar_url)'
+const MAP_COLS = 'id, owner, project_id, title, description, tags, likes, rating, rating_count, shots, remixes, downloads, created_at, updated_at, remix_of, remix_of_title, hidden, has_thumb, author:profiles!hub_maps_owner_fkey(id, display_name, avatar_url)'
 
 /** Supabase results carry errors as plain objects; throw them as Errors. Rows are untyped (no generated DB types). */
 function check(r: { data?: unknown; error: { message: string; code?: string } | null }): any {
@@ -144,20 +144,26 @@ export class SupabaseBackend implements Backend {
 
   // ---------------- hub ----------------
 
-  private async toMeta(rows: any[]): Promise<HubMapMeta[]> {
+  private async toMeta(rows: any[], withShots = false): Promise<HubMapMeta[]> {
     const s = await this.session()
     const ids = rows.map((r) => r.id)
     let liked = new Set<string>()
+    let stars = new Map<string, number>()
     if (s && ids.length) {
       const likes: any[] = check(await this.sb.from('hub_likes').select('map_id').eq('user_id', s.user.id).in('map_id', ids)) ?? []
       liked = new Set(likes.map((l) => l.map_id))
+      const rated: any[] = check(await this.sb.from('hub_ratings').select('map_id, stars').eq('user_id', s.user.id).in('map_id', ids)) ?? []
+      stars = new Map(rated.map((r) => [r.map_id, r.stars]))
     }
-    const thumbs = await this.signedUrls(rows.filter((r) => r.has_thumb).map((r) => `hub/${r.id}/thumb.webp`))
+    const shotPaths = (r: any) => Array.from({ length: withShots ? r.shots ?? 0 : 0 }, (_, i) => `hub/${r.id}/shot-${i}`)
+    const thumbs = await this.signedUrls([...rows.filter((r) => r.has_thumb).map((r) => `hub/${r.id}/thumb.webp`), ...rows.flatMap(shotPaths)])
     return rows.map((r) => ({
       id: r.id, title: r.title, description: r.description, tags: r.tags || [],
       author: { id: r.owner, name: r.author?.display_name || 'Unknown', avatar_url: r.author?.avatar_url || undefined },
       thumbnail_url: thumbs.get(`hub/${r.id}/thumb.webp`),
-      likes: r.likes, remixes: r.remixes, downloads: r.downloads, created_at: r.created_at, updated_at: r.updated_at,
+      likes: r.likes, rating: r.rating ?? 0, ratings: r.rating_count ?? 0, my_rating: s ? stars.get(r.id) ?? 0 : undefined,
+      shots: shotPaths(r).map((p) => thumbs.get(p)).filter((u): u is string => !!u),
+      remixes: r.remixes, downloads: r.downloads, created_at: r.created_at, updated_at: r.updated_at,
       remix_of: r.remix_of ? { id: r.remix_of, title: r.remix_of_title || 'another map' } : null,
       liked_by_me: s ? liked.has(r.id) : undefined, hidden: r.hidden,
       project_id: s && r.owner === s.user.id ? r.project_id : undefined,
@@ -165,12 +171,12 @@ export class SupabaseBackend implements Backend {
   }
 
   async listHub(q: HubQuery) {
-    let query = this.sb.from('hub_maps').select(MAP_COLS, { count: 'exact' }).eq('hidden', false)
+    let query = this.sb.from('hub_maps').select(MAP_COLS, { count: 'exact' }).eq('hidden', false).eq('showcase', true)
     if (q.tag) query = query.contains('tags', [q.tag])
     if (q.author) query = query.eq('owner', q.author)
     const ts = toTsQuery(q.search)
     if (ts) query = query.textSearch('search', ts, { config: 'simple' })
-    if (q.sort === 'top') query = query.order('likes', { ascending: false })
+    if (q.sort === 'top') query = query.order('rating', { ascending: false }).order('rating_count', { ascending: false })
     if (q.sort === 'remixed') query = query.order('remixes', { ascending: false })
     query = query.order('created_at', { ascending: false })
     const from = (Math.max(1, q.page) - 1) * q.pageSize
@@ -188,7 +194,7 @@ export class SupabaseBackend implements Backend {
     if (!/^[0-9a-f-]{36}$/i.test(id)) return null
     const r = check(await this.sb.from('hub_maps').select(MAP_COLS + ', snapshot').eq('id', id).maybeSingle())
     if (!r) return null
-    const [meta] = await this.toMeta([r])
+    const [meta] = await this.toMeta([r], true)
     return { ...meta, project: (r as any).snapshot as Project }
   }
 
@@ -229,6 +235,24 @@ export class SupabaseBackend implements Backend {
     } else {
       check(await this.sb.from('hub_likes').delete().eq('map_id', mapId).eq('user_id', uid))
     }
+  }
+  async setRating(mapId: string, stars: number) {
+    const uid = await this.uid()
+    if (!stars) { check(await this.sb.from('hub_ratings').delete().eq('map_id', mapId).eq('user_id', uid)); return }
+    const had = check(await this.sb.from('hub_ratings').select('stars').eq('map_id', mapId).eq('user_id', uid).maybeSingle())
+    if (had) check(await this.sb.from('hub_ratings').update({ stars }).eq('map_id', mapId).eq('user_id', uid))
+    else check(await this.sb.from('hub_ratings').insert({ map_id: mapId, user_id: uid, stars }))
+  }
+  async mapOfWeek(): Promise<HubMapMeta | null> {
+    const id = check(await this.sb.rpc('showcase_map_of_week'))
+    if (!id) return null
+    const r = check(await this.sb.from('hub_maps').select(MAP_COLS).eq('id', id).maybeSingle())
+    return r ? (await this.toMeta([r]))[0] : null
+  }
+  async featureMap(mapId: string) {
+    const uid = await this.uid()
+    const d = new Date(), monday = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - ((d.getUTCDay() + 6) % 7)))
+    check(await this.sb.from('showcase_featured').upsert({ week: monday.toISOString().slice(0, 10), map_id: mapId, chosen_by: uid }))
   }
   async recordRemix(mapId: string) { check(await this.sb.rpc('hub_record_remix', { map_id: mapId })) }
   async recordDownload(mapId: string) { check(await this.sb.rpc('hub_record_download', { map_id: mapId })) }

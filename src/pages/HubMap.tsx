@@ -1,11 +1,10 @@
-// One hub map: details, like, remix, report, and owner/moderator controls.
+// One Showcase map: screenshots, rating, remix, report, and owner/moderator controls.
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { accountsEnabled, useBackend, useUser, type HubMapDetail, type ReportReason } from '../lib/backend'
-import { fmtBytes } from '../lib/files'
 import { remixHubMap, type Progress } from '../lib/sync'
 import { Avatar, Field, Modal, confirmDialog, timeAgo, toast, toastError, useBusy } from '../ui'
-import { AccountsOff } from './Hub'
+import { AccountsOff, Stars } from './Hub'
 
 const REASONS: { id: ReportReason; label: string }[] = [
   { id: 'game-data', label: 'Contains Saints Row game files' },
@@ -17,6 +16,37 @@ const REASONS: { id: ReportReason; label: string }[] = [
 ]
 
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`
+
+/** Click a star to rate; click your current rating again to take it back. */
+function RateStars({ value, disabled, onRate }: { value: number; disabled?: boolean; onRate: (n: number) => void }) {
+  const [hover, setHover] = useState(0)
+  const shown = hover || value
+  return (
+    <span className="stars rate" role="radiogroup" aria-label="Your rating" onMouseLeave={() => setHover(0)}>
+      {[1, 2, 3, 4, 5].map((i) => (
+        <button key={i} className={'star' + (i <= shown ? ' on' : '')} disabled={disabled} role="radio" aria-checked={value === i}
+          aria-label={`${i} star${i === 1 ? '' : 's'}`} title={value === i ? 'Take my rating back' : `${i} star${i === 1 ? '' : 's'}`}
+          onMouseEnter={() => setHover(i)} onClick={() => onRate(value === i ? 0 : i)}>★</button>
+      ))}
+    </span>
+  )
+}
+
+function Gallery({ shots, fallback }: { shots: string[]; fallback?: string }) {
+  const [at, setAt] = useState(0)
+  const pics = shots.length ? shots : fallback ? [fallback] : []
+  if (!pics.length) return <div className="map-card hub-detail-thumb"><div className="thumb"><span>No pictures</span></div></div>
+  return (
+    <div className="gallery">
+      <div className="gallery-main"><img src={pics[Math.min(at, pics.length - 1)]} alt={shots.length ? `Screenshot ${at + 1}` : 'Preview'} /></div>
+      {pics.length > 1 && (
+        <div className="gallery-strip">
+          {pics.map((u, i) => <button key={i} className={i === at ? 'on' : ''} onClick={() => setAt(i)} aria-label={`Screenshot ${i + 1}`}><img src={u} alt="" loading="lazy" /></button>)}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function ReportDialog({ mapId, onClose }: { mapId: string; onClose: () => void }) {
   const b = useBackend()
@@ -64,20 +94,21 @@ export default function HubMap() {
     <div className="page page-narrow">
       <h1>Map not found</h1>
       <p className="muted">It may have been unpublished or hidden by a moderator.</p>
-      <Link to="/hub">Back to the hub</Link>
+      <Link to="/showcase">Back to the Showcase</Link>
     </div>
   )
 
   const mine = user?.id === map.author.id
-  const files = Object.values(map.project.files)
-  const bytes = [...new Map(files.map((f) => [f.hash, f.size])).values()].reduce((a, n) => a + n, 0)
-  const onProgress: Progress = (p) => setProgress(p.total > 1 ? `${p.phase} ${p.done}/${p.total}` : p.phase)
+  const p = map.project
+  const onProgress: Progress = (x) => setProgress(x.total > 1 ? `${x.phase} ${x.done}/${x.total}` : x.phase)
 
-  const like = () => run(async () => {
-    if (!user) { toast('Sign in to like maps.'); return }
-    const liked = !map.liked_by_me
-    await b!.setLike(map.id, liked)
-    setMap({ ...map, liked_by_me: liked, likes: Math.max(0, map.likes + (liked ? 1 : -1)) })
+  const rate = (stars: number) => run(async () => {
+    if (!user) { toast('Sign in to rate maps.'); return }
+    const had = map.my_rating ?? 0
+    await b!.setRating(map.id, stars)
+    const count = map.ratings - (had ? 1 : 0) + (stars ? 1 : 0)
+    const sum = map.rating * map.ratings - had + stars
+    setMap({ ...map, my_rating: stars, ratings: count, rating: count ? sum / count : 0 })
   })
   const remix = () => run(async () => {
     try {
@@ -87,43 +118,46 @@ export default function HubMap() {
     } finally { setProgress('') }
   })
   const unpublish = () => run(async () => {
-    if (!(await confirmDialog('Unpublish this map?', 'It disappears from the hub for everyone, along with its likes. Your local and cloud copies are not affected.', { confirm: 'Unpublish', danger: true }))) return
+    if (!(await confirmDialog('Unpublish this map?', 'It disappears from the Showcase for everyone, along with its ratings and screenshots. Your local and cloud copies are not affected.', { confirm: 'Unpublish', danger: true }))) return
     await b!.unpublish(map.id)
     toast('Map unpublished.', 'ok')
-    navigate('/hub')
+    navigate('/showcase')
   })
   const setHidden = (hidden: boolean) => run(async () => {
     await b!.setHidden(map.id, hidden)
     setMap({ ...map, hidden })
-    toast(hidden ? 'Map hidden from the hub.' : 'Map visible again.', 'ok')
+    toast(hidden ? 'Map hidden from the Showcase.' : 'Map visible again.', 'ok')
+  })
+  const feature = () => run(async () => {
+    await b!.featureMap(map.id)
+    toast('This is now the map of the week.', 'ok')
   })
 
   return (
     <div className="page">
-      <Link to="/hub" className="small">← Hub</Link>
+      <Link to="/showcase" className="small">← Showcase</Link>
       {map.hidden && <div className="callout warn">This map is hidden by a moderator. {mine ? 'Only you and moderators can see it.' : 'Only moderators and its author can see it.'}</div>}
       <div className="hub-detail">
-        <div className="map-card hub-detail-thumb">
-          <div className="thumb">{map.thumbnail_url ? <img src={map.thumbnail_url} alt="" /> : <span>No preview</span>}</div>
-        </div>
+        <Gallery shots={map.shots} fallback={map.thumbnail_url} />
         <div className="col" style={{ gap: 12 }}>
           <h1 style={{ overflowWrap: 'anywhere' }}>{map.title}</h1>
-          <div className="row">
+          <div className="row wrap">
             <Avatar name={map.author.name} url={map.author.avatar_url} />
             <span>{map.author.name}</span>
             <span className="faint small">· published {timeAgo(map.created_at)}{map.updated_at !== map.created_at ? ` · updated ${timeAgo(map.updated_at)}` : ''}</span>
           </div>
-          {map.remix_of && <p className="small muted">Remix of <Link to={`/hub/${map.remix_of.id}`}>{map.remix_of.title}</Link></p>}
-          {map.tags.length > 0 && <div className="chips">{map.tags.map((t) => <Link key={t} to={`/hub?tag=${encodeURIComponent(t)}`} className="chip">#{t}</Link>)}</div>}
-          <div className="row small muted">
-            <span>♥ {plural(map.likes, 'like')}</span><span>· ⑂ {plural(map.remixes, 'remix', 'remixes')}</span><span>· {plural(map.downloads, 'download')}</span>
-            <span>· {files.length} files, {fmtBytes(bytes)}</span>
+          {map.remix_of && <p className="small muted">Remix of <Link to={`/showcase/${map.remix_of.id}`}>{map.remix_of.title}</Link></p>}
+          {map.tags.length > 0 && <div className="chips">{map.tags.map((t) => <Link key={t} to={`/showcase?tag=${encodeURIComponent(t)}`} className="chip">#{t}</Link>)}</div>}
+          <div className="row small muted wrap">
+            <Stars value={map.rating} count={map.ratings} />
+            <span>· ⑂ {plural(map.remixes, 'remix', 'remixes')}</span><span>· {plural(map.downloads, 'download')}</span>
+            <span>· {plural(p.scene_items.length, 'object')}, {plural(p.markers.length, 'marker')}</span>
           </div>
+          {user && !mine && <div className="row small"><span className="muted">Your rating</span><RateStars value={map.my_rating ?? 0} disabled={busy} onRate={rate} /></div>}
           <div className="row wrap">
             <button className="primary" disabled={busy} onClick={remix}>Remix in editor</button>
-            <button className={map.liked_by_me ? 'on' : ''} disabled={busy} onClick={like} title={user ? '' : 'Sign in to like maps'}>{map.liked_by_me ? '♥ Liked' : '♡ Like'}</button>
             {user && !mine && <button className="quiet" onClick={() => setReporting(true)}>Report</button>}
-            {!user && <Link to="/account" className="small">Sign in to like or report</Link>}
+            {!user && <Link to="/account" className="small">Sign in to rate or report</Link>}
           </div>
           {progress && <p className="small muted">{progress}…</p>}
         </div>
@@ -132,7 +166,7 @@ export default function HubMap() {
       {map.description && <div className="card"><p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{map.description}</p></div>}
 
       <div className="callout">
-        <p className="small muted">Remixing copies this map's own meshes, textures, markers and lights into a new project in My maps. Hub maps never include Saints Row game files: to preview game props and export the map to the game you need your own <Link to="/setup">data pack</Link>.</p>
+        <p className="small muted">Remixing rebuilds this map in your browser from Map Studio's own textures, shapes and prefabs, as a new project in My maps. Showcase maps never include anyone's files or Saints Row game data: to preview game props and export the map to the game you need your own <Link to="/setup">data pack</Link>.</p>
       </div>
 
       {(mine || user?.is_moderator) && (
@@ -141,9 +175,10 @@ export default function HubMap() {
           <div className="row wrap">
             {mine && <span className="small muted grow">To update it, open the project in the editor and publish again.</span>}
             {mine && <button className="danger" disabled={busy} onClick={unpublish}>Unpublish</button>}
+            {user?.is_moderator && !map.hidden && <button disabled={busy} onClick={feature} title="Show it at the top of the Showcase until Monday">Make map of the week</button>}
             {user?.is_moderator && (map.hidden
               ? <button disabled={busy} onClick={() => setHidden(false)}>Unhide</button>
-              : <button className="danger" disabled={busy} onClick={() => setHidden(true)}>Hide from hub</button>)}
+              : <button className="danger" disabled={busy} onClick={() => setHidden(true)}>Hide from the Showcase</button>)}
           </div>
         </div>
       )}

@@ -7,6 +7,7 @@ import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js'
 import { parseMtl, parseObj, type ObjModel } from './geometry'
 import { storeFile, type StoredFile } from './files'
 import { prepareTexture, textureSize } from './images'
+import { recipeOf, tagRecipe } from './recipes'
 import type { FileRef } from './project'
 
 export interface ImportedModel {
@@ -212,5 +213,8 @@ async function bakeToObj(root: THREE.Object3D, file: File, flipV: boolean, warni
 export async function importImage(file: File, maxSize = 2048): Promise<StoredFile & { note?: string }> {
   if (!isImage(file.name)) throw new Error('Choose an image: PNG, JPG, TGA, BMP, TIFF or DDS.')
   const prepared = await prepareTexture(file, maxSize)
+  // A site-made texture keeps its recipe through resizing or conversion.
+  const recipe = recipeOf(file)
+  if (recipe && prepared.file !== file) tagRecipe(prepared.file, recipe)
   return { ...(await storeFile(prepared.file, prepared.file.name)), note: prepared.note }
 }

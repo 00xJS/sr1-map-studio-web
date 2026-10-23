@@ -21,12 +21,12 @@ function remake(r: TextureRecipe, size: number) {
   let p = made.get(key)
   if (!p) {
     p = (async () => {
-      if ('lib' in r) {
-        const res = await fetch(`/textures/${r.lib}.jpg`)
+      if (r.kind === 'library') {
+        const res = await fetch(`/textures/${r.id}.jpg`)
         if (!res.ok) return null
-        return storeFile(await res.blob(), `${r.lib}.jpg`)
+        return storeFile(await res.blob(), `${r.id}.jpg`)
       }
-      const params = { ...r.gen, size: Math.min(r.gen.size, size) }
+      const params = { ...r.params, size: Math.min(r.params.size, size) }
       return storeFile(await pixelsToPng(generate(params), params.size, `${params.kind}_${params.seed}.png`), `${params.kind}_${params.seed}.png`)
     })().catch(() => null)
     made.set(key, p)
@@ -51,7 +51,7 @@ export async function openShare(doc: ShareDoc, onProgress?: (t: string) => void)
   const base = `/play/${p.id}/`
   const at = (k: string) => (isDataPackPath(k) ? k : base + k)
   // The viewer tells browser images by their extension.
-  const tex = (k: string) => (isDataPackPath(k) ? k : base + k + ('lib' in (doc.textures[k] ?? {}) ? '.jpg' : '.png'))
+  const tex = (k: string) => (isDataPackPath(k) ? k : base + k + (doc.textures[k]?.kind === 'library' ? '.jpg' : '.png'))
   for (const [k, text] of Object.entries(doc.models)) cacheModel(at(k), parseObj(text))
   const entries = Object.entries(doc.textures)
   const size = entries.length > 60 ? 256 : MAX_GEN

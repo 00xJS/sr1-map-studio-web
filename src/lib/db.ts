@@ -64,6 +64,7 @@ export const db = {
   },
   async deleteProject(id: string) {
     await wrap((await store('projects', 'readwrite')).delete(id))
+    await wrap((await store('meta', 'readwrite')).delete('versions:' + id)) // saved versions (lib/versions.ts)
   },
   async getBlob(hash: string): Promise<Blob | undefined> {
     const r: BlobRecord | undefined = await wrap((await store('blobs')).get(hash))

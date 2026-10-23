@@ -27,9 +27,9 @@ function SignIn() {
     <div className="page page-narrow">
       <div className="hero" style={{ paddingTop: 8 }}>
         <h1>Sign <b>in</b></h1>
-        <p>An account adds cloud saves (open your maps on any device) and lets you publish to and remix from the community hub. Your Saints Row game files and data pack never leave this device.</p>
+        <p>An account adds cloud saves (open your maps on any device) and lets you publish to and remix from the Showcase. Your Saints Row game files and data pack never leave this device.</p>
       </div>
-      {local && <div className="callout warn"><p className="small">Local test server: accounts, cloud saves and the hub are simulated in this browser. Signing in is instant and the first account becomes a moderator.</p></div>}
+      {local && <div className="callout warn"><p className="small">Local test server: accounts, cloud saves and the Showcase are simulated in this browser. Signing in is instant and the first account becomes a moderator.</p></div>}
       <div className="card">
         {sent ? (
           <div className="col">
@@ -132,7 +132,7 @@ function Published() {
     <section className="col">
       <div className="section-title">My published maps</div>
       {!items ? <p className="muted">Loading…</p> : items.length === 0
-        ? <p className="muted">You haven't published anything yet. Open a map in the editor and choose <b>Publish</b>. <Link to="/hub">Browse the hub</Link></p>
+        ? <p className="muted">You haven't published anything yet. Open a map in the editor and choose <b>Publish</b>. <Link to="/showcase">Browse the Showcase</Link></p>
         : <div className="grid-cards">{items.map((m) => <HubCard key={m.id} m={m} />)}</div>}
     </section>
   )
@@ -162,7 +162,7 @@ function Moderation() {
             <div key={r.id} className="card tight">
               <div className="row wrap">
                 <span className="chip accent">{REASON_LABELS[r.reason] ?? r.reason}</span>
-                <Link to={`/hub/${r.map_id}`} style={{ fontWeight: 700 }}>{r.map_title}</Link>
+                <Link to={`/showcase/${r.map_id}`} style={{ fontWeight: 700 }}>{r.map_title}</Link>
                 <span className="small faint grow">by {r.reporter} · {timeAgo(r.created_at)}</span>
                 <button className="sm" disabled={busy} onClick={() => resolve(r, 'dismiss')}>Dismiss</button>
                 <button className="sm danger" disabled={busy} onClick={() => resolve(r, 'hide')}>Hide map</button>

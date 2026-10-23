@@ -65,8 +65,8 @@ function swatchFile(s: Exclude<Swatch['source'], { kind: 'file' }>, key: string)
   let f = files.get(key)
   if (!f) {
     f = s.kind === 'library'
-      ? fetch(`/textures/${s.id}.jpg`).then((r) => r.blob()).then((b) => tagRecipe(new File([b], `${s.id}.jpg`, { type: 'image/jpeg' }), { lib: s.id }))
-      : pixelsToPng(generate(s.params), s.params.size, `${s.params.kind}_${s.params.seed}_${s.params.size}.png`).then((f) => tagRecipe(f, { gen: s.params }))
+      ? fetch(`/textures/${s.id}.jpg`).then((r) => r.blob()).then((b) => tagRecipe(new File([b], `${s.id}.jpg`, { type: 'image/jpeg' }), { kind: 'library', id: s.id }))
+      : pixelsToPng(generate(s.params), s.params.size, `${s.params.kind}_${s.params.seed}_${s.params.size}.png`).then((file) => tagRecipe(file, { kind: 'generated', params: s.params }))
     f.catch(() => files.delete(key))
     files.set(key, f)
   }
