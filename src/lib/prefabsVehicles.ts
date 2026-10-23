@@ -447,7 +447,7 @@ const SMALL: Record<string, PrefabDef & { category: string }> = {
     ...[-0.95, 0.95].map((x) => box('Base rail', [0.1, 0.1, 3.4], L(x, 0.5, -0.1), CHROME)),
     ...[[-0.95, -1.5], [0.95, -1.5], [-0.95, 1.3], [0.95, 1.3]].flatMap(([x, z]) => [box('Leg', [0.1, 1.1, 0.1], L(x, 0.5, z), CHROME), lying('Caster', 0.5, 0.2, L(x, 0, z), PB.black, PB.black, 8)]),
   ]) },
-  wheelbarrow: { category: 'Vehicles', label: 'Wheelbarrow', hint: 'A builder’s barrow full of dirt', make: pf('Wheelbarrow', (L) => [
+  gardenbarrow: { category: 'Vehicles', label: 'Garden wheelbarrow', hint: 'A builder’s barrow full of dirt', make: pf('Wheelbarrow', (L) => [
     { ...box('Tray', [2.6, 1.0, 3.2], L(0, 1.2, 0.3), DIRT_LOAD, PB.green), bevel: 0.3 },
     ...wheel1(L, 0, 2.4, 1.4, 0.35, PB.steel),
     ...[-0.3, 0.3].map((x) => box('Wheel bracket', [0.1, 0.6, 1.0], L(x, 0.6, 2.1), PB.steel)),
@@ -456,7 +456,7 @@ const SMALL: Record<string, PrefabDef & { category: string }> = {
 }
 
 const AIR_SEA_RAIL: Record<string, PrefabDef & { category: string }> = {
-  helicopter: { category: 'Vehicles', label: 'Helicopter', hint: 'A parked light helicopter on skids', ...pfp('Helicopter', [paintParam('#2a5ab8')], (L, p) => {
+  civhelicopter: { category: 'Vehicles', label: 'Light helicopter', hint: 'A parked civilian helicopter on skids', ...pfp('Helicopter', [paintParam('#2a5ab8')], (L, p) => {
     const c = paintOf(p)
     return [
       ...[-1, 1].flatMap((sx) => [lying('Skid', 0.35, 9, L(sx * 2.2, 0, 0.4), TRIM, TRIM, 8, 90), ...[-1.6, 2.4].map((z) => box('Skid strut', [0.2, 1.0, 0.2], L(sx * 2.0, 0.3, z), TRIM))]),
