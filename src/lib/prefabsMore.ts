@@ -133,11 +133,11 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   // ---------------- street ----------------
   // The arm reaches out over the road (+Z); the lights face along the road (+X), toward the drivers they stop.
   trafficlight: { category: 'Street', label: 'Traffic light', hint: 'A pole with an arm over the road; the lights face +X', make: pf('Traffic light', (L) => [
-    cyl('Signal pole', 0.4, 7, L(0, 0, 0), PB.black, PB.black, 8), box('Signal arm', [0.3, 0.3, 5], L(0, 6.6, 2.4), PB.black),
-    { ...box('Signal head', [0.8, 2.6, 1], L(0, 4.2, 4.6), PB.black), bevel: 0.15 }, box('Red', [0.1, 0.6, 0.6], L(0.45, 6, 4.6), RED_LIGHT), box('Green', [0.1, 0.6, 0.6], L(0.45, 4.6, 4.6), GREEN_LIGHT),
+    cyl('Signal pole', 0.6, 12.2, L(0, 0, 0), PB.black, PB.black, 8), box('Signal arm', [0.36, 0.36, 10.2], L(0, 11.4, 5.1), PB.black),
+    { ...box('Signal head', [1, 3.6, 1.14], L(0, 7.7, 9.6), PB.black), bevel: 0.15 }, box('Red', [0.1, 0.6, 0.6], L(0.55, 10.2, 9.6), RED_LIGHT), box('Green', [0.1, 0.6, 0.6], L(0.55, 8.2, 9.6), GREEN_LIGHT),
   ]) },
   stopsign: { category: 'Street', label: 'Stop sign', hint: 'An eight-sided stop sign', make: pf('Stop sign', (L) => [
-    cyl('Sign post', 0.2, 5, L(0, 0, 0), PB.steel, PB.steel, 6), { ...cyl('Stop sign', 1.6, 0.1, L(0, 4.4, 0.2), PB.red, PB.red, 8), rot: 22.5 },
+    cyl('Sign post', 0.2, 5.1, L(0, 0, 0), PB.steel, PB.steel, 6), lying('Stop sign', 1.66, 0.1, L(0, 4.04, 0.15), PB.red, PB.red, 8, 90),
   ]) },
   hydrant: { category: 'Street', label: 'Fire hydrant', hint: 'A red hydrant', make: pf('Hydrant', (L) => [
     { ...cyl('Hydrant', 0.8, 1.4, L(0, 0, 0), PB.red, PB.red, 10), taper: 0.8 }, { ...cyl('Hydrant cap', 0.7, 0.4, L(0, 1.4, 0), PB.red, PB.red, 10), taper: 0.3 },
@@ -153,7 +153,7 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
     { ...cyl('Trash can', 1.4, 2, L(0, 0, 0), PB.black, PB.boxGreen, 12), taper: 1.1 }, cyl('Lid', 1.6, 0.2, L(0, 2, 0), PB.black, PB.black, 12),
   ]) },
   meters: { category: 'Street', label: 'Parking meters', hint: 'A row of three meters', make: pf('Meters', (L) => [-4, 0, 4].flatMap((a) => [
-    cyl('Meter post', 0.2, 2.6, L(a, 0, 0), PB.steel, PB.steel, 6), { ...box('Meter', [0.6, 0.9, 0.4], L(a, 2.6, 0), PB.steel), bevel: 0.15 },
+    cyl('Meter post', 0.2, 1.7, L(a, 0, 0), PB.steel, PB.steel, 6), { ...box('Meter', [0.6, 0.7, 0.4], L(a, 1.7, 0), PB.steel), bevel: 0.15 },
   ])) },
   atm: { category: 'Street', label: 'ATM', hint: 'A cash machine kiosk', make: pf('ATM', (L) => [
     { ...box('ATM', [2.4, 4.4, 1.8], L(0, 0, 0), PB.steel, PB.blue), bevel: 0.15 }, box('Screen', [1.2, 0.8, 0.1], L(0, 2.8, 0.9), SCREEN),
@@ -163,7 +163,7 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
     lying('Wheel', 1, 0.3, L(-2.15, 0, 0), PB.tire, PB.tire, 12), lying('Wheel', 1, 0.3, L(2.15, 0, 0), PB.tire, PB.tire, 12),
     cyl('Umbrella pole', 0.15, 3, L(0, 2.6, 0), PB.steel, PB.steel, 6), { ...cyl('Umbrella', 5, 0.9, L(0, 5.2, 0), PB.red, PB.yellow, 8), taper: 0 },
   ]) },
-  jersey: { category: 'Street', label: 'Barrier line', hint: 'Three jersey barriers', ...pfp('Barriers', [{ key: 'n', label: 'Barriers', kind: 'number', min: 1, max: 8, step: 1, default: 3 }], (L, p) => [...Array(+p.n)].map((_, i) => ({ ...box('Jersey barrier', [8, 2, 1.2], L((i - (+p.n - 1) / 2) * 8.4, 0, 0), PB.concrete), bevel: 0.3 }))) },
+  jersey: { category: 'Street', label: 'Barrier line', hint: 'Three jersey barriers', ...pfp('Barriers', [{ key: 'n', label: 'Barriers', kind: 'number', min: 1, max: 8, step: 1, default: 3 }], (L, p) => [...Array(+p.n)].map((_, i) => ({ ...box('Jersey barrier', [9.6, 2.6, 1.6], L((i - (+p.n - 1) / 2) * 9.9, 0, 0), PB.concrete), bevel: 0.3 }))) },
 
   // ---------------- nature ----------------
   palm: { category: 'Nature', label: 'Palm tree', hint: 'A tall palm', make: pf('Palm', (L) => [
