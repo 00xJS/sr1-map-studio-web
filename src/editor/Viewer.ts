@@ -409,6 +409,28 @@ export class Viewer {
     this.requestRender()
   }
 
+  /** The mesh drawn for a scene object (its local frame is the object's own), or null while it loads. */
+  itemMesh(index: number): THREE.Mesh | null {
+    const it = this.project?.scene_items[index]
+    return (it && this.items.get(it.uid)?.mesh) || null
+  }
+
+  /** Shows a new mesh for an object until the project catches up (terrain sculpting draws every frame this way). */
+  previewItem(index: number, model: ObjModel) {
+    const mesh = this.itemMesh(index)
+    if (!mesh) return
+    const info = buildGeometry(model)
+    const mats = mesh.material as THREE.Material[]
+    const byName = new Map(mats.map((m) => [m.userData.mat as string, m]))
+    if (mesh.userData.preview) mesh.geometry.dispose()
+    mesh.geometry = info.geometry
+    // Materials by name; one the object doesn't have yet borrows the last one until the real mesh arrives.
+    mesh.material = info.mats.map((n) => byName.get(n || 'default') ?? mats[mats.length - 1])
+    mesh.userData.faceOrder = info.faceOrder
+    mesh.userData.preview = true
+    this.requestRender()
+  }
+
   /** World box of one scene object, or null while it is loading. */
   itemBounds(index: number): [Vec3, Vec3] | null {
     const it = this.project?.scene_items[index]

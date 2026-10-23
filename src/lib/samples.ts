@@ -244,6 +244,7 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
   const shapeOf = (part: Part): Shape => ({
     kind: part.kind, size: part.size, tile: part.tile ?? 4,
     ...(part.segments ? { segments: part.segments } : {}), ...(part.taper !== undefined ? { taper: part.taper } : {}), ...(part.bevel ? { bevel: part.bevel } : {}), ...(part.lie ? { lie: true } : {}), ...(part.outline ? { outline: part.outline } : {}), ...(part.fit ? { fit: true } : {}),
+    ...(part.heights ? { cells: part.cells, heights: part.heights } : {}),
   })
   // Parts of a prefab (same group) become one object; the rest stay one object each.
   const units: Part[][] = []
@@ -261,11 +262,13 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
       const obj = await storeFile(new Blob([shapeObj(shape)], { type: 'model/obj' }), `${part.kind}.obj`)
       files[obj.vpath] = obj.ref
       const [top, side] = await Promise.all([texture(part.top), texture(part.side)])
+      // Terrain has a third material for its rocky ground.
+      const rock = part.kind === 'terrain' ? await texture(part.rock ?? part.side) : null
       items.push({
         uid: uid(), name: shapeName(part.label, shape), path: obj.vpath, source_path: obj.vpath, shape,
         position: part.at, rotation: [0, part.rot ?? 0, 0], scale: 1,
-        textures: { top: top.vpath, side: side.vpath }, alpha: { top: 'file' in part.top && !!part.top.alpha, side: 'file' in part.side && !!part.side.alpha },
-        surface_ids: { top: top.surface, side: side.surface }, physics_intent: 'Static',
+        textures: { top: top.vpath, side: side.vpath, ...(rock ? { rock: rock.vpath } : {}) }, alpha: { top: 'file' in part.top && !!part.top.alpha, side: 'file' in part.side && !!part.side.alpha, ...(rock ? { rock: false } : {}) },
+        surface_ids: { top: top.surface, side: side.surface, ...(rock ? { rock: rock.surface } : {}) }, physics_intent: 'Static',
         ...(part.water ? { swimmable_water: true } : {}),
       })
       continue

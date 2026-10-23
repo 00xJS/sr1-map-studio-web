@@ -9,6 +9,7 @@ import { catalogs } from '../lib/catalogs'
 import { MARKER_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/labels'
 import { deleteMyPrefab, renameMyPrefab, useMyPrefabs } from './myPrefabs'
 import { confirmDialog } from '../ui'
+import { GroundToolOptions } from './GroundToolOptions'
 
 const I = (d: ReactNode) => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
 const ICONS = {
@@ -22,6 +23,8 @@ const ICONS = {
   weapon: I(<><path d="M3 10h14l3-2v4h-4l-2 2v4h-3l-1-4H3z" /></>),
   light: I(<><path d="M9 18h6M10 21h4" /><path d="M12 3a6 6 0 0 1 4 10.5c-.8.8-1 1.5-1 2.5H9c0-1-.2-1.7-1-2.5A6 6 0 0 1 12 3z" /></>),
   erase: I(<><path d="M20 20H9L4 15l9-9 7 7-6 6" /><path d="M9 11l6 6" /></>),
+  sculpt: I(<><path d="M2 19l6-9 4 5 3-4 7 8z" /><path d="M14.5 6.5l2-2 2 2" /></>),
+  road: I(<><path d="M8 3L5 21M16 3l3 18" /><path d="M12 4v3M12 10.5v3M12 17v3" /></>),
 }
 
 type Entry = { id: string; label: string; short: string; key: string; tool: Tool; gizmo?: GizmoMode; help: string }
@@ -30,6 +33,8 @@ const ENTRIES: Entry[] = [
   { id: 'rotate', label: 'Rotate', short: 'Turn', key: '2', tool: 'select', gizmo: 'rotate', help: 'Drag the rings to turn the selection.' },
   { id: 'scale', label: 'Scale', short: 'Size', key: '3', tool: 'select', gizmo: 'scale', help: 'Drag to resize the selection.' },
   { id: 'shape', label: 'Shape', short: 'Shape', key: 'H', tool: 'shape', help: 'Click the map to place a shape.' },
+  { id: 'sculpt', label: 'Terrain', short: 'Terrain', key: 'T', tool: 'sculpt', help: 'Drag on a terrain to sculpt it.' },
+  { id: 'road', label: 'Road', short: 'Road', key: 'R', tool: 'road', help: 'Click points for a road, Enter to finish.' },
   { id: 'paint', label: 'Paint bucket', short: 'Paint', key: 'B', tool: 'paint', help: 'Click a surface to paint it with the chosen texture.' },
   { id: 'pick', label: 'Eyedropper', short: 'Pick', key: 'I', tool: 'pick', help: 'Click a surface to pick up its texture.' },
   { id: 'spawn', label: 'Spawns & markers', short: 'Spawn', key: 'P', tool: 'spawn', help: 'Click the map to place a spawn or marker.' },
@@ -54,8 +59,8 @@ export function ToolStrip() {
   const active = (e: Entry) => (e.tool === 'select' ? tool === 'select' && e.gizmo === gizmo : tool === e.tool)
   return (
     <div className="toolstrip" role="toolbar" aria-label="Tools" data-tour="tools">
-      {ENTRIES.map((e, i) => (
-        <button key={e.id} className={'tool' + (active(e) ? ' on' : '') + (i === 3 || i === 9 ? ' gap' : '')}
+      {ENTRIES.map((e) => (
+        <button key={e.id} className={'tool' + (active(e) ? ' on' : '') + (e.id === 'shape' || e.id === 'erase' ? ' gap' : '')}
           title={`${e.label} (${e.key}) · ${e.help}`} aria-label={e.label} onClick={() => chooseTool(e.id)} data-tour={e.id === 'paint' ? 'paint' : undefined}>
           {ICONS[e.id as keyof typeof ICONS]}
           <span className="tool-label">{e.short}</span>
@@ -179,12 +184,13 @@ export function ToolOptions() {
           {(advanced ? catalogs.marker_types.filter((t) => t !== 'Weapon pickup') : SIMPLE_MARKERS).map((t) => <option key={t} value={t}>{markerLabel(t)}</option>)}
         </select>
       )}
+      {(tool === 'sculpt' || tool === 'road') && <GroundToolOptions tool={tool} />}
       {tool === 'weapon' && (
         <select value={toolWeapon} onChange={(e) => set({ toolWeapon: e.target.value })}>
           {catalogs.weapons.map(([n, id]) => <option key={id} value={id}>{n}</option>)}
         </select>
       )}
-      <span className="small muted">{tool === 'spawn' ? MARKER_HINTS[toolSpawn] ?? help : help}</span>
+      {tool !== 'sculpt' && tool !== 'road' && <span className="small muted">{tool === 'spawn' ? MARKER_HINTS[toolSpawn] ?? help : help}</span>}
       <button className="sm quiet" onClick={() => chooseTool('select')} title="Back to Select (Esc)">Done</button>
     </div>
   )

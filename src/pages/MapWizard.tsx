@@ -6,6 +6,10 @@ import { mapSize } from '../lib/sampleScale'
 import type { Sample } from '../lib/sampleKit'
 
 const PLAYERS = [4, 6, 8, 10, 12]
+const GROUND_COLORS: Record<string, string> = {
+  Road: '#26272b', Junction: '#26272b', 'Lane dash': '#c9c6bd', 'Edge line': '#8a887f', 'Centre line': '#b38a10', Crosswalk: '#c9c6bd',
+  Sidewalk: '#6d6a64', Kerb: '#86837c', Lot: '#57544f', Lawn: '#3d5a2a', Path: '#7d776d', Pond: '#1f5470',
+}
 
 /** Top-down sketch of a generated map, laid out like its minimap (+X right, +Z down). */
 function Sketch({ s }: { s: Sample }) {
@@ -31,13 +35,18 @@ function Sketch({ s }: { s: Sample }) {
     for (const p of ordered) {
       const h = Math.min(1, Math.max(0, (top(p) - 1) / 24))
       const raised = /Platform|Ramp|Deck/.test(p.label)
-      g.fillStyle = raised ? `hsl(38 45% ${42 + h * 30}%)`
-        : s.theme === 'Cyber' ? `hsl(280 45% ${30 + h * 45}%)`
-          : `hsl(215 12% ${38 + h * 45}%)`
+      // Streets, sidewalks and green ground in their own colours; terrain shaded by its highest point.
+      const flat = GROUND_COLORS[p.label]
+      g.fillStyle = flat ? flat
+        : p.kind === 'terrain' ? `hsl(95 30% ${26 + Math.min(1, Math.max(0, ...(p.heights ?? [0])) / 12) * 22}%)`
+          : raised ? `hsl(38 45% ${42 + h * 30}%)`
+            : s.theme === 'Cyber' ? `hsl(280 45% ${30 + h * 45}%)`
+              : `hsl(215 12% ${38 + h * 45}%)`
       g.save()
       g.translate(p.at[0], p.at[2])
       g.rotate((-(p.rot ?? 0) * Math.PI) / 180)
       if (p.kind === 'cylinder') { g.beginPath(); g.ellipse(0, 0, p.size[0] / 2, p.size[2] / 2, 0, 0, Math.PI * 2); g.fill() }
+      else if (p.kind === 'blob' && p.outline) { g.beginPath(); p.outline.forEach(([x, z], i) => (i ? g.lineTo(x, z) : g.moveTo(x, z))); g.closePath(); g.fill() }
       else g.fillRect(-p.size[0] / 2, -p.size[2] / 2, p.size[0], p.size[2])
       g.restore()
     }
@@ -80,6 +89,11 @@ export function MapWizard({ busy, onCreate, onBlank }: { busy: boolean; onCreate
             ))}
           </div>
           <span className="faint small">{LAYOUTS[o.layout].hint}</span>
+          {o.layout === 'neighbourhood' && (
+            <label className="row small" title="Wooded hills along the side walls and a raised plaza in the park; every slope walkable">
+              <input type="checkbox" checked={o.terrain !== false} onChange={(e) => set({ terrain: e.target.checked })} /> Hills and a raised plaza
+            </label>
+          )}
         </div>
         <div className="row wrap" style={{ gap: 16 }}>
           <div className="col" style={{ gap: 6 }}>

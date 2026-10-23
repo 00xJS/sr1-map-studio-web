@@ -4,8 +4,9 @@
 // brick size whatever the shape's dimensions. Faces that point up use the
 // "top" material, all others "side". Origin is the bottom center.
 import type { Vec3 } from './project'
+import { terrainFaces, terrainObj } from './terrain'
 
-export type ShapeKind = 'box' | 'ramp' | 'stairs' | 'cylinder' | 'roof' | 'blob'
+export type ShapeKind = 'box' | 'ramp' | 'stairs' | 'cylinder' | 'roof' | 'blob' | 'terrain'
 
 export interface Shape {
   kind: ShapeKind
@@ -25,6 +26,10 @@ export interface Shape {
   outline?: [number, number][]
   /** Stretch the texture once over each face instead of repeating it (a photo on a wall). */
   fit?: boolean
+  /** Terrain: grid cells along X and Z (see terrain.ts). */
+  cells?: [number, number]
+  /** Terrain: (cells X + 1) × (cells Z + 1) heights above the slab top, row by row along X. */
+  heights?: number[]
 }
 
 export interface ShapePreset { label: string; shape: Shape; hint: string }
@@ -43,7 +48,8 @@ export const SHAPE_PRESETS: Record<string, ShapePreset> = {
 }
 
 type V = [number, number, number]
-interface Face { pts: V[]; top: boolean }
+/** `mat` names a material other than top/side (a terrain's rock). */
+interface Face { pts: V[]; top: boolean; mat?: string }
 
 const sub = (a: V, b: V): V => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const cross = (a: V, b: V): V => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
@@ -105,6 +111,7 @@ function faces(s: Shape): Face[] {
   const [w, h, d] = s.size.map((v) => Math.max(0.01, v)) as V
   const x0 = -w / 2, x1 = w / 2, z0 = -d / 2, z1 = d / 2
   switch (s.kind) {
+    case 'terrain': return terrainFaces(s).map((f) => ({ pts: f.pts, top: f.mat === 'top', ...(f.mat === 'rock' ? { mat: 'rock' } : {}) }))
     case 'box': return s.bevel ? bevelFaces(x0, x1, h, z0, z1, s.bevel) : boxFaces(x0, x1, 0, h, z0, z1)
     case 'roof': {
       // Gable roof: ridge along X at the top middle.
@@ -200,6 +207,7 @@ const fmt = (n: number) => String(+n.toFixed(5))
 
 /** OBJ text with materials "top" and "side"; polygons are fan-triangulated by the importer. */
 export function shapeObj(s: Shape): string {
+  if (s.kind === 'terrain') return terrainObj(s)
   const lines = ['# SR1 Map Studio block-out shape: ' + JSON.stringify(s)]
   const vt: string[] = []
   const groups: Record<'top' | 'side', string[]> = { top: [], side: [] }

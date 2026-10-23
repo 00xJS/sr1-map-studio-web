@@ -38,6 +38,10 @@ export interface Part {
   group?: string
   /** Swimmable water: exported with no collision as a water volume (its textures should be used by nothing else in the prefab). */
   water?: boolean
+  /** Terrain grid and heights (see Shape.cells / Shape.heights); `rock` textures its steepest ground (default: side). */
+  cells?: [number, number]
+  heights?: number[]
+  rock?: Tex
   /** The prefab these parts were made by, so the editor can rebuild it with new settings. */
   prefab?: { key: string; params: Record<string, number | string>; at: Vec3; rot: number }
 }

@@ -231,7 +231,8 @@ const CANOPY: Tex = { gen: 'tiles', tweak: { color: '#e6e4de', accent: '#b23a2a'
 export interface ParamDef {
   key: string
   label: string
-  kind: 'number' | 'select'
+  /** 'path': data the editor edits in the view (a road's points), not in the settings form. */
+  kind: 'number' | 'select' | 'path'
   min?: number
   max?: number
   step?: number
