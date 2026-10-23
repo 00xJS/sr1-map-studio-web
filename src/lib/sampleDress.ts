@@ -44,6 +44,18 @@ export const DRESS: Record<string, string[]> = {
   cy_reactor: ['fueltank', 'piperack', 'serverrow', 'generator', 'barrels', 'neoncube'],
 }
 
+/** Pieces that belong in particular urban maps, placed before the general street clutter. */
+const URBAN_EXTRA: Record<string, string[]> = {
+  u_downtown: ['billboard', 'utilitypole'], u_mainstreet: ['billboard', 'utilitypole', 'lowwall'], u_plaza: ['lowwall'],
+  u_clubstrip: ['billboard', 'utilitypole'], u_chinatown: ['utilitypole'], u_projects: ['chainfence', 'utilitypole'],
+  u_suburb: ['lowwall', 'utilitypole'], u_trailer: ['chainfence', 'utilitypole'], u_school: ['lowwall', 'chainfence'],
+  u_office_park: ['acunit', 'lowwall'], u_skyscraper: ['portapotty', 'cementmixer', 'chainfence'], u_warehouses: ['boxtruck', 'cratestack', 'chainfence'],
+  u_trainyard: ['railsignal', 'cratestack'], u_terminal: ['citybus', 'railsignal'], u_docks: ['bollards', 'cratestack'],
+  u_canal: ['bollards'], u_river: ['bollards'], u_highway: ['tollbooth', 'boxtruck', 'utilitypole'], u_gas: ['boxtruck', 'utilitypole'],
+  u_junkyard: ['carwreck', 'chainfence'], u_ruins: ['carwreck', 'chainfence'], u_church: ['gravestones', 'lowwall'],
+  u_market: ['cratestack', 'boxtruck'], u_parking: ['utilitypole'], u_stadium: ['billboard', 'portapotty'], u_park: ['lowwall'],
+}
+
 /** Street clutter for the urban maps (already full of buildings and cover). */
 const URBAN_CLUTTER = ['hydrant', 'trashcan', 'meters', 'vending', 'phone', 'mailbox', 'atm', 'cones', 'bush', 'flowers', 'bench', 'foodcart']
 const THEME_FALLBACK: Record<Theme, string[]> = {
@@ -74,7 +86,7 @@ export const DENSE: DressOptions = { perArea: 650, gap: 2.5, maxPairs: 40 }
 export const LIGHT_DRESS: DressOptions = { perArea: 2200, gap: 1.2, maxPairs: 24 }
 
 export function dress(s: Sample, o: DressOptions = DENSE): Sample {
-  const keys = (s.dressWith ?? (s.theme === 'Urban' ? URBAN_CLUTTER : DRESS[s.id] ?? THEME_FALLBACK[s.theme])).filter((k) => ALL_PREFABS[k])
+  const keys = (s.dressWith ?? (s.theme === 'Urban' ? [...(URBAN_EXTRA[s.id] ?? []), ...URBAN_CLUTTER] : DRESS[s.id] ?? THEME_FALLBACK[s.theme])).filter((k) => ALL_PREFABS[k])
   if (!keys.length || !s.markers.length) return s
   const ground = Math.min(...s.markers.map(([, p]) => p[1]))
   const floor = candidates(s).filter((p) => p[1] === ground && (p[2] < 0 || (p[2] === 0 && p[0] < 0)))

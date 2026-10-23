@@ -7,6 +7,7 @@ import { isCustomNative, isGlass, isProp, type SceneItem, type Vec3 } from '../.
 import { loadModel } from '../../lib/assets'
 import { getViewer } from '../Viewport'
 import { SHAPE_PRESETS, type Shape } from '../../lib/shapes'
+import { BREAKING_PRESETS, MOVABLE_PRESETS, waterHint } from '../../lib/mapFeatures'
 
 const STEPS = [['Fine', 0.05], ['Normal', 0.5], ['Coarse', 5]] as const
 const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
@@ -48,6 +49,7 @@ export function ScenePanel() {
               {i === 0 && <span className="chip">base</span>}
               {nativeTag(x) && <span className="tag-native">{nativeTag(x)}</span>}
               {x.collision_disabled && <span className="tag-warn">no collision</span>}
+              {x.swimmable_water && <span className="tag-native">water</span>}
             </div>
           ))}
           {!items.length && <div className="list-item faint">No objects yet. Open a base map to begin.</div>}
@@ -117,6 +119,10 @@ function ObjectEditor({ it, index, step }: { it: SceneItem; index: number; step:
           <span className="section-title">Collision &amp; rendering</span>
           <Check checked={!!it.double_sided} onChange={(v) => set('Two-sided', (d) => { d.double_sided = v })}>Show both sides of this object (export)</Check>
           <Check checked={!it.collision_disabled} onChange={(v) => set('Collision', (d) => { d.collision_disabled = !v })}>Solid collision for this object</Check>
+          <Check checked={!!it.swimmable_water} onChange={(v) => set('Swimmable water', (d) => { d.swimmable_water = v })} title={waterHint(it)}>
+            Swimmable water <span className="chip">new, untested</span>
+          </Check>
+          {it.swimmable_water && <span className="faint small">{waterHint(it)}</span>}
           <CollisionFaces it={it} index={index} />
         </div>
       )}
@@ -221,7 +227,7 @@ function NativeControls({ it, index }: { it: SceneItem; index: number }) {
           await act.convertBreakable(index, 'glass')
         })}>Breakable glass</button>
         <button className="sm" disabled={busy || (glass && !custom)} onClick={() => run(async () => {
-          if (!custom && !(await confirmDialog('Experimental breakable wood', 'Wood uses a solid scenery shader, the _wo texture suffix and GLASS shatter/damage (experimental). The fitted Havok box is not verified in game.', { confirm: 'Convert' }))) return
+          if (!custom && !(await confirmDialog('Experimental breakable wood', 'Wood keeps your mesh with a solid look and the _wo (wood) texture suffix. In the game it becomes a loose object that disappears when it breaks (choose how below), with no debris. The fitted Havok box is not verified in game.', { confirm: 'Convert' }))) return
           await act.convertBreakable(index, 'wood')
         })}>Breakable wood</button>
         {glass && <button className="sm" disabled={busy} onClick={() => run(() => act.returnStatic(index))}>Return to static</button>}
@@ -234,7 +240,26 @@ function NativeControls({ it, index }: { it: SceneItem; index: number }) {
         </Field>
       )}
       {glass && !custom && <p className="faint small">Native pane: {catalogs.glass_size.map((v) => v.toFixed(2)).join(' × ')} game units with its own collision and shatter effect. Size is fixed.</p>}
+      <ProfilePreset it={it} index={index} />
     </div>
+  )
+}
+
+/** Stock break / weight preset of a movable prop or breakable-wood object. */
+function ProfilePreset({ it, index }: { it: SceneItem; index: number }) {
+  const update = useEditor((s) => s.update)
+  if (!isCustomNative(it)) return null
+  const wood = it.native_breakable_kind === 'wood' && !isProp(it)
+  const presets = wood ? BREAKING_PRESETS : it.native_prop_behavior === 'movable' ? MOVABLE_PRESETS : null
+  if (!presets) return null
+  const value = presets.some(([p]) => p === it.native_profile) ? it.native_profile! : presets[0][0]
+  return (
+    <Field label={wood ? 'How it breaks (new, untested)' : 'Weight preset (new, untested)'}
+      hint="Stock presets from the game's own object table. Health and weight come with each preset: a map can't set its own numbers.">
+      <select value={value} onChange={(e) => update('Object preset', (d) => { d.scene_items[index].native_profile = e.target.value })}>
+        {presets.map(([p, label]) => <option key={p} value={p}>{label}</option>)}
+      </select>
+    </Field>
   )
 }
 

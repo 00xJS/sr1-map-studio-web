@@ -6,6 +6,7 @@ import { useEditor, selectedItems, type Swatch } from './store'
 import * as act from './actions'
 import { getViewer } from './Viewport'
 import { saveMyPrefab } from './myPrefabs'
+const PhotoDialog = lazy(() => import('./PhotoDialog').then((m) => ({ default: m.PhotoDialog })))
 import { Palette, chooseTool } from './Tools'
 import { Checklist, useApplyFix, useChecklist } from './Checklist'
 import { niceName, paintMaterial } from './paint'
@@ -18,6 +19,7 @@ import { MARKER_HINTS, MODE_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/la
 import { GAME_MODES, isCustomNative, isGlass, type Light, type Marker, type SceneItem, type Vec3 } from '../lib/project'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
 import { prefabParams } from '../lib/prefabs'
+import { AMBIENCE_OPTIONS, ambienceHint, waterHint } from '../lib/mapFeatures'
 
 const TextureStudio = lazy(() => import('./TextureStudio').then((m) => ({ default: m.TextureStudio })))
 const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
@@ -81,6 +83,26 @@ function MapOverview({ onSamples, onPlay }: { onSamples: () => void; onPlay: () 
         ))}
       </div>
 
+      <div className="group">
+        <span className="section-title">Time and weather</span>
+        <div className="row wrap">
+          <button className={'sm' + (project.settings.always_clear_weather ? ' on' : '')} onClick={() => update('Time and weather', (d) => { d.settings.always_clear_weather = true })}>☀️ Always noon, clear</button>
+          <button className={'sm' + (!project.settings.always_clear_weather ? ' on' : '')} onClick={() => update('Time and weather', (d) => { d.settings.always_clear_weather = false })}>🌗 Changes each match</button>
+        </div>
+        <span className="faint small">{project.settings.always_clear_weather
+          ? 'Every match is at noon under a clear sky, like most custom maps.'
+          : 'Like the retail maps: each match rolls noon, midnight, dusk or dawn and the weather. Not yet tried on custom maps, so check how it looks at night.'}</span>
+      </div>
+
+      <div className="group">
+        <span className="section-title">Background sound <span className="chip">new</span></span>
+        <select value={project.settings.ambience || ''} onChange={(e) => update('Background sound', (d) => { d.settings.ambience = e.target.value })}>
+          <option value="">None</option>
+          {AMBIENCE_OPTIONS.map((o) => <option key={o.file} value={o.file}>{o.label}</option>)}
+        </select>
+        <span className="faint small">{ambienceHint(project.settings.ambience)}</span>
+      </div>
+
       <AddThings />
       <Everything />
       <p className="faint small">Click anything in the map to change it here. Need every setting? <MoreOptions tab="scene">Advanced mode</MoreOptions></p>
@@ -92,6 +114,7 @@ function AddThings() {
   const project = useEditor((s) => s.project)!
   const [pack, setPack] = useState<DataPackStatus | null>(null)
   const [run, busy] = useBusy()
+  const [photo, setPhoto] = useState(false)
   useEffect(() => { dataPackStatus().then(setPack) }, [])
   const center = () => (getViewer()?.center() ?? [0, 0, 0]) as Vec3
   const lib = project.asset_library
@@ -107,7 +130,9 @@ function AddThings() {
         <FileButton className="sm" multiple accept={MODEL_ACCEPT} disabled={busy}
           title="OBJ (with its MTL and textures), GLB, glTF or FBX from Blender or a model website"
           onFiles={(f) => run(() => act.importModelFiles(f, project.scene_items.length ? 'add' : 'base'))}>Your own 3D model…</FileButton>
+        <button className="sm" onClick={() => setPhoto(true)} title="Turn a photo into a building front or a cut-out sign">From a photo…</button>
       </div>
+      {photo && <Suspense fallback={null}><PhotoDialog onClose={() => setPhoto(false)} /></Suspense>}
       {lib.length > 0 && (
         <div className="list" style={{ maxHeight: 160 }}>
           {lib.map((a, i) => (
@@ -257,6 +282,9 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
         <div className="group">
           <Check checked={!it.collision_disabled} onChange={(v) => set('Solid', (d) => { d.collision_disabled = !v })}>
             <span className="col" style={{ gap: 0 }}><span>Solid</span><span className="faint small">Players and cars can't pass through it.</span></span>
+          </Check>
+          <Check checked={!!it.swimmable_water} onChange={(v) => set('Swimmable water', (d) => { d.swimmable_water = v })}>
+            <span className="col" style={{ gap: 0 }}><span>Swimmable water <span className="chip">new</span></span><span className="faint small">{waterHint(it)}</span></span>
           </Check>
         </div>
       )}

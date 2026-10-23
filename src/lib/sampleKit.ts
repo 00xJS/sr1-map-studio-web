@@ -8,6 +8,8 @@ import type { GenParams, TextureKind } from './procedural'
 
 /** A generated texture (optionally with its own surface type) or one from the starter library. */
 export type Tex = { gen: TextureKind; tweak?: Partial<GenParams>; surface?: number } | { lib: string; surface: number }
+  /** An image already stored in the browser (a photo); `alpha` keeps its see-through parts. */
+  | { file: string; ref: import('./project').FileRef; surface?: number; alpha?: boolean }
 
 export interface Part {
   label: string
@@ -30,8 +32,12 @@ export interface Part {
   lie?: boolean
   /** Blob outline (see Shape.outline). */
   outline?: [number, number][]
+  /** Texture stretched once over each face (see Shape.fit). */
+  fit?: boolean
   /** Parts with the same group are exported as one object (a prefab). */
   group?: string
+  /** Swimmable water: exported with no collision as a water volume (its textures should be used by nothing else in the prefab). */
+  water?: boolean
   /** The prefab these parts were made by, so the editor can rebuild it with new settings. */
   prefab?: { key: string; params: Record<string, number | string>; at: Vec3; rot: number }
 }
@@ -109,7 +115,11 @@ export function turn(dx: number, dz: number, deg: number): [number, number] {
 
 // ---------------- symmetry ----------------
 
-const half = (p: Part): Part => ({ ...p, at: [-p.at[0], p.at[1], -p.at[2]], rot: ((p.rot ?? 0) + 180) % 360, ...(p.group ? { group: p.group + '~' } : {}) })
+const half = (p: Part): Part => ({
+  ...p, at: [-p.at[0], p.at[1], -p.at[2]], rot: ((p.rot ?? 0) + 180) % 360, ...(p.group ? { group: p.group + '~' } : {}),
+  // A placed prefab's twin is the same prefab, placed at the mirrored spot and turned round.
+  ...(p.prefab ? { prefab: { ...p.prefab, at: [-p.prefab.at[0], p.prefab.at[1], -p.prefab.at[2]] as Vec3, rot: (p.prefab.rot + 180) % 360 } } : {}),
+})
 /** The parts plus a copy turned 180° around the map's center, so both teams get the same field. */
 export const mirror = (...parts: Part[]): Part[] => parts.flatMap((p) => [p, half(p)])
 
@@ -117,7 +127,8 @@ export const mirror = (...parts: Part[]): Part[] => parts.flatMap((p) => [p, hal
 export const flipX = (...parts: Part[]): Part[] => parts.flatMap((p) => {
   const r = p.rot ?? 0
   const odd = p.kind === 'cylinder' && (p.segments ?? 16) % 2 === 1
-  return [p, { ...p, at: [-p.at[0], p.at[1], p.at[2]] as Vec3, rot: odd ? 180 - r : -r, ...(p.group ? { group: p.group + '|' } : {}) }]
+  return [p, { ...p, at: [-p.at[0], p.at[1], p.at[2]] as Vec3, rot: odd ? 180 - r : -r, ...(p.group ? { group: p.group + '|' } : {}),
+    ...(p.prefab ? { prefab: { ...p.prefab, at: [-p.prefab.at[0], p.prefab.at[1], p.prefab.at[2]] as Vec3, rot: -p.prefab.rot } } : {}) }]
 })
 
 // ---------------- markers ----------------

@@ -226,6 +226,7 @@ function TopBar({ onPublish, onPlay, onTour, onAi }: { onPublish: () => void; on
   const undoLabel = useEditor((s) => s.past[s.past.length - 1]?.label)
   const wireframe = useEditor((s) => s.wireframe)
   const snap = useEditor((s) => s.snap)
+  const freeCam = useEditor((s) => s.freeCam)
   const collision = useEditor((s) => s.collisionView)
   const doubleSided = useEditor((s) => s.project!.settings.double_sided)
   const advanced = useEditor((s) => s.advanced)
@@ -249,6 +250,7 @@ function TopBar({ onPublish, onPlay, onTour, onAi }: { onPublish: () => void; on
         { label: 'Show collision', on: collision === 'faces', run: () => st().set({ collisionView: collision === 'faces' ? 'off' : 'faces' }), title: 'Green = solid, red = players pass through' },
         { label: 'Show both sides of walls', on: doubleSided, run: () => update('Show both sides', (d) => { d.settings.double_sided = !doubleSided }), title: 'In the game, surfaces normally show from the front only. On also shows their backs.' },
         null,
+        { label: 'Free camera (like the desktop app)', on: freeCam, run: () => st().set({ freeCam: !freeCam }), title: 'Hold the right mouse button to look around, WASD to fly, Q/E down and up, Shift faster, mouse wheel sets the speed' },
         { label: 'Zoom to selection (F)', run: () => getViewer()?.focusSelection() },
         { label: 'See the whole map', run: () => getViewer()?.frameAll() },
       ]} />

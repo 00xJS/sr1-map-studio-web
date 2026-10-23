@@ -54,6 +54,28 @@ describe('block-out shapes', () => {
     expect(v).toBeLessThan(48)
   })
 
+  it('a cylinder lying on its side keeps its volume and lies along X', () => {
+    const { v, m } = volume({ kind: 'cylinder', size: [6, 2, 2], segments: 64, lie: true, tile: 4 })
+    expect(v).toBeCloseTo(Math.PI * 1 * 1 * 6, 1)
+    const xs = [], ys = []
+    for (let i = 0; i < m.positions.length; i += 3) { xs.push(m.positions[i]); ys.push(m.positions[i + 1]) }
+    expect(Math.min(...xs)).toBeCloseTo(-3, 4); expect(Math.max(...xs)).toBeCloseTo(3, 4)
+    expect(Math.min(...ys)).toBeCloseTo(0, 4); expect(Math.max(...ys)).toBeCloseTo(2, 4)
+  })
+
+  it('a blob is its outline extruded, closed and outward', () => {
+    const outline: [number, number][] = [[2, 0], [0, 1], [-2, 0], [0, -1]]
+    expect(volume({ kind: 'blob', size: [4, 0.5, 2], outline, tile: 4 }).v).toBeCloseTo(4 * 0.5, 4)
+  })
+
+  it('fit stretches the texture once across a face', () => {
+    const m = parseObj(shapeObj({ kind: 'box', size: [12, 6, 0.2], fit: true, tile: 4 }))
+    const us = [], vs = []
+    for (let i = 0; i < m.uvs.length; i += 2) { us.push(m.uvs[i]); vs.push(m.uvs[i + 1]) }
+    expect(Math.min(...us)).toBeCloseTo(0, 5); expect(Math.max(...us)).toBeCloseTo(1, 5)
+    expect(Math.min(...vs)).toBeCloseTo(0, 5); expect(Math.max(...vs)).toBeCloseTo(1, 5)
+  })
+
   it('every preset is a closed outward solid', () => {
     for (const p of Object.values(SHAPE_PRESETS)) expect(volume(p.shape).v).toBeGreaterThan(0)
   })

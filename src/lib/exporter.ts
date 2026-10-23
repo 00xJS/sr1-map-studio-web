@@ -42,6 +42,8 @@ export async function runExport(project: Project, onLog: (t: string) => void): P
     double_sided: s.double_sided, sky_texture: s.sky_texture, minimap_texture: s.minimap_texture, minimap_rect: s.minimap_rect, sky_scale: s.sky_scale,
     bbcity_donor: s.bbcity_donor, cts_template: s.cts_template, marker_game_coords: s.marker_game_coords, ...sky,
     ptp: s.modes.includes('Protect Tha Pimp'),
+    // Extras written after the main export (py/map_features.py).
+    ambience: s.ambience || '', loading_image: s.loading_mode === 'none' ? '' : s.loading_image || '',
   }
   onLog('Running SR1 map exporter…')
   const result = await py.call<ExportResult>('export_project', JSON.stringify(spec))
@@ -53,7 +55,7 @@ export async function runExport(project: Project, onLog: (t: string) => void): P
     // Map files go in levels/; the exporter's audit reports sit beside it.
     entries[/\.(json|txt)$/i.test(name) ? `${folder}/${name}` : `${folder}/levels/${name}`] = new Uint8Array(f.data)
   }
-  Object.assign(entries, packageMetadata(folder, result.map_name, s.display_name || result.map_name, s, project.markers))
+  Object.assign(entries, packageMetadata(folder, result.map_name, s.display_name || result.map_name, s, project.markers, project.description))
   entries[`${folder}/MAP_STUDIO_EXPORT.txt`] = strToU8(exportNotes(project, result))
   const zip = new Blob([zipSync(entries, { level: 6 })], { type: 'application/zip' })
   return { result, zip, folder, entries }
@@ -61,8 +63,21 @@ export async function runExport(project: Project, onLog: (t: string) => void): P
 
 const CRLF = '\r\n'
 
-/** Same layout and formatting as the community maps installed in SaintsReborn/dist/maps. */
-export function packageMetadata(folder: string, map: string, display: string, settings: Pick<ProjectSettings, 'modes' | 'always_clear_weather'>, markers: Marker[]): Record<string, Uint8Array> {
+/** Game languages that read their own strings file; the map's text is the same in each. */
+export const STRING_LANGUAGES = ['US', 'DE', 'ES', 'FR', 'IT', 'JP'] as const
+
+/** One line of a strings file: no line breaks, and "=" would end the key. */
+const stringValue = (s: string, max = 400) => s.replace(/[\r\n=]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
+
+/** The help text shown for the map in the game's menus: the project description, or a plain default. */
+export const helpText = (display: string, description: string | undefined) =>
+  stringValue(description || '') || stringValue(`${display}: a custom map made with SR1 Map Studio.`)
+
+/**
+ * Same layout and formatting as the community maps installed in SaintsReborn/dist/maps:
+ * bundle_info, the level list, the help page for the map and its strings in every game language.
+ */
+export function packageMetadata(folder: string, map: string, display: string, settings: Pick<ProjectSettings, 'modes' | 'always_clear_weather'>, markers: Marker[], description = ''): Record<string, Uint8Array> {
   const bundle = ['<root>', '<Table>', '\t<BundleInfo>', '\t\t<BundleInfoFlags>', '\t\t\t<Flag>BUNDLE_TYPE_LEVEL</Flag>', '\t\t\t</BundleInfoFlags>', '\t\t</BundleInfo>', '\t</Table>', '</root>', ''].join(CRLF)
   const flags = settings.always_clear_weather
     ? ['\t\t<Flags>', '\t\t\t<Flag>AlwaysClearWeather</Flag>', '\t\t\t</Flags>']
@@ -86,12 +101,23 @@ export function packageMetadata(folder: string, map: string, display: string, se
     '\t\t</MultiplayerLevel>',
   ].join(CRLF)).join(CRLF)
   const xtbl = ['<root>', '<Table>', levels, '\t</Table>', '</root>', ''].join(CRLF)
-  const strings = `BINTEXT${CRLF}${CRLF}MULTI_LEVEL_${map}=${display.replace(/[\r\n=]/g, ' ')}${CRLF}${' '.repeat(13)}1${CRLF}`
-  return {
+  // The map's page in the game's help screens: its name and help text, by string key.
+  // No <ID> in here, so it cannot clash with another pack's level IDs.
+  const helpKey = `HELP_TEXT_${map.toUpperCase()}_LEVEL`
+  const help = ['<root>', '<Table>', '\t<HelpPage>', `\t\t<Name>level_${map}</Name>`, '\t\t<OnPage>MPLevel</OnPage>',
+    `\t\t<DisplayName>MULTI_LEVEL_${map}</DisplayName>`, `\t\t<DisplayText>${helpKey}</DisplayText>`,
+    '\t\t<_Editor>', '\t\t\t<Category>Entries</Category>', '\t\t\t</_Editor>', '\t\t<DisplayMask>Multi</DisplayMask>',
+    '\t\t</HelpPage>', '\t</Table>', '</root>', ''].join(CRLF)
+  const lines = [`MULTI_LEVEL_${map}=${stringValue(display, 60)}`, `${helpKey}=${helpText(display, description)}`]
+  // BINTEXT, a blank line, the entries, then the entry count right-aligned.
+  const strings = ['BINTEXT', '', ...lines, String(lines.length).padStart(14), ''].join(CRLF)
+  const out: Record<string, Uint8Array> = {
     [`${folder}/bundle_info.xtbl`]: strToU8(bundle),
     [`${folder}/levels/multiplayer_levels_extra.xtbl`]: strToU8(xtbl),
-    [`${folder}/levels/US_strings.txt`]: utf16le(strings),
+    [`${folder}/levels/help_screens.xtbl`]: strToU8(help),
   }
+  for (const lang of STRING_LANGUAGES) out[`${folder}/levels/${lang}_strings.txt`] = utf16le(strings)
+  return out
 }
 
 function utf16le(s: string): Uint8Array {
@@ -111,6 +137,7 @@ function exportNotes(p: Project, r: ExportResult) {
     `Collision: ${s.collision_triangles?.toLocaleString()}/${s.source_triangles?.toLocaleString()} source triangles`,
     `Native objects: ${s.native_objects} (including ${s.native_props} movable/explosive props)`,
     `Native point lights: ${s.lights} (first gameplay test pending)`,
+    ...(s.water_volumes ? [`Swimmable water: ${s.water_volumes} volume(s) (new, not yet tried in game)`] : []),
     '',
     'Install: copy this whole folder into SaintsReborn/dist/maps, then start the game.',
     'Back up any map with the same name first. Test new native props, glass and lights in a private match.',

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { Viewer } from './Viewer'
 import { breakMerge, setThumbnailProvider, useEditor } from './store'
 import { addLight, addMarker, addPrefab, addShape, placeAsset, removeTarget } from './actions'
@@ -7,7 +7,10 @@ import { ToolOptions, ToolStrip, chooseTool } from './Tools'
 import { toast, toastError } from '../ui'
 import type { Vec3 } from '../lib/project'
 import { placeMyPrefab } from './myPrefabs'
-import type { WalkState } from './walk'
+import { STAND_EYE, STAND_HEIGHT, type WalkState } from './walk'
+import { chooseGameFolder, currentPlayer, folderPickerSupported, loadFromRememberedFolder, loadPlayer, pickPackfiles, rememberedGameFolder } from '../lib/sr1char/folder'
+import type { PlayerModel } from '../lib/sr1char/player'
+import { placePendingDecal } from './PhotoDialog'
 
 let active: Viewer | null = null
 /** The editor's viewer (for camera center, snapping and thumbnails). */
@@ -68,8 +71,11 @@ const PAD: [string, string, () => void][] = [
 
 /** Camera buttons for people who don't use mouse-drag controls. */
 function CameraPad() {
+  const freeCam = useEditor((s) => s.freeCam)
   return (
     <div className="camera-pad" data-tour="camera">
+      <button className={'sm' + (freeCam ? ' on' : '')} title={freeCam ? 'Free camera on: hold right mouse to look, WASD to fly. Click for the orbit camera.' : 'Free camera, like the desktop app'} aria-label="Free camera"
+        onClick={() => useEditor.getState().set({ freeCam: !freeCam })}>🎥</button>
       {PAD.map(([icon, label, fn]) => <button key={label} className="sm" title={label} aria-label={label} onClick={fn}>{icon}</button>)}
     </div>
   )
@@ -77,10 +83,78 @@ function CameraPad() {
 
 const SPAWNS = ['Shared spawn', 'Red team spawn', 'Blue team spawn']
 
+type CharState = { kind: 'idle' | 'loading' | 'on' | 'off' | 'error'; text?: string; folder?: string }
+
+/** Third person with the user's own Saints Row player, read from their game folder in the browser (nothing is uploaded). */
+function MyCharacter() {
+  const [st, setSt] = useState<CharState>({ kind: 'idle' })
+  const input = useRef<HTMLInputElement | null>(null)
+  const run = async (p: Promise<PlayerModel | null>) => {
+    setSt((s) => ({ kind: 'loading', folder: s.folder }))
+    try {
+      const m = await p
+      if (!m) { setSt((s) => ({ kind: 'idle', folder: s.folder })); return }
+      active?.setWalkBody(m)
+      setSt({ kind: 'on', text: m.summary })
+    } catch (e) {
+      setSt((s) => ({ kind: 'error', text: (e as Error).message, folder: s.folder }))
+    }
+  }
+  useEffect(() => {
+    let live = true
+    const built = currentPlayer()
+    if (built) { void run(built); return }
+    // A folder chosen on an earlier walk opens again without asking while the browser still allows reading it.
+    rememberedGameFolder().then((r) => {
+      if (!live || !r) return
+      if (r.ready) void run(loadFromRememberedFolder(false))
+      else setSt({ kind: 'idle', folder: r.name })
+    }).catch(() => {})
+    return () => { live = false }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const choose = (e: ReactMouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.blur()
+    const built = currentPlayer()
+    if (built) { void run(built); return }
+    if (!folderPickerSupported()) { input.current?.click(); return }
+    void run(st.folder ? loadFromRememberedFolder(true).then((m) => m ?? chooseGameFolder()) : chooseGameFolder())
+  }
+  const standIn = (e: ReactMouseEvent<HTMLButtonElement>) => {
+    e.currentTarget.blur()
+    active?.setWalkBody(null)
+    setSt({ kind: 'off' })
+  }
+  const picked = (files: FileList | null) => {
+    if (!files?.length) return
+    const list = [...files], folder = list[0].webkitRelativePath.split('/')[0] || 'the folder'
+    void run(loadPlayer(pickPackfiles(list), folder))
+    if (input.current) input.current.value = ''
+  }
+  return (
+    <div className="row">
+      {st.kind === 'on'
+        ? <button className="sm" onClick={standIn} title="Show the plain stand-in in third person">Use the stand-in</button>
+        : <button className="sm" disabled={st.kind === 'loading'} onClick={choose}
+            title="Pick your Saints Reborn folder: the player is read from your own game files in this browser. Nothing is uploaded.">
+            {st.kind === 'loading' ? 'Loading your character…' : 'Use my Saints Row character'}
+          </button>}
+      <span className="small" style={{ opacity: 0.8 }}>
+        {st.kind === 'on' ? 'Your character is in. Press V for third person.'
+          : st.kind === 'error' ? st.text
+          : st.kind === 'idle' && st.folder ? `From ${st.folder} (asks once)`
+          : st.kind === 'idle' ? 'See the game’s player in third person (V), read from your game folder' : ''}
+      </span>
+      <input ref={(el) => { input.current = el; el?.setAttribute('webkitdirectory', '') }} type="file" multiple hidden onChange={(e) => picked(e.target.files)} />
+    </div>
+  )
+}
+
 /** Walk-through overlay: starts the walk at a spawn, shows the controls, hops between spawns. */
 function WalkHud() {
-  const [state, setState] = useState<WalkState>({ locked: false, third: false, running: false, height: 0 })
+  const [state, setState] = useState<WalkState>({ locked: false, third: false, running: false, height: 0, crouched: false, eye: STAND_EYE, head: STAND_HEIGHT })
   const [at, setAt] = useState(0)
+  const [markers, setMarkers] = useState(false)
   const spawns = useEditor((s) => s.project?.markers.filter((m) => SPAWNS.includes(m.type)) ?? [])
   const stop = () => useEditor.getState().set({ walking: false })
   useEffect(() => {
@@ -102,8 +176,8 @@ function WalkHud() {
     <>
       <div className="walk-crosshair" />
       <div className="walk-hud">
-        <b>Walking the map</b>
-        <span className="small">{state.locked ? 'WASD move · Shift run · Space jump · V third person · R back to start · Esc frees the mouse' : 'Click the map to look around with the mouse'}</span>
+        <b>Walking the map <span className="small" style={{ fontWeight: 'normal', opacity: 0.8 }}>· {state.crouched ? 'Crouching' : 'Standing'} · head {(state.head / 2).toFixed(2)} m · eyes {(state.eye / 2).toFixed(2)} m</span></b>
+        <span className="small">{state.locked ? 'WASD move · Shift run · Space jump · C crouch · V third person · R back to start · Esc frees the mouse' : 'Click the map to look around with the mouse'}</span>
         <div className="row">
           {spawns.length > 0 && <>
             <button className="sm" onClick={() => go(-1)}>◀</button>
@@ -111,8 +185,10 @@ function WalkHud() {
             <button className="sm" onClick={() => go(1)}>▶</button>
           </>}
           <span className="spacer" />
+          <label className="row small" title="Show spawn, weapon and other markers while walking"><input type="checkbox" checked={markers} onChange={(e) => { setMarkers(e.target.checked); active?.showWalkMarkers(e.target.checked) }} /> Markers</label>
           <button className="sm primary" onClick={stop}>Stop walking (Esc)</button>
         </div>
+        <MyCharacter />
       </div>
     </>
   )
@@ -123,6 +199,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
   const project = useEditor((s) => s.project)
   const placeMode = useEditor((s) => s.placeMode)
   const walking = useEditor((s) => s.walking)
+  const freeCam = useEditor((s) => s.freeCam)
   const [dropping, setDropping] = useState(false)
 
   useEffect(() => {
@@ -134,6 +211,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
         st.select(sel)
         if (sel) st.set({ tab: TAB_FOR[sel.kind] })
       },
+      onFlySpeed(speed) { toast(`Free camera speed: ${speed.toFixed(1)} units/s`, 'info', 1200) },
       onTransformMany(updates, done) {
         useEditor.getState().update('Move objects', (d) => {
           for (const u of updates) {
@@ -148,8 +226,9 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
         removeTarget(target)
         useEditor.getState().select(null)
       },
-      onSurface(point, item, face, mode, data) {
+      onSurface(point, item, face, mode, data, normal) {
         const st = useEditor.getState()
+        if (st.placeMode === 'decal' && mode === 'click') { placePendingDecal(point, normal).catch(toastError); return }
         if (mode === 'drop') {
           placeAsset(Number(data), point).catch(toastError)
           return
@@ -198,7 +277,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
       el.style.cursor = place ? (place === 'erase' ? 'not-allowed' : 'crosshair') : ''
       viewer.sync(s.project, {
         selection: s.selection, gizmo: s.gizmo, wireframe: s.wireframe, collisionView: s.collisionView, soloMaterial: s.soloMaterial,
-        faceRange: s.faceRange, snap: s.snap, step: s.step, showGizmo: !place, multi: s.multi,
+        faceRange: s.faceRange, snap: s.snap, step: s.step, showGizmo: !place, multi: s.multi, freeCam: s.freeCam,
       })
     }
     sync()
@@ -225,7 +304,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
       <ToolOptions />
       {placeMode && (
         <div className="viewport-banner">
-          {placeMode === 'marker' ? 'Click the map to place a marker' : placeMode === 'light' ? 'Click the map to place a light' : 'Click a triangle to pick its collision face'}
+          {placeMode === 'marker' ? 'Click the map to place a marker' : placeMode === 'light' ? 'Click the map to place a light' : placeMode === 'decal' ? 'Click a wall to stick your tag on it (as many as you like)' : 'Click a triangle to pick its collision face'}
           <button className="sm" onClick={() => useEditor.getState().set({ placeMode: null })}>Done (Esc)</button>
         </div>
       )}
@@ -242,7 +321,9 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
         </div>
       )}
       <CameraPad />
-      <div className="viewport-hint">Left-drag: spin · Right-drag: slide · Scroll: zoom · Esc: back to Move</div>
+      <div className="viewport-hint">{freeCam
+        ? 'Free camera: hold right mouse to look · WASD fly · Q/E down/up · Shift faster · Wheel: speed'
+        : 'Left-drag: spin · Right-drag: slide · Scroll: zoom · WASD fly · Esc: back to Move'}</div>
       </>}
     </div>
   )

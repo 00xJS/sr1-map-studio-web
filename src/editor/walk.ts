@@ -1,7 +1,8 @@
 // Walk-through: play the map at player size before exporting it. First person
-// by default (V for a third-person view of a stand-in player), WASD to move,
-// Shift to run, Space to jump, steps and ramps climbable, walls solid.
-// Sizes are in editor units (1 unit = 0.5 m in game): the player is 3.6 tall.
+// by default (V for a third-person view of the player: a stand-in, or the
+// user's own Saints Row character once loaded), WASD to move,
+// Shift to run, Space to jump, hold C to crouch (not Ctrl: Ctrl+W would close the tab), steps and ramps
+// climbable, walls solid. Sizes are in editor units (1 unit = 0.5 m in game).
 import * as THREE from 'three'
 import type { Vec3 } from '../lib/project'
 
@@ -13,26 +14,86 @@ export interface WalkHost {
   solids(): THREE.Object3D[]
 }
 
-export interface WalkState { locked: boolean; third: boolean; running: boolean; height: number }
+export interface WalkState {
+  locked: boolean; third: boolean; running: boolean; height: number
+  crouched: boolean
+  /** Eye height above the feet the camera is heading to, editor units. */
+  eye: number
+  /** Collision height (capsule top above the feet), editor units. */
+  head: number
+}
 
-const HEIGHT = 3.6, EYE = 3.25, RADIUS = 0.7, STEP = 1.2
-const WALK = 9, RUN = 15, GRAVITY = 42, JUMP = 13.5
-const RAY_HEIGHTS = [STEP + 0.15, 1.9, HEIGHT - 0.3]
+/** What third person shows: origin at the feet, facing −Z, editor units. `update` animates it: speed in units/s,
+ *  crouch from 0 (standing) to 1 (crouched). */
+export interface WalkBody { object: THREE.Object3D; update?(dt: number, speed: number, crouch: number): void }
 
-/** A plain stand-in player: body, head, arms and legs. */
-function mannequin(): THREE.Group {
+// Player collision and camera, editor units (game metres x 2): the size of the game's own player capsule.
+// Capsule radius 0.425 m; capsule top 1.78 m standing and 1.11 m crouched; eyes about 1.62 m standing and 1.05 m
+// crouched (medium confidence, from a first-person mod); crouch_walk_speed 1.9 m/s; jump height 0.85 m.
+// The models (the real SR1 player and the stand-in) only draw the pose: the real one measures 1.76 m standing with
+// the eyes at 1.63 m, and 1.17 m crouched with the eyes at 1.04 m (tests/sr1char.test.ts).
+export const STAND_HEIGHT = 3.56
+export const STAND_EYE = 3.24
+export const CROUCH_HEIGHT = 2.22
+export const CROUCH_EYE = 2.1
+export const RADIUS = 0.85
+/** SR1's crouch_walk_speed, 1.9 m/s. */
+export const CROUCH_SPEED = 3.8
+/** Jump height 0.85 m. */
+export const JUMP_HEIGHT = 1.7
+/** How fast the camera and pose blend between standing and crouched (per second). */
+const CROUCH_BLEND = 9
+const STEP = 1.2
+const WALK = 9, RUN = 15, GRAVITY = 42
+const JUMP = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT)
+/** Heights of the wall-probe rays for a body `h` tall. */
+const rayHeights = (h: number) => [STEP + 0.15, Math.min(1.9, h - 0.6), h - 0.3]
+
+/** A plain stand-in player (body, head, arms and legs) as tall as the real one, which can walk and crouch. */
+function mannequin(): WalkBody {
   const g = new THREE.Group()
   const skin = new THREE.MeshStandardMaterial({ color: 0xc89b7b, roughness: 0.8 })
   const shirt = new THREE.MeshStandardMaterial({ color: 0x6a2a8a, roughness: 0.7 })
   const pants = new THREE.MeshStandardMaterial({ color: 0x23252b, roughness: 0.8 })
-  const part = (geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number, z = 0) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, z); g.add(m); return m }
-  part(new THREE.CapsuleGeometry(0.32, 1.3, 4, 10), pants, -0.38, 0.95)
-  part(new THREE.CapsuleGeometry(0.32, 1.3, 4, 10), pants, 0.38, 0.95)
-  part(new THREE.CapsuleGeometry(0.62, 0.9, 4, 12), shirt, 0, 2.3)
-  part(new THREE.CapsuleGeometry(0.22, 1.2, 4, 8), shirt, -0.9, 2.3)
-  part(new THREE.CapsuleGeometry(0.22, 1.2, 4, 8), shirt, 0.9, 2.3)
-  part(new THREE.SphereGeometry(0.42, 16, 12), skin, 0, 3.3)
-  return g
+  const part = (to: THREE.Object3D, geo: THREE.BufferGeometry, mat: THREE.Material, x: number, y: number) => { const m = new THREE.Mesh(geo, mat); m.position.set(x, y, 0); to.add(m); return m }
+  const HIP = 1.84, THIGH = 0.92, SHIN = 0.92
+  const hips = new THREE.Group()
+  hips.position.y = HIP
+  g.add(hips)
+  // The upper body pivots at the hips so it can lean; the head tops out at the capsule top.
+  const upper = new THREE.Group()
+  hips.add(upper)
+  part(upper, new THREE.CapsuleGeometry(0.55, 0.3, 4, 12), shirt, 0, 0.62)
+  part(upper, new THREE.CapsuleGeometry(0.2, 1.1, 4, 8), shirt, -0.8, 0.5)
+  part(upper, new THREE.CapsuleGeometry(0.2, 1.1, 4, 8), shirt, 0.8, 0.5)
+  part(upper, new THREE.SphereGeometry(0.33, 16, 12), skin, 0, STAND_HEIGHT - HIP - 0.33)
+  const legs = [-1, 1].map((side) => {
+    const hip = new THREE.Group()
+    hip.position.x = side * 0.36
+    hips.add(hip)
+    part(hip, new THREE.CapsuleGeometry(0.3, 0.38, 4, 10), pants, 0, -THIGH / 2)
+    const knee = new THREE.Group()
+    knee.position.y = -THIGH
+    hip.add(knee)
+    part(knee, new THREE.CapsuleGeometry(0.27, 0.4, 4, 10), pants, 0, -SHIN / 2)
+    return { hip, knee, side }
+  })
+  let phase = 0, amp = 0
+  const update = (dt: number, speed: number, crouch: number) => {
+    // Facing −Z, a positive turn about X swings a hanging leg forward; a negative one tips the upper body forward.
+    const want = Math.min(0.6, speed * 0.05) * (1 - 0.5 * crouch)
+    amp += (want - amp) * Math.min(1, dt * 10)
+    phase = (phase + (dt * speed * Math.PI) / 1.6) % (Math.PI * 2)
+    const a = 1.4 * crouch, c = 0.8 * crouch, s = Math.sin(phase)
+    for (const l of legs) {
+      l.hip.rotation.x = a + amp * s * l.side
+      l.knee.rotation.x = -(a + c) - 1.6 * amp * Math.max(0, Math.cos(phase) * l.side)
+    }
+    upper.rotation.x = -0.4 * crouch
+    // keep the feet on the ground, under the walker's position
+    hips.position.set(0, HIP - THIGH * (1 - Math.cos(a)) - SHIN * (1 - Math.cos(c)) - amp * 0.2 * Math.abs(s), THIGH * Math.sin(a) - SHIN * Math.sin(c))
+  }
+  return { object: g, update }
 }
 
 export class Walker {
@@ -42,18 +103,23 @@ export class Walker {
   private pitch = 0
   private grounded = false
   private keys = new Set<string>()
-  private body = mannequin()
+  private stand = mannequin()
+  private body: WalkBody = this.stand
+  private crouched = false
+  /** 0 standing, 1 crouched: the camera and pose blend. */
+  private crouchK = 0
   private ray = new THREE.Raycaster()
   private third = false
   private start: { at: Vec3; yaw: number }
   private off: (() => void)[] = []
   onState?: (s: WalkState) => void
 
-  constructor(private host: WalkHost, at: Vec3, yawDeg: number, private onExit: () => void) {
+  constructor(private host: WalkHost, at: Vec3, yawDeg: number, private onExit: () => void, body?: WalkBody | null) {
     this.start = { at, yaw: yawDeg }
     this.respawn(at, yawDeg)
-    host.scene.add(this.body)
-    this.body.visible = false
+    host.scene.add(this.stand.object)
+    this.stand.object.visible = false
+    if (body) this.setBody(body)
     const on = <E extends Event>(t: EventTarget, type: string, fn: (e: E) => void, opts?: AddEventListenerOptions) => {
       t.addEventListener(type, fn as EventListener, opts)
       this.off.push(() => t.removeEventListener(type, fn as EventListener, opts))
@@ -69,7 +135,7 @@ export class Walker {
       const k = e.key.toLowerCase()
       if (e.key === 'Escape' && document.pointerLockElement !== host.canvas) { e.preventDefault(); this.onExit(); return }
       if ((e.target as HTMLElement)?.tagName === 'INPUT') return
-      if (['w', 'a', 's', 'd', ' ', 'shift', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) { this.keys.add(k); e.preventDefault(); e.stopPropagation() }
+      if (['w', 'a', 's', 'd', ' ', 'shift', 'c', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'].includes(k)) { this.keys.add(k); e.preventDefault(); e.stopPropagation() }
       if (k === 'v') { this.third = !this.third; this.emit() }
       if (k === 'r') this.respawn(this.start.at, this.start.yaw)
     }, { capture: true })
@@ -86,15 +152,29 @@ export class Walker {
     this.pitch = 0
   }
 
+  /** Swaps the third-person body (null: back to the stand-in). The walker never disposes a body it was given. */
+  setBody(body: WalkBody | null) {
+    const next = body ?? this.stand
+    if (next.object === this.body.object) { this.body = next; return }
+    this.host.scene.remove(this.body.object)
+    this.body = next
+    next.object.visible = this.third
+    this.host.scene.add(next.object)
+  }
+
   dispose() {
     this.off.forEach((f) => f())
-    this.host.scene.remove(this.body)
-    this.body.traverse((o) => { if (o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as THREE.Material).dispose() } })
+    this.host.scene.remove(this.body.object)
+    this.host.scene.remove(this.stand.object)
+    this.stand.object.traverse((o) => { if (o instanceof THREE.Mesh) { o.geometry.dispose(); (o.material as THREE.Material).dispose() } })
     if (document.pointerLockElement === this.host.canvas) document.exitPointerLock()
   }
 
   private emit() {
-    this.onState?.({ locked: document.pointerLockElement === this.host.canvas, third: this.third, running: this.keys.has('shift'), height: this.pos.y })
+    this.onState?.({
+      locked: document.pointerLockElement === this.host.canvas, third: this.third, running: this.keys.has('shift'), height: this.pos.y,
+      crouched: this.crouched, eye: this.crouched ? CROUCH_EYE : STAND_EYE, head: this.crouched ? CROUCH_HEIGHT : STAND_HEIGHT,
+    })
   }
 
   private cast(from: THREE.Vector3, dir: THREE.Vector3, far: number) {
@@ -103,13 +183,23 @@ export class Walker {
     return this.ray.intersectObjects(this.host.solids(), false)[0]
   }
 
+  /** Room overhead to stand up from a crouch (a few rays across the body). */
+  private roomToStand() {
+    const up = new THREE.Vector3(0, 1, 0), r = RADIUS * 0.6
+    for (const [dx, dz] of [[0, 0], [r, 0], [-r, 0], [0, r], [0, -r]]) {
+      const from = new THREE.Vector3(this.pos.x + dx, this.pos.y + CROUCH_HEIGHT - 0.1, this.pos.z + dz)
+      if (this.cast(from, up, STAND_HEIGHT - CROUCH_HEIGHT + 0.1)) return false
+    }
+    return true
+  }
+
   /** Horizontal move with wall sliding. */
-  private moveFlat(move: THREE.Vector3) {
+  private moveFlat(move: THREE.Vector3, height: number) {
     for (let pass = 0; pass < 3 && move.lengthSq() > 1e-8; pass++) {
       const len = move.length()
       const dir = move.clone().divideScalar(len)
       let best: { d: number; n: THREE.Vector3 } | null = null
-      for (const h of RAY_HEIGHTS) {
+      for (const h of rayHeights(height)) {
         const hit = this.cast(new THREE.Vector3(this.pos.x, this.pos.y + h, this.pos.z), dir, len + RADIUS)
         if (hit && (!best || hit.distance < best.d)) {
           const n = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld) : dir.clone().negate()
@@ -139,23 +229,31 @@ export class Walker {
 
   step(dt: number) {
     dt = Math.min(dt, 0.05)
+    const was = { x: this.pos.x, z: this.pos.z }
     const fwd = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw))
     const right = new THREE.Vector3(-fwd.z, 0, fwd.x)
     const want = new THREE.Vector3()
     const k = this.keys
+    // Crouch while C is held; stand again only when there is room overhead.
+    const wasCrouched = this.crouched
+    if (k.has('c')) this.crouched = true
+    else if (this.crouched && this.roomToStand()) this.crouched = false
+    if (this.crouched !== wasCrouched) this.emit()
+    const height = this.crouched ? CROUCH_HEIGHT : STAND_HEIGHT
     if (k.has('w') || k.has('arrowup')) want.add(fwd)
     if (k.has('s') || k.has('arrowdown')) want.sub(fwd)
     if (k.has('d') || k.has('arrowright')) want.add(right)
     if (k.has('a') || k.has('arrowleft')) want.sub(right)
-    if (want.lengthSq()) this.moveFlat(want.normalize().multiplyScalar((k.has('shift') ? RUN : WALK) * dt))
+    const pace = this.crouched ? CROUCH_SPEED : k.has('shift') ? RUN : WALK
+    if (want.lengthSq()) this.moveFlat(want.normalize().multiplyScalar(pace * dt), height)
     this.pushOut()
 
     // Up and down: land on whatever is below, step up small ledges, bump heads on ceilings.
-    if (this.grounded && k.has(' ')) { this.vy = JUMP; this.grounded = false }
+    if (this.grounded && !this.crouched && k.has(' ')) { this.vy = JUMP; this.grounded = false }
     this.vy -= GRAVITY * dt
     const down = new THREE.Vector3(0, -1, 0)
     if (this.vy > 0) {
-      const head = this.cast(new THREE.Vector3(this.pos.x, this.pos.y + HEIGHT - 0.1, this.pos.z), new THREE.Vector3(0, 1, 0), this.vy * dt + 0.1)
+      const head = this.cast(new THREE.Vector3(this.pos.x, this.pos.y + height - 0.1, this.pos.z), new THREE.Vector3(0, 1, 0), this.vy * dt + 0.1)
       if (head) this.vy = 0
     }
     const fall = Math.max(0, -this.vy * dt)
@@ -170,14 +268,21 @@ export class Walker {
     }
     if (this.pos.y < -200) this.respawn(this.start.at, this.start.yaw)
 
-    // Camera: at the eyes, or behind the stand-in player.
+    const moved = Math.hypot(this.pos.x - was.x, this.pos.z - was.z)
+    const speed = dt > 0 && this.grounded && moved < RUN * dt * 1.5 ? moved / dt : 0
+
+    // Camera: at the eyes (blending between standing and crouched), or behind the player.
+    this.crouchK += ((this.crouched ? 1 : 0) - this.crouchK) * Math.min(1, dt * CROUCH_BLEND)
+    if (Math.abs(this.crouchK - (this.crouched ? 1 : 0)) < 1e-3) this.crouchK = this.crouched ? 1 : 0
     const cam = this.host.camera
     const look = new THREE.Vector3(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch))
-    const eye = new THREE.Vector3(this.pos.x, this.pos.y + EYE, this.pos.z)
-    this.body.visible = this.third
+    const eye = new THREE.Vector3(this.pos.x, this.pos.y + STAND_EYE + (CROUCH_EYE - STAND_EYE) * this.crouchK, this.pos.z)
+    const body = this.body.object
+    body.visible = this.third
     if (this.third) {
-      this.body.position.copy(this.pos)
-      this.body.rotation.set(0, this.yaw, 0)
+      body.position.copy(this.pos)
+      body.rotation.set(0, this.yaw, 0)
+      this.body.update?.(dt, speed, this.crouchK)
       const back = look.clone().negate()
       const hit = this.cast(eye.clone().add(new THREE.Vector3(0, 0.6, 0)), back, 8)
       const dist = hit ? Math.max(1, hit.distance - 0.4) : 8

@@ -26,19 +26,35 @@ drop-offs and lights already placed. Start one and change anything.
 
 ## Build it your way
 
-- **Click to place.** Floors, walls, ramps, stairs, pillars and roofs, or 90+ ready-made pieces:
-  buildings, cars, trees, street lamps, bus stops, paintball bunkers, containers, forklifts,
-  neon pillars, jump pads and more.
+- **Click to place.** Floors, walls, ramps, stairs, pillars and roofs, or 140+ ready-made pieces:
+  buildings, cars, buses, trees, ponds, street lamps, bus stops, paintball bunkers, containers,
+  forklifts, neon pillars, jump pads and more.
+- **Rooms you can walk into.** Shops, bars, offices, apartments, garages, a warehouse with a
+  mezzanine, two-storey buildings with stairs, and furniture to fill them: tables, couches, pool
+  tables, arcade machines, lockers, shelves.
 - **Change any piece after placing it.** Make a building taller, switch it from shops to offices,
   repaint a car. It rebuilds in place.
-- **Paint with real textures.** Brick, concrete, asphalt, metal, grass, neon grids, or a photo
-  you take with your phone.
+- **Paint with real textures.** Brick, concrete, asphalt, metal, grass, water, neon grids, falling
+  green code, or a photo you take with your phone.
+- **Make things from photos.** Snap a shop front and it becomes a building; snap a sign and it
+  becomes a cut-out with the background removed.
+- **Tag the walls.** Write graffiti in spray, bubble, stencil or marker style, or stick on any
+  picture, then click a wall to put it there.
 - **Pick several things at once** (Shift+click), move and turn them together, group them, copy
   and paste them, even into another map.
 - **Save your own pieces.** Built a street corner you like? Save it as *My prefab* and drop it into
   any map.
 
 ![Changing a building's size and style](docs/screenshots/building.jpg)
+
+## Walk it before you play it
+
+Press **🚶 Walk** to drop into your map at player height, starting on a spawn. Walk, run and jump,
+climb the stairs and ramps, and check every sight line before you export. Press **V** to see your
+player from behind. The **free camera** works like the desktop editor: hold the right mouse button
+to look around and fly with WASD.
+
+![Walking through a map](docs/screenshots/walk.jpg)
 
 ## Just say what you want
 

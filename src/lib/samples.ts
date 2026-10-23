@@ -214,6 +214,7 @@ function storedTexture(t: Tex) {
   let p = texCache.get(key)
   if (!p) {
     p = (async () => {
+      if ('file' in t) return { vpath: t.file, surface: t.surface ?? 0, ref: t.ref }
       if ('lib' in t) {
         const r = await fetch(`/textures/${t.lib}.jpg`)
         if (!r.ok) throw new Error(`Starter texture ${t.lib} could not be loaded.`)
@@ -242,7 +243,7 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
   const items: SceneItem[] = []
   const shapeOf = (part: Part): Shape => ({
     kind: part.kind, size: part.size, tile: part.tile ?? 4,
-    ...(part.segments ? { segments: part.segments } : {}), ...(part.taper !== undefined ? { taper: part.taper } : {}), ...(part.bevel ? { bevel: part.bevel } : {}), ...(part.lie ? { lie: true } : {}), ...(part.outline ? { outline: part.outline } : {}),
+    ...(part.segments ? { segments: part.segments } : {}), ...(part.taper !== undefined ? { taper: part.taper } : {}), ...(part.bevel ? { bevel: part.bevel } : {}), ...(part.lie ? { lie: true } : {}), ...(part.outline ? { outline: part.outline } : {}), ...(part.fit ? { fit: true } : {}),
   })
   // Parts of a prefab (same group) become one object; the rest stay one object each.
   const units: Part[][] = []
@@ -263,8 +264,9 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
       items.push({
         uid: uid(), name: shapeName(part.label, shape), path: obj.vpath, source_path: obj.vpath, shape,
         position: part.at, rotation: [0, part.rot ?? 0, 0], scale: 1,
-        textures: { top: top.vpath, side: side.vpath }, alpha: { top: false, side: false },
+        textures: { top: top.vpath, side: side.vpath }, alpha: { top: 'file' in part.top && !!part.top.alpha, side: 'file' in part.side && !!part.side.alpha },
         surface_ids: { top: top.surface, side: side.surface }, physics_intent: 'Static',
+        ...(part.water ? { swimmable_water: true } : {}),
       })
       continue
     }
@@ -284,11 +286,15 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
     for (const [k, t] of mats) {
       const name = 'm' + [...mats.keys()].indexOf(k)
       const tx = await texture(t)
-      textures[name] = tx.vpath; alpha[name] = false; surface_ids[name] = tx.surface
+      textures[name] = tx.vpath; alpha[name] = 'file' in t && !!t.alpha; surface_ids[name] = tx.surface
     }
+    // Water parts: their materials, unless a solid part shares the same texture.
+    const solid = new Set(unit.filter((p) => !p.water).flatMap((p) => [matOf(p.top), matOf(p.side)]))
+    const water = [...new Set(unit.filter((p) => p.water).flatMap((p) => [matOf(p.top), matOf(p.side)]))].filter((m) => !solid.has(m))
     items.push({
       uid: uid(), name: (unit[0].prefab && ALL_PREFABS[unit[0].prefab.key]?.label) || unit[0].group!.split('@')[0].replace(/[~|]+$/, ''), path: stored.vpath, source_path: stored.vpath,
       position: origin, rotation: [0, turnBy, 0], scale: 1, textures, alpha, surface_ids, physics_intent: 'Static',
+      ...(water.length ? { swimmable_water: true, water_materials: water } : {}),
       ...(tag ? { prefab: { key: tag.key, params: tag.params, defaults: { ...textures } } } : {}),
     })
   }

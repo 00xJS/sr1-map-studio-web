@@ -5,6 +5,7 @@ import { confirmDialog } from '../ui'
 import { runExport, downloadBlob, type ExportResult } from '../lib/exporter'
 import { mapFolderExists, mapsFolder, rememberedMapsFolder, writeMap } from '../lib/install'
 import { withAutoMinimap } from '../lib/minimap'
+import { withLoadingScreen } from '../lib/mapFeatures'
 import { getViewer } from './Viewport'
 
 export interface ExportDone { r: ExportResult; zip: Blob; folder: string; installedTo?: string }
@@ -28,7 +29,8 @@ export function useExport() {
       before?.()
       await saveNow()
       const viewer = getViewer()
-      const project = await withAutoMinimap(useEditor.getState().project!, viewer ? { rect: (pad) => viewer.minimapRect(pad), capture: (o) => viewer.captureTopDown(o) } : undefined, log)
+      const withMinimap = await withAutoMinimap(useEditor.getState().project!, viewer ? { rect: (pad) => viewer.minimapRect(pad), capture: (o) => viewer.captureTopDown(o) } : undefined, log)
+      const project = await withLoadingScreen(withMinimap, viewer ? (w, h) => viewer.capture(w, h) : undefined, log)
       const out = await runExport(project, log)
       log(`Export complete: ${out.result.files.length} map files.`)
       if (maps) {

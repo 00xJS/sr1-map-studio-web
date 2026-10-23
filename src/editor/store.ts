@@ -7,7 +7,7 @@ import type { Project } from '../lib/project'
 
 export type Selection = { kind: 'item' | 'marker' | 'light'; index: number } | null
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
-export type PlaceMode = null | 'marker' | 'light' | 'face'
+export type PlaceMode = null | 'marker' | 'light' | 'face' | 'decal'
 /** Paint-style tools: 'select' shows the gizmo; the others act on every click in the viewport. */
 export type Tool = 'select' | 'shape' | 'paint' | 'pick' | 'spawn' | 'weapon' | 'light' | 'erase'
 
@@ -52,6 +52,8 @@ interface EditorState {
   tab: string
   /** Advanced mode shows every setting in tabs; simple mode one panel for what's selected. */
   advanced: boolean
+  /** Desktop-style free camera instead of orbiting. */
+  freeCam: boolean
   open(project: Project): void
   close(): void
   update(label: string, recipe: (d: Draft<Project>) => void, opts?: { merge?: string }): void
@@ -99,6 +101,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   logs: [],
   tab: 'scene',
   advanced: readFlag('sr1-advanced'),
+  freeCam: readFlag('sr1-freecam'),
   open(project) {
     set({ project, selection: null, multi: [], lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [] })
   },
@@ -210,6 +213,9 @@ export function selectedItems(): number[] {
   return multi.length ? multi : selection?.kind === 'item' ? [selection.index] : []
 }
 
-useEditor.subscribe((s, prev) => { if (s.advanced !== prev.advanced) writeFlag('sr1-advanced', s.advanced) })
+useEditor.subscribe((s, prev) => {
+  if (s.advanced !== prev.advanced) writeFlag('sr1-advanced', s.advanced)
+  if (s.freeCam !== prev.freeCam) writeFlag('sr1-freecam', s.freeCam)
+})
 
 if (import.meta.env.DEV) (globalThis as any).__editor = useEditor

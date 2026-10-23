@@ -61,6 +61,43 @@ const HAZARD: Tex = { gen: 'hazard', tweak: { seed: 358 } }
 const posts4 = (L: (a: number, b: number, c: number) => [number, number, number], w: number, d: number, h: number, tex: Tex, s = 0.3, y = 0) =>
   [[-w / 2, -d / 2], [w / 2, -d / 2], [-w / 2, d / 2], [w / 2, d / 2]].map(([a, b]) => box('Post', [s, h, s], L(a, y, b), tex))
 
+// ---------------- swimming pool ----------------
+// Sizes in editor units (1 unit = 0.5 m). The pool stands on the ground, so the
+// water sits inside a raised basin. Players climb ledges by themselves up to
+// about 3 m, so the rim stays under that from the ground; steps lead up to the
+// rim outside and down into the water inside.
+
+const POOL_WATER: Tex = { gen: 'water', tweak: { color: '#2a8fc0', accent: '#bfe8f5', seed: 361 }, surface: 20 }
+const POOL_TILE: Tex = { gen: 'tiles', tweak: { color: '#e8eef0', accent: '#9ab8c4', scale: 8, wear: 0.1, seed: 362 }, surface: 3 }
+/** Floor slab under the water. */
+export const POOL_FLOOR = 0.4
+/** Rim above the water line. */
+export const POOL_FREEBOARD = 0.4
+export const POOL_WALL = 1
+/** Deepest water offered: keeps the rim (floor + water + freeboard) under 6 units (3 m) from the ground. */
+export const POOL_MAX_DEPTH = 5
+/** Steps no taller than 0.5 units (0.25 m) each. */
+const stepsFor = (h: number) => Math.max(2, Math.ceil(h / 0.5))
+
+export function poolParts(L: (dx: number, dy: number, dz: number) => [number, number, number], w: number, d: number, depth: number): Part[] {
+  const rim = POOL_FLOOR + depth + POOL_FREEBOARD
+  const t = POOL_WALL
+  const outer = d / 2 + t
+  return [
+    box('Pool floor', [w + 2 * t, POOL_FLOOR, d + 2 * t], L(0, 0, 0), POOL_TILE, PB.concrete),
+    box('Pool wall', [t, rim, d + 2 * t], L(-(w + t) / 2, 0, 0), PB.concrete, POOL_TILE),
+    box('Pool wall', [t, rim, d + 2 * t], L((w + t) / 2, 0, 0), PB.concrete, POOL_TILE),
+    box('Pool wall', [w, rim, t], L(0, 0, -(d + t) / 2), PB.concrete, POOL_TILE),
+    box('Pool wall', [w, rim, t], L(0, 0, (d + t) / 2), PB.concrete, POOL_TILE),
+    // The water fills the basin up to just under the rim.
+    // A hair smaller than the basin, so its sides don't flicker against the walls.
+    { ...box('Pool water', [w - 0.04, depth, d - 0.04], L(0, POOL_FLOOR, 0), POOL_WATER, POOL_WATER), water: true },
+    // Steps up to the rim outside the front wall, and down into the water inside it.
+    stairs('Pool steps', [4, rim, rim * 1.6], L(0, 0, outer + rim * 0.8), PB.concrete, PB.concrete, 0, stepsFor(rim)),
+    stairs('Pool steps', [4, depth, depth * 1.4], L(0, POOL_FLOOR, d / 2 - depth * 0.7), POOL_TILE, POOL_TILE, 180, stepsFor(depth)),
+  ]
+}
+
 export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   // ---------------- buildings ----------------
   house: { category: 'Buildings', label: 'House', hint: 'A house with a pitched roof and porch', make: pf('House', (L) => [
@@ -145,7 +182,8 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
     { ...cyl('Rock', 4, 2.4, L(0, 0, 0), ROCK, ROCK, 6, 10), taper: 0.5 }, { ...cyl('Rock', 2.6, 1.6, L(3, 0, 1), ROCK, ROCK, 5, 40), taper: 0.4 },
     { ...cyl('Rock', 1.8, 1, L(-2.4, 0, 1.6), ROCK, ROCK, 5, 70), taper: 0.5 },
   ]) },
-  pond: { category: 'Nature', label: 'Pond', hint: 'A pond with a natural edge, rocks and reeds', ...pfp('Pond', [
+  // Not swimmable: the pond lies on solid ground, so its water could only be ankle-deep.
+  pond: { category: 'Nature', label: 'Pond', hint: 'A pond with a natural edge, rocks and reeds. Too shallow to swim in (the ground under it is solid): use the Swimming pool for that', ...pfp('Pond', [
     { key: 'w', label: 'Width', kind: 'number', min: 6, max: 80, step: 1, default: 24 },
     { key: 'd', label: 'Depth', kind: 'number', min: 6, max: 80, step: 1, default: 16 },
     { key: 'shape', label: 'Shape', kind: 'number', min: 1, max: 99, step: 1, default: 7 },
@@ -251,5 +289,9 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   hoop: { category: 'Sports', label: 'Basketball hoop', hint: 'A hoop on a pole', make: pf('Hoop', (L) => [cyl('Hoop pole', 0.5, 7, L(0, 0, 0), PB.steel, PB.steel, 8), box('Backboard', [4, 3, 0.3], L(0, 6, 0.8), CY.white), { ...cyl('Rim', 1.6, 0.15, L(0, 6.2, 1.8), PB.orange, PB.orange, 12), taper: 1 }]) },
   goal: { category: 'Sports', label: 'Soccer goal', hint: 'A goal frame with netting', make: pf('Goal', (L) => [box('Goal post', [0.4, 4.6, 0.4], L(-7, 0, 0), CY.white), box('Goal post', [0.4, 4.6, 0.4], L(7, 0, 0), CY.white), box('Crossbar', [14.4, 0.4, 0.4], L(0, 4.6, 0), CY.white), box('Goal net', [14, 4.6, 0.1], L(0, 0, -3), NET, NET, 0, 4)]) },
   bleachers: { category: 'Sports', label: 'Bleachers', hint: 'Five rows of seats', ...pfp('Bleachers', [{ key: 'rows', label: 'Rows', kind: 'number', min: 2, max: 12, step: 1, default: 5 }, { key: 'w', label: 'Width', kind: 'number', min: 6, max: 60, step: 1, default: 16 }], (L, p) => [stairs('Bleachers', [+p.w, +p.rows, +p.rows * 1.6], L(0, 0, 0), PB.wood, PB.steel, 0, +p.rows)]) },
+  pool: { category: 'Sports', label: 'Swimming pool', hint: 'A raised pool you can swim in (new, not yet tried in game), with steps in and out and walls low enough to climb', ...pfp('Pool', [
+    { key: 'w', label: 'Width', kind: 'number', min: 6, max: 60, step: 1, default: 16 },
+    { key: 'd', label: 'Length', kind: 'number', min: 8, max: 80, step: 1, default: 24 },
+    { key: 'depth', label: 'Water depth', kind: 'number', min: 3, max: POOL_MAX_DEPTH, step: 0.5, default: 4 },
+  ], (L, p) => poolParts(L, +p.w, +p.d, +p.depth)) },
 }
-

@@ -20,7 +20,7 @@ describe('sample maps', () => {
       for (const p of s.parts) {
         for (const t of [p.top, p.side]) {
           if ('lib' in t) expect(library.has(t.lib), t.lib).toBe(true)
-          else expect(KINDS[t.gen]).toBeTruthy()
+          else expect('gen' in t && KINDS[t.gen]).toBeTruthy()
         }
       }
       expect(s.lights?.length ?? 0).toBeLessThanOrEqual(catalogs.limits.max_lights)
@@ -70,5 +70,21 @@ describe('sample marker placement', () => {
     expect(SAMPLES.filter((s) => s.theme === 'Urban paintball')).toHaveLength(13)
     expect(SAMPLES.filter((s) => s.theme === 'Cyber')).toHaveLength(12)
     expect(new Set(SAMPLES.map((s) => s.id)).size).toBe(SAMPLES.length)
+  })
+})
+
+describe('placed prefabs', () => {
+  it('every prefab in every sample is tagged where its parts are (so editing rebuilds it in place)', () => {
+    const problems: string[] = []
+    for (const s of SAMPLES) {
+      const groups = new Map<string, typeof s.parts>()
+      for (const p of sampleFor(s.id).parts) if (p.prefab && p.group) groups.set(p.group, [...(groups.get(p.group) ?? []), p])
+      for (const [g, parts] of groups) {
+        const tag = parts[0].prefab!
+        const near = Math.min(...parts.map((p) => Math.hypot(p.at[0] - tag.at[0], p.at[2] - tag.at[2])))
+        if (near > 40) problems.push(`${s.id}: ${g} tagged ${near.toFixed(0)} units from its parts`)
+      }
+    }
+    expect(problems).toEqual([])
   })
 })

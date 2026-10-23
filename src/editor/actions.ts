@@ -181,7 +181,7 @@ export async function applyNativeProp(index: number, behavior: 'movable' | 'expl
   if (!p || index <= 0 || index >= p.scene_items.length) throw new UserError('Select a separate imported prop, not the base map.')
   await py.syncProject(p)
   const item = await py.sceneOp<SceneItem>('native_prop', { item: p.scene_items[index], behavior, world_scale: p.settings.world_scale, others: others(index) })
-  update('Make ' + behavior, (d) => { d.scene_items[index] = { ...item, uid: p.scene_items[index].uid } })
+  update('Make ' + behavior, (d) => { d.scene_items[index] = { ...item, uid: p.scene_items[index].uid, native_profile: undefined } })
   log(`Applied ${catalogs.prop_presets[behavior].label} to ${item.native_prop_original_name}. Re-export the map; first gameplay test pending.`)
 }
 
@@ -192,7 +192,7 @@ export async function convertBreakable(index: number, mode: 'glass' | 'wood') {
   if (isGlass(old) && !isCustomNative(old)) throw new UserError('Choose an imported crate or custom-mesh breakable.')
   await py.syncProject(p)
   const item = await py.sceneOp<SceneItem>('convert_breakable', { item: old, render_mode: mode, world_scale: p.settings.world_scale, others: others(index) })
-  update('Make breakable ' + mode, (d) => { d.scene_items[index] = { ...item, uid: old.uid } })
+  update('Make breakable ' + mode, (d) => { d.scene_items[index] = { ...item, uid: old.uid, native_profile: undefined } })
   log('Experimental native custom-mesh breakable: ' + item.name + '; fitted Havok collision experiment enabled.')
 }
 
@@ -252,11 +252,13 @@ export async function assignTexture(index: number, mat: string, file: File, surf
   log(`${mat} -> ${file.name}`)
 }
 
-export async function setProjectFile(key: 'sky_texture' | 'minimap_texture' | 'bbcity_donor' | 'cts_template', file: File | null) {
+export async function setProjectFile(key: 'sky_texture' | 'minimap_texture' | 'bbcity_donor' | 'cts_template' | 'loading_image', file: File | null) {
   if (!file) { update('Clear ' + key, (d) => { d.settings[key] = '' }); return }
   const s = key === 'bbcity_donor' || key === 'cts_template'
     ? await import('../lib/files').then((f) => f.storeFile(file, file.name, 'game'))
-    : await importImage(file, key === 'minimap_texture' ? 1024 : 2048)
+    : key === 'loading_image'
+      ? await Promise.all([import('../lib/files'), import('../lib/mapFeatures')]).then(async ([f, m]) => { const pic = await m.loadingPicture(file); return f.storeFile(pic, pic.name) })
+      : await importImage(file, key === 'minimap_texture' ? 1024 : 2048)
   const note = (s as { note?: string }).note
   if (note) log(note)
   update('Set ' + key, (d) => { d.files[s.vpath] = s.ref; d.settings[key] = s.vpath })
@@ -404,6 +406,8 @@ export async function updatePrefab(index: number, params: Record<string, number 
     x.textures = Object.fromEntries(Object.entries(item.textures).map(([m, v]) => [m, repaint.get(v) ?? v]))
     x.alpha = item.alpha; x.surface_ids = item.surface_ids
     x.prefab = item.prefab
+    if (item.water_materials) x.water_materials = item.water_materials
+    else delete x.water_materials
     pruneFiles(d)
   }, { merge: 'prefab-' + index })
 }

@@ -83,6 +83,16 @@ interface Look {
   dress: string[]
 }
 
+/** A building players can walk into (a room or a two-storey shell), sized to the plot, door toward the middle of the map. */
+function walkIn(key: string, x: number, z: number, w: number, d: number, extra: Record<string, string | number> = {}): Part[] {
+  const def = ALL_PREFABS[key]
+  if (!def) return []
+  const lim = (k: string, v: number) => { const pd = def.params?.find((q) => q.key === k); return pd ? Math.max(pd.min ?? v, Math.min(pd.max ?? v, v)) : v }
+  const params = prefabParams(def, { w: lim('w', Math.round(w)), d: lim('d', Math.round(d)), ...extra })
+  // Plots sit on red's half (−Z), so the front (+Z) faces the middle.
+  return tagPrefab(def.make(x, z, 0, 1, params), key, params, [x, 1, z], 0)
+}
+
 const FACADES = [PB.brick, PB.oldBrick, PB.plaster, PB.beige, U.apartments, U.office, U.officeGreen, U.shopfront, U.projects]
 const NEON = [CY.cyan, CY.pink, CY.lime, CY.purple, CY.orange, CY.matrix]
 const CAR_COLORS = ['#a8322b', '#2f5f8f', '#d8d4cc', '#2a2a2e', '#c9a23a', '#3f7a3a', '#7a7f86']
@@ -90,7 +100,9 @@ const CAR_COLORS = ['#a8322b', '#2f5f8f', '#d8d4cc', '#2a2a2e', '#c9a23a', '#3f7
 const LOOKS: Record<WizardSetting, Look> = {
   downtown: {
     theme: 'Urban', ground: [U.road], wall: PB.brick, wallTop: PB.concrete, wallH: 12,
-    structure: (r, x, z, w, d, h) => [box('Building', [w, h, d], [x, 1, z], U.roof, r.pick(FACADES), 0, 6)],
+    structure: (r, x, z, w, d, h) => (w >= 14 && d >= 14 && r.chance(0.3)
+      ? walkIn(r.pick(['twostory', 'room']), x, z, w, d, { style: r.pick(['brick', 'plaster', 'concrete']) })
+      : [box('Building', [w, h, d], [x, 1, z], U.roof, r.pick(FACADES), 0, 6)]),
     deck: { top: PB.concrete, side: PB.darkConcrete },
     extras: (r, x, z, rot) => (r.chance(0.6) ? [car(x, z, rot, r.pick(CAR_COLORS), r.int(1, 99))] : []),
     centre: ['fountain', 'gazebo', 'kiosk'],
@@ -100,7 +112,8 @@ const LOOKS: Record<WizardSetting, Look> = {
     theme: 'Urban', ground: [PB.oldAsphalt, PB.floorWorn], wall: PB.corrugated, wallTop: PB.steel, wallH: 8,
     structure: (r, x, z, w, d, h) => r.chance(0.35) && h < 12
       ? [box('Container', [w, Math.min(h, 5), d], [x, 1, z], PB.steel, r.pick([PB.boxRed, PB.boxBlue, PB.boxGreen]), 0, 6)]
-      : [box('Warehouse', [w, h, d], [x, 1, z], U.roof, r.pick([PB.corrugated, PB.cinder, PB.oldBrick]), 0, 6)],
+      : w >= 16 && d >= 16 && r.chance(0.3) ? walkIn('room', x, z, w, d, { style: 'metal', h: 9 })
+        : [box('Warehouse', [w, h, d], [x, 1, z], U.roof, r.pick([PB.corrugated, PB.cinder, PB.oldBrick]), 0, 6)],
     deck: { top: PB.diamond, side: PB.steel },
     extras: (r, x, z, rot) => (r.chance(0.3) ? [car(x, z, rot, r.pick(CAR_COLORS), r.int(1, 99))] : []),
     centre: ['containers', 'fueltank', 'scaffold'],

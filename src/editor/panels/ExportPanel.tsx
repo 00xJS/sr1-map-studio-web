@@ -5,6 +5,7 @@ import { useExport } from '../useExport'
 import * as act from '../actions'
 import { Check, Field, FileButton, NumberInput, infoDialog, toastError } from '../../ui'
 import { minimapMode, minimapPad } from '../../lib/minimap'
+import { AMBIENCE_OPTIONS, LOADING_SIZE, ambienceHint, loadingMode, type LoadingMode } from '../../lib/mapFeatures'
 import { getViewer } from '../Viewport'
 import { dataPackStatus, hasGroup, type DataPackStatus } from '../../lib/datapack'
 import { downloadBlob } from '../../lib/exporter'
@@ -55,6 +56,9 @@ export function ExportPanel() {
             <input value={s.display_name} maxLength={40} onChange={(e) => set('display_name', e.target.value, true)} />
           </Field>
         </div>
+        <Field label="Description" hint="The map's help text in the game's menus (new, untested), written for every game language. One paragraph; blank gives a short default.">
+          <textarea rows={2} maxLength={400} value={project.description} onChange={(e) => update('Description', (d) => { d.description = e.target.value }, { merge: 'description' })} />
+        </Field>
         <span className="small muted">Game modes</span>
         <div className="row wrap">
           {GAME_MODES.map((m) => (
@@ -104,6 +108,17 @@ export function ExportPanel() {
         {s.sky_texture && <Field label="Skybox size (0 = auto)"><NumberInput value={s.sky_scale} step={0.5} min={0} max={100} onChange={(v) => set('sky_scale', v)} /></Field>}
         <MinimapSetting />
         <FileSetting label="Native BBCity donor (advanced)" hint="Optional .bbcity_xbox2 from your game for native city metadata. Stays on this device." k="bbcity_donor" accept=".bbcity_xbox2" />
+      </div>
+
+      <div className="group">
+        <span className="section-title">Loading screen &amp; sound <span className="chip">new, untested</span></span>
+        <LoadingSetting />
+        <Field label="Background sound" hint={ambienceHint(s.ambience)}>
+          <select value={s.ambience || ''} onChange={(e) => set('ambience', e.target.value)}>
+            <option value="">None</option>
+            {AMBIENCE_OPTIONS.map((o) => <option key={o.file} value={o.file}>{o.label}</option>)}
+          </select>
+        </Field>
       </div>
 
       {problems.length > 0 && <div className="callout bad"><div className="col">{problems.map((p) => <span key={p}>{p}</span>)}</div></div>}
@@ -172,7 +187,40 @@ function MinimapSetting() {
   )
 }
 
-function FileSetting({ label, hint, k, accept }: { label: string; hint: string; k: 'sky_texture' | 'minimap_texture' | 'bbcity_donor'; accept: string }) {
+/** Picture shown while the map loads: the 3D view rendered at export, the user's own, or none. */
+function LoadingSetting() {
+  const project = useEditor((s) => s.project!)
+  const update = useEditor((s) => s.update)
+  const mode = loadingMode(project)
+  const [busy, setBusy] = useState(false)
+  const preview = async () => {
+    const v = getViewer()
+    if (!v) return
+    setBusy(true)
+    try {
+      const blob = await v.capture(LOADING_SIZE[0], LOADING_SIZE[1])
+      if (blob) await infoDialog('Loading screen preview', <img src={URL.createObjectURL(blob)} alt="Loading screen preview" style={{ width: '100%', borderRadius: 6 }} />)
+    } finally { setBusy(false) }
+  }
+  const pick = (m: LoadingMode) => update('Loading screen', (d) => { d.settings.loading_mode = m })
+  return (
+    <Field label="Loading screen" hint={mode === 'auto'
+      ? 'The 3D view as it is when you export, at 1280×720. Frame a good shot first.'
+      : mode === 'custom' ? 'Your own picture, cropped to 16:9 around its middle and sized to 1280×720.' : 'No picture while the map loads, like other custom maps.'}>
+      <div className="col">
+        <div className="row wrap">
+          <button className={'sm' + (mode === 'auto' ? ' on' : '')} onClick={() => pick('auto')}>3D view</button>
+          <button className={'sm' + (mode === 'custom' ? ' on' : '')} onClick={() => pick('custom')}>My picture</button>
+          <button className={'sm' + (mode === 'none' ? ' on' : '')} onClick={() => pick('none')}>None</button>
+          {mode === 'auto' && <button className="sm quiet" disabled={busy} onClick={preview}>Preview</button>}
+        </div>
+        {mode === 'custom' && <FileSetting label="Loading picture" hint="16:9 looks best, for example 1280×720 or 1920×1080." k="loading_image" accept="image/*,.tga,.dds" />}
+      </div>
+    </Field>
+  )
+}
+
+function FileSetting({ label, hint, k, accept }: { label: string; hint: string; k: 'sky_texture' | 'minimap_texture' | 'bbcity_donor' | 'loading_image'; accept: string }) {
   const value = useEditor((s) => s.project!.settings[k])
   return (
     <Field label={label} hint={hint}>

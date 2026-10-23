@@ -6,7 +6,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import type { MinimapRect } from '../lib/minimap'
-import { Walker, type WalkState } from './walk'
+import { Walker, type WalkBody, type WalkState } from './walk'
 import type { ObjModel } from '../lib/geometry'
 import { loadModel, peekModel, textureUrl } from '../lib/assets'
 import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
@@ -25,16 +25,20 @@ export interface ViewOptions {
   readOnly?: boolean
   /** Several objects selected together; the gizmo moves them as one. */
   multi?: number[]
+  /** Desktop-style free camera: right-drag looks around in place, WASD/QE fly, wheel sets the speed. */
+  freeCam?: boolean
 }
 
 export interface ViewerEvents {
   onPick(sel: ViewOptions['selection'], additive?: boolean): void
-  onSurface(point: Vec3, item: number, sourceFace: number, mode: 'click' | 'drop', data?: string): void
+  onSurface(point: Vec3, item: number, sourceFace: number, mode: 'click' | 'drop', data?: string, normal?: Vec3): void
   onTransform(kind: 'item' | 'marker' | 'light', index: number, t: { position: Vec3; rotation?: Vec3; scale?: number; yaw?: number }, done: boolean): void
   /** Eraser click: whatever is under the cursor (marker, light or object). */
   onErase(target: NonNullable<ViewOptions['selection']>): void
   /** The gizmo moved several objects at once. */
   onTransformMany?(updates: { index: number; position: Vec3; rotation: Vec3; scale: number }[], done: boolean): void
+  /** Free camera: the flying speed changed (mouse wheel). */
+  onFlySpeed?(unitsPerSecond: number): void
 }
 
 const RAD = Math.PI / 180
@@ -120,13 +124,14 @@ export class Viewer {
     this.gizmo.setSize(0.9)
     this.scene.add(this.gizmo.getHelper())
     this.gizmo.addEventListener('dragging-changed', (e: any) => {
-      this.orbit.enabled = !e.value
+      this.orbit.enabled = !e.value && !this.opts.freeCam && !this.walker
       this.dragging = e.value
       if (!e.value) this.emitTransform(true)
     })
     this.gizmo.addEventListener('objectChange', () => this.emitTransform(false))
     this.loaded.onLoad = () => this.requestRender()
     this.bindInput()
+    this.bindFreeCam()
     this.resizeObs = new ResizeObserver(() => this.resize())
     this.resizeObs.observe(host)
     this.resize()
@@ -210,6 +215,68 @@ export class Viewer {
     })
   }
 
+  // ---------------- free camera (as in the desktop SR1 Map Studio) ----------------
+
+  /** Units per second while flying in the free camera. */
+  flySpeed = 8
+  private looking: { lock: boolean } | null = null
+
+  private setFreeCam(on: boolean) {
+    this.orbit.enabled = !on && !this.walker && !this.dragging
+    if (on) {
+      // Fly at a speed that suits the map's size, keeping the current view.
+      const box = new THREE.Box3().setFromObject(this.root)
+      const radius = box.isEmpty() ? 50 : box.getSize(new THREE.Vector3()).length() / 2
+      this.flySpeed = Math.max(0.6, Math.min(80, radius * 0.08))
+    }
+    this.renderer.domElement.style.cursor = on ? 'crosshair' : ''
+  }
+
+  /** Turns the camera in place by a mouse movement (0.22° per pixel, like the desktop app). */
+  private lookBy(dx: number, dy: number) {
+    const dir = this.camera.getWorldDirection(new THREE.Vector3())
+    let yaw = Math.atan2(-dir.x, -dir.z)
+    let pitch = Math.asin(Math.max(-1, Math.min(1, dir.y)))
+    const k = (0.22 * Math.PI) / 180
+    yaw -= dx * k
+    pitch = Math.max((-89 * Math.PI) / 180, Math.min((89 * Math.PI) / 180, pitch - dy * k))
+    const look = new THREE.Vector3(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch))
+    const dist = Math.max(1, this.camera.position.distanceTo(this.orbit.target))
+    this.orbit.target.copy(this.camera.position).addScaledVector(look, dist)
+    this.camera.lookAt(this.orbit.target)
+    this.requestRender()
+  }
+
+  private bindFreeCam() {
+    const el = this.renderer.domElement
+    el.addEventListener('contextmenu', (e) => { if (this.opts.freeCam) e.preventDefault() })
+    el.addEventListener('pointerdown', (e) => {
+      if (!this.opts.freeCam || this.walker || this.dragging) return
+      if (e.button === 2) {
+        // Right button: hide the cursor and look around until it's released.
+        this.looking = { lock: true }
+        void el.requestPointerLock?.()
+      } else if (e.button === 0) this.looking = { lock: false }
+    })
+    el.addEventListener('pointermove', (e) => {
+      if (!this.looking || this.dragging || this.gizmo.dragging || document.pointerLockElement === el) return
+      if (!this.looking.lock && Math.hypot(e.clientX - (this.pointerDown?.x ?? e.clientX), e.clientY - (this.pointerDown?.y ?? e.clientY)) < 5) return
+      this.lookBy(e.movementX, e.movementY)
+    })
+    // Moves while the pointer is locked arrive on the document.
+    document.addEventListener('mousemove', (e) => { if (this.looking?.lock && document.pointerLockElement === el) this.lookBy(e.movementX, e.movementY) })
+    const end = () => { if (this.looking?.lock && document.pointerLockElement === el) document.exitPointerLock(); this.looking = null }
+    window.addEventListener('pointerup', end)
+    window.addEventListener('blur', end)
+    el.addEventListener('wheel', (e) => {
+      if (!this.opts.freeCam || this.walker) return
+      e.preventDefault()
+      e.stopImmediatePropagation()
+      this.flySpeed = Math.max(0.05, Math.min(1000, this.flySpeed * 1.22 ** (-e.deltaY / 100)))
+      this.events.onFlySpeed?.(this.flySpeed)
+    }, { capture: true, passive: false })
+  }
+
   private lastFly = performance.now()
   private flyStep(): boolean {
     const now = performance.now()
@@ -217,7 +284,8 @@ export class Viewer {
     this.lastFly = now
     if (!this.keys.size || (this.keys.size === 1 && this.keys.has('shift'))) return false
     const dist = this.camera.position.distanceTo(this.orbit.target)
-    const speed = Math.max(2, dist * 0.9) * (this.keys.has('shift') ? 3 : 1) * dt
+    // Free camera: a set speed the wheel changes. Orbit camera: faster the further out you are.
+    const speed = (this.opts.freeCam ? this.flySpeed : Math.max(2, dist * 0.9)) * (this.keys.has('shift') ? 3 : 1) * dt
     const fwd = new THREE.Vector3()
     this.camera.getWorldDirection(fwd)
     const right = new THREE.Vector3().crossVectors(fwd, this.camera.up).normalize()
@@ -228,6 +296,7 @@ export class Viewer {
     if (this.keys.has('a')) move.sub(right)
     if (this.keys.has('e')) move.y += 1
     if (this.keys.has('q')) move.y -= 1
+    if (this.opts.freeCam && (this.keys.has('e') || this.keys.has('q')) && move.lengthSq() > 1) move.y = Math.sign(move.y)
     if (!move.lengthSq()) return false
     move.normalize().multiplyScalar(speed)
     this.camera.position.add(move)
@@ -241,7 +310,7 @@ export class Viewer {
   }
 
   /** Nearest scene-item surface under the cursor. */
-  raycast(x: number, y: number): { point: Vec3; item: number; face: number } | null {
+  raycast(x: number, y: number): { point: Vec3; item: number; face: number; normal: Vec3 } | null {
     const rc = new THREE.Raycaster()
     rc.setFromCamera(this.ndc(x, y), this.camera)
     const meshes: THREE.Object3D[] = []
@@ -252,13 +321,31 @@ export class Viewer {
     const index = this.project?.scene_items.findIndex((it) => it.uid === node?.uid) ?? -1
     const info = (hit.object as THREE.Mesh).userData.faceOrder as Uint32Array | undefined
     const face = info && hit.faceIndex != null ? info[hit.faceIndex] : -1
-    return { point: hit.point.toArray() as Vec3, item: index, face }
+    const normal = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).toArray() as Vec3 : [0, 1, 0] as Vec3
+    return { point: hit.point.toArray() as Vec3, item: index, face, normal }
   }
 
   // ---------------- walk-through ----------------
 
   private walker: Walker | null = null
-  private beforeWalk: { pos: THREE.Vector3; target: THREE.Vector3; fov: number; hidden: [THREE.Object3D, boolean][] } | null = null
+  private walkBody: WalkBody | null = null
+  private beforeWalk: { pos: THREE.Vector3; target: THREE.Vector3; fov: number; hidden: [THREE.Object3D, boolean][]; background: THREE.Scene['background']; fog: THREE.Scene['fog'] } | null = null
+  private daySky: THREE.Texture | null = null
+
+  /** A noon sky: deep blue overhead fading to a hazy horizon, like the game's clear weather. */
+  private sky(): THREE.Texture {
+    if (this.daySky) return this.daySky
+    const c = document.createElement('canvas')
+    c.width = 2; c.height = 256
+    const g = c.getContext('2d')!
+    const grad = g.createLinearGradient(0, 0, 0, 256)
+    grad.addColorStop(0, '#3f78c4'); grad.addColorStop(0.45, '#8db7e2'); grad.addColorStop(0.5, '#cfdbe4'); grad.addColorStop(1, '#8e8a84')
+    g.fillStyle = grad; g.fillRect(0, 0, 2, 256)
+    this.daySky = new THREE.CanvasTexture(c)
+    this.daySky.colorSpace = THREE.SRGBColorSpace
+    this.daySky.mapping = THREE.EquirectangularReflectionMapping
+    return this.daySky
+  }
 
   get walking() { return !!this.walker }
 
@@ -276,19 +363,30 @@ export class Viewer {
   /** Puts the camera at player height at `at` (a spawn, say) and hands the controls to the walker. */
   startWalk(at: Vec3, yaw: number, onExit: () => void, onState?: (s: WalkState) => void) {
     this.stopWalk()
-    const hidden: [THREE.Object3D, boolean][] = [this.grid, this.box, this.lightRoot, this.gizmo.getHelper(), this.pivot].map((o) => [o, o.visible])
+    const hidden: [THREE.Object3D, boolean][] = [this.grid, this.box, this.lightRoot, this.markerRoot, this.gizmo.getHelper(), this.pivot].map((o) => [o, o.visible])
     hidden.forEach(([o]) => { o.visible = false })
-    this.beforeWalk = { pos: this.camera.position.clone(), target: this.orbit.target.clone(), fov: this.camera.fov, hidden }
+    this.beforeWalk = { pos: this.camera.position.clone(), target: this.orbit.target.clone(), fov: this.camera.fov, hidden, background: this.scene.background, fog: this.scene.fog }
+    this.scene.background = this.sky()
+    this.scene.fog = new THREE.Fog(0xb9c9d6, 120, 900)
     this.orbit.enabled = false
     this.gizmo.enabled = false
     this.camera.fov = 70
     this.camera.near = 0.05
     this.camera.updateProjectionMatrix()
     const solids = this.solids()
-    this.walker = new Walker({ camera: this.camera, scene: this.scene, canvas: this.renderer.domElement, solids: () => solids }, at, yaw, onExit)
+    this.walker = new Walker({ camera: this.camera, scene: this.scene, canvas: this.renderer.domElement, solids: () => solids }, at, yaw, onExit, this.walkBody)
     this.walker.onState = onState
     this.lastFly = performance.now()
   }
+
+  /** The third-person body for this and later walks (null: the stand-in). The caller owns it. */
+  setWalkBody(body: WalkBody | null) {
+    this.walkBody = body
+    this.walker?.setBody(body)
+  }
+
+  /** Spawn and pickup markers while walking: hidden by default so they don't cover the player. */
+  showWalkMarkers(on: boolean) { if (this.walker) this.markerRoot.visible = on }
 
   /** Moves the walker to another spot without leaving the walk. */
   walkTo(at: Vec3, yaw: number) { this.walker?.respawn(at, yaw) }
@@ -299,11 +397,13 @@ export class Viewer {
     this.walker = null
     const b = this.beforeWalk!
     b.hidden.forEach(([o, v]) => { o.visible = v })
+    this.scene.background = b.background
+    this.scene.fog = b.fog
     this.camera.position.copy(b.pos)
     this.orbit.target.copy(b.target)
     this.camera.fov = b.fov
     this.camera.updateProjectionMatrix()
-    this.orbit.enabled = true
+    this.orbit.enabled = !this.opts.freeCam
     this.gizmo.enabled = true
     this.beforeWalk = null
     this.requestRender()
@@ -351,7 +451,7 @@ export class Viewer {
       return
     }
     if (placing) {
-      if (surface) this.events.onSurface(surface.point, surface.item, surface.face, 'click')
+      if (surface) this.events.onSurface(surface.point, surface.item, surface.face, 'click', undefined, surface.normal)
       return
     }
     if (handle) { this.events.onPick(handle); return }
@@ -363,6 +463,7 @@ export class Viewer {
   sync(project: Project | null, opts: ViewOptions) {
     const firstProject = this.project?.id !== project?.id
     this.project = project
+    if (!!opts.freeCam !== !!this.opts.freeCam) this.setFreeCam(!!opts.freeCam)
     this.opts = opts
     if (firstProject) this.framed = false
     this.syncItems()

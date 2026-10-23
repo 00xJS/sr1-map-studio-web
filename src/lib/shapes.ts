@@ -23,6 +23,8 @@ export interface Shape {
   lie?: boolean
   /** Blob: the outline as [x, z] points round the middle (each visible from the centre), extruded up by the height. */
   outline?: [number, number][]
+  /** Stretch the texture once over each face instead of repeating it (a photo on a wall). */
+  fit?: boolean
 }
 
 export interface ShapePreset { label: string; shape: Shape; hint: string }
@@ -176,6 +178,15 @@ function faces(s: Shape): Face[] {
   }
 }
 
+/** UVs for one face: world-scaled repeats, or (fit) the whole texture once across the face. */
+function faceUvs(pts: V[], normal: V, tile: number, fit?: boolean): [number, number][] {
+  const raw = pts.map((p) => uv(p, normal, fit ? 1 : tile))
+  if (!fit) return raw
+  const us = raw.map((r) => r[0]), vs = raw.map((r) => r[1])
+  const u0 = Math.min(...us), u1 = Math.max(...us), v0 = Math.min(...vs), v1 = Math.max(...vs)
+  return raw.map(([u, v]) => [(u - u0) / (u1 - u0 || 1), (v - v0) / (v1 - v0 || 1)])
+}
+
 /** World-space UVs: project onto the plane the face is most aligned with. */
 function uv(p: V, normal: V, tile: number): [number, number] {
   const ax = Math.abs(normal[0]), ay = Math.abs(normal[1]), az = Math.abs(normal[2])
@@ -196,9 +207,10 @@ export function shapeObj(s: Shape): string {
   for (const f of faces(s)) {
     const n = cross(sub(f.pts[1], f.pts[0]), sub(f.pts[2], f.pts[0]))
     const idx: string[] = []
-    for (const p of f.pts) {
+    const uvs = faceUvs(f.pts, n, s.tile, s.fit)
+    for (const [k, p] of f.pts.entries()) {
       lines.push(`v ${fmt(p[0])} ${fmt(p[1])} ${fmt(p[2])}`)
-      const [u, v] = uv(p, n, s.tile)
+      const [u, v] = uvs[k]
       vt.push(`vt ${fmt(u)} ${fmt(v)}`)
       idx.push(`${vi}/${vi}`)
       vi++
@@ -226,10 +238,11 @@ export function compoundObj(pieces: CompoundPiece[]): string {
     for (const f of faces(pc.shape)) {
       const n = cross(sub(f.pts[1], f.pts[0]), sub(f.pts[2], f.pts[0]))
       const idx: string[] = []
-      for (const p of f.pts) {
+      const uvs = faceUvs(f.pts, n, pc.shape.tile, pc.shape.fit)
+      for (const [k, p] of f.pts.entries()) {
         // Same turn as the editor's heading: x' = x cos + z sin, z' = -x sin + z cos.
         lines.push(`v ${fmt(p[0] * c + p[2] * sn + pc.at[0])} ${fmt(p[1] + pc.at[1])} ${fmt(-p[0] * sn + p[2] * c + pc.at[2])}`)
-        const [u, v] = uv(p, n, pc.shape.tile)
+        const [u, v] = uvs[k]
         vt.push(`vt ${fmt(u)} ${fmt(v)}`)
         idx.push(`${vi}/${vi}`)
         vi++

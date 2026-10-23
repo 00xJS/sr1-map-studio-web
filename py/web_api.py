@@ -34,6 +34,7 @@ import sr1_sidecars
 from sr1_native_limits import MAX_NATIVE_OBJECTS, MAX_NATIVE_TRIANGLES, MIN_NATIVE_AXIS, MAX_NATIVE_AXIS
 from vehicle_catalog_v041 import VEHICLE_CATALOG
 import fast_dxt
+import map_features as features
 
 # Same output as the original compressor, about 20x faster (see fast_dxt.py).
 fast_dxt.install()
@@ -344,6 +345,8 @@ def _export(s, log):
             native.restore_item(it)
     if not items or native.is_glass(items[0]):
         raise ValueError('Load a base map first.')
+    # "Breakable wood" and weight presets become stock profiles (see map_features).
+    wanted_profiles = features.prepare_breakables(items)
     preflight = breakable_tools.check_scene(items, ws, _parse)
     if preflight['errors']:
         raise ValueError('\n'.join(preflight['errors']))
@@ -353,6 +356,8 @@ def _export(s, log):
     lights = sr1_lighting.validate(s.get('lights', []))
     glass_items = [copy.deepcopy(it) for it in items if native.is_glass(it)]
     native.validate_placements(glass_items, ws)
+    # Swimmable water: no collision, see-through, water surface suffix.
+    water = features.prepare_water(items, _parse, WORK / 'derived', log)
     mesh = native.export_scene_mesh(items, _parse)
     if not mesh['faces']:
         raise ValueError('Load ordinary map geometry before exporting glass.')
@@ -410,12 +415,30 @@ def _export(s, log):
         double_sided_scene_indices=[i for i, it in enumerate(items) if it.get('double_sided', False) and not native.is_glass(it)],
         markers=main_markers, marker_coordinate_space=space, cts_template=opt('cts_template'),
         bbcity_donor=opt('bbcity_donor'), native_sky_chunk=opt('native_sky_chunk'), native_sky_peg=opt('native_sky_peg'))
+    mirror = bool(s.get('mirror_x', True))
+    chunk = out / (base + '.bbchunk_xbox2')
+    water_count = 0
+    if water:
+        # Same conversion as the map geometry and the markers.
+        convert = lambda p: sr1_cts.convert_xyz(p, ws, mirror, fixed_origin)
+        water_count = features.add_water(chunk, features.water_volumes(items, water, _parse, sr1_scene.transform, convert), log)
+    if wanted_profiles:
+        placements = result.get('native_glass', {}).get('placements', [])
+        features.set_profiles(chunk, {placements[j]['source']: name for j, name in wanted_profiles.items()}, log)
     rect = s.get('minimap_rect')
     if rect and opt('minimap_texture'):
         _write_minimap_region(out, base, [float(v) for v in rect], fixed_origin, ws, bool(s.get('mirror_x', True)), log)
     if s.get('ptp'):
         origin = (0., 0., 0.) if space == 'game' else fixed_origin
         _write_ptp_cts(out, job, base, ptp_markers, ws, bool(s.get('mirror_x', True)), origin, space, log)
+    if opt('ambience'):
+        features.add_ambience(out, base, s['ambience'], log)
+    loading = opt('loading_image')
+    if loading:
+        try:
+            features.write_loading_screen(out, base, loading, job, log)
+        except Exception as exc:  # a missing picture should not stop the map export
+            log('Loading screen skipped: ' + str(exc))
     files = sorted(str(p) for p in out.rglob('*') if p.is_file())
     summary = {
         'render_triangles': result['bbchunk']['render_triangles'],
@@ -426,6 +449,7 @@ def _export(s, log):
         'native_objects': result.get('native_glass', {}).get('native_breakables_created', 0),
         'native_props': result.get('native_props', {}).get('created', 0),
         'lights': result.get('lighting', {}).get('exported', 0),
+        'water_volumes': water_count,
     }
     return {'map_name': base, 'out_dir': str(out), 'files': files, 'summary': summary}
 

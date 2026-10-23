@@ -27,7 +27,7 @@ describe('new map wizard', () => {
         expect(problems, where).toEqual([])
         for (const p of s.parts) for (const t of [p.top, p.side]) {
           if ('lib' in t) expect(library.has(t.lib), t.lib).toBe(true)
-          else expect(KINDS[t.gen]).toBeTruthy()
+          else expect('gen' in t && KINDS[t.gen]).toBeTruthy()
         }
         const count = (t: string) => s.markers.filter(([m]) => m === t).length
         expect(count('Red team spawn'), where).toBe(count('Blue team spawn'))

@@ -34,6 +34,12 @@ export interface SceneItem {
   native_prop_behavior?: 'movable' | 'explosive'
   native_original_name?: string
   native_prop_original_name?: string
+  /** Stock damage profile for a native object (a weight or breaking preset); unset = the mode's default. */
+  native_profile?: string
+  /** Players can swim in it: exported as water (no collision, see-through, water surface). */
+  swimmable_water?: boolean
+  /** With swimmable_water: only these materials are the water (a prefab's water part); unset = the whole object. */
+  water_materials?: string[]
   triangles?: number
   /** Block-out shape this item's OBJ was generated from (see shapes.ts). */
   shape?: import('./shapes').Shape
@@ -115,6 +121,12 @@ export interface ProjectSettings {
   minimap_mode?: 'auto' | 'custom'
   /** Set at export: the square the minimap image covers, [minX, minZ, maxX, maxZ] in editor units. */
   minimap_rect?: [number, number, number, number]
+  /** Picture shown while the map loads: 'auto' renders the 3D view at export (default), 'custom' uses loading_image. */
+  loading_mode?: 'auto' | 'custom' | 'none'
+  /** The user's own loading picture (with loading_mode 'custom'). */
+  loading_image?: string
+  /** Background sound: the file name of a retail multiplayer map's ambience to include, or '' for none. */
+  ambience?: string
 }
 
 /** origin 'game': taken from the user's own game files. Kept on this device only. */
@@ -210,7 +222,7 @@ export function referencedPaths(p: Project): string[] {
     Object.values(it.textures || {}).forEach(add)
   }
   const s = p.settings
-  add(s.sky_texture); add(s.minimap_texture); add(s.bbcity_donor); add(s.cts_template)
+  add(s.sky_texture); add(s.minimap_texture); add(s.bbcity_donor); add(s.cts_template); add(s.loading_image)
   return [...out]
 }
 
