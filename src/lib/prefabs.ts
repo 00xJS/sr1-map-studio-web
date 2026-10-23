@@ -209,17 +209,71 @@ export function trafficCone(x: number, z: number, y = 1): Part[] {
 
 const CANOPY: Tex = { gen: 'tiles', tweak: { color: '#e6e4de', accent: '#b23a2a', scale: 1, wear: 0.1, seed: 340 } }
 
-export interface PrefabDef { label: string; hint: string; make: (x: number, z: number, rot: number, y: number) => Part[] }
+/** A setting a placed prefab can change afterwards (its size, floors, style, color...). */
+export interface ParamDef {
+  key: string
+  label: string
+  kind: 'number' | 'select'
+  min?: number
+  max?: number
+  step?: number
+  options?: [string, string][]
+  default: number | string
+}
+export type Params = Record<string, number | string>
+
+export interface PrefabDef {
+  label: string
+  hint: string
+  params?: ParamDef[]
+  make: (x: number, z: number, rot: number, y: number, p?: Params) => Part[]
+}
+
+/** A prefab's settings with every default filled in. */
+export const prefabParams = (def: PrefabDef, p: Params = {}): Params =>
+  Object.fromEntries((def.params ?? []).map((d) => [d.key, p[d.key] ?? d.default]))
+
+/** Marks parts as one placed prefab, so the editor can rebuild it with new settings. */
+export const tagPrefab = (parts: Part[], key: string, params: Params, at: Vec3, rot: number): Part[] => {
+  const id = `${key}@${at.map((v) => +v.toFixed(2)).join(',')}`
+  return parts.map((q) => ({ ...q, group: id, prefab: { key, params, at, rot } }))
+}
+
+const STYLE_OPTIONS: [string, string][] = [
+  ['brick', 'Red brick'], ['darkbrick', 'Dark brick'], ['plaster', 'Plaster'], ['beige', 'Beige'], ['apartment', 'Apartments'],
+  ['shop', 'Shops'], ['office', 'Office'], ['glass', 'Glass tower'], ['concrete', 'Concrete'], ['projects', 'Projects'],
+  ['stone', 'Stone'], ['warehouse', 'Warehouse'], ['club', 'Night club'], ['cyber', 'Cyber cyan'], ['cyberpink', 'Cyber pink'],
+]
+const FRONT_OPTIONS: [string, string][] = [['S', 'Front toward +Z'], ['N', 'Front toward −Z'], ['E', 'Front toward +X'], ['W', 'Front toward −X']]
+const buildingParams = (w: number, d: number, h: number, style: Style): ParamDef[] => [
+  { key: 'w', label: 'Width', kind: 'number', min: 6, max: 120, step: 1, default: w },
+  { key: 'd', label: 'Depth', kind: 'number', min: 6, max: 120, step: 1, default: d },
+  { key: 'h', label: 'Height (7 = one floor)', kind: 'number', min: 4, max: 140, step: 1, default: h },
+  { key: 'style', label: 'Style', kind: 'select', options: STYLE_OPTIONS, default: style },
+  { key: 'front', label: 'Shop front', kind: 'select', options: FRONT_OPTIONS, default: 'S' },
+]
+const buildingFrom = (x: number, z: number, rot: number, y: number, p: Params, label: string) =>
+  building({ x, z, y, w: +p.w, d: +p.d, h: +p.h, style: p.style as Style, front: (p.front as 'S') ?? rotFront(rot), label })
+export const CAR_COLORS: [string, string][] = [['#b8322a', 'Red'], ['#2a5ab8', 'Blue'], ['#d0d0d0', 'Silver'], ['#202020', 'Black'], ['#2f8a3a', 'Green'], ['#e0b020', 'Yellow'], ['#e8e8e8', 'White'], ['#7a2a7a', 'Purple']]
 
 /** Ready-made pieces the editor's Shape tool can stamp down. */
 export const PREFABS: Record<string, PrefabDef> = {
-  shop: { label: 'Shop building', hint: 'Two floors with a storefront and awning', make: (x, z, rot, y) => building({ x, z, w: 16, d: 12, h: 14, y, style: 'brick', front: rotFront(rot) }) },
-  apartments: { label: 'Apartment block', hint: 'Four floors, fire escape and water tank', make: (x, z, rot, y) => building({ x, z, w: 20, d: 16, h: 28, y, style: 'apartment', front: rotFront(rot) }) },
-  office: { label: 'Office tower', hint: 'A glass office tower', make: (x, z, rot, y) => building({ x, z, w: 22, d: 22, h: 42, y, style: 'office', front: rotFront(rot) }) },
-  warehouse: { label: 'Warehouse', hint: 'A big shed with a roll-up door', make: (x, z, rot, y) => building({ x, z, w: 30, d: 20, h: 12, y, style: 'warehouse', front: rotFront(rot) }) },
-  car: { label: 'Car', hint: 'A parked car', make: (x, z, rot, y) => car(x, z, rot, carPaint('#b8322a', 341), y) },
-  tree: { label: 'Tree', hint: 'A leafy street tree', make: (x, z, _r, y) => tree(x, z, y) },
-  pine: { label: 'Pine tree', hint: 'A tall pine', make: (x, z, _r, y) => tree(x, z, y, 1.2, true) },
+  shop: { label: 'Shop building', hint: 'Two floors with a storefront and awning', params: buildingParams(16, 12, 14, 'brick'), make: (x, z, rot, y, p) => buildingFrom(x, z, rot, y, prefabParams(PREFABS.shop, p), 'Building') },
+  apartments: { label: 'Apartment block', hint: 'Four floors, fire escape and water tank', params: buildingParams(20, 16, 28, 'apartment'), make: (x, z, rot, y, p) => buildingFrom(x, z, rot, y, prefabParams(PREFABS.apartments, p), 'Apartments') },
+  office: { label: 'Office tower', hint: 'A glass office tower', params: buildingParams(22, 22, 42, 'office'), make: (x, z, rot, y, p) => buildingFrom(x, z, rot, y, prefabParams(PREFABS.office, p), 'Office') },
+  warehouse: { label: 'Warehouse', hint: 'A big shed with a roll-up door', params: buildingParams(30, 20, 12, 'warehouse'), make: (x, z, rot, y, p) => buildingFrom(x, z, rot, y, prefabParams(PREFABS.warehouse, p), 'Warehouse') },
+  car: {
+    label: 'Car', hint: 'A parked car', params: [{ key: 'color', label: 'Paint', kind: 'select', options: CAR_COLORS, default: '#b8322a' }, { key: 'len', label: 'Length', kind: 'number', min: 6, max: 16, step: 0.5, default: 8 }],
+    make: (x, z, rot, y, p) => { const q = prefabParams(PREFABS.car, p); return car(x, z, rot, carPaint(String(q.color), 341 + CAR_COLORS.findIndex(([c]) => c === q.color)), y, +q.len) },
+  },
+  tree: {
+    label: 'Tree', hint: 'A leafy street tree', params: [{ key: 'size', label: 'Size', kind: 'number', min: 0.5, max: 3, step: 0.1, default: 1 }, { key: 'type', label: 'Kind', kind: 'select', options: [['leafy', 'Leafy'], ['pine', 'Pine']], default: 'leafy' }],
+    make: (x, z, _r, y, p) => { const q = prefabParams(PREFABS.tree, p); return tree(x, z, y, +q.size, q.type === 'pine') },
+  },
+  pine: {
+    label: 'Pine tree', hint: 'A tall pine', params: [{ key: 'size', label: 'Size', kind: 'number', min: 0.5, max: 3, step: 0.1, default: 1.2 }],
+    make: (x, z, _r, y, p) => tree(x, z, y, +prefabParams(PREFABS.pine, p).size, true),
+  },
   lamp: { label: 'Street lamp', hint: 'A lamp post (add a light under its head)', make: (x, z, rot, y) => lamp(x, z, y, rot) },
   bench: { label: 'Bench', hint: 'A park bench', make: (x, z, rot, y) => bench(x, z, rot, y) },
   dumpster: { label: 'Dumpster', hint: 'A dumpster with a lid', make: (x, z, rot, y) => dumpster(x, z, rot, y) },

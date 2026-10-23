@@ -8,7 +8,7 @@
 import type { Part, Sample, Tex } from './sampleKit'
 import { CY, PB } from './sampleKit'
 import { U } from './urbanKit'
-import { bench, building, car, dumpster, group, type Style } from './prefabs'
+import { bench, building, car, dumpster, group, tagPrefab, type Style } from './prefabs'
 import { box } from './sampleKit'
 
 const BUILDING_LABELS = /^(Building|Warehouse|Courthouse|Mall|Store|Car wash|Station|Park office|School|Ticket hall|Tower|Control room|Stair bulkhead)$/
@@ -53,12 +53,17 @@ export function detailize(s: Sample): Sample {
       const style = LABEL_STYLE[p.label] ?? TEX_STYLE.get(key(p.side)) ?? (s.theme === 'Cyber' ? 'cyber' : 'plaster')
       // Buildings were drawn axis-aligned; a turned one keeps its footprint by swapping width and depth.
       const turned = Math.round((p.rot ?? 0) / 90) % 2 !== 0
-      parts.push(...building({ x: p.at[0], y: p.at[1], z: p.at[2], w: turned ? d : w, d: turned ? w : d, h, style, roof: p.top, label: p.label, keepClear: s.markers.map(([, m]) => m) }))
+      const [x, y, z] = p.at, bw = turned ? d : w, bd = turned ? w : d
+      const front = Math.abs(x) > Math.abs(z) ? (x > 0 ? 'W' : 'E') : (z > 0 ? 'N' : 'S')
+      const made = building({ x, y, z, w: bw, d: bd, h, style, front, roof: p.top, label: p.label, keepClear: s.markers.map(([, m]) => m) })
+      parts.push(...tagPrefab(made, 'shop', { w: bw, d: bd, h, style, front }, [x, y, z], 0))
       continue
     }
     if (p.label === 'Car' || p.label === 'Limo') {
       const along = d >= w
-      parts.push(...car(p.at[0], p.at[2], (p.rot ?? 0) + (along ? 0 : 90), p.side, p.at[1], Math.max(w, d)))
+      const rot = (p.rot ?? 0) + (along ? 0 : 90), len = Math.max(w, d)
+      const color = 'gen' in p.side ? String(p.side.tweak?.color ?? '#b8322a') : '#b8322a'
+      parts.push(...tagPrefab(car(p.at[0], p.at[2], rot, p.side, p.at[1], len), 'car', { color, len }, p.at, rot))
       continue
     }
     if (p.label === 'Bus') { parts.push(...bus(p)); continue }

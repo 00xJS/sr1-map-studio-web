@@ -38,3 +38,10 @@ describe('prefabs', () => {
     expect(Object.keys(ALL_PREFABS).length).toBeGreaterThanOrEqual(70)
   })
 })
+
+describe('map dressing', () => {
+  it('names only prefabs that exist', async () => {
+    const { DRESS } = await import('../src/lib/sampleDress')
+    for (const [map, keys] of Object.entries(DRESS)) for (const k of keys) expect(ALL_PREFABS[k], `${map}: ${k}`).toBeTruthy()
+  })
+})

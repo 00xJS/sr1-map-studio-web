@@ -21,14 +21,18 @@ export interface ViewOptions {
   /** False while a click tool (paint, eraser...) is active. */
   showGizmo?: boolean
   readOnly?: boolean
+  /** Several objects selected together; the gizmo moves them as one. */
+  multi?: number[]
 }
 
 export interface ViewerEvents {
-  onPick(sel: ViewOptions['selection']): void
+  onPick(sel: ViewOptions['selection'], additive?: boolean): void
   onSurface(point: Vec3, item: number, sourceFace: number, mode: 'click' | 'drop', data?: string): void
   onTransform(kind: 'item' | 'marker' | 'light', index: number, t: { position: Vec3; rotation?: Vec3; scale?: number; yaw?: number }, done: boolean): void
   /** Eraser click: whatever is under the cursor (marker, light or object). */
   onErase(target: NonNullable<ViewOptions['selection']>): void
+  /** The gizmo moved several objects at once. */
+  onTransformMany?(updates: { index: number; position: Vec3; rotation: Vec3; scale: number }[], done: boolean): void
 }
 
 const RAD = Math.PI / 180
@@ -75,6 +79,9 @@ export class Viewer {
   private lightRoot = new THREE.Group()
   private grid: THREE.GridHelper
   private box = new THREE.Box3Helper(new THREE.Box3(), 0xff42bf)
+  /** Handle the gizmo holds when several objects are selected. */
+  private pivot = new THREE.Object3D()
+  private pivotStart: { center: THREE.Vector3; items: { index: number; pos: Vec3; rot: Vec3; scale: number }[] } | null = null
   private items = new Map<string, ItemNode>()
   private geos = new Map<string, Promise<GeoInfo>>()
   private textures = new Map<string, THREE.Texture | null>()
@@ -100,7 +107,7 @@ export class Viewer {
     sun.position.set(0.4, 1, 0.3)
     this.scene.add(sun)
     this.grid = new THREE.GridHelper(200, 40, 0x6b2a5a, 0x2b1c2b)
-    this.scene.add(this.grid, this.root, this.markerRoot, this.lightRoot, this.box)
+    this.scene.add(this.grid, this.root, this.markerRoot, this.lightRoot, this.box, this.pivot)
     this.box.visible = false
     this.camera.position.set(30, 25, 30)
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement)
@@ -171,7 +178,7 @@ export class Viewer {
       this.pointerDown = null
       if (!d || e.button !== 0 || this.dragging) return
       if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return
-      this.click(e.clientX, e.clientY)
+      this.click(e.clientX, e.clientY, e.shiftKey)
     })
     el.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return
@@ -251,7 +258,7 @@ export class Viewer {
     return hit ? hit.point.y : null
   }
 
-  private click(x: number, y: number) {
+  private click(x: number, y: number, additive = false) {
     if (this.opts.readOnly) return
     const rc = new THREE.Raycaster()
     rc.setFromCamera(this.ndc(x, y), this.camera)
@@ -275,7 +282,7 @@ export class Viewer {
       return
     }
     if (handle) { this.events.onPick(handle); return }
-    this.events.onPick(surface && surface.item >= 0 ? { kind: 'item', index: surface.item } : null)
+    this.events.onPick(surface && surface.item >= 0 ? { kind: 'item', index: surface.item } : null, additive)
   }
 
   // ---------------- sync ----------------
@@ -486,9 +493,12 @@ export class Viewer {
     })
   }
 
+  private get many() { return (this.opts.multi?.length ?? 0) > 1 }
+
   private target(): THREE.Object3D | null {
     const sel = this.opts.selection
     if (!sel || !this.project) return null
+    if (this.many) return this.pivot
     if (sel.kind === 'item') {
       const it = this.project.scene_items[sel.index]
       return it ? this.items.get(it.uid)?.group ?? null : null
@@ -497,8 +507,29 @@ export class Viewer {
     return this.lightRoot.children[sel.index] ?? null
   }
 
+  /** Union box of the selected objects. */
+  private manyBox(): THREE.Box3 {
+    const box = new THREE.Box3()
+    for (const i of this.opts.multi ?? []) {
+      const it = this.project?.scene_items[i]
+      const g = it && this.items.get(it.uid)?.group
+      if (g) box.expandByObject(g)
+    }
+    return box
+  }
+
   private syncGizmo() {
     if (this.dragging) return
+    if (this.many && this.project) {
+      // Put the handle at the bottom centre of the selection, square to the world.
+      const box = this.manyBox()
+      const center = box.isEmpty() ? new THREE.Vector3() : new THREE.Vector3((box.min.x + box.max.x) / 2, box.min.y, (box.min.z + box.max.z) / 2)
+      this.pivot.position.copy(center); this.pivot.rotation.set(0, 0, 0); this.pivot.scale.set(1, 1, 1)
+      this.pivotStart = {
+        center: center.clone(),
+        items: (this.opts.multi ?? []).flatMap((i) => { const it = this.project!.scene_items[i]; return it ? [{ index: i, pos: [...it.position] as Vec3, rot: [...it.rotation] as Vec3, scale: it.scale }] : [] }),
+      }
+    }
     const t = this.opts.readOnly || this.opts.showGizmo === false ? null : this.target()
     const sel = this.opts.selection
     if (!t || !sel) { this.gizmo.detach(); return }
@@ -512,8 +543,8 @@ export class Viewer {
     this.gizmo.setTranslationSnap(snap ? this.opts.step ?? 0.5 : null)
     this.gizmo.setRotationSnap(snap ? Math.PI / 12 : null)
     this.gizmo.setScaleSnap(snap ? 0.1 : null)
-    this.gizmo.setSpace(mode === 'rotate' && sel.kind === 'item' ? 'local' : 'world')
-    const yawOnly = sel.kind === 'marker' && mode === 'rotate'
+    this.gizmo.setSpace(mode === 'rotate' && sel.kind === 'item' && !this.many ? 'local' : 'world')
+    const yawOnly = (sel.kind === 'marker' || this.many) && mode === 'rotate'
     this.gizmo.showX = !yawOnly
     this.gizmo.showZ = !yawOnly
     this.gizmo.showY = true
@@ -524,6 +555,22 @@ export class Viewer {
     const sel = this.opts.selection
     const o = this.gizmo.object
     if (!sel || !o) return
+    if (this.many && o === this.pivot && this.pivotStart) {
+      // Move, turn (about the vertical) and scale every selected object about the shared handle.
+      const st = this.pivotStart
+      const yaw = new THREE.Euler().setFromQuaternion(o.quaternion, 'YXZ').y
+      const sc = [o.scale.x, o.scale.y, o.scale.z].reduce((b, v) => (Math.abs(v - 1) > Math.abs(b - 1) ? v : b), 1)
+      o.scale.setScalar(sc)
+      const up = new THREE.Vector3(0, 1, 0)
+      const updates = st.items.map((m) => {
+        const rel = new THREE.Vector3(...m.pos).sub(st.center).applyAxisAngle(up, yaw).multiplyScalar(sc)
+        const p = rel.add(o.position)
+        return { index: m.index, position: [+p.x.toFixed(4), +p.y.toFixed(4), +p.z.toFixed(4)] as Vec3, rotation: [m.rot[0], +(m.rot[1] + yaw * DEG).toFixed(3), m.rot[2]] as Vec3, scale: +(m.scale * sc).toFixed(5) }
+      })
+      this.events.onTransformMany?.(updates, done)
+      this.updateSelectionBox()
+      return
+    }
     const position = o.position.toArray() as Vec3
     if (sel.kind === 'item') {
       const it = this.project!.scene_items[sel.index]
@@ -544,6 +591,12 @@ export class Viewer {
   private updateSelectionBox() {
     const sel = this.opts.selection
     if (sel?.kind !== 'item') { this.box.visible = false; return }
+    if (this.many) {
+      const b = this.manyBox()
+      this.box.box.copy(b)
+      this.box.visible = !b.isEmpty()
+      return
+    }
     const t = this.target()
     if (!t) { this.box.visible = false; return }
     this.box.box.setFromObject(t)
@@ -552,8 +605,8 @@ export class Viewer {
 
   // ---------------- camera ----------------
 
-  private frame(obj: THREE.Object3D) {
-    const box = new THREE.Box3().setFromObject(obj)
+  private frame(obj: THREE.Object3D | THREE.Box3) {
+    const box = obj instanceof THREE.Box3 ? obj : new THREE.Box3().setFromObject(obj)
     if (box.isEmpty()) return
     const size = box.getSize(new THREE.Vector3()).length()
     const center = box.getCenter(new THREE.Vector3())
@@ -572,6 +625,7 @@ export class Viewer {
   }
 
   focusSelection() {
+    if (this.many) { this.frame(this.manyBox()); return }
     const t = this.target()
     if (t) this.frame(t)
     else if (this.project?.scene_items[0]) {
@@ -603,6 +657,48 @@ export class Viewer {
 
   /** Point at the camera target (used to place things "in front of you"). */
   center(): Vec3 { return this.orbit.target.toArray() as Vec3 }
+
+  /**
+   * Straight-down picture of the map for its minimap: +X right, +Z down (the
+   * exporter's mirror turns that into the game's layout), square, centred on
+   * the map's bounds and `span` times the longer side once padded.
+   */
+  async captureTopDown(o: { size: number; span: number; padUnits: number; mirror?: boolean }): Promise<Blob | null> {
+    const box = new THREE.Box3().setFromObject(this.root)
+    if (box.isEmpty()) return null
+    const c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3())
+    const half = ((Math.max(sz.x, sz.z) + 2 * o.padUnits) * o.span) / 2
+    const cam = new THREE.OrthographicCamera(-half, half, half, -half, 0.1, sz.y + 2000)
+    cam.position.set(c.x, box.max.y + 500, c.z)
+    cam.up.set(0, 0, -1)
+    cam.lookAt(c.x, box.min.y, c.z)
+    const hidden = [this.markerRoot, this.lightRoot, this.grid, this.box, this.gizmo.getHelper()]
+    const was = hidden.map((h) => h.visible)
+    hidden.forEach((h) => { h.visible = false })
+    const bg = this.scene.background
+    this.scene.background = new THREE.Color(0x000000)
+    const rt = new THREE.WebGLRenderTarget(o.size, o.size, { colorSpace: THREE.SRGBColorSpace })
+    this.renderer.setRenderTarget(rt)
+    this.renderer.render(this.scene, cam)
+    const px = new Uint8Array(o.size * o.size * 4)
+    this.renderer.readRenderTargetPixels(rt, 0, 0, o.size, o.size, px)
+    this.renderer.setRenderTarget(null)
+    rt.dispose()
+    this.scene.background = bg
+    hidden.forEach((h, i) => { h.visible = was[i] })
+    this.requestRender()
+    // GL rows run bottom-up; images run top-down.
+    const canvas = new OffscreenCanvas(o.size, o.size)
+    const img = new ImageData(o.size, o.size)
+    const row = o.size * 4
+    for (let y = 0; y < o.size; y++) {
+      const src = (o.size - 1 - y) * row
+      if (!o.mirror) { img.data.set(px.subarray(src, src + row), y * row); continue }
+      for (let x = 0; x < o.size; x++) img.data.set(px.subarray(src + (o.size - 1 - x) * 4, src + (o.size - x) * 4), y * row + x * 4)
+    }
+    canvas.getContext('2d')!.putImageData(img, 0, 0)
+    return canvas.convertToBlob({ type: 'image/png' })
+  }
 
   async capture(width = 640, height = 360): Promise<Blob | null> {
     const prevBox = this.box.visible

@@ -4,8 +4,8 @@
 // with the strongest nearest the middle. Everything stays point-symmetric, so
 // red (−Z) and blue (+Z) get the same chances.
 import type { Vec3 } from './project'
-import { CY, PB, box, cyl, type MarkerSpec, type Part, type Sample, type Theme } from './sampleKit'
-import { blocker, over, support } from './sampleScale'
+import type { MarkerSpec, Sample, Theme } from './sampleKit'
+import { blocker, support } from './sampleScale'
 
 const URBAN_POOL = ['rpg_launcher', 'sniper_rifle', 'spas12', 'm16', 'ak47', 'pump_action_shotgun', 'mac10', 'tec9', 'magnum', 'desert eagle', 'glock', 'molotov', 'pipe_bomb', 'grenade', 'baseball_bat', 'beretta']
 const CYBER_POOL = ['rpg_laser', 'sniper_rifle', 'spas12', 'ak47L', 'm16', 'mac10L', 'magnumL', 'tec9b', 'desert_eagle_gold', 'grenade', 'pipe_bomb', 'glock']
@@ -25,7 +25,7 @@ const d2 = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[2] - b[2]) + Math.abs
 const lookAtCenter = (p: Vec3) => +((Math.atan2(-p[0], p[2]) * 180) / Math.PI).toFixed(1)
 
 /** Spots players can stand on: a 4-unit grid over the map, at the heights the map's own markers use (known to be reachable). */
-function candidates(s: Sample): Vec3[] {
+export function candidates(s: Sample): Vec3[] {
   const heights = [...new Set(s.markers.map(([, p]) => p[1]))]
   const xs = s.parts.flatMap((p) => [p.at[0] - p.size[0], p.at[0] + p.size[0]])
   const zs = s.parts.flatMap((p) => [p.at[2] - p.size[2], p.at[2] + p.size[2]])
@@ -78,7 +78,11 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS): Sample {
 
   // Chains drop-offs: in the middle band, apart from each other.
   const dropNeed = Math.max(0, t.drops - of('Chains drop-off').length)
-  const drops = pick(pool, [...of('Chains drop-off'), ...spawns()], Math.ceil(dropNeed / 2), 16, (p) => Math.abs(p[2]) < depth * 0.3 && (p[2] < 0 || p[0] < 0), s.parts)
+  // In the middle band if there's room there, else anywhere away from the ends.
+  let drops = pick(pool, [...of('Chains drop-off'), ...spawns()], Math.ceil(dropNeed / 2), 16, (p) => Math.abs(p[2]) < depth * 0.3 && (p[2] < 0 || p[0] < 0), s.parts)
+  if (drops.length < Math.ceil(dropNeed / 2)) {
+    drops = [...drops, ...pick(pool, [...of('Chains drop-off'), ...spawns(), ...drops, ...drops.map(flip)], Math.ceil(dropNeed / 2) - drops.length, 6, (p) => Math.abs(p[2]) < depth * 0.45 && (p[2] < 0 || p[0] < 0), s.parts)]
+  }
   for (const p of drops) markers.push(['Chains drop-off', p], ['Chains drop-off', flip(p)])
 
   // Weapons: scattered everywhere, not on top of spawns; the strongest closest to the middle.
@@ -104,54 +108,4 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS): Sample {
   })
 
   return { ...s, markers, lights: lights.slice(0, 64) }
-}
-
-// ---------------- cover ----------------
-
-type CoverMaker = (x: number, y: number, z: number, i: number) => Part[]
-const BUNKER = [PB.red, PB.blue, PB.yellow, PB.green, PB.orange]
-const NEON = [CY.cyan, CY.pink, CY.purple, CY.lime]
-const COVER: Record<Theme, CoverMaker> = {
-  'Starter': (x, y, z, i) => i % 3 === 0
-    ? [box('Crate', [3, 3, 3], [x, y, z], PB.plywood), box('Crate', [3, 3, 3], [x + 3, y, z], PB.plywood), box('Crate', [3, 3, 3], [x + 1.5, y + 3, z], PB.plywood)]
-    : i % 3 === 1 ? [box('Concrete block', [6, 2.2, 1.6], [x, y, z], PB.concrete, PB.concrete, (i * 37) % 180)]
-      : [cyl('Barrel', 1.6, 2.2, [x, y, z], PB.boxBlue, PB.boxBlue, 12), cyl('Barrel', 1.6, 2.2, [x + 1.8, y, z + 0.6], PB.boxRed, PB.boxRed, 12)],
-  'Urban': (x, y, z, i) => [box('Jersey barrier', [8, 2, 1.2], [x, y, z], PB.concrete, PB.concrete, (i * 53) % 180)],
-  'Urban paintball': (x, y, z, i) => {
-    const t = BUNKER[i % BUNKER.length]
-    switch (i % 4) {
-      case 0: return [cyl('Can', 3, 3.5, [x, y, z], t)]
-      case 1: return [box('Cake', [5, 2.2, 5], [x, y, z], t)]
-      case 2: return [cyl('Dorito', 4, 3, [x, y, z], t, t, 3, (i * 41) % 120)]
-      default: return [box('Snake', [3, 2.2, 10], [x, y, z], t, t, (i * 29) % 180)]
-    }
-  },
-  'Cyber': (x, y, z, i) => i % 2
-    ? [box('Neon block', [4, 2 + (i % 3) * 2, 4], [x, y, z], NEON[i % NEON.length])]
-    : [box('Low wall', [8, 2, 1.2], [x, y, z], CY.panelLight, NEON[i % NEON.length], (i * 47) % 180)],
-}
-
-/**
- * Fills open floor with theme cover, mirrored for both teams: spots far from
- * everything already there, with room to walk around (and never on stairs,
- * ramps or doorways, which count as "already there").
- */
-export function addCover(s: Sample, perArea = 1400): Sample {
-  const ground = Math.min(...s.markers.map(([, p]) => p[1]))
-  const floor = candidates(s).filter((p) => p[1] === ground)
-  if (!floor.length) return s
-  const xs = floor.map((p) => p[0]), zs = floor.map((p) => p[2])
-  const area = (Math.max(...xs) - Math.min(...xs)) * (Math.max(...zs) - Math.min(...zs))
-  const pairs = Math.round(area / perArea / 2)
-  const roomy = (p: Vec3) => !s.parts.some((q) => q.at[1] < p[1] + 4 && q.at[1] + q.size[1] > p[1] + 0.35 && over(q, p[0], p[2], 7))
-  const taken = [...s.markers.map(([, p]) => p), ...s.parts.filter((q) => q.at[1] + q.size[1] > ground + 0.35 && Math.max(q.size[0], q.size[2]) < 40).map((q) => q.at)]
-  const spots = pick(floor.filter(roomy), taken, pairs, 14, (p) => (p[2] < 0 || (p[2] === 0 && p[0] < 0)) && s.markers.every(([, m]) => d2(m, p) > 8) && roomy(flip(p)), s.parts)
-  const make = COVER[s.theme]
-  const parts = [...s.parts]
-  spots.forEach((p, i) => {
-    for (const c of make(p[0], p[1], p[2], i)) {
-      parts.push(c, { ...c, at: [-c.at[0], c.at[1], -c.at[2]], rot: ((c.rot ?? 0) + 180) % 360 })
-    }
-  })
-  return { ...s, parts }
 }

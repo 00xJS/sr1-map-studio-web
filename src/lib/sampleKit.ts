@@ -28,6 +28,8 @@ export interface Part {
   bevel?: number
   /** Parts with the same group are exported as one object (a prefab). */
   group?: string
+  /** The prefab these parts were made by, so the editor can rebuild it with new settings. */
+  prefab?: { key: string; params: Record<string, number | string>; at: Vec3; rot: number }
 }
 
 export type Theme = 'Starter' | 'Urban' | 'Urban paintball' | 'Cyber'

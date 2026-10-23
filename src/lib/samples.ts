@@ -7,12 +7,13 @@ import { compoundObj, shapeName, shapeObj, type Shape } from './shapes'
 import { KINDS, defaultParams, generate } from './procedural'
 import { pixelsToPng } from './images'
 import { storeFile } from './files'
-import { ALL_MODES, GB, box, type Part, type Sample, type Tex, type Theme } from './sampleKit'
+import { ALL_MODES, GB, box, turn, type Part, type Sample, type Tex, type Theme } from './sampleKit'
 import { PAINTBALL } from './samplesPaintball'
 import { CYBER } from './samplesCyber'
 import { URBAN } from './samplesUrban'
 import { mapSize, spreadSample } from './sampleScale'
-import { FULL_TARGETS, addCover, populate } from './samplePopulate'
+import { FULL_TARGETS, populate } from './samplePopulate'
+import { DENSE, LIGHT_DRESS, dress } from './sampleDress'
 import { detailize } from './sampleDetail'
 
 export type { Sample, Theme }
@@ -180,9 +181,9 @@ export function sampleFor(id: string, compact = false): Sample {
   const s = SAMPLES.find((x) => x.id === id)
   if (!s) throw new Error('Unknown sample map')
   const small = (s.size ?? 'compact') === 'compact'
-  if (compact && small) return populate(detailize(s), COMPACT_TARGETS)
-  // Spread-out compact maps get extra cover in the space that opened up.
-  return populate(detailize(small ? addCover(spreadSample(s, 2)) : s), FULL_TARGETS)
+  if (compact && small) return populate(dress(detailize(s), { ...DENSE, perArea: 900 }), COMPACT_TARGETS)
+  // Spread-out compact maps get filled with prefabs in the space that opened up; urban maps get street clutter.
+  return populate(small ? dress(detailize(spreadSample(s, 2)), DENSE) : dress(detailize(s), LIGHT_DRESS), FULL_TARGETS)
 }
 
 export interface SampleStats { widthM: number; depthM: number; players: number; spawns: number; weapons: number; lights: number }
@@ -205,37 +206,36 @@ export function sampleStats(id: string, compact = false): SampleStats {
 export const hasCompact = (s: Sample) => (s.size ?? 'compact') === 'compact'
 
 /** Turns parts into scene objects: shapes and prefabs as OBJ files, textures generated or loaded, all stored in this browser. */
+// Textures are content-addressed files, so one generated or loaded texture serves every build in this session.
+const texCache = new Map<string, Promise<{ vpath: string; surface: number; ref: FileRef }>>()
+function storedTexture(t: Tex) {
+  const key = JSON.stringify(t)
+  let p = texCache.get(key)
+  if (!p) {
+    p = (async () => {
+      if ('lib' in t) {
+        const r = await fetch(`/textures/${t.lib}.jpg`)
+        if (!r.ok) throw new Error(`Starter texture ${t.lib} could not be loaded.`)
+        const s = await storeFile(await r.blob(), `${t.lib}.jpg`)
+        return { vpath: s.vpath, surface: t.surface, ref: s.ref }
+      }
+      const size = texSize(t.gen)
+      const params = { ...defaultParams(t.gen, size), ...t.tweak, size }
+      const s = await storeFile(await pixelsToPng(generate(params), size, `${t.gen}_${params.seed}.png`), `${t.gen}_${params.seed}.png`)
+      return { vpath: s.vpath, surface: t.surface ?? KINDS[t.gen].surface, ref: s.ref }
+    })()
+    p.catch(() => texCache.delete(key))
+    texCache.set(key, p)
+  }
+  return p
+}
+
 export async function materialize(parts: Part[], onProgress?: (t: string) => void): Promise<{ items: SceneItem[]; files: Record<string, FileRef> }> {
   const files: Record<string, FileRef> = {}
-  const texCache = new Map<string, Promise<{ vpath: string; surface: number }>>()
-  const library = new Map<string, Blob>()
-
-  const texture = (t: Tex) => {
-    const key = JSON.stringify(t)
-    let p = texCache.get(key)
-    if (!p) {
-      p = (async () => {
-        if ('lib' in t) {
-          let blob = library.get(t.lib)
-          if (!blob) {
-            const r = await fetch(`/textures/${t.lib}.jpg`)
-            if (!r.ok) throw new Error(`Starter texture ${t.lib} could not be loaded.`)
-            blob = await r.blob()
-            library.set(t.lib, blob)
-          }
-          const s = await storeFile(blob, `${t.lib}.jpg`)
-          files[s.vpath] = s.ref
-          return { vpath: s.vpath, surface: t.surface }
-        }
-        const size = texSize(t.gen)
-        const params = { ...defaultParams(t.gen, size), ...t.tweak, size }
-        const s = await storeFile(await pixelsToPng(generate(params), size, `${t.gen}_${params.seed}.png`), `${t.gen}_${params.seed}.png`)
-        files[s.vpath] = s.ref
-        return { vpath: s.vpath, surface: t.surface ?? KINDS[t.gen].surface }
-      })()
-      texCache.set(key, p)
-    }
-    return p
+  const texture = async (t: Tex) => {
+    const x = await storedTexture(t)
+    files[x.vpath] = x.ref
+    return x
   }
 
   const items: SceneItem[] = []
@@ -267,11 +267,16 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
       })
       continue
     }
-    // Prefab: origin at the first part's base; one material per distinct texture.
-    const origin = unit[0].at
+    // Prefab: origin at its placement point (or the first part's base), turned as placed; one material per distinct texture.
+    const tag = unit[0].prefab
+    const origin = tag?.at ?? unit[0].at
+    const turnBy = tag?.rot ?? 0
     const mats = new Map<string, Tex>()
     const matOf = (t: Tex) => { const k = JSON.stringify(t); if (!mats.has(k)) mats.set(k, t); return 'm' + [...mats.keys()].indexOf(k) }
-    const obj = compoundObj(unit.map((p) => ({ shape: shapeOf(p), at: [p.at[0] - origin[0], p.at[1] - origin[1], p.at[2] - origin[2]] as Vec3, rot: p.rot ?? 0, top: matOf(p.top), side: matOf(p.side) })))
+    const obj = compoundObj(unit.map((p) => {
+      const [dx, dz] = turn(p.at[0] - origin[0], p.at[2] - origin[2], -turnBy)
+      return { shape: shapeOf(p), at: [dx, p.at[1] - origin[1], dz] as Vec3, rot: (p.rot ?? 0) - turnBy, top: matOf(p.top), side: matOf(p.side) }
+    }))
     const stored = await storeFile(new Blob([obj], { type: 'model/obj' }), 'prefab.obj')
     files[stored.vpath] = stored.ref
     const textures: Record<string, string> = {}, alpha: Record<string, boolean> = {}, surface_ids: Record<string, number> = {}
@@ -282,7 +287,8 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
     }
     items.push({
       uid: uid(), name: unit[0].group!.split('@')[0].replace(/[~|]+$/, ''), path: stored.vpath, source_path: stored.vpath,
-      position: origin, rotation: [0, 0, 0], scale: 1, textures, alpha, surface_ids, physics_intent: 'Static',
+      position: origin, rotation: [0, turnBy, 0], scale: 1, textures, alpha, surface_ids, physics_intent: 'Static',
+      ...(tag ? { prefab: { key: tag.key, params: tag.params, defaults: { ...textures } } } : {}),
     })
   }
   return { items, files }

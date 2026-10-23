@@ -37,6 +37,10 @@ export interface SceneItem {
   triangles?: number
   /** Block-out shape this item's OBJ was generated from (see shapes.ts). */
   shape?: import('./shapes').Shape
+  /** Prefab this item was built from, with its settings and its original textures (to keep the user's repaints on a rebuild). */
+  prefab?: { key: string; params: Record<string, number | string>; defaults: Record<string, string> }
+  /** Items with the same group id are selected, moved and copied together. */
+  group?: string
   [key: string]: unknown
 }
 
@@ -107,6 +111,8 @@ export interface ProjectSettings {
   modes: GameMode[]
   /** Off: the server rolls time of day and weather each match, like retail maps without the flag. */
   always_clear_weather: boolean
+  /** 'auto' renders the minimap from above at every export; 'custom' uses minimap_texture. Unset: custom if an image is set, else auto. */
+  minimap_mode?: 'auto' | 'custom'
 }
 
 /** origin 'game': taken from the user's own game files. Kept on this device only. */

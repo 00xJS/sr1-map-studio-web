@@ -2,12 +2,27 @@
 // arenas, obstacle courses, king-of-the-hill towers, forts, street scenes.
 // Each is one object (a group) placed with its base at y and turned by rot.
 import { CY, PB, box, cyl, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
-import { group, local, type PrefabDef } from './prefabs'
+import { group, local, type ParamDef, type Params, type PrefabDef } from './prefabs'
 
 const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
 /** Shorthand: a prefab whose parts are given in its local frame. */
 const pf = (name: string, make: (L: (dx: number, dy: number, dz: number) => [number, number, number]) => Part[]) =>
   (x: number, z: number, rot: number, y: number) => group(id(name, x, y, z), local(x, y, z, rot, make))
+
+/** A prefab with settings: returns its params and a make that fills in defaults. */
+const pfp = (name: string, params: ParamDef[], make: (L: (dx: number, dy: number, dz: number) => [number, number, number], p: Params) => Part[]) => ({
+  params,
+  make: (x: number, z: number, rot: number, y: number, given?: Params) => {
+    const p = Object.fromEntries(params.map((d) => [d.key, given?.[d.key] ?? d.default]))
+    return group(id(name, x, y, z), local(x, y, z, rot, (L) => make(L, p)))
+  },
+})
+const BUNKER_TEX: Record<string, Tex> = { red: PB.red, blue: PB.blue, yellow: PB.yellow, green: PB.green, orange: PB.orange, black: PB.black }
+const bunkerColor = (d: string): ParamDef => ({ key: 'color', label: 'Color', kind: 'select', options: [['red', 'Red'], ['blue', 'Blue'], ['yellow', 'Yellow'], ['green', 'Green'], ['orange', 'Orange'], ['black', 'Black']], default: d })
+const NEON_TEX: Record<string, Tex> = { cyan: CY.cyan, pink: CY.pink, purple: CY.purple, lime: CY.lime, orange: CY.orange, white: CY.white }
+const neonColor = (d: string): ParamDef => ({ key: 'color', label: 'Glow', kind: 'select', options: [['cyan', 'Cyan'], ['pink', 'Pink'], ['purple', 'Purple'], ['lime', 'Lime'], ['orange', 'Orange'], ['white', 'White']], default: d })
+const B = (p: Params) => BUNKER_TEX[String(p.color)] ?? PB.red
+const N = (p: Params) => NEON_TEX[String(p.color)] ?? CY.cyan
 
 const STONE: Tex = { lib: 'medieval_blocks_03', surface: 0 }
 const SLATE: Tex = { lib: 'roof_slates_03', surface: 0 }
@@ -92,7 +107,7 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
     { ...box('Wheel', [0.3, 1, 1], L(-2.1, 0, 0), PB.tire), bevel: 0.15 }, { ...box('Wheel', [0.3, 1, 1], L(2.1, 0, 0), PB.tire), bevel: 0.15 },
     cyl('Umbrella pole', 0.15, 3, L(0, 2.6, 0), PB.steel, PB.steel, 6), { ...cyl('Umbrella', 5, 0.9, L(0, 5.2, 0), PB.red, PB.yellow, 8), taper: 0 },
   ]) },
-  jersey: { category: 'Street', label: 'Barrier line', hint: 'Three jersey barriers', make: pf('Barriers', (L) => [-8.4, 0, 8.4].map((a) => ({ ...box('Jersey barrier', [8, 2, 1.2], L(a, 0, 0), PB.concrete), bevel: 0.3 }))) },
+  jersey: { category: 'Street', label: 'Barrier line', hint: 'Three jersey barriers', ...pfp('Barriers', [{ key: 'n', label: 'Barriers', kind: 'number', min: 1, max: 8, step: 1, default: 3 }], (L, p) => [...Array(+p.n)].map((_, i) => ({ ...box('Jersey barrier', [8, 2, 1.2], L((i - (+p.n - 1) / 2) * 8.4, 0, 0), PB.concrete), bevel: 0.3 }))) },
 
   // ---------------- nature ----------------
   palm: { category: 'Nature', label: 'Palm tree', hint: 'A tall palm', make: pf('Palm', (L) => [
@@ -107,7 +122,7 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   bush: { category: 'Nature', label: 'Bush', hint: 'A round bush', make: pf('Bush', (L) => [
     { ...cyl('Bush', 3.2, 1.2, L(0, 0, 0), LEAVES, LEAVES, 9), taper: 1.2 }, { ...cyl('Bush', 3.8, 1.2, L(0, 1.2, 0), LEAVES, LEAVES, 9), taper: 0.4 },
   ]) },
-  hedge: { category: 'Nature', label: 'Hedge', hint: 'A trimmed hedge row', make: pf('Hedge', (L) => [{ ...box('Hedge', [10, 2.4, 1.8], L(0, 0, 0), LEAVES, LEAVES), bevel: 0.4 }]) },
+  hedge: { category: 'Nature', label: 'Hedge', hint: 'A trimmed hedge row', ...pfp('Hedge', [{ key: 'len', label: 'Length', kind: 'number', min: 2, max: 60, step: 1, default: 10 }, { key: 'h', label: 'Height', kind: 'number', min: 1, max: 6, step: 0.2, default: 2.4 }], (L, p) => [{ ...box('Hedge', [+p.len, +p.h, 1.8], L(0, 0, 0), LEAVES, LEAVES), bevel: 0.4 }]) },
   rocks: { category: 'Nature', label: 'Rocks', hint: 'A cluster of rocks', make: pf('Rocks', (L) => [
     { ...cyl('Rock', 4, 2.4, L(0, 0, 0), ROCK, ROCK, 6, 10), taper: 0.5 }, { ...cyl('Rock', 2.6, 1.6, L(3, 0, 1), ROCK, ROCK, 5, 40), taper: 0.4 },
     { ...cyl('Rock', 1.8, 1, L(-2.4, 0, 1.6), ROCK, ROCK, 5, 70), taper: 0.5 },
@@ -125,29 +140,29 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   ]) },
 
   // ---------------- paintball ----------------
-  snake: { category: 'Paintball', label: 'Snake', hint: 'Long low bunker to crawl behind', make: pf('Snake', (L) => [{ ...box('Snake', [3, 2, 14], L(0, 0, 0), PB.yellow), bevel: 0.8 }]) },
-  dorito: { category: 'Paintball', label: 'Dorito', hint: 'Triangle bunker', make: pf('Dorito', (L) => [cyl('Dorito', 4.2, 3.2, L(0, 0, 0), PB.orange, PB.orange, 3, 90)]) },
-  can: { category: 'Paintball', label: 'Can', hint: 'Tall round bunker', make: pf('Can', (L) => [cyl('Can', 3, 4, L(0, 0, 0), PB.blue, PB.blue, 16)]) },
-  cake: { category: 'Paintball', label: 'Cake', hint: 'Low round-cornered block', make: pf('Cake', (L) => [{ ...box('Cake', [5, 2.2, 5], L(0, 0, 0), PB.green), bevel: 0.8 }]) },
-  temple: { category: 'Paintball', label: 'Temple', hint: 'T-shaped bunker', make: pf('Temple', (L) => [{ ...box('Temple', [6, 3.5, 1.6], L(0, 0, 0), PB.red), bevel: 0.6 }, { ...box('Temple', [1.6, 3.5, 5], L(0, 0, 2.4), PB.red), bevel: 0.6 }]) },
-  maya: { category: 'Paintball', label: 'Maya', hint: 'Stepped pyramid bunker', make: pf('Maya', (L) => [{ ...box('Maya', [6, 1.6, 6], L(0, 0, 0), PB.yellow), bevel: 0.5 }, { ...box('Maya', [3.6, 1.6, 3.6], L(0, 1.6, 0), PB.yellow), bevel: 0.5 }]) },
-  xbunker: { category: 'Paintball', label: 'X bunker', hint: 'Crossed center bunker', make: pf('X bunker', (L) => [{ ...box('X bunker', [10, 3, 2], L(0, 0, 0), PB.red, PB.red, 45), bevel: 0.7 }, { ...box('X bunker', [10, 3, 2], L(0, 0, 0), PB.red, PB.red, -45), bevel: 0.7 }]) },
-  tombstone: { category: 'Paintball', label: 'Tombstone', hint: 'Tall thin bunker', make: pf('Tombstone', (L) => [{ ...box('Tombstone', [2.2, 4.4, 1.3], L(0, 0, 0), PB.green), bevel: 0.5 }]) },
-  wedge: { category: 'Paintball', label: 'Wedge', hint: 'A ramp-shaped bunker', make: pf('Wedge', (L) => [{ ...ramp('Wedge', [4, 3, 5], L(0, 0, 0), PB.blue, PB.blue) }]) },
-  pin: { category: 'Paintball', label: 'Pin', hint: 'A cone-shaped bunker', make: pf('Pin', (L) => [{ ...cyl('Pin', 3, 5, L(0, 0, 0), PB.orange, PB.orange, 16), taper: 0.25 }]) },
+  snake: { category: 'Paintball', label: 'Snake', hint: 'Long low bunker to crawl behind', ...pfp('Snake', [bunkerColor('yellow'), { key: 'len', label: 'Length', kind: 'number', min: 6, max: 40, step: 1, default: 14 }], (L, p) => [{ ...box('Snake', [3, 2, +p.len], L(0, 0, 0), B(p)), bevel: 0.8 }]) },
+  dorito: { category: 'Paintball', label: 'Dorito', hint: 'Triangle bunker', ...pfp('Dorito', [bunkerColor('orange')], (L, p) => [cyl('Dorito', 4.2, 3.2, L(0, 0, 0), B(p), B(p), 3, 90)]) },
+  can: { category: 'Paintball', label: 'Can', hint: 'Tall round bunker', ...pfp('Can', [bunkerColor('blue'), { key: 'h', label: 'Height', kind: 'number', min: 2, max: 8, step: 0.5, default: 4 }], (L, p) => [cyl('Can', 3, +p.h, L(0, 0, 0), B(p), B(p), 16)]) },
+  cake: { category: 'Paintball', label: 'Cake', hint: 'Low round-cornered block', ...pfp('Cake', [bunkerColor('green')], (L, p) => [{ ...box('Cake', [5, 2.2, 5], L(0, 0, 0), B(p)), bevel: 0.8 }]) },
+  temple: { category: 'Paintball', label: 'Temple', hint: 'T-shaped bunker', ...pfp('Temple', [bunkerColor('red')], (L, p) => [{ ...box('Temple', [6, 3.5, 1.6], L(0, 0, 0), B(p)), bevel: 0.6 }, { ...box('Temple', [1.6, 3.5, 5], L(0, 0, 2.4), B(p)), bevel: 0.6 }]) },
+  maya: { category: 'Paintball', label: 'Maya', hint: 'Stepped pyramid bunker', ...pfp('Maya', [bunkerColor('yellow')], (L, p) => [{ ...box('Maya', [6, 1.6, 6], L(0, 0, 0), B(p)), bevel: 0.5 }, { ...box('Maya', [3.6, 1.6, 3.6], L(0, 1.6, 0), B(p)), bevel: 0.5 }]) },
+  xbunker: { category: 'Paintball', label: 'X bunker', hint: 'Crossed center bunker', ...pfp('X bunker', [bunkerColor('red')], (L, p) => [{ ...box('X bunker', [10, 3, 2], L(0, 0, 0), B(p), B(p), 45), bevel: 0.7 }, { ...box('X bunker', [10, 3, 2], L(0, 0, 0), B(p), B(p), -45), bevel: 0.7 }]) },
+  tombstone: { category: 'Paintball', label: 'Tombstone', hint: 'Tall thin bunker', ...pfp('Tombstone', [bunkerColor('green')], (L, p) => [{ ...box('Tombstone', [2.2, 4.4, 1.3], L(0, 0, 0), B(p)), bevel: 0.5 }]) },
+  wedge: { category: 'Paintball', label: 'Wedge', hint: 'A ramp-shaped bunker', ...pfp('Wedge', [bunkerColor('blue')], (L, p) => [ramp('Wedge', [4, 3, 5], L(0, 0, 0), B(p), B(p))]) },
+  pin: { category: 'Paintball', label: 'Pin', hint: 'A cone-shaped bunker', ...pfp('Pin', [bunkerColor('orange')], (L, p) => [{ ...cyl('Pin', 3, 5, L(0, 0, 0), B(p), B(p), 16), taper: 0.25 }]) },
   spool: { category: 'Paintball', label: 'Cable spool', hint: 'A big wooden spool', make: pf('Spool', (L) => [cyl('Spool', 5, 0.5, L(0, 0, 0), PB.planks, PB.wood), cyl('Spool core', 2.6, 2.5, L(0, 0.5, 0), PB.wood), cyl('Spool', 5, 0.5, L(0, 3, 0), PB.planks, PB.wood)]) },
   tirestack: { category: 'Paintball', label: 'Tire wall', hint: 'Three stacks of tires', make: pf('Tire wall', (L) => [-2.5, 0, 2.5].flatMap((a, i) => [0, 1, 2].slice(0, 2 + (i % 2)).map((k) => ({ ...cyl('Tire', 2.4, 0.8, L(a, k * 0.8, 0), PB.tire, PB.tire, 12), taper: 1 })))) },
   palletwall: { category: 'Paintball', label: 'Pallet wall', hint: 'Pallets stood up as a wall', make: pf('Pallet wall', (L) => [-2.4, 0, 2.4].map((a) => box('Pallet', [2.2, 3.6, 0.4], L(a, 0, 0), PB.wood, PB.wood, 0, 2))) },
   netting: { category: 'Paintball', label: 'Netting', hint: 'A field netting panel on poles', make: pf('Netting', (L) => [box('Net', [12, 6, 0.1], L(0, 0, 0), NET, NET, 0, 4), cyl('Net pole', 0.3, 6.5, L(-6, 0, 0), PB.steel, PB.steel, 6), cyl('Net pole', 0.3, 6.5, L(6, 0, 0), PB.steel, PB.steel, 6)]) },
 
   // ---------------- cyber ----------------
-  neonpillar: { category: 'Cyber', label: 'Neon pillar', hint: 'A glowing octagonal pillar', make: pf('Neon pillar', (L) => [cyl('Pillar base', 3.2, 0.8, L(0, 0, 0), CY.dark, CY.panel, 8), cyl('Neon pillar', 2.2, 8, L(0, 0.8, 0), CY.cyan, CY.cyan, 8), cyl('Pillar cap', 3.2, 0.6, L(0, 8.8, 0), CY.dark, CY.panel, 8)]) },
-  hexpillar: { category: 'Cyber', label: 'Hex pillar', hint: 'A six-sided block', make: pf('Hex pillar', (L) => [cyl('Hex pillar', 6, 4, L(0, 0, 0), CY.dark, CY.purple, 6)]) },
-  lightgate: { category: 'Cyber', label: 'Light gate', hint: 'A glowing arch to run through', make: pf('Light gate', (L) => [
-    { ...box('Gate leg', [1.2, 7, 1.2], L(-4, 0, 0), CY.pink), bevel: 0.2 }, { ...box('Gate leg', [1.2, 7, 1.2], L(4, 0, 0), CY.pink), bevel: 0.2 }, { ...box('Gate top', [9.2, 1.2, 1.2], L(0, 7, 0), CY.pink), bevel: 0.2 },
+  neonpillar: { category: 'Cyber', label: 'Neon pillar', hint: 'A glowing octagonal pillar', ...pfp('Neon pillar', [neonColor('cyan'), { key: 'h', label: 'Height', kind: 'number', min: 2, max: 30, step: 1, default: 8 }], (L, p) => [cyl('Pillar base', 3.2, 0.8, L(0, 0, 0), CY.dark, CY.panel, 8), cyl('Neon pillar', 2.2, +p.h, L(0, 0.8, 0), N(p), N(p), 8), cyl('Pillar cap', 3.2, 0.6, L(0, 0.8 + +p.h, 0), CY.dark, CY.panel, 8)]) },
+  hexpillar: { category: 'Cyber', label: 'Hex pillar', hint: 'A six-sided block', ...pfp('Hex pillar', [neonColor('purple'), { key: 'h', label: 'Height', kind: 'number', min: 1, max: 30, step: 0.5, default: 4 }], (L, p) => [cyl('Hex pillar', 6, +p.h, L(0, 0, 0), CY.dark, N(p), 6)]) },
+  lightgate: { category: 'Cyber', label: 'Light gate', hint: 'A glowing arch to run through', ...pfp('Light gate', [neonColor('pink')], (L, p) => [
+    { ...box('Gate leg', [1.2, 7, 1.2], L(-4, 0, 0), N(p)), bevel: 0.2 }, { ...box('Gate leg', [1.2, 7, 1.2], L(4, 0, 0), N(p)), bevel: 0.2 }, { ...box('Gate top', [9.2, 1.2, 1.2], L(0, 7, 0), N(p)), bevel: 0.2 },
   ]) },
   jumppad: { category: 'Cyber', label: 'Jump pad', hint: 'A glowing launch ramp', make: pf('Jump pad', (L) => [ramp('Jump pad', [4, 1.6, 6], L(0, 0, 0), CY.lime, CY.panel), box('Pad lip', [4, 0.3, 0.6], L(0, 1.3, -3.2), CY.lime)]) },
-  holowall: { category: 'Cyber', label: 'Energy wall', hint: 'A glowing wall panel in a frame', make: pf('Energy wall', (L) => [box('Energy wall', [8, 4, 0.3], L(0, 0, 0), CY.cyan, CY.cyan), box('Wall frame', [8.6, 0.4, 0.6], L(0, 4, 0), CY.dark), box('Wall frame', [8.6, 0.4, 0.6], L(0, -0.01, 0), CY.dark)]) },
+  holowall: { category: 'Cyber', label: 'Energy wall', hint: 'A glowing wall panel in a frame', ...pfp('Energy wall', [neonColor('cyan')], (L, p) => [box('Energy wall', [8, 4, 0.3], L(0, 0, 0), N(p), N(p)), box('Wall frame', [8.6, 0.4, 0.6], L(0, 4, 0), CY.dark), box('Wall frame', [8.6, 0.4, 0.6], L(0, -0.01, 0), CY.dark)]) },
   floatplat: { category: 'Cyber', label: 'Sky platform', hint: 'A raised platform with a ramp up', make: pf('Sky platform', (L) => [
     { ...box('Platform', [10, 1, 10], L(0, 5, 0), CY.gridCyan, CY.panel), bevel: 0.2 }, ...posts4(L, 8, 8, 5, CY.dark, 0.8), ramp('Ramp', [3, 6, 12], L(0, 0, 11), CY.dark, CY.panel),
   ]) },
@@ -212,6 +227,6 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   // ---------------- sports ----------------
   hoop: { category: 'Sports', label: 'Basketball hoop', hint: 'A hoop on a pole', make: pf('Hoop', (L) => [cyl('Hoop pole', 0.5, 7, L(0, 0, 0), PB.steel, PB.steel, 8), box('Backboard', [4, 3, 0.3], L(0, 6, 0.8), CY.white), { ...cyl('Rim', 1.6, 0.15, L(0, 6.2, 1.8), PB.orange, PB.orange, 12), taper: 1 }]) },
   goal: { category: 'Sports', label: 'Soccer goal', hint: 'A goal frame with netting', make: pf('Goal', (L) => [box('Goal post', [0.4, 4.6, 0.4], L(-7, 0, 0), CY.white), box('Goal post', [0.4, 4.6, 0.4], L(7, 0, 0), CY.white), box('Crossbar', [14.4, 0.4, 0.4], L(0, 4.6, 0), CY.white), box('Goal net', [14, 4.6, 0.1], L(0, 0, -3), NET, NET, 0, 4)]) },
-  bleachers: { category: 'Sports', label: 'Bleachers', hint: 'Five rows of seats', make: pf('Bleachers', (L) => [stairs('Bleachers', [16, 5, 8], L(0, 0, 0), PB.wood, PB.steel, 0, 5)]) },
+  bleachers: { category: 'Sports', label: 'Bleachers', hint: 'Five rows of seats', ...pfp('Bleachers', [{ key: 'rows', label: 'Rows', kind: 'number', min: 2, max: 12, step: 1, default: 5 }, { key: 'w', label: 'Width', kind: 'number', min: 6, max: 60, step: 1, default: 16 }], (L, p) => [stairs('Bleachers', [+p.w, +p.rows, +p.rows * 1.6], L(0, 0, 0), PB.wood, PB.steel, 0, +p.rows)]) },
 }
 

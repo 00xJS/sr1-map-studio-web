@@ -3,7 +3,9 @@ import { Link } from 'react-router-dom'
 import { useEditor } from '../store'
 import { useExport } from '../useExport'
 import * as act from '../actions'
-import { Check, Field, FileButton, NumberInput, toastError } from '../../ui'
+import { Check, Field, FileButton, NumberInput, infoDialog, toastError } from '../../ui'
+import { BOUNDS_PAD_M, MINIMAP_SPAN, minimapMode } from '../../lib/minimap'
+import { getViewer } from '../Viewport'
 import { dataPackStatus, hasGroup, type DataPackStatus } from '../../lib/datapack'
 import { downloadBlob } from '../../lib/exporter'
 import { GAME_MODES, SPAWN_TYPES, baseName, type ProjectSettings } from '../../lib/project'
@@ -100,7 +102,7 @@ export function ExportPanel() {
         </Field>
         <FileSetting label="Fake sky image" hint="Optional. Blank = no fake skybox." k="sky_texture" accept="image/*,.tga,.dds" />
         {s.sky_texture && <Field label="Skybox size (0 = auto)"><NumberInput value={s.sky_scale} step={0.5} min={0} max={100} onChange={(v) => set('sky_scale', v)} /></Field>}
-        <FileSetting label="Minimap image" hint="Optional top-down image, 1024×1024 with alpha recommended." k="minimap_texture" accept="image/*,.tga,.dds" />
+        <MinimapSetting />
         <FileSetting label="Native BBCity donor (advanced)" hint="Optional .bbcity_xbox2 from your game for native city metadata. Stays on this device." k="bbcity_donor" accept=".bbcity_xbox2" />
       </div>
 
@@ -137,6 +139,35 @@ export function ExportPanel() {
       )}
       <p className="faint small">Export runs entirely in your browser using the original SR1 Map Studio exporter (Python, in WebAssembly). Nothing is uploaded.</p>
     </>
+  )
+}
+
+/** Automatic minimap (rendered from above at every export) or the user's own image. */
+function MinimapSetting() {
+  const project = useEditor((s) => s.project!)
+  const update = useEditor((s) => s.update)
+  const mode = minimapMode(project)
+  const [busy, setBusy] = useState(false)
+  const preview = async () => {
+    const v = getViewer()
+    if (!v) return
+    setBusy(true)
+    try {
+      const blob = await v.captureTopDown({ size: 512, span: MINIMAP_SPAN, padUnits: BOUNDS_PAD_M / (project.settings.world_scale || 0.5), mirror: !project.settings.mirror_x })
+      if (blob) await infoDialog('Minimap preview', <img src={URL.createObjectURL(blob)} alt="Minimap preview" style={{ width: '100%', borderRadius: 6 }} />)
+    } finally { setBusy(false) }
+  }
+  return (
+    <Field label="Minimap" hint={mode === 'auto' ? 'Rendered from straight above every time you export, so it always matches the map.' : 'Your own top-down image, 1024×1024 recommended.'}>
+      <div className="col">
+        <div className="row wrap">
+          <button className={'sm' + (mode === 'auto' ? ' on' : '')} onClick={() => update('Minimap', (d) => { d.settings.minimap_mode = 'auto' })}>Automatic</button>
+          <button className={'sm' + (mode === 'custom' ? ' on' : '')} onClick={() => update('Minimap', (d) => { d.settings.minimap_mode = 'custom' })}>My image</button>
+          {mode === 'auto' && <button className="sm quiet" disabled={busy} onClick={preview}>Preview</button>}
+        </div>
+        {mode === 'custom' && <FileSetting label="Minimap image" hint="Top-down, north up." k="minimap_texture" accept="image/*,.tga,.dds" />}
+      </div>
+    </Field>
   )
 }
 

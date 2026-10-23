@@ -81,10 +81,21 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
   useEffect(() => {
     const el = host.current!
     const viewer = new Viewer(el, {
-      onPick(sel) {
+      onPick(sel, additive) {
         const st = useEditor.getState()
+        if (additive && sel?.kind === 'item') { st.toggleItem(sel.index); return }
         st.select(sel)
         if (sel) st.set({ tab: TAB_FOR[sel.kind] })
+      },
+      onTransformMany(updates, done) {
+        useEditor.getState().update('Move objects', (d) => {
+          for (const u of updates) {
+            const it = d.scene_items[u.index]
+            if (!it) continue
+            it.position = u.position; it.rotation = u.rotation; it.scale = u.scale
+          }
+        }, { merge: 'gizmo-many' })
+        if (done) breakMerge()
       },
       onErase(target) {
         removeTarget(target)
@@ -140,7 +151,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
       el.style.cursor = place ? (place === 'erase' ? 'not-allowed' : 'crosshair') : ''
       viewer.sync(s.project, {
         selection: s.selection, gizmo: s.gizmo, wireframe: s.wireframe, collisionView: s.collisionView, soloMaterial: s.soloMaterial,
-        faceRange: s.faceRange, snap: s.snap, step: s.step, showGizmo: !place,
+        faceRange: s.faceRange, snap: s.snap, step: s.step, showGizmo: !place, multi: s.multi,
       })
     }
     sync()

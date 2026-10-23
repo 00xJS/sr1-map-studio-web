@@ -2,7 +2,7 @@
 // map itself (checklist, game modes, adding things, everything in the map)
 // when nothing is.
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
-import { useEditor, type Swatch } from './store'
+import { useEditor, selectedItems, type Swatch } from './store'
 import * as act from './actions'
 import { getViewer } from './Viewport'
 import { Palette, chooseTool } from './Tools'
@@ -15,6 +15,8 @@ import { dataPackStatus, hasGroup, type DataPackStatus } from '../lib/datapack'
 import { blockers } from '../lib/checklist'
 import { MARKER_HINTS, MODE_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/labels'
 import { GAME_MODES, isCustomNative, isGlass, type Light, type Marker, type SceneItem, type Vec3 } from '../lib/project'
+import { ALL_PREFABS } from '../lib/prefabRegistry'
+import { prefabParams } from '../lib/prefabs'
 
 const TextureStudio = lazy(() => import('./TextureStudio').then((m) => ({ default: m.TextureStudio })))
 const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
@@ -27,10 +29,11 @@ function MoreOptions({ tab, children }: { tab: string; children: ReactNode }) {
 export function Inspector({ onSamples, onPlay }: { onSamples: () => void; onPlay: () => void }) {
   const project = useEditor((s) => s.project)!
   const sel = useEditor((s) => s.selection)
-  const item = sel?.kind === 'item' ? project.scene_items[sel.index] : undefined
+  const multi = useEditor((s) => s.multi)
+  const item = sel?.kind === 'item' && multi.length < 2 ? project.scene_items[sel.index] : undefined
   const marker = sel?.kind === 'marker' ? project.markers[sel.index] : undefined
   const light = sel?.kind === 'light' ? project.lights[sel.index] : undefined
-  const title = item ? item.name : marker ? markerLabel(marker.type) + (marker.type === 'Weapon pickup' ? `: ${weaponName(marker.weapon)}` : '') : light ? 'Light' : 'Your map'
+  const title = multi.length > 1 ? `${multi.length} objects` : item ? item.name : marker ? markerLabel(marker.type) + (marker.type === 'Weapon pickup' ? `: ${weaponName(marker.weapon)}` : '') : light ? 'Light' : 'Your map'
   return (
     <>
       <div className="inspector-head">
@@ -41,7 +44,8 @@ export function Inspector({ onSamples, onPlay }: { onSamples: () => void; onPlay
         {item && <ObjectInspector key={item.uid} it={item} index={sel!.index} />}
         {marker && <MarkerInspector key={marker.uid} m={marker} index={sel!.index} />}
         {light && <LightInspector key={light.uid} l={light} index={sel!.index} />}
-        {!item && !marker && !light && <MapOverview onSamples={onSamples} onPlay={onPlay} />}
+        {multi.length > 1 && <MultiInspector indices={multi} />}
+        {!item && !marker && !light && multi.length < 2 && <MapOverview onSamples={onSamples} onPlay={onPlay} />}
       </div>
     </>
   )
@@ -153,6 +157,42 @@ function TexThumb({ path }: { path: string }) {
   return url ? <img className="tex-thumb" src={url} alt="" /> : <span className="tex-thumb" />
 }
 
+/** Several objects picked with Shift+click, or a group. */
+function MultiInspector({ indices }: { indices: number[] }) {
+  const project = useEditor((s) => s.project)!
+  const [run] = useBusy()
+  const items = indices.map((i) => project.scene_items[i]).filter(Boolean)
+  const groups = new Set(items.map((it) => it.group).filter(Boolean))
+  const grouped = groups.size === 1 && items.every((it) => it.group)
+  const counts = new Map<string, number>()
+  for (const it of items) counts.set(it.name, (counts.get(it.name) ?? 0) + 1)
+  return (
+    <>
+      <div className="group">
+        <div className="row wrap">
+          <button className="sm" onClick={() => act.turnItems(selectedItems(), -90)} title="Turn them all 90° left, about their middle">↺ Turn</button>
+          <button className="sm" onClick={() => act.turnItems(selectedItems(), 90)} title="Turn them all 90° right">↻ Turn</button>
+          <button className="sm" onClick={() => run(async () => act.duplicateItems(selectedItems()))} title="Ctrl+D">Duplicate</button>
+          <button className="sm" onClick={() => run(async () => { act.copyItems(selectedItems()) })} title="Ctrl+C, then Ctrl+V to paste, even into another map">Copy</button>
+          <button className="sm" onClick={() => getViewer()?.focusSelection()}>Zoom to them</button>
+        </div>
+        <div className="row wrap">
+          {grouped
+            ? <button className="sm" onClick={() => act.ungroupItems(selectedItems())} title="Ctrl+Shift+G">Ungroup</button>
+            : <button className="sm primary" onClick={() => run(async () => act.groupItems(selectedItems()))} title="Ctrl+G: clicking any of them picks them all">Group</button>}
+          <span className="spacer" />
+          <button className="sm danger" onClick={() => act.removeItems(selectedItems())}>Delete {items.length}</button>
+        </div>
+        <span className="faint small">{grouped ? 'A group: clicking any part picks the whole group. ' : ''}Drag the arrows to move them together. Shift+click an object to add or remove it.</span>
+      </div>
+      <div className="group">
+        <span className="section-title">Picked</span>
+        <span className="small muted">{[...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(', ')}</span>
+      </div>
+    </>
+  )
+}
+
 function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
   const update = useEditor((s) => s.update)
   const [run] = useBusy()
@@ -167,13 +207,15 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
         <div className="row wrap">
           <button className="sm" onClick={() => turn(-90)} title="Turn 90° left">↺ Turn</button>
           <button className="sm" onClick={() => turn(90)} title="Turn 90° right">↻ Turn</button>
-          <button className="sm" onClick={() => run(async () => act.duplicateItem(index))}>Copy</button>
+          <button className="sm" onClick={() => run(async () => act.duplicateItem(index))} title="Make a copy (Ctrl+D)">Duplicate</button>
           <button className="sm" onClick={() => getViewer()?.focusSelection()}>Zoom to it</button>
           <span className="spacer" />
           <button className="sm danger" onClick={() => act.removeItem(index)}>Delete</button>
         </div>
-        <span className="faint small">Drag the colored arrows in the view to move it. The tools on the left turn and resize it too.</span>
+        <span className="faint small">Drag the colored arrows in the view to move it. The tools on the left turn and resize it too. Shift+click other objects to pick several.</span>
       </div>
+
+      {it.prefab && ALL_PREFABS[it.prefab.key]?.params && <PrefabSettings it={it} index={index} />}
 
       {fixedGlass
         ? <div className="group"><span className="section-title">Look</span><span className="small muted">A breakable glass window. It keeps its glass look and size.</span></div>
@@ -364,5 +406,40 @@ function LightInspector({ l, index }: { l: Light; index: number }) {
       </div>
       <MoreOptions tab="lights">More options: name, exact position, falloff</MoreOptions>
     </>
+  )
+}
+
+// ---------------- a prefab's settings ----------------
+
+/** Size, floors, style, color... of a placed prefab; it rebuilds in place as they change. */
+function PrefabSettings({ it, index }: { it: SceneItem; index: number }) {
+  const def = ALL_PREFABS[it.prefab!.key]
+  const [values, setValues] = useState(() => prefabParams(def, it.prefab!.params))
+  const [busy, setBusy] = useState(false)
+  useEffect(() => setValues(prefabParams(def, it.prefab!.params)), [it.uid])
+  // Rebuild shortly after the last change, so dragging a number doesn't rebuild on every step.
+  useEffect(() => {
+    if (JSON.stringify(values) === JSON.stringify(prefabParams(def, it.prefab!.params))) return
+    const t = setTimeout(() => {
+      setBusy(true)
+      act.updatePrefab(index, values).catch(toastError).finally(() => setBusy(false))
+    }, 350)
+    return () => clearTimeout(t)
+  }, [values])
+  const change = (k: string, v: number | string) => setValues((x) => ({ ...x, [k]: v }))
+  return (
+    <div className="group">
+      <div className="row between"><span className="section-title">{def.label} settings</span>{busy && <span className="faint small">Rebuilding…</span>}</div>
+      <div className="form-grid">
+        {def.params!.map((d) => (
+          <Field key={d.key} label={d.label}>
+            {d.kind === 'select'
+              ? <select value={String(values[d.key])} onChange={(e) => change(d.key, e.target.value)}>{d.options!.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+              : <NumberInput value={Number(values[d.key])} min={d.min} max={d.max} step={d.step} onChange={(v) => change(d.key, v)} />}
+          </Field>
+        ))}
+      </div>
+      <span className="faint small">Your repaints are kept when it rebuilds.</span>
+    </div>
   )
 }

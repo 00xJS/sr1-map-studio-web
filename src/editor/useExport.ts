@@ -4,6 +4,8 @@ import { useEditor, saveNow } from './store'
 import { confirmDialog } from '../ui'
 import { runExport, downloadBlob, type ExportResult } from '../lib/exporter'
 import { mapFolderExists, mapsFolder, rememberedMapsFolder, writeMap } from '../lib/install'
+import { withAutoMinimap } from '../lib/minimap'
+import { getViewer } from './Viewport'
 
 export interface ExportDone { r: ExportResult; zip: Blob; folder: string; installedTo?: string }
 
@@ -25,7 +27,9 @@ export function useExport() {
       setBusy(true)
       before?.()
       await saveNow()
-      const out = await runExport(useEditor.getState().project!, log)
+      const viewer = getViewer()
+      const project = await withAutoMinimap(useEditor.getState().project!, viewer ? (o) => viewer.captureTopDown(o) : undefined, log)
+      const out = await runExport(project, log)
       log(`Export complete: ${out.result.files.length} map files.`)
       if (maps) {
         if (await mapFolderExists(maps, out.folder) && !(await confirmDialog('Replace installed map?', `maps/${out.folder} already exists. Its files will be replaced with this export.`, { confirm: 'Replace' }))) {

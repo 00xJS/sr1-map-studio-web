@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useEditor, saveNow, readFlag, writeFlag } from './store'
+import { useEditor, saveNow, readFlag, writeFlag, selectedItems } from './store'
 import { Viewport, getViewer } from './Viewport'
 import { Inspector } from './Inspector'
 import { PlayDialog } from './PlayDialog'
@@ -76,10 +76,30 @@ function useShortcuts() {
       else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(true).then(() => toast('Saved in this browser', 'ok', 1800)) }
       else if (mod && e.key.toLowerCase() === 'd' && !typing) {
         e.preventDefault()
-        if (st.selection?.kind === 'item') { try { act.duplicateItem(st.selection.index) } catch (err) { toastError(err) } }
+        if (selectedItems().length) { try { act.duplicateItems(selectedItems()) } catch (err) { toastError(err) } }
       }
       else if (typing) return
-      else if (e.key === 'Delete' || e.key === 'Backspace') { if (st.selection) { e.preventDefault(); act.removeSelected() } }
+      else if (mod && e.key.toLowerCase() === 'c') {
+        if (!selectedItems().length || window.getSelection()?.toString()) return
+        e.preventDefault()
+        try { const n = act.copyItems(selectedItems()); toast(`Copied ${n} object${n === 1 ? '' : 's'}. Ctrl+V pastes, in this map or another.`, 'ok', 2200) } catch (err) { toastError(err) }
+      }
+      else if (mod && e.key.toLowerCase() === 'v') {
+        e.preventDefault()
+        try { if (!act.pasteItems()) toast('Nothing copied yet: pick objects and press Ctrl+C.', 'info', 2200) } catch (err) { toastError(err) }
+      }
+      else if (mod && e.key.toLowerCase() === 'g') {
+        e.preventDefault()
+        try { e.shiftKey ? act.ungroupItems(selectedItems()) : act.groupItems(selectedItems()) } catch (err) { toastError(err) }
+      }
+      else if (mod && e.key.toLowerCase() === 'a') {
+        e.preventDefault()
+        st.selectItems(st.project?.scene_items.map((_, i) => i) ?? [])
+      }
+      else if (e.key === 'Delete' || e.key === 'Backspace') {
+        if (st.multi.length > 1) { e.preventDefault(); act.removeItems(st.multi) }
+        else if (st.selection) { e.preventDefault(); act.removeSelected() }
+      }
       else if (e.key === 'Escape') chooseTool('select')
       else if (e.key === '1') chooseTool('select')
       else if (e.key === '2') chooseTool('rotate')

@@ -25,6 +25,8 @@ interface HistoryEntry { project: Project; label: string; merge?: string }
 interface EditorState {
   project: Project | null
   selection: Selection
+  /** Several objects selected together (indices into scene_items); empty for a single selection. */
+  multi: number[]
   lastItem: number
   past: HistoryEntry[]
   future: HistoryEntry[]
@@ -54,6 +56,9 @@ interface EditorState {
   undo(): void
   redo(): void
   select(s: Selection): void
+  /** Shift+click: add an object (and its group) to the selection, or take it out. */
+  toggleItem(index: number): void
+  selectItems(indices: number[]): void
   set(partial: Partial<EditorState>): void
   log(text: string): void
 }
@@ -69,6 +74,7 @@ export const breakMerge = () => { lastMerge = null }
 export const useEditor = create<EditorState>((set, get) => ({
   project: null,
   selection: null,
+  multi: [],
   lastItem: -1,
   past: [],
   future: [],
@@ -91,9 +97,9 @@ export const useEditor = create<EditorState>((set, get) => ({
   tab: 'scene',
   advanced: readFlag('sr1-advanced'),
   open(project) {
-    set({ project, selection: null, lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [] })
+    set({ project, selection: null, multi: [], lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [] })
   },
-  close() { set({ project: null, selection: null, past: [], future: [] }) },
+  close() { set({ project: null, selection: null, multi: [], past: [], future: [] }) },
   update(label, recipe, opts) {
     const cur = get().project
     if (!cur) return
@@ -112,7 +118,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const prev = past[past.length - 1]
     if (!prev || !project) return
     lastMerge = null
-    set({ project: prev.project, past: past.slice(0, -1), future: [{ project, label: prev.label }, ...future], saveState: 'unsaved' })
+    set({ project: prev.project, multi: keepIn(get().multi, prev.project), past: past.slice(0, -1), future: [{ project, label: prev.label }, ...future], saveState: 'unsaved' })
     get().log('Undo: ' + prev.label)
   },
   redo() {
@@ -120,10 +126,33 @@ export const useEditor = create<EditorState>((set, get) => ({
     const next = future[0]
     if (!next || !project) return
     lastMerge = null
-    set({ project: next.project, future: future.slice(1), past: [...past, { project, label: next.label }], saveState: 'unsaved' })
+    set({ project: next.project, multi: keepIn(get().multi, next.project), future: future.slice(1), past: [...past, { project, label: next.label }], saveState: 'unsaved' })
     get().log('Redo: ' + next.label)
   },
-  select(selection) { set(selection?.kind === 'item' ? { selection, lastItem: selection.index } : { selection }) },
+  select(selection) {
+    if (selection?.kind !== 'item') { set({ selection, multi: [] }); return }
+    // A grouped object brings its whole group.
+    const members = groupOf(get().project, selection.index)
+    set({ selection, lastItem: selection.index, multi: members.length > 1 ? members : [] })
+  },
+  toggleItem(index) {
+    const { selection, multi, project } = get()
+    if (!project?.scene_items[index]) return
+    const current = multi.length ? multi : selection?.kind === 'item' ? [selection.index] : []
+    const members = groupOf(project, index)
+    const has = current.includes(index)
+    const next = has ? current.filter((i) => !members.includes(i)) : [...new Set([...current, ...members])]
+    if (!next.length) { set({ selection: null, multi: [] }); return }
+    const primary = has ? next[next.length - 1] : index
+    set({ selection: { kind: 'item', index: primary }, lastItem: primary, multi: next.length > 1 ? next : [] })
+  },
+  selectItems(all) {
+    const n = get().project?.scene_items.length ?? 0
+    const indices = [...new Set(all)].filter((i) => i >= 0 && i < n)
+    if (!indices.length) { set({ selection: null, multi: [] }); return }
+    const primary = indices[indices.length - 1]
+    set({ selection: { kind: 'item', index: primary }, lastItem: primary, multi: indices.length > 1 ? indices : [] })
+  },
   set(partial) { set(partial as any) },
   log(text) { set((s) => ({ logs: [...s.logs.slice(-499), text] })) },
 }))
@@ -162,6 +191,21 @@ useEditor.subscribe((s, prev) => {
 })
 
 export const currentProject = () => useEditor.getState().project
+
+const keepIn = (multi: number[], p: Project) => { const m = multi.filter((i) => i < p.scene_items.length); return m.length > 1 ? m : [] }
+
+/** Indices of the objects in the same group as this one (just this one when it isn't grouped). */
+export function groupOf(project: Project | null, index: number): number[] {
+  const g = project?.scene_items[index]?.group
+  if (!project || !g) return [index]
+  return project.scene_items.flatMap((it, i) => (it.group === g ? [i] : []))
+}
+
+/** The selected objects: several, one, or none. */
+export function selectedItems(): number[] {
+  const { multi, selection } = useEditor.getState()
+  return multi.length ? multi : selection?.kind === 'item' ? [selection.index] : []
+}
 
 useEditor.subscribe((s, prev) => { if (s.advanced !== prev.advanced) writeFlag('sr1-advanced', s.advanced) })
 
