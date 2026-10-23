@@ -7,6 +7,8 @@ import { SHAPE_PRESETS } from '../lib/shapes'
 import { ALL_PREFABS, PREFAB_CATEGORIES } from '../lib/prefabRegistry'
 import { catalogs } from '../lib/catalogs'
 import { MARKER_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/labels'
+import { deleteMyPrefab, renameMyPrefab, useMyPrefabs } from './myPrefabs'
+import { confirmDialog } from '../ui'
 
 const I = (d: ReactNode) => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
 const ICONS = {
@@ -101,10 +103,28 @@ export function Palette({ onClose, onPick, current }: { onClose: () => void; onP
 }
 
 /** Options for the active tool, shown along the top of the viewport. */
+/** Rename or delete the saved piece chosen in the Prefabs list. */
+function MineActions({ id, onGone }: { id: string; onGone: () => void }) {
+  const p = useMyPrefabs().find((x) => x.id === id)
+  if (!p) return null
+  const rename = () => { const n = window.prompt('Name for this piece', p.name); if (n?.trim()) renameMyPrefab(id, n.trim()) }
+  const remove = async () => {
+    if (await confirmDialog('Delete saved piece?', `"${p.name}" is removed from My prefabs. Copies already placed in maps stay.`, { confirm: 'Delete', danger: true })) { deleteMyPrefab(id); onGone() }
+  }
+  return (
+    <>
+      <span className="faint small">{p.bundle.items.length} object{p.bundle.items.length === 1 ? '' : 's'}: click the map to place it.</span>
+      <button className="sm quiet" onClick={rename}>Rename</button>
+      <button className="sm quiet danger" onClick={remove}>Delete</button>
+    </>
+  )
+}
+
 export function ToolOptions() {
   const tool = useEditor((s) => s.tool)
   const swatch = useEditor((s) => s.swatch)
   const toolShape = useEditor((s) => s.toolShape)
+  const mine = useMyPrefabs()
   const toolSpawn = useEditor((s) => s.toolSpawn)
   const toolWeapon = useEditor((s) => s.toolWeapon)
   const advanced = useEditor((s) => s.advanced)
@@ -126,15 +146,21 @@ export function ToolOptions() {
           {Object.entries(SHAPE_PRESETS).map(([k, p]) => (
             <button key={k} className={'sm' + (toolShape === k ? ' on' : '')} title={p.hint} onClick={() => set({ toolShape: k })}>{p.label}</button>
           ))}
-          <select value={toolShape.startsWith('prefab:') ? toolShape : ''} onChange={(e) => e.target.value && set({ toolShape: e.target.value })}
-            className={toolShape.startsWith('prefab:') ? 'on' : ''} title="Ready-made pieces: buildings, cars, trees, street furniture">
+          <select value={/^(prefab|mine):/.test(toolShape) ? toolShape : ''} onChange={(e) => e.target.value && set({ toolShape: e.target.value })}
+            className={/^(prefab|mine):/.test(toolShape) ? 'on' : ''} title="Ready-made pieces: buildings, cars, trees, street furniture, and pieces you saved">
             <option value="">Prefabs…</option>
+            {mine.length > 0 && (
+              <optgroup label="My prefabs">
+                {mine.map((p) => <option key={p.id} value={'mine:' + p.id}>{p.name}</option>)}
+              </optgroup>
+            )}
             {PREFAB_CATEGORIES.map((c) => (
               <optgroup key={c} label={c}>
                 {Object.entries(ALL_PREFABS).filter(([, p]) => p.category === c).map(([k, p]) => <option key={k} value={'prefab:' + k} title={p.hint}>{p.label}</option>)}
               </optgroup>
             ))}
           </select>
+          {toolShape.startsWith('mine:') && <MineActions id={toolShape.slice(5)} onGone={() => set({ toolShape: 'box' })} />}
         </div>
       )}
       {(tool === 'paint' || tool === 'pick') && (

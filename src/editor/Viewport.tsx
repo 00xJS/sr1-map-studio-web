@@ -6,6 +6,7 @@ import { paintAt, pickAt } from './paint'
 import { ToolOptions, ToolStrip, chooseTool } from './Tools'
 import { toast, toastError } from '../ui'
 import type { Vec3 } from '../lib/project'
+import { placeMyPrefab } from './myPrefabs'
 
 let active: Viewer | null = null
 /** The editor's viewer (for camera center, snapping and thumbnails). */
@@ -27,6 +28,7 @@ function useTool(point: Vec3, item: number, face: number): boolean {
   switch (st.tool) {
     case 'shape':
       if (st.toolShape.startsWith('prefab:')) addPrefab(st.toolShape.slice(7), snapped(point), point[1]).catch(toastError)
+      else if (st.toolShape.startsWith('mine:')) { try { placeMyPrefab(st.toolShape.slice(5), snapped(point)) } catch (err) { toastError(err) } }
       else addShape(st.toolShape, snapped(point), point[1]).catch(toastError)
       return true
     case 'spawn':

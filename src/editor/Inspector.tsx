@@ -5,10 +5,11 @@ import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
 import { useEditor, selectedItems, type Swatch } from './store'
 import * as act from './actions'
 import { getViewer } from './Viewport'
+import { saveMyPrefab } from './myPrefabs'
 import { Palette, chooseTool } from './Tools'
 import { Checklist, useApplyFix, useChecklist } from './Checklist'
 import { niceName, paintMaterial } from './paint'
-import { Check, Field, FileButton, NumberInput, toastError, useBusy } from '../ui'
+import { Check, Field, FileButton, NumberInput, toast, toastError, useBusy } from '../ui'
 import { catalogs } from '../lib/catalogs'
 import { loadModel, textureUrl } from '../lib/assets'
 import { dataPackStatus, hasGroup, type DataPackStatus } from '../lib/datapack'
@@ -157,6 +158,26 @@ function TexThumb({ path }: { path: string }) {
   return url ? <img className="tex-thumb" src={url} alt="" /> : <span className="tex-thumb" />
 }
 
+/** "Save as my prefab": names the picked objects and keeps them to place again in any map. */
+function SaveMine({ indices, suggest }: { indices: number[]; suggest: string }) {
+  const [name, setName] = useState<string | null>(null)
+  const save = () => {
+    try {
+      const p = saveMyPrefab(indices, name ?? suggest)
+      setName(null)
+      toast(`Saved "${p.name}". Find it under Add shape → Prefabs → My prefabs, in any map.`, 'ok', 4000)
+    } catch (err) { toastError(err) }
+  }
+  if (name === null) return <button className="sm quiet" onClick={() => setName(suggest)} title="Keep these to place again, in this map or any other">★ Save as my prefab</button>
+  return (
+    <div className="row">
+      <input className="grow" autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setName(null) }} aria-label="Prefab name" />
+      <button className="sm primary" onClick={save}>Save</button>
+      <button className="sm quiet" onClick={() => setName(null)}>Cancel</button>
+    </div>
+  )
+}
+
 /** Several objects picked with Shift+click, or a group. */
 function MultiInspector({ indices }: { indices: number[] }) {
   const project = useEditor((s) => s.project)!
@@ -183,6 +204,7 @@ function MultiInspector({ indices }: { indices: number[] }) {
           <span className="spacer" />
           <button className="sm danger" onClick={() => act.removeItems(selectedItems())}>Delete {items.length}</button>
         </div>
+        <SaveMine indices={indices} suggest={grouped ? 'My group' : 'My piece'} />
         <span className="faint small">{grouped ? 'A group: clicking any part picks the whole group. ' : ''}Drag the arrows to move them together. Shift+click an object to add or remove it.</span>
       </div>
       <div className="group">
@@ -212,6 +234,7 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
           <span className="spacer" />
           <button className="sm danger" onClick={() => act.removeItem(index)}>Delete</button>
         </div>
+        <SaveMine indices={[index]} suggest={it.name} />
         <span className="faint small">Drag the colored arrows in the view to move it. The tools on the left turn and resize it too. Shift+click other objects to pick several.</span>
       </div>
 
