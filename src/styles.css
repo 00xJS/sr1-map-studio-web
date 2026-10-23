@@ -46,6 +46,8 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 
 /* ---------- layout ---------- */
 .app { min-height: 100%; display: flex; flex-direction: column; }
+.site-footer { margin-top: auto; padding: 18px 20px; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 8px 16px; justify-content: center; font-size: 13px; color: var(--text-faint); }
+.site-footer a { color: var(--text-muted); }
 .topnav {
   display: flex; align-items: center; gap: 18px;
   padding: 10px 20px; border-bottom: 1px solid var(--line);

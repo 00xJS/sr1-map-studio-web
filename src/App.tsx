@@ -30,6 +30,10 @@ export function Shell({ children }: { children: ReactNode }) {
           : <Link to="/account" className="btn">Sign in</Link>)}
       </header>
       {children}
+      <footer className="site-footer">
+        <span>Free and open source. Original SR1 Map Studio by kewizzle.</span>
+        <a href="https://github.com/00xJS/sr1-map-studio-web" target="_blank" rel="noreferrer">Source on GitHub</a>
+      </footer>
     </div>
   )
 }
