@@ -5,7 +5,7 @@
 // red (−Z) and blue (+Z) get the same chances.
 import type { Vec3 } from './project'
 import type { MarkerSpec, Sample, Theme } from './sampleKit'
-import { blocker, support } from './sampleScale'
+import { blocker, over, support } from './sampleScale'
 import { prepareMap } from './analysis/analyze'
 import { nodeNear, PLAYER } from './analysis/floor'
 import { sampleInput } from './analysis/sampleInput'
@@ -38,10 +38,14 @@ export function candidates(s: Sample): Vec3[] {
   const out: Vec3[] = []
   for (let x = Math.ceil(x0 / 4) * 4; x <= x1; x += 4) for (let z = Math.ceil(z0 / 4) * 4; z <= z1; z += 4) for (const y of heights) {
     const p: Vec3 = [x, y, z]
-    if (support(s.parts, p) >= 0 && !blocker(s.parts, p)) out.push(p)
+    if (support(s.parts, p) >= 0 && !blocker(s.parts, p) && !inKerb(s.parts, p)) out.push(p)
   }
   return out
 }
+
+/** Standing inside a kerb or raised sidewalk (its top a step above the feet): the spot belongs to the higher floor. */
+const inKerb = (parts: Sample['parts'], [x, y, z]: Vec3) =>
+  parts.some((q) => q.size[1] > 0.13 && q.at[1] + q.size[1] > y + 0.01 && q.at[1] + q.size[1] <= y + 0.35 && q.at[1] <= y + 0.01 && over(q, x, z, 0))
 
 /** Farthest-point picks: each new spot is as far as possible from everything already taken (and its mirror is clear too). */
 function pick(pool: Vec3[], taken: Vec3[], count: number, minGap: number, ok: (p: Vec3) => boolean, parts: Sample['parts']): Vec3[] {

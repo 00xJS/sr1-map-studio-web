@@ -131,9 +131,10 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   ]) },
 
   // ---------------- street ----------------
-  trafficlight: { category: 'Street', label: 'Traffic light', hint: 'A pole with a signal head', make: pf('Traffic light', (L) => [
+  // The arm reaches out over the road (+Z); the lights face along the road (+X), toward the drivers they stop.
+  trafficlight: { category: 'Street', label: 'Traffic light', hint: 'A pole with an arm over the road; the lights face +X', make: pf('Traffic light', (L) => [
     cyl('Signal pole', 0.4, 7, L(0, 0, 0), PB.black, PB.black, 8), box('Signal arm', [0.3, 0.3, 5], L(0, 6.6, 2.4), PB.black),
-    { ...box('Signal head', [1, 2.6, 0.8], L(0, 4.2, 4.6), PB.black), bevel: 0.15 }, box('Red', [0.6, 0.6, 0.1], L(0, 6, 5.05), RED_LIGHT), box('Green', [0.6, 0.6, 0.1], L(0, 4.6, 5.05), GREEN_LIGHT),
+    { ...box('Signal head', [0.8, 2.6, 1], L(0, 4.2, 4.6), PB.black), bevel: 0.15 }, box('Red', [0.1, 0.6, 0.6], L(0.45, 6, 4.6), RED_LIGHT), box('Green', [0.1, 0.6, 0.6], L(0.45, 4.6, 4.6), GREEN_LIGHT),
   ]) },
   stopsign: { category: 'Street', label: 'Stop sign', hint: 'An eight-sided stop sign', make: pf('Stop sign', (L) => [
     cyl('Sign post', 0.2, 5, L(0, 0, 0), PB.steel, PB.steel, 6), { ...cyl('Stop sign', 1.6, 0.1, L(0, 4.4, 0.2), PB.red, PB.red, 8), rot: 22.5 },

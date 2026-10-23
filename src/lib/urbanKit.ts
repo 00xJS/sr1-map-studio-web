@@ -39,6 +39,9 @@ export const U = {
   clubWall2: { gen: 'tiles', tweak: { color: '#14191f', accent: '#18d8ff', scale: 6, wear: 0, seed: 97 }, surface: 15 } as Tex,
 }
 
+/** Surfaces cars drive on: streets, lots and forecourts. */
+export const ROAD_SURFACES: Tex[] = [U.road, U.roadLine, U.roadWhite, PB.asphalt, PB.oldAsphalt]
+
 /** A building: a solid block with its roof material on top. */
 export const bldg = (x: number, z: number, w: number, d: number, h: number, facade: Tex, y = S, roof: Tex = U.roof, label = 'Building'): Part =>
   box(label, [w, h, d], [x, y, z], roof, facade, 0, 6)

@@ -236,6 +236,8 @@ function storedTexture(t: Tex) {
   return p
 }
 
+const seeThrough = (t: Tex) => !('lib' in t) && !!t.alpha
+
 export async function materialize(parts: Part[], onProgress?: (t: string) => void): Promise<{ items: SceneItem[]; files: Record<string, FileRef> }> {
   const files: Record<string, FileRef> = {}
   const texture = async (t: Tex) => {
@@ -271,7 +273,7 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
       items.push({
         uid: uid(), name: shapeName(part.label, shape), path: obj.vpath, source_path: obj.vpath, shape,
         position: part.at, rotation: [0, part.rot ?? 0, 0], scale: 1,
-        textures: { top: top.vpath, side: side.vpath, ...(rock ? { rock: rock.vpath } : {}) }, alpha: { top: 'file' in part.top && !!part.top.alpha, side: 'file' in part.side && !!part.side.alpha, ...(rock ? { rock: false } : {}) },
+        textures: { top: top.vpath, side: side.vpath, ...(rock ? { rock: rock.vpath } : {}) }, alpha: { top: seeThrough(part.top), side: seeThrough(part.side), ...(rock ? { rock: false } : {}) },
         surface_ids: { top: top.surface, side: side.surface, ...(rock ? { rock: rock.surface } : {}) }, physics_intent: 'Static',
         ...(part.water ? { swimmable_water: true } : {}),
       })
@@ -293,7 +295,7 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
     for (const [k, t] of mats) {
       const name = 'm' + [...mats.keys()].indexOf(k)
       const tx = await texture(t)
-      textures[name] = tx.vpath; alpha[name] = 'file' in t && !!t.alpha; surface_ids[name] = tx.surface
+      textures[name] = tx.vpath; alpha[name] = seeThrough(t); surface_ids[name] = tx.surface
     }
     // Water parts: their materials, unless a solid part shares the same texture.
     const solid = new Set(unit.filter((p) => !p.water).flatMap((p) => [matOf(p.top), matOf(p.side)]))

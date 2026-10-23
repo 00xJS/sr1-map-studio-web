@@ -7,7 +7,8 @@ import type { ShapeKind } from './shapes'
 import type { GenParams, TextureKind } from './procedural'
 
 /** A generated texture (optionally with its own surface type) or one from the starter library. */
-export type Tex = { gen: TextureKind; tweak?: Partial<GenParams>; surface?: number } | { lib: string; surface: number }
+/** Generated textures with `alpha` keep their see-through pixels (a tag on a wall). */
+export type Tex = { gen: TextureKind; tweak?: Partial<GenParams>; surface?: number; alpha?: boolean } | { lib: string; surface: number }
   /** An image already stored in the browser (a photo); `alpha` keeps its see-through parts. */
   | { file: string; ref: import('./project').FileRef; surface?: number; alpha?: boolean }
 
