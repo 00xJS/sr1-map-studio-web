@@ -32,7 +32,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </header>
       {children}
       <footer className="site-footer">
-        <span>Free and open source. Original SR1 Map Studio by kewizzle.</span>
+        <span>Free and open source. Original SR1 Map Studio by kewizzle · Web app by <a href="https://github.com/00xJS" target="_blank" rel="noreferrer">00xJS</a></span>
         <a href="https://github.com/00xJS/sr1-map-studio-web" target="_blank" rel="noreferrer">Source on GitHub</a>
       </footer>
     </div>

@@ -111,9 +111,15 @@ where you put them, and wooden crates can smash into boards, both read from your
 
 ## Credits
 
-SR1 Map Studio was created by **kewizzle**. This site started from kewizzle's original SR1 Map
-Studio program and its map exporter, turned into a web app and built out from there. The map-format
-code comes from the Saints Reborn Map Converter by **whompay**.
+SR1 Map Studio was created by **kewizzle**, who came up with the idea and built the original desktop
+program and map exporter this project started from.
+
+**[00xJS](https://github.com/00xJS)** turned it into this web app and took it much further: the
+browser editor, walk-through and free cam, the map wizard and AI chat, hundreds of objects, cloud
+saves, share links and the Showcase, and the new export features (game modes, water, breakables,
+lighting).
+
+The map-format code comes from the Saints Reborn Map Converter by **whompay**.
 
 Free and open source under GPL-3.0-or-later. Working on the code? See
 [docs/DEVELOPING.md](docs/DEVELOPING.md).
