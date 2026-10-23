@@ -248,13 +248,17 @@ const CANOPY: Tex = { gen: 'tiles', tweak: { color: '#e6e4de', accent: '#b23a2a'
 export interface ParamDef {
   key: string
   label: string
-  /** 'path': data the editor edits in the view (a road's points), not in the settings form. */
-  kind: 'number' | 'select' | 'path'
+  /** 'path': data the editor edits in the view (a road's points), not in the settings form. 'color': '' for the prefab's own. */
+  kind: 'number' | 'select' | 'path' | 'text' | 'color'
   min?: number
   max?: number
   step?: number
   options?: [string, string][]
   default: number | string
+  /** 'color' only: the color it uses when left at '' (from the other settings). */
+  auto?: (p: Params) => string
+  /** A line under the setting in its panel. */
+  hint?: string
 }
 export type Params = Record<string, number | string>
 
@@ -264,6 +268,10 @@ export interface PrefabDef {
   /** Extra words the prefab browser's search should find it by. */
   keywords?: string[]
   params?: ParamDef[]
+  /** Settings for sticking it on a wall that was clicked (its back at z = 0); without, it always stands on the ground. */
+  onWall?: Params
+  /** Shows a photo the user chooses in its panel (in place of its "picture" texture). */
+  photo?: boolean
   make: (x: number, z: number, rot: number, y: number, p?: Params) => Part[]
 }
 

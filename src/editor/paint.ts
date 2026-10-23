@@ -4,7 +4,7 @@
 import { useEditor, currentProject, type Swatch } from './store'
 import * as act from './actions'
 import { loadModel, textureUrl } from '../lib/assets'
-import { KINDS, defaultParams, generate, type TextureKind } from '../lib/procedural'
+import { KINDS, PREFAB_ONLY, defaultParams, generate, type TextureKind } from '../lib/procedural'
 import { pixelsToPng } from '../lib/images'
 import { tagRecipe } from '../lib/recipes'
 import { baseName, isCustomNative, isGlass } from '../lib/project'
@@ -17,7 +17,8 @@ export const loadLibrary = () => (library ??= fetch('/textures/index.json').then
   return r.json()
 }).then((d) => d.textures as LibraryEntry[]))
 
-export const generatedSwatches = (): Swatch[] => (Object.keys(KINDS) as TextureKind[]).map((kind) => ({
+// A text sign's words are typed in the Texture Studio or on a Sign prefab, so the bucket leaves it out.
+export const generatedSwatches = (): Swatch[] => (Object.keys(KINDS) as TextureKind[]).filter((k) => !PREFAB_ONLY.has(k) && k !== 'lettering').map((kind) => ({
   key: 'gen:' + kind, label: KINDS[kind].label, surface: KINDS[kind].surface,
   source: { kind: 'generated', params: defaultParams(kind, 1024) },
 }))

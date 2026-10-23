@@ -231,7 +231,7 @@ export class Viewer {
       e.preventDefault()
       const hit = this.raycast(e.clientX, e.clientY)
       const point = hit ? hit.point : this.orbit.target.toArray() as Vec3
-      this.events.onSurface(point, hit?.item ?? -1, hit?.face ?? -1, 'drop', data)
+      this.events.onSurface(point, hit?.item ?? -1, hit?.face ?? -1, 'drop', data, hit?.normal)
     })
   }
 

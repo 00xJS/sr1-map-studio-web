@@ -7,7 +7,8 @@ import * as act from './actions'
 import { Check, Field, FileButton, Modal, toastError, useBusy } from '../ui'
 import { catalogs } from '../lib/catalogs'
 import { flattenLighting, makeSeamless } from '../lib/images'
-import { KINDS, defaultParams, generate, type GenParams, type TextureKind } from '../lib/procedural'
+import { KINDS, PREFAB_ONLY, defaultParams, generate, type GenParams, type TextureKind } from '../lib/procedural'
+import { SIGN_STYLES, signText, type SignStyle } from '../lib/signFont'
 import { tagRecipe } from '../lib/recipes'
 
 type Tab = 'photo' | 'generate' | 'library'
@@ -190,17 +191,31 @@ function GenerateTab({ size, onPreview, make, onSurface }: TabProps & { size: nu
   useEffect(() => { onSurface(KINDS[p.kind].surface) }, [p.kind])
   useEffect(() => {
     const t = setTimeout(() => onPreview(toCanvas(generate({ ...p, size: 256 }), 256)), 40)
-    make.current = async () => tagRecipe(await canvasFile(toCanvas(generate({ ...p, size }), size), `${p.kind}_${p.seed}_${size}.png`), { kind: 'generated', params: { ...p, size } })
+    // The recipe keeps a sign's words as they will show.
+    const q = p.kind === 'lettering' ? { ...p, text: signText(p.text ?? '') } : p
+    make.current = async () => tagRecipe(await canvasFile(toCanvas(generate({ ...q, size }), size), `${q.kind}_${q.seed}_${size}.png`), { kind: 'generated', params: { ...q, size } })
     return () => clearTimeout(t)
   }, [p, size])
   return (
     <>
       <div className="chips" style={{ gap: 6 }}>
-        {(Object.keys(KINDS) as TextureKind[]).map((k) => (
+        {(Object.keys(KINDS) as TextureKind[]).filter((k) => !PREFAB_ONLY.has(k)).map((k) => (
           <button key={k} className={'sm' + (p.kind === k ? ' on' : '')} onClick={() => setP({ ...defaultParams(k, 256), seed: p.seed })}>{KINDS[k].label}</button>
         ))}
       </div>
+      {p.kind === 'lettering' && (
+        <Field label="Text" hint="Shows in capitals: two lines of up to 24 letters.">
+          <textarea rows={2} maxLength={80} value={p.text ?? ''} onChange={(e) => set({ text: e.target.value })} style={{ resize: 'vertical', fontFamily: 'inherit' }} />
+        </Field>
+      )}
       <div className="form-grid">
+        {p.kind === 'lettering' && (
+          <Field label="Style">
+            <select value={p.style} onChange={(e) => { const style = e.target.value as SignStyle; set({ style, color: SIGN_STYLES[style].color, accent: SIGN_STYLES[style].accent }) }}>
+              {Object.entries(SIGN_STYLES).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
+            </select>
+          </Field>
+        )}
         <Field label="Color"><input type="color" value={p.color} onChange={(e) => set({ color: e.target.value })} /></Field>
         <Field label={info.accentLabel}><input type="color" value={p.accent} onChange={(e) => set({ accent: e.target.value })} /></Field>
         <Field label={`${info.scaleLabel}: ${p.scale}`}><input type="range" min={1} max={32} step={1} value={p.scale} onChange={(e) => set({ scale: +e.target.value })} /></Field>

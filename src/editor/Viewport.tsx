@@ -8,6 +8,7 @@ import { PrefabBrowser } from './PrefabBrowser'
 import { toast, toastError } from '../ui'
 import type { Vec3 } from '../lib/project'
 import { placeMyPrefab } from './myPrefabs'
+import { ALL_PREFABS } from '../lib/prefabRegistry'
 import { placeGameObject } from './gameObjectActions'
 import { STAND_EYE, STAND_HEIGHT, type WalkState } from './walk'
 import { chooseGameFolder, currentPlayer, folderPickerSupported, loadFromRememberedFolder, loadPlayer, pickPackfiles, rememberedGameFolder } from '../lib/sr1char/folder'
@@ -34,21 +35,27 @@ function snapped(p: Vec3): Vec3 {
   return [r(p[0]), p[1], r(p[2])]
 }
 
-/** Places a shape preset, prefab ("prefab:<key>"), saved piece ("mine:<id>") or object from the game ("game:<id>") on a surface point. */
-function placeShape(shape: string, point: Vec3) {
+/**
+ * Places a shape preset, prefab ("prefab:<key>"), saved piece ("mine:<id>") or object from the game ("game:<id>") on a surface point.
+ * A sign or photo frame put on a wall (`normal` is the wall's outward direction) sticks to it.
+ */
+function placeShape(shape: string, point: Vec3, normal?: Vec3) {
   const rot = useEditor.getState().placeRot
-  if (shape.startsWith('prefab:')) addPrefab(shape.slice(7), snapped(point), point[1], { rot }).catch(toastError)
+  if (shape.startsWith('prefab:')) {
+    const wall = normal && Math.abs(normal[1]) < 0.6 && ALL_PREFABS[shape.slice(7)]?.onWall ? normal : undefined
+    addPrefab(shape.slice(7), wall ? point : snapped(point), point[1], { rot, wall }).catch(toastError)
+  }
   else if (shape.startsWith('mine:')) { try { placeMyPrefab(shape.slice(5), snapped(point), rot) } catch (err) { toastError(err) } }
   else if (shape.startsWith('game:')) placeGameObject(shape.slice(5), snapped(point), point[1], rot).catch(toastError)
   else addShape(shape, snapped(point), point[1], { rot }).catch(toastError)
 }
 
 /** A tool click on a surface. Returns true if the active tool handled it. */
-function useTool(point: Vec3, item: number, face: number): boolean {
+function useTool(point: Vec3, item: number, face: number, normal?: Vec3): boolean {
   const st = useEditor.getState()
   switch (st.tool) {
     case 'shape':
-      placeShape(st.toolShape, point)
+      placeShape(st.toolShape, point, normal)
       return true
     case 'spawn':
       addMarker(st.toolSpawn, snapped(point))
@@ -249,7 +256,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
         if (st.placeMode === 'decal' && mode === 'click') { placePendingDecal(point, normal).catch(toastError); return }
         if (mode === 'drop') {
           // From the prefab browser: "prefab:<key>", "mine:<id>" or "game:<id>"; otherwise an asset library index.
-          if (data && /^(prefab|mine|game):/.test(data)) placeShape(data, point)
+          if (data && /^(prefab|mine|game):/.test(data)) placeShape(data, point, normal)
           else placeAsset(Number(data), point).catch(toastError)
           return
         }
@@ -263,7 +270,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
           st.select({ kind: 'item', index: item })
           st.set({ faceRange: [face, face], tab: 'scene' })
           st.log(`Selected collision source face ${face} on ${st.project?.scene_items[item]?.name}.`)
-        } else useTool(point, item, face)
+        } else useTool(point, item, face, normal)
       },
       onTransform(kind, index, t, done) {
         const st = useEditor.getState()

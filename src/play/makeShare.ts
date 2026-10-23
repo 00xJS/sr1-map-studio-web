@@ -6,7 +6,7 @@ import { db } from '../lib/db'
 import { gameSignature } from '../lib/hubRules'
 import { defaultParams } from '../lib/procedural'
 import { baseName, isDataPackPath, uid, type FileRef, type Project, type SceneItem } from '../lib/project'
-import { isTextureRecipe, type TextureRecipe } from '../lib/recipes'
+import { isTextureRecipe, withoutPhoto, type TextureRecipe } from '../lib/recipes'
 import { recognizeTexture } from '../lib/recognize'
 import { FILE_SETTINGS, cleanObj, itemPaths, type ShareDoc } from './share'
 
@@ -61,7 +61,7 @@ const DROP_FIELDS = ['source_path', 'original_import_path', 'asset_ref', 'prefab
 export async function planShare(project: Project, opts: { title: string; onProgress?: (t: string) => void }): Promise<SharePlan> {
   const issues = new Map<string, ShareIssue>()
   const users = new Map<string, string[]>()
-  const items = project.scene_items
+  const items = project.scene_items.map((it) => withoutPhoto(it, project.files))
   for (const it of items) {
     const { models, textures } = itemPaths(it)
     for (const p of [...models, ...textures]) users.set(p, [...new Set([...(users.get(p) ?? []), `"${it.name || 'unnamed'}"`])])

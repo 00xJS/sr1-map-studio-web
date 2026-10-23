@@ -3,7 +3,7 @@
 // are virtual paths inside the Pyodide file system:
 //   /work/f/<sha256>/<name>  user files (content addressed)
 //   /studio/<folder>/...     the user's local data pack (never uploaded)
-import { fromLegacy } from './recipes'
+import { fromLegacy, pictureSlot } from './recipes'
 import { retailMarkerDefaults } from './retailModes'
 
 export type Vec3 = [number, number, number]
@@ -246,6 +246,8 @@ export function referencedPaths(p: Project): string[] {
     add(it.path); add(it.native_mesh_obj); add(it.glass_custom_texture)
     Object.values(it.textures || {}).forEach(add)
   }
+  // A photo frame keeps its stand-in picture: share links and the Showcase show it in place of the photo.
+  for (const it of p.scene_items) { const pic = pictureSlot(it, p.files || {}); if (pic) add(it.prefab!.defaults[pic]) }
   const s = p.settings
   add(s.sky_texture); add(s.minimap_texture); add(s.bbcity_donor); add(s.cts_template); add(s.loading_image)
   return [...out]

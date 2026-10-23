@@ -105,6 +105,20 @@ export async function decalParts(img: PhotoImage, width: number, point: [number,
   return group(`Decal@${at.map((v) => v.toFixed(2)).join(',')}#${stored.ref.hash.slice(0, 6)}`, [{ ...box(name, [width, h, 0.04], at, tex, tex, rot), fit: true }])
 }
 
+/** A photo cut to `aspect` (width over height) round its middle, at most 1024 across, as a JPEG. */
+export async function cropPhoto(file: Blob, aspect: number): Promise<Blob> {
+  const bmp = await createImageBitmap(file)
+  let sw = bmp.width, sh = bmp.height
+  if (sw / sh > aspect) sw = sh * aspect
+  else sh = sw / aspect
+  const k = Math.min(1, MAX / Math.max(sw, sh))
+  const c = document.createElement('canvas')
+  c.width = Math.max(1, Math.round(sw * k)); c.height = Math.max(1, Math.round(sh * k))
+  c.getContext('2d')!.drawImage(bmp, (bmp.width - sw) / 2, (bmp.height - sh) / 2, sw, sh, 0, 0, c.width, c.height)
+  bmp.close()
+  return new Promise<Blob>((ok, bad) => c.toBlob((b) => (b ? ok(b) : bad(new Error('Could not encode the picture.'))), 'image/jpeg', 0.9))
+}
+
 const toBlob = (c: HTMLCanvasElement) => new Promise<Blob>((ok, bad) => c.toBlob((b) => (b ? ok(b) : bad(new Error('Could not encode the picture.'))), 'image/png'))
 
 /**

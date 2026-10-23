@@ -190,7 +190,7 @@ export const THEME_INFO: Record<Theme, string> = {
 
 const COMPACT_TARGETS = { shared: 8, perTeam: 6, weapons: 12, drops: 4, lights: 10 }
 /** Generated texture size: full detail where it shows (windows, shop fronts, doors), half elsewhere to keep maps light. */
-const DETAILED = new Set(['facade', 'storefront', 'garage_door'])
+const DETAILED = new Set(['facade', 'storefront', 'garage_door', 'lettering'])
 const texSize = (kind: string) => (DETAILED.has(kind) ? 1024 : 512)
 
 /** The map as it will be built: full multiplayer size (compact designs spread ×2) with spawns, weapons and lights filled in, or compact for small groups. */

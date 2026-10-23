@@ -20,6 +20,7 @@ import { MARKER_HINTS, MODE_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/la
 import { GAME_MODES, isCustomNative, isGlass, type Light, type Marker, type SceneItem, type Vec3 } from '../lib/project'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
 import { prefabParams } from '../lib/prefabs'
+import { photoAspect } from '../lib/prefabsSigns'
 import { RoadPanel, TERRAIN_LOOK, TerrainPanel } from './GroundToolOptions'
 import { AMBIENCE_OPTIONS, ambienceHint, waterHint } from '../lib/mapFeatures'
 import { PhysicsPanel } from './PhysicsPanel'
@@ -491,19 +492,49 @@ function PrefabSettings({ it, index }: { it: SceneItem; index: number }) {
     return () => clearTimeout(t)
   }, [values])
   const change = (k: string, v: number | string) => setValues((x) => ({ ...x, [k]: v }))
+  const params = def.params!.filter((d) => d.kind !== 'path')
   return (
     <div className="group">
       <div className="row between"><span className="section-title">{def.label} settings</span>{busy && <span className="faint small">Rebuilding…</span>}</div>
+      {params.filter((d) => d.kind === 'text').map((d) => (
+        <Field key={d.key} label={d.label} hint={d.hint}>
+          <textarea rows={2} maxLength={80} value={String(values[d.key])} onChange={(e) => change(d.key, e.target.value)} style={{ resize: 'vertical', fontFamily: 'inherit' }} />
+        </Field>
+      ))}
       <div className="form-grid">
-        {def.params!.filter((d) => d.kind !== 'path').map((d) => (
-          <Field key={d.key} label={d.label}>
+        {params.filter((d) => d.kind !== 'text').map((d) => (
+          <Field key={d.key} label={d.label} hint={d.hint}>
             {d.kind === 'select'
               ? <select value={String(values[d.key])} onChange={(e) => change(d.key, e.target.value)}>{d.options!.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-              : <NumberInput value={Number(values[d.key])} min={d.min} max={d.max} step={d.step} onChange={(v) => change(d.key, v)} />}
+              : d.kind === 'color'
+                ? (
+                  <div className="row">
+                    <input type="color" value={String(values[d.key] || d.auto?.(values) || '#808080')} onChange={(e) => change(d.key, e.target.value)} style={{ width: 40, padding: 2 }} />
+                    {values[d.key] ? <button className="sm" title="Use the style's own color" onClick={(e) => { e.preventDefault(); change(d.key, '') }}>Reset</button> : <span className="faint small">Style's</span>}
+                  </div>
+                )
+                : <NumberInput value={Number(values[d.key])} min={d.min} max={d.max} step={d.step} onChange={(v) => change(d.key, v)} />}
           </Field>
         ))}
       </div>
+      {def.photo && <FramePhoto it={it} index={index} aspect={photoAspect(values)} />}
       <span className="faint small">Your repaints are kept when it rebuilds.</span>
+    </div>
+  )
+}
+
+/** A photo frame's picture: choose one of your own, or take it out. */
+function FramePhoto({ it, index, aspect }: { it: SceneItem; index: number; aspect: number }) {
+  const files = useEditor((s) => s.project?.files)
+  const [run, busy] = useBusy()
+  const mat = files && act.photoMaterial(it, files)
+  if (!mat) return null
+  const has = it.textures[mat] !== it.prefab!.defaults[mat]
+  return (
+    <div className="row wrap">
+      <FileButton className="sm" accept="image/*" disabled={busy} onFiles={([f]) => run(() => act.setFramePhoto(index, f, aspect))}>{has ? 'Change photo…' : 'Choose photo…'}</FileButton>
+      {has && <button className="sm" disabled={busy} onClick={() => run(() => act.setFramePhoto(index, null))}>Remove photo</button>}
+      <span className="faint small">Cut to the frame's shape. Your photo goes into your game; share links and the Showcase show the stand-in picture instead.</span>
     </div>
   )
 }
