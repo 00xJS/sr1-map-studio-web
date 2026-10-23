@@ -94,7 +94,8 @@ export function building(o: BuildingOptions): Part[] {
 
   // Ledges between floors and a cornice: the outline of a real facade.
   if (st.ledges) for (let f = 1; f < floors; f++) parts.push(box('Ledge', [w + 0.5, 0.35, d + 0.5], [x, y + f * FLOOR - 0.2, z], st.trim, st.trim, 0, 2))
-  parts.push(box('Cornice', [w + 1, 0.7, d + 1], [x, y + h - 0.7, z], st.trim, st.trim, 0, 2))
+  // Its top stays a little under the roof: two surfaces at the same height flicker as the camera moves.
+  parts.push(box('Cornice', [w + 1, 0.64, d + 1], [x, y + h - 0.7, z], st.trim, st.trim, 0, 2))
   // Parapet round the roof edge.
   const top = y + h
   parts.push(

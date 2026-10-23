@@ -527,10 +527,10 @@ export const URBAN: Sample[] = [
     parts: [
       box('Canal bed', [200, 1, 40], [0, -3, 0], U.water, U.water, 0, 8),
       ...perimeter(200, 220, 7, PB.oldBrick),
-      box('Bridge', [12, 1, 44], [0, 0, 0], PB.cobble, U.stone),
+      box('Bridge', [12, 1, 40], [0, 0, 0], PB.cobble, U.stone), // ends at the banks: overlapping them made the two surfaces flicker
       ...mirror(
         box('Bank', [200, 4, 90], [0, -3, -65], PB.cobble, U.stone, 0, 6),
-        box('Bridge', [8, 1, 44], [-60, 0, 0], PB.planks, PB.wood),
+        box('Bridge', [8, 1, 40], [-60, 0, 0], PB.planks, PB.wood),
         climb(40, -17, 3, 6, 0, -2, 6, U.stone), climb(-90, -17, 3, 6, 0, -2, 6, U.stone),
         box('Boat', [6, 2.5, 18], [-30, -2, -12], U.white, PB.boxBlue, 90), box('Boat', [6, 2.5, 18], [70, -2, -10], U.white, PB.red, 90),
         ...[-80, -50, -20, 10, 40, 70].map((x, i) => bldg(x, -94, 26, 20, 14 + (i % 3) * 4, [PB.brick, PB.plaster, PB.beige][i % 3], G)),
@@ -641,10 +641,10 @@ export const URBAN: Sample[] = [
     parts: [
       box('Riverbed', [200, 1, 48], [0, -6, 0], U.water, U.water, 0, 8),
       ...perimeter(200, 220, 8, PB.cinder),
-      box('Road bridge', [24, 1, 52], [0, 0, 0], U.roadLine, PB.concrete), box('Bridge rail', [0.6, 1.5, 52], [-11.7, G, 0], PB.concrete), box('Bridge rail', [0.6, 1.5, 52], [11.7, G, 0], PB.concrete),
+      box('Road bridge', [24, 1, 48], [0, 0, 0], U.roadLine, PB.concrete), // ends at the banks (no flicker) box('Bridge rail', [0.6, 1.5, 52], [-11.7, G, 0], PB.concrete), box('Bridge rail', [0.6, 1.5, 52], [11.7, G, 0], PB.concrete),
       ...mirror(
         box('Bank', [200, 7, 86], [0, -6, -67], PB.floorWorn, U.rock, 0, 6),
-        box('Footbridge', [6, 1, 52], [-60, 0, 0], PB.planks, PB.steel),
+        box('Footbridge', [6, 1, 48], [-60, 0, 0], PB.planks, PB.steel),
         ...[-6, 6].map((x) => cyl('Bridge pier', 4, 6, [x, -5, -12], PB.concrete)),
         climb(30, -14, 6, 8, 0, -5, 6, PB.concrete), climb(-90, -14, 6, 8, 0, -5, 6, PB.concrete),
         ...[-80, -40, 40, 80].map((x, i) => bldg(x, -90, 30, 24, 14 + (i % 2) * 6, [PB.brick, U.apartments, PB.oldBrick, PB.plaster][i], G)),
