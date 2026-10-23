@@ -9,6 +9,7 @@ import type { MinimapRect } from '../lib/minimap'
 import { RADIUS, STAND_HEIGHT, Walker, type WalkBody, type WalkState } from './walk'
 import { PhysicsPreview, type PhysicsStatus } from './physicsPreview'
 import { presetOf } from '../lib/physicsProps'
+import { StaticBatch, batchable, type BatchSource } from './batch'
 import type { ObjModel } from '../lib/geometry'
 import { loadModel, peekModel, textureUrl } from '../lib/assets'
 import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
@@ -116,13 +117,15 @@ export class Viewer {
     sun.position.set(0.4, 1, 0.3)
     this.scene.add(sun)
     this.grid = new THREE.GridHelper(200, 40, 0x6b2a5a, 0x2b1c2b)
-    this.scene.add(this.grid, this.root, this.markerRoot, this.lightRoot, this.box, this.pivot)
+    this.scene.add(this.grid, this.root, this.markerRoot, this.lightRoot, this.box, this.pivot, this.batch.root)
     this.box.visible = false
     this.camera.position.set(30, 25, 30)
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement)
     this.orbit.enableDamping = true
     this.orbit.dampingFactor = 0.15
     this.orbit.screenSpacePanning = true
+    // Tablets: one finger spins, two fingers pinch to zoom and drag to slide.
+    this.orbit.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }
     this.gizmo = new TransformControls(this.camera, this.renderer.domElement)
     this.gizmo.setSize(0.9)
     this.scene.add(this.gizmo.getHelper())
@@ -142,6 +145,7 @@ export class Viewer {
   }
 
   dispose() {
+    this.batch.dispose()
     this.stopWalk()
     cancelAnimationFrame(this.raf)
     this.resizeObs.disconnect()
@@ -166,7 +170,7 @@ export class Viewer {
       this.renderer.render(this.scene, this.camera)
       return
     }
-    const moved = this.flyStep()
+    const moved = this.flyStep() || this.tourStep()
     const damped = this.orbit.update()
     if (this.needsRender || moved || damped || this.dragging) {
       this.needsRender = false
@@ -188,17 +192,27 @@ export class Viewer {
   // ---------------- input ----------------
 
   private pointerDown: { x: number; y: number } | null = null
+  /** Fingers on the screen; a tap only counts when one finger went down and came up. */
+  private fingers = new Set<number>()
 
   private bindInput() {
     const el = this.renderer.domElement
-    el.addEventListener('pointerdown', (e) => { if (e.button === 0) this.pointerDown = { x: e.clientX, y: e.clientY }; el.focus() })
+    el.style.touchAction = 'none'
+    el.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'touch') this.fingers.add(e.pointerId)
+      if (e.button === 0) this.pointerDown = this.fingers.size > 1 ? null : { x: e.clientX, y: e.clientY }
+      el.focus()
+    })
     el.addEventListener('pointerup', (e) => {
       const d = this.pointerDown
       this.pointerDown = null
-      if (!d || e.button !== 0 || this.dragging) return
-      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 5) return
+      const pinch = this.fingers.size > 1
+      this.fingers.delete(e.pointerId)
+      if (!d || e.button !== 0 || this.dragging || pinch) return
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > (e.pointerType === 'touch' ? 12 : 5)) return
       this.click(e.clientX, e.clientY, e.shiftKey)
     })
+    el.addEventListener('pointercancel', (e) => { this.fingers.delete(e.pointerId); this.pointerDown = null })
     el.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return
       const k = e.key.toLowerCase()
@@ -606,6 +620,23 @@ export class Viewer {
       if (first?.mesh) { this.framed = true; this.frame(first.group) }
     }
     this.updateSelectionBox()
+    this.batch.update(this.batchSources())
+  }
+
+  // Big maps draw unselected, unchanging objects merged by material (batch.ts).
+  private batch = new StaticBatch(() => this.batchSources(), () => this.requestRender())
+  private batchSources(): BatchSource[] | null {
+    const o = this.opts
+    if (o.wireframe || o.collisionView !== 'off' || o.soloMaterial) return null
+    const live = new Set(o.multi?.length ? o.multi : o.selection?.kind === 'item' ? [o.selection.index] : [])
+    const out: BatchSource[] = []
+    this.project?.scene_items.forEach((it, i) => {
+      const n = this.items.get(it.uid)
+      // Physics props move on their own in the walk-through.
+      if (live.has(i) || !n?.mesh || !n.group.visible || presetOf(it) || !batchable(n.mesh)) return
+      out.push({ uid: it.uid, mesh: n.mesh, sig: n.key + JSON.stringify([it.position, it.rotation, it.scale, it.pivot]) })
+    })
+    return out
   }
 
   private buildItemMesh(node: ItemNode, it: SceneItem, index: number) {
@@ -646,6 +677,7 @@ export class Viewer {
       if (!this.framed && index === 0) { this.framed = true; this.frame(node.group) }
       this.syncOverlay(node, it, index, true)
       this.updateSelectionBox()
+      this.batch.update(this.batchSources())
       this.requestRender()
     }).catch(() => { /* missing file: shown in the scene list */ })
   }
@@ -872,6 +904,25 @@ export class Viewer {
 
   /** Fit the whole map in view. */
   frameAll() { this.frame(this.root) }
+
+  private tour = 0
+  private tourAt = 0
+  /** Showreel (the home page): no grid or handles, the camera circles the map at `degPerSec`; 0 stops. */
+  flythrough(degPerSec: number) {
+    this.tour = degPerSec
+    this.tourAt = performance.now()
+    for (const o of [this.grid, this.markerRoot, this.lightRoot, this.box]) o.visible = !degPerSec
+    this.orbit.enabled = !degPerSec
+    this.requestRender()
+  }
+  private tourStep(): boolean {
+    if (!this.tour) return false
+    const now = performance.now()
+    this.orbitBy(this.tour * Math.min(0.1, (now - this.tourAt) / 1000))
+    this.tourAt = now
+    this.grid.visible = false
+    return true
+  }
 
   /** Camera buttons: circle the target by `deg` degrees. */
   orbitBy(deg: number) {

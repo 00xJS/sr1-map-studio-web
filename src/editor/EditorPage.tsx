@@ -5,6 +5,12 @@ import { Viewport, getViewer } from './Viewport'
 import { Inspector } from './Inspector'
 import { PlayDialog } from './PlayDialog'
 import { Tour } from './Tour'
+import { HistoryPanel } from './HistoryPanel'
+import { FirstMapCoach } from './FirstMapCoach'
+import { ShortcutsOverlay } from './ShortcutsOverlay'
+import { VersionsDialog } from './VersionsDialog'
+import { toggleOverlay, useOverlays } from './overlays'
+import { autoVersion } from '../lib/versions'
 import { TOOL_KEYS, chooseTool } from './Tools'
 import * as act from './actions'
 import { ScenePanel } from './panels/ScenePanel'
@@ -18,7 +24,7 @@ import { db } from '../lib/db'
 import { normalizeProject, type Project } from '../lib/project'
 import { py } from '../lib/py'
 import { accountsEnabled, hubEnabled } from '../lib/backend'
-import { confirmDialog, toast, toastError } from '../ui'
+import { toast, toastError } from '../ui'
 import { onQueued, queueEdits, takeEdits, type PendingEdits } from '../lib/pendingEdits'
 import { runAiActions } from './aiActions'
 import { useChat } from './aiSession'
@@ -43,7 +49,9 @@ export default function EditorPage() {
     db.getProject(id!).then((rec) => {
       if (!live) return
       if (!rec) { setMissing(true); return }
-      useEditor.getState().open(normalizeProject(rec.project))
+      const opened = normalizeProject(rec.project)
+      useEditor.getState().open(opened)
+      void autoVersion(opened, rec.thumbnail).catch(() => {})
       document.title = rec.name + ' · SR1 Map Studio'
     })
     void py.init().catch(() => {})
@@ -53,6 +61,7 @@ export default function EditorPage() {
       offLog()
       if (useEditor.getState().saveState === 'unsaved') void saveNow()
       useEditor.getState().close()
+      useOverlays.setState({ versions: false, keys: false })
       document.title = 'SR1 Map Studio'
     }
   }, [id])
@@ -80,12 +89,14 @@ function useShortcuts() {
       const mod = e.ctrlKey || e.metaKey
       if (mod && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? st.redo() : st.undo() }
       else if (mod && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); st.redo() }
+      else if (mod && e.shiftKey && e.key.toLowerCase() === 's') { e.preventDefault(); toggleOverlay('versions', true) }
       else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(true).then(() => toast('Saved in this browser', 'ok', 1800)) }
       else if (mod && e.key.toLowerCase() === 'd' && !typing) {
         e.preventDefault()
         if (selectedItems().length) { try { act.duplicateItems(selectedItems()) } catch (err) { toastError(err) } }
       }
       else if (typing) return
+      else if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) { e.preventDefault(); toggleOverlay('keys') }
       else if (mod && e.key.toLowerCase() === 'c') {
         if (!selectedItems().length || window.getSelection()?.toString()) return
         e.preventDefault()
@@ -158,6 +169,7 @@ function Editor() {
   const [playing, setPlaying] = useState(false)
   const [touring, setTouring] = useState(false)
   usePendingEdits(() => setChatting(true))
+  const overlays = useOverlays()
   const hasItems = project.scene_items.length > 0
   // First visit: show the tour once there's something to look at.
   useEffect(() => { if (hasItems && !readFlag('sr1-tour-done')) setTouring(true) }, [hasItems])
@@ -219,6 +231,10 @@ function Editor() {
       {publishing && <Suspense fallback={null}><PublishDialog projectId={project.id} onClose={() => setPublishing(false)} /></Suspense>}
       {sharing && <Suspense fallback={null}><ShareDialog projectId={project.id} onClose={() => setSharing(false)} /></Suspense>}
       {touring && !picking && !playing && <Tour onDone={endTour} />}
+      {overlays.history && <HistoryPanel />}
+      {overlays.versions && <VersionsDialog />}
+      {overlays.keys && <ShortcutsOverlay />}
+      <FirstMapCoach />
     </div>
   )
 }
@@ -231,11 +247,11 @@ function Menu({ label, items, title }: { label: string; items: MenuItem[]; title
   useEffect(() => {
     if (!open) return
     const close = () => setOpen(false)
-    window.addEventListener('mousedown', close)
-    return () => window.removeEventListener('mousedown', close)
+    window.addEventListener('pointerdown', close)
+    return () => window.removeEventListener('pointerdown', close)
   }, [open])
   return (
-    <div className="menu-wrap" onMouseDown={(e) => e.stopPropagation()}>
+    <div className="menu-wrap" onPointerDown={(e) => e.stopPropagation()}>
       <button className={'sm' + (open ? ' on' : '')} onClick={() => setOpen(!open)} title={title} aria-haspopup="menu" aria-expanded={open}>{label} ▾</button>
       {open && (
         <div className="menu" role="menu">
@@ -249,10 +265,6 @@ function Menu({ label, items, title }: { label: string; items: MenuItem[]; title
     </div>
   )
 }
-
-const KEYS_HELP = 'Camera: left-drag spin · right-drag slide · scroll zoom · F zoom to selection · WASD / Q E fly (Shift = faster)\n' +
-  'Tools: V move · 2 turn · 3 size · H shape · B paint · I pick · P spawn · K weapon · L light · X erase · Esc back to Move · G snap\n' +
-  'Ctrl+Z / Ctrl+Shift+Z: undo / redo · Ctrl+D: copy · Delete: delete · Ctrl+S: save'
 
 function TopBar({ onPublish, onShare, onPlay, onTour, onAi }: { onPublish: () => void; onShare: () => void; onPlay: () => void; onTour: () => void; onAi: () => void }) {
   const navigate = useNavigate()
@@ -270,6 +282,7 @@ function TopBar({ onPublish, onShare, onPlay, onTour, onAi }: { onPublish: () =>
   const doubleSided = useEditor((s) => s.project!.settings.double_sided)
   const advanced = useEditor((s) => s.advanced)
   const update = useEditor((s) => s.update)
+  const historyOpen = useOverlays((s) => s.history)
   const [pyStatus, setPyStatus] = useState(py.status)
   useEffect(() => py.onStatus(setPyStatus), [])
   const st = useEditor.getState
@@ -283,6 +296,10 @@ function TopBar({ onPublish, onShare, onPlay, onTour, onAi }: { onPublish: () =>
         <button className="sm" disabled={!canUndo} onClick={() => st().undo()} title={undoLabel ? `Undo ${undoLabel} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}>↶ Undo</button>
         <button className="sm" disabled={!canRedo} onClick={() => st().redo()} title="Redo (Ctrl+Shift+Z)">↷</button>
       </div>
+      <Menu label="History" title="Undo history and saved versions" items={[
+        { label: 'Undo history', on: historyOpen, run: () => toggleOverlay('history'), title: 'Every step since you opened the map; click one to go back to it' },
+        { label: 'Saved versions… (Ctrl+Shift+S)', run: () => toggleOverlay('versions', true), title: 'Keep a copy of the map and restore it later' },
+      ]} />
       <button className={'sm' + (snap ? ' on' : '')} onClick={() => st().set({ snap: !snap })} title="Line things up on a grid and turn in 15° steps (G)">Snap</button>
       <Menu label="View" items={[
         { label: 'Wireframe', on: wireframe, run: () => st().set({ wireframe: !wireframe }), title: 'Show the triangles' },
@@ -308,7 +325,7 @@ function TopBar({ onPublish, onShare, onPlay, onTour, onAi }: { onPublish: () =>
       {hubEnabled && <button className="sm" onClick={async () => { await saveNow(true); onPublish() }}>Publish</button>}
       <Menu label="Help" items={[
         { label: 'Take the tour', run: onTour },
-        { label: 'Keyboard & mouse', run: () => void confirmDialog('Keyboard & mouse', KEYS_HELP, { confirm: 'Got it', cancel: null }) },
+        { label: 'Keyboard, mouse & touch (?)', run: () => toggleOverlay('keys', true) },
       ]} />
       <button className="sm" onClick={() => st().set({ walking: !st().walking, selection: null, multi: [] })} title="Walk the map at player height, like in the game">🚶 Walk</button>
       <button className="sm" onClick={async () => { await saveNow(); navigate(`/play/${projectId}`) }} title="Play this map in the browser: weapons to pick up, timed runs, works on phones">🎮 Play here</button>

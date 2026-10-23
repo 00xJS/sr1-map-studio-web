@@ -3,7 +3,8 @@
 // are never uploaded; /studio/ data-pack paths are never in project.files.
 import { getBackend, ConflictError, PublishRejected, type Backend, type CloudProjectMeta, type HubMapDetail, type User } from './backend'
 import { db, sha256, type ProjectRecord } from './db'
-import { checkPublishFiles, checkPublishMeta, HEAD_BYTES, projectUploadPlan, type PublishMeta } from './hubRules'
+import { checkPublishMeta, checkShots, HEAD_BYTES, projectUploadPlan, showcasePlan, type PublishMeta } from './hubRules'
+import { libraryIds, rebuildFromRecipes } from './showcase'
 import { normalizeProject, uid, type Project } from './project'
 
 export type Progress = (p: { phase: string; done: number; total: number }) => void
@@ -105,36 +106,37 @@ export async function listCloudProjects(): Promise<CloudProjectMeta[]> {
   return b.listCloudProjects()
 }
 
-/** Check a project locally with the same rules the server uses. */
-export async function precheckPublish(project: Project, meta: PublishMeta): Promise<string[]> {
-  const plan = projectUploadPlan(project)
-  const problems = [...checkPublishMeta(meta), ...plan.blockers]
-  const seen = new Set<string>()
-  const files = []
-  for (const f of plan.upload) {
-    if (seen.has(f.ref.hash)) continue
-    seen.add(f.ref.hash)
-    const blob = await db.getBlob(f.ref.hash)
-    if (!blob) { problems.push(`${f.ref.name} is missing on this device. Re-import it and try again.`); continue }
-    files.push({ name: f.ref.name, size: blob.size, type: f.ref.type, head: new Uint8Array(await blob.slice(0, HEAD_BYTES).arrayBuffer()) })
-  }
-  return [...problems, ...checkPublishFiles(files)]
+/** What keeps a map out of the Showcase, checked here with the server's rules. */
+export async function showcaseProblems(project: Project, meta: PublishMeta): Promise<string[]> {
+  return [...checkPublishMeta(meta), ...showcasePlan(project, await libraryIds()).blockers]
+}
+
+async function uploadImage(b: Backend, blob: Blob): Promise<string> {
+  const hash = await sha256(blob)
+  if (!(await b.hasBlobs([hash])).has(hash)) await b.uploadBlob(hash, blob)
+  return hash
 }
 
 /**
- * Push the (already saved) project and publish it to the hub. Pass mapId to
- * update a map you published before. Throws PublishRejected with problems, or
- * ConflictError when the cloud copy changed elsewhere (retry with force).
+ * Put the (already saved) project in the Showcase with the author's
+ * screenshots. Only recipes are sent, never the map's files. Pass mapId to
+ * update a map you published before. Throws PublishRejected with problems.
  */
-export async function publishProject(id: string, meta: PublishMeta & { mapId?: string }, onProgress?: Progress, opts: { force?: boolean } = {}): Promise<{ id: string }> {
+export async function publishShowcase(id: string, meta: PublishMeta & { mapId?: string }, shots: Blob[], onProgress?: Progress): Promise<{ id: string }> {
   const { b } = await signedIn()
   const rec = await db.getProject(id)
   if (!rec) throw new Error('Project not found on this device.')
-  const problems = await precheckPublish(rec.project, meta)
-  if (problems.length) throw new PublishRejected("This map can't be published yet.", problems)
-  await pushProject(id, onProgress, { force: opts.force })
+  const plan = showcasePlan(rec.project, await libraryIds())
+  const problems = [...checkPublishMeta(meta), ...plan.blockers, ...checkShots(await Promise.all(shots.map(async (s) => ({ size: s.size, head: new Uint8Array(await s.slice(0, HEAD_BYTES).arrayBuffer()) }))))]
+  if (problems.length) throw new PublishRejected("This map can't go in the Showcase yet.", problems)
+  const total = shots.length + (rec.thumbnail ? 1 : 0)
+  let done = 0
+  onProgress?.({ phase: 'Uploading screenshots', done, total })
+  const hashes: string[] = []
+  for (const s of shots) { hashes.push(await uploadImage(b, s)); onProgress?.({ phase: 'Uploading screenshots', done: ++done, total }) }
+  const thumb = rec.thumbnail ? await uploadImage(b, rec.thumbnail) : undefined
   onProgress?.({ phase: 'Checking and publishing', done: 0, total: 1 })
-  const res = await b.publish({ projectId: id, title: meta.title, description: meta.description, tags: meta.tags, mapId: meta.mapId })
+  const res = await b.publish({ projectId: id, snapshot: plan.snapshot, title: meta.title, description: meta.description, tags: meta.tags, mapId: meta.mapId, thumb, shots: hashes })
   onProgress?.({ phase: 'Published', done: 1, total: 1 })
   return res
 }
@@ -142,7 +144,7 @@ export async function publishProject(id: string, meta: PublishMeta & { mapId?: s
 /** Download a hub map's files into local storage, verifying each against its hash. */
 async function fetchHubFiles(b: Backend, d: HubMapDetail, onProgress?: Progress) {
   const need: string[] = []
-  for (const h of new Set(Object.values(d.project.files).filter((r) => r.origin === 'user').map((r) => r.hash))) {
+  for (const h of new Set(Object.values(d.project.files).filter((r) => r.origin === 'user' && !r.recipe).map((r) => r.hash))) {
     if (!(await db.hasBlob(h))) need.push(h)
   }
   let done = 0
@@ -169,7 +171,7 @@ export async function remixHubMap(mapId: string, onProgress?: Progress): Promise
   if (!d) throw new Error('This map is not available.')
   await fetchHubFiles(b, d, onProgress)
   const now = new Date().toISOString()
-  const p = hubProject(d)
+  const p = await rebuildFromRecipes(hubProject(d), (done, total) => onProgress?.({ phase: 'Building textures and shapes', done, total }))
   const project: Project = {
     ...p, id: uid(), name: `${d.title} (remix)`.slice(0, 120), created_at: now, updated_at: now,
     remix_of: { hub_id: d.id, title: d.title, author: d.author.name },
@@ -188,5 +190,5 @@ export async function openHubMapForView(mapId: string, onProgress?: Progress): P
   if (!map) throw new Error('This map is not available.')
   await fetchHubFiles(b, map, onProgress)
   b.recordDownload(mapId).catch(() => {})
-  return { project: hubProject(map), map }
+  return { project: await rebuildFromRecipes(hubProject(map), (done, total) => onProgress?.({ phase: 'Building textures and shapes', done, total })), map }
 }

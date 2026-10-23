@@ -219,12 +219,12 @@ function storedTexture(t: Tex) {
       if ('lib' in t) {
         const r = await fetch(`/textures/${t.lib}.jpg`)
         if (!r.ok) throw new Error(`Starter texture ${t.lib} could not be loaded.`)
-        const s = await storeFile(tagRecipe(await r.blob(), { lib: t.lib }), `${t.lib}.jpg`)
+        const s = await storeFile(tagRecipe(await r.blob(), { kind: 'library', id: t.lib }), `${t.lib}.jpg`)
         return { vpath: s.vpath, surface: t.surface, ref: s.ref }
       }
       const size = texSize(t.gen)
       const params = { ...defaultParams(t.gen, size), ...t.tweak, size }
-      const s = await storeFile(tagRecipe(await pixelsToPng(generate(params), size, `${t.gen}_${params.seed}.png`), { gen: params }), `${t.gen}_${params.seed}.png`)
+      const s = await storeFile(tagRecipe(await pixelsToPng(generate(params), size, `${t.gen}_${params.seed}.png`), { kind: 'generated', params }), `${t.gen}_${params.seed}.png`)
       return { vpath: s.vpath, surface: t.surface ?? KINDS[t.gen].surface, ref: s.ref }
     })()
     p.catch(() => texCache.delete(key))
@@ -260,7 +260,7 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
     if (unit.length === 1) {
       const part = unit[0]
       const shape = shapeOf(part)
-      const obj = await storeFile(new Blob([shapeObj(shape)], { type: 'model/obj' }), `${part.kind}.obj`)
+      const obj = await storeFile(tagRecipe(new Blob([shapeObj(shape)], { type: 'model/obj' }), { kind: 'shape', shape }), `${part.kind}.obj`)
       files[obj.vpath] = obj.ref
       const [top, side] = await Promise.all([texture(part.top), texture(part.side)])
       // Terrain has a third material for its rocky ground.
@@ -280,11 +280,11 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
     const turnBy = tag?.rot ?? 0
     const mats = new Map<string, Tex>()
     const matOf = (t: Tex) => { const k = JSON.stringify(t); if (!mats.has(k)) mats.set(k, t); return 'm' + [...mats.keys()].indexOf(k) }
-    const obj = compoundObj(unit.map((p) => {
+    const pieces = unit.map((p) => {
       const [dx, dz] = turn(p.at[0] - origin[0], p.at[2] - origin[2], -turnBy)
       return { shape: shapeOf(p), at: [dx, p.at[1] - origin[1], dz] as Vec3, rot: (p.rot ?? 0) - turnBy, top: matOf(p.top), side: matOf(p.side) }
-    }))
-    const stored = await storeFile(new Blob([obj], { type: 'model/obj' }), 'prefab.obj')
+    })
+    const stored = await storeFile(tagRecipe(new Blob([compoundObj(pieces)], { type: 'model/obj' }), { kind: 'compound', pieces }), 'prefab.obj')
     files[stored.vpath] = stored.ref
     const textures: Record<string, string> = {}, alpha: Record<string, boolean> = {}, surface_ids: Record<string, number> = {}
     for (const [k, t] of mats) {

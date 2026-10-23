@@ -169,11 +169,20 @@ function doc(): ShareDoc {
   p.markers.push(newMarker('Shared spawn', [0, 0, 0]))
   return {
     format: 'sr1-map-studio-share', version: 1, title: 'Share test', created_at: '2026-10-23T00:00:00Z', project: p,
-    models: { 'mesh/0': cleanObj(OBJ)! }, textures: { 'tex/0': { gen: defaultParams('concrete', 256) }, 'tex/1': { lib: 'brick_4' } },
+    models: { 'mesh/0': cleanObj(OBJ)! }, textures: { 'tex/0': { kind: 'generated', params: defaultParams('concrete', 256) }, 'tex/1': { kind: 'library', id: 'brick_4' } },
   }
 }
 
 describe('share documents', () => {
+  it('opens links made before the recipe formats were merged', () => {
+    const d = doc() as any
+    d.textures = { 'tex/0': { gen: defaultParams('concrete', 256) }, 'tex/1': { lib: 'brick_4' } }
+    const r = validateShareDoc(d)
+    expect(r.problems).toEqual([])
+    expect(r.doc!.textures['tex/0'].kind).toBe('generated')
+    expect(r.doc!.textures['tex/1']).toEqual({ kind: 'library', id: 'brick_4' })
+  })
+
   it('passes a clean share and survives packing', () => {
     const d = doc()
     expect(validateShareDoc(d).problems).toEqual([])

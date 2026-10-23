@@ -2,11 +2,12 @@
 // texture recipes, and nothing else. Textures the site didn't make (your own
 // pictures) and files from the game block the share, or are swapped out when
 // the user chooses to.
-import { db, sha256 } from '../lib/db'
+import { db } from '../lib/db'
 import { gameSignature } from '../lib/hubRules'
-import { KINDS, defaultParams, generate, type GenParams, type TextureKind } from '../lib/procedural'
+import { defaultParams } from '../lib/procedural'
 import { baseName, isDataPackPath, uid, type FileRef, type Project, type SceneItem } from '../lib/project'
-import type { TextureRecipe } from '../lib/recipes'
+import { isTextureRecipe, type TextureRecipe } from '../lib/recipes'
+import { recognizeTexture } from '../lib/recognize'
 import { FILE_SETTINGS, cleanObj, itemPaths, type ShareDoc } from './share'
 
 export type IssueKind = 'texture' | 'game' | 'missing' | 'model'
@@ -32,7 +33,7 @@ export interface SharePlan {
 }
 
 /** What a swapped-out texture becomes: plain concrete, made from scratch. */
-export const STAND_IN: TextureRecipe = { gen: { ...defaultParams('concrete', 256), wear: 0.15, seed: 7 } }
+export const STAND_IN: TextureRecipe = { kind: 'generated', params: { ...defaultParams('concrete', 256), wear: 0.15, seed: 7 } }
 const STAND_IN_KEY = 'tex/stand-in'
 
 const ISSUE_TEXT: Record<IssueKind, string> = {
@@ -45,90 +46,11 @@ export const issueText = (i: ShareIssue) => `${i.file} ${ISSUE_TEXT[i.kind]} (us
 
 // ---------------- where a texture came from ----------------
 
-let libraryIds: Promise<Set<string>> | null = null
-const loadLibraryIds = () => (libraryIds ??= fetch('/textures/index.json').then((r) => r.ok ? r.json() : { textures: [] })
-  .then((d: { textures: { id: string }[] }) => new Set(d.textures.map((t) => t.id))).catch(() => new Set<string>()))
-
-const libraryHashes = new Map<string, Promise<string | null>>()
-const libraryHash = (id: string) => {
-  let p = libraryHashes.get(id)
-  if (!p) {
-    p = fetch(`/textures/${id}.jpg`).then((r) => r.ok ? r.blob().then(sha256) : null).catch(() => null)
-    libraryHashes.set(id, p)
-  }
-  return p
-}
-
-/** Generator settings used by the sample maps and prefabs, by "kind:seed" (to recognise textures made before recipes were recorded). */
-let tweakIndex: Promise<Map<string, GenParams[]>> | null = null
-function knownTweaks(): Promise<Map<string, GenParams[]>> {
-  tweakIndex ??= (async () => {
-    const [{ SAMPLES }, { ALL_PREFABS }, { prefabParams }] = await Promise.all([import('../lib/samples'), import('../lib/prefabRegistry'), import('../lib/prefabs')])
-    const out = new Map<string, GenParams[]>()
-    const seen = new Set<string>()
-    const add = (t: { gen?: TextureKind; tweak?: Partial<GenParams> }) => {
-      if (!t.gen) return
-      const k = JSON.stringify([t.gen, t.tweak ?? {}])
-      if (seen.has(k)) return
-      seen.add(k)
-      const p = { ...defaultParams(t.gen), ...t.tweak }
-      const key = `${t.gen}:${p.seed}`
-      out.set(key, [...(out.get(key) ?? []), p])
-    }
-    // The samples as drawn (building them in full takes minutes); the prefabs they get dressed with are below.
-    for (const s of SAMPLES) for (const part of s.parts) { add(part.top as never); add(part.side as never) }
-    for (const def of Object.values(ALL_PREFABS)) {
-      try { for (const part of def.make(0, 0, 0, 0, prefabParams(def, {}))) { add(part.top as never); add(part.side as never) } } catch { /* skip */ }
-    }
-    return out
-  })()
-  return tweakIndex
-}
-
-async function pixelsOf(blob: Blob): Promise<{ w: number; h: number; px: Uint8ClampedArray } | null> {
-  try {
-    const bmp = await createImageBitmap(blob, { colorSpaceConversion: 'none', premultiplyAlpha: 'none' })
-    const c = new OffscreenCanvas(bmp.width, bmp.height)
-    const g = c.getContext('2d')!
-    g.drawImage(bmp, 0, 0)
-    bmp.close()
-    return { w: c.width, h: c.height, px: g.getImageData(0, 0, c.width, c.height).data }
-  } catch { return null }
-}
-
-/** Close enough at a spread of sample points (PNG is lossless; this allows for browser rounding). */
-function samePixels(a: Uint8ClampedArray, b: Uint8ClampedArray): boolean {
-  if (a.length !== b.length) return false
-  const stride = Math.max(1, Math.floor(a.length / 4 / 3000)) * 4
-  for (let i = 0; i < a.length; i += stride) {
-    for (let c = 0; c < 3; c++) if (Math.abs(a[i + c] - b[i + c]) > 3) return false
-  }
-  return true
-}
-
-const GEN_NAME = /^([a-z_]+?)_(\d+)(?:_(\d+))?\.png$/
-const BLOCKOUT: Record<string, [TextureKind, number]> = { 'blockout_top.png': ['concrete', 1], 'blockout_side.png': ['brick', 1] }
-
 /** The recipe for a texture the site made, or null for anything else (a photo, a download, an imported model's image). */
 export async function recipeFor(ref: FileRef): Promise<TextureRecipe | null> {
   if (ref.origin !== 'user') return null
-  if (ref.recipe) return ref.recipe
-  // Made before recipes were recorded: recognise it by name and check the content matches.
-  const lib = /^([a-z0-9_]+)\.jpg$/.exec(ref.name)
-  if (lib && (await loadLibraryIds()).has(lib[1])) return (await libraryHash(lib[1])) === ref.hash ? { lib: lib[1] } : null
-  const m = GEN_NAME.exec(ref.name)
-  const named = BLOCKOUT[ref.name] ?? (m && Object.hasOwn(KINDS, m[1]) ? [m[1] as TextureKind, Number(m[2])] as const : null)
-  if (!named) return null
-  const blob = await db.getBlob(ref.hash)
-  const img = blob && await pixelsOf(blob)
-  if (!img || img.w !== img.h) return null
-  const [kind, seed] = named
-  const candidates = [{ ...defaultParams(kind), seed }, ...((await knownTweaks()).get(`${kind}:${seed}`) ?? [])]
-  for (const c of candidates) {
-    const p = { ...c, size: img.w }
-    if (samePixels(generate(p), img.px)) return { gen: p }
-  }
-  return null
+  if (ref.recipe) return isTextureRecipe(ref.recipe) ? ref.recipe : null
+  return recognizeTexture(ref)
 }
 
 // ---------------- the share ----------------

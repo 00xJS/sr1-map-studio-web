@@ -1,13 +1,14 @@
-// Community hub: browse, search and filter published maps.
+// The Showcase: browse, search and filter community maps built from Map Studio's own pieces.
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { accountsEnabled, useBackend, type HubMapMeta, type HubSort } from '../lib/backend'
 import { toastError, Avatar, timeAgo } from '../ui'
+import './home.css'
 
 const PAGE_SIZE = 24
 const SORTS: { id: HubSort; label: string }[] = [
   { id: 'new', label: 'Newest' },
-  { id: 'top', label: 'Most liked' },
+  { id: 'top', label: 'Top rated' },
   { id: 'remixed', label: 'Most remixed' },
 ]
 
@@ -16,22 +17,33 @@ export function AccountsOff() {
     <div className="page page-narrow">
       <div className="callout"><div className="col">
         <h2>Accounts aren't configured on this site</h2>
-        <p className="muted">Cloud saves and the community hub need a server. Your maps are still saved in this browser, and you can export and share project files by hand.</p>
+        <p className="muted">Cloud saves and the Showcase need a server. Your maps are still saved in this browser, and you can export and share project files by hand.</p>
       </div></div>
     </div>
   )
 }
 
+/** Average rating as five stars (read-only). */
+export function Stars({ value, count }: { value: number; count?: number }) {
+  const full = Math.round(value * 2) / 2
+  return (
+    <span className="stars" title={count ? `${value.toFixed(1)} from ${count} rating${count === 1 ? '' : 's'}` : 'No ratings yet'} aria-label={`${value.toFixed(1)} out of 5`}>
+      {[1, 2, 3, 4, 5].map((i) => <span key={i} className={i <= full ? 'on' : i - 0.5 === full ? 'half' : ''}>★</span>)}
+      {count !== undefined && <span className="faint small">{count ? value.toFixed(1) : 'new'}</span>}
+    </span>
+  )
+}
+
 export function HubCard({ m }: { m: HubMapMeta }) {
   return (
-    <Link to={`/hub/${m.id}`} className="map-card">
+    <Link to={`/showcase/${m.id}`} className="map-card">
       <div className="thumb">{m.thumbnail_url ? <img src={m.thumbnail_url} alt="" loading="lazy" /> : <span className="small">No preview</span>}</div>
       <div className="body">
         <div className="title" title={m.title}>{m.title}</div>
         <div className="row small muted">
           <Avatar name={m.author.name} url={m.author.avatar_url} />
           <span className="grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.author.name}</span>
-          <span title="Likes">♥ {m.likes}</span>
+          <Stars value={m.rating} count={m.ratings} />
           <span title="Remixes">⑂ {m.remixes}</span>
         </div>
         <div className="row small faint">
@@ -55,6 +67,7 @@ export default function Hub() {
   const [res, setRes] = useState<{ items: HubMapMeta[]; total: number } | null>(null)
   const [tags, setTags] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
+  const [week, setWeek] = useState<HubMapMeta | null>(null)
 
   const setParam = (changes: Record<string, string | number | null>) => {
     const next = new URLSearchParams(params)
@@ -81,6 +94,8 @@ export default function Hub() {
     return () => { live = false }
   }, [b, search, sort, tag, page])
 
+  useEffect(() => { b?.mapOfWeek().then(setWeek, () => {}) }, [b])
+
   useEffect(() => {
     if (!b?.popularTags) return
     b.popularTags(20).then((t) => setTags(t.map((x) => x.tag)), () => {})
@@ -93,9 +108,21 @@ export default function Hub() {
   return (
     <div className="page">
       <div className="hero" style={{ paddingTop: 8 }}>
-        <h1>Community <b>hub</b></h1>
-        <p>Maps shared by other players: their own meshes, textures, markers and lights. Remix any of them in the editor. To export a map you need your own data pack, so no Saints Row game files are ever shared here.</p>
+        <h1>The <b>Showcase</b></h1>
+        <p>Maps players built from Map Studio's own textures, shapes and prefabs, with screenshots from their games. Rate them, or remix one into your own map. The Showcase shares how a map is built, never anyone's files, so there's nothing copied from other games or sites in here.</p>
       </div>
+      {week && !search && !tag && page === 1 && (
+        <Link to={`/showcase/${week.id}`} className="week-card">
+          <div className="pic">{week.shots[0] || week.thumbnail_url ? <img src={week.shots[0] || week.thumbnail_url} alt="" /> : null}</div>
+          <div className="col" style={{ gap: 6 }}>
+            <span className="chip accent">Map of the week</span>
+            <h2 style={{ overflowWrap: 'anywhere' }}>{week.title}</h2>
+            <span className="small muted">by {week.author.name}</span>
+            <Stars value={week.rating} count={week.ratings} />
+            {week.description && <p className="small muted week-desc">{week.description}</p>}
+          </div>
+        </Link>
+      )}
       <div className="row wrap">
         <input className="grow" type="search" placeholder="Search maps, tags, authors…" value={text} onChange={(e) => setText(e.target.value)} style={{ minWidth: 200 }} aria-label="Search maps" />
         <div className="btn-group" role="group" aria-label="Sort">
@@ -113,7 +140,7 @@ export default function Hub() {
       {!res ? <p className="muted">Loading…</p> : res.items.length === 0 ? (
         <div className="card" style={{ alignItems: 'center', textAlign: 'center', padding: 40 }}>
           <h3>{search || tag ? 'No maps match' : 'No maps yet'}</h3>
-          <p className="muted">{search || tag ? 'Try other words or clear the tag filter.' : 'Be the first: open a map in the editor and choose Publish.'}</p>
+          <p className="muted">{search || tag ? 'Try other words or clear the tag filter.' : 'Be the first: build a map from the sample maps, shapes and prefabs, then choose Publish in the editor.'}</p>
         </div>
       ) : (
         <>

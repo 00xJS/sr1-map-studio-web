@@ -29,6 +29,13 @@ export interface HubMapMeta {
   author: HubAuthor
   thumbnail_url?: string
   likes: number
+  /** Average stars (0 with no ratings) and how many people rated. */
+  rating: number
+  ratings: number
+  /** The signed-in user's stars, 0 for none. */
+  my_rating?: number
+  /** In-game screenshots the author added. */
+  shots: string[]
   remixes: number
   downloads: number
   created_at: string
@@ -42,6 +49,7 @@ export interface HubMapMeta {
 /** project.files lists only user files; blobs come from downloadHubBlob. */
 export interface HubMapDetail extends HubMapMeta { project: Project }
 
+/** 'top' is the best rated. */
 export type HubSort = 'new' | 'top' | 'remixed'
 
 export interface HubQuery {
@@ -69,6 +77,11 @@ export interface HubReport {
 
 export interface PublishInput {
   projectId: string
+  /** The Showcase copy of the map (hubRules.showcasePlan): recipes, no files. */
+  snapshot: Project
+  /** Content hashes of images already uploaded to the user's cloud storage. */
+  thumb?: string
+  shots: string[]
   title: string
   description: string
   tags: string[]
@@ -113,6 +126,12 @@ export interface Backend {
   unpublish(mapId: string): Promise<void>
   myPublished(): Promise<HubMapMeta[]>
   setLike(mapId: string, liked: boolean): Promise<void>
+  /** 1 to 5 stars, or 0 to take the rating back. */
+  setRating(mapId: string, stars: number): Promise<void>
+  /** The moderators' pick for this week, else the best-rated new map. */
+  mapOfWeek(): Promise<HubMapMeta | null>
+  /** Moderators: make this the map of the week. */
+  featureMap(mapId: string): Promise<void>
   recordRemix(mapId: string): Promise<void>
   recordDownload(mapId: string): Promise<void>
   report(mapId: string, reason: ReportReason, details: string): Promise<void>

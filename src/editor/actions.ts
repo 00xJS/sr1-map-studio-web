@@ -13,6 +13,7 @@ import { storeFile } from '../lib/files'
 import { parseObj } from '../lib/geometry'
 import { confirmDialog } from '../ui'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
+import { tagRecipe } from '../lib/recipes'
 
 const log = (t: string) => useEditor.getState().log(t)
 const update = (...a: Parameters<ReturnType<typeof useEditor.getState>['update']>) => useEditor.getState().update(...a)
@@ -311,8 +312,7 @@ async function defaultShapeTextures(): Promise<{ files: Record<string, FileRef>;
   const { pixelsToPng } = await import('../lib/images')
   const make = async (kind: 'concrete' | 'brick', name: string) => {
     const params = { ...defaultParams(kind, 512), seed: 1 }
-    const { tagRecipe } = await import('../lib/recipes')
-    return importImage(tagRecipe(await pixelsToPng(generate(params), 512, name), { gen: params }))
+    return importImage(tagRecipe(await pixelsToPng(generate(params), 512, name), { kind: 'generated', params }))
   }
   const top = await make('concrete', 'blockout_top.png')
   const side = await make('brick', 'blockout_side.png')
@@ -321,7 +321,7 @@ async function defaultShapeTextures(): Promise<{ files: Record<string, FileRef>;
 
 async function storeShape(shape: Shape) {
   const text = shapeObj(shape)
-  const stored = await storeFile(new Blob([text], { type: 'model/obj' }), `${shape.kind}.obj`)
+  const stored = await storeFile(tagRecipe(new Blob([text], { type: 'model/obj' }), { kind: 'shape', shape }), `${shape.kind}.obj`)
   cacheModel(stored.vpath, parseObj(text))
   return stored
 }

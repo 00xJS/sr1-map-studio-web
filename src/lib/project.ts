@@ -3,6 +3,7 @@
 // are virtual paths inside the Pyodide file system:
 //   /work/f/<sha256>/<name>  user files (content addressed)
 //   /studio/<folder>/...     the user's local data pack (never uploaded)
+import { fromLegacy } from './recipes'
 import { retailMarkerDefaults } from './retailModes'
 
 export type Vec3 = [number, number, number]
@@ -154,8 +155,8 @@ export interface FileRef {
   name: string
   type: string
   origin: 'user' | 'game'
-  /** How the site made this texture (generated or starter library), if it did: lets play links rebuild it. */
-  recipe?: import('./recipes').TextureRecipe
+  /** How the site made this file, so it can be rebuilt without the file (see recipes.ts). */
+  recipe?: import('./recipes').FileRecipe
 }
 
 export interface RemixInfo { hub_id: string; title: string; author: string }
@@ -256,5 +257,6 @@ export function normalizeProject(raw: any): Project {
     (p as any)[k] = ((p as any)[k] || []).map((x: any) => ({ uid: x.uid || uid(), ...x }))
   }
   p.files ||= {}
+  for (const ref of Object.values(p.files)) if (ref?.recipe) ref.recipe = fromLegacy(ref.recipe) as FileRef['recipe']
   return p
 }

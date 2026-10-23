@@ -1,11 +1,11 @@
-# Deploying accounts, cloud saves and the hub
+# Deploying accounts, cloud saves and the Showcase
 
 The web app works without any server: maps are saved in the browser. Accounts,
-cloud saves and the community hub need two extra pieces:
+cloud saves and the community Showcase need two extra pieces:
 
 - **Supabase**: sign-in, the Postgres database (with row-level security) and file storage.
 - **A Netlify function** (`netlify/functions/publish.mts`, served at `/api/publish`): it
-  re-checks every file before a map goes public and is the only thing allowed to write to the hub.
+  re-checks every map before it goes in the Showcase and is the only thing allowed to write to it.
 
 To try everything without a server, set `VITE_BACKEND=local` in `.env.local` and run
 `npm run dev`. The app then simulates the server in this browser's IndexedDB
@@ -23,7 +23,8 @@ To try everything without a server, set `VITE_BACKEND=local` in `.env.local` and
 
 Use one of these:
 
-- **SQL editor:** open **SQL Editor → New query**, paste all of `supabase/migrations/0001_init.sql` and click **Run**.
+- **SQL editor:** open **SQL Editor → New query**, paste all of `supabase/migrations/0001_init.sql` and click **Run**,
+  then do the same with `supabase/migrations/0003_showcase.sql`.
 - **CLI:** from `web/`, run:
   ```sh
   npx supabase login
@@ -31,7 +32,8 @@ Use one of these:
   npx supabase db push
   ```
 
-The migration creates the tables, policies, functions and the private storage bucket `blobs`.
+The migrations create the tables, policies, functions and the private storage bucket `blobs`;
+`0003_showcase.sql` adds ratings, the map of the week and the Showcase rules (see below).
 Check under **Storage** that `blobs` exists and is **not public**. If the migration couldn't create it
 (some projects restrict the `storage` schema), create it by hand:
 
@@ -85,7 +87,6 @@ section on the Account page, and can hide or unhide any hub map.
 | `VITE_AUTH_PROVIDERS` | Builds (optional) | Sign-in buttons, comma-separated, from `github`, `discord`, `google`. Default `github,discord`. Leave empty for email only. |
 | `SUPABASE_URL` | Functions | Project URL |
 | `SUPABASE_SERVICE_ROLE_KEY` | Functions | service_role key. **Never** give this a `VITE_` prefix: anything with that prefix is built into the public JavaScript. |
-| `HUB_MAX_MAP_MB` | Functions (optional) | Total size cap per published map. Default `60`. Files are also capped at 25 MB each. |
 | `HUB_MAX_PUBLISH_PER_DAY` | Functions (optional) | Publishes (new or updated maps) per user per 24 hours. Default `20`. |
 
 Leave `VITE_BACKEND` unset in production.
@@ -115,7 +116,8 @@ Then check:
      force = true
    ```
 2. Sign in with a magic link and check that you land on `/account` signed in.
-3. Save a map to the cloud, publish it, open it from a private window (signed out), and remix it.
+3. Start a sample map, publish it to the Showcase with a screenshot, open it from a private window (signed out),
+   and remix it. Sign in as someone else and rate it.
 
 For local development against the real Supabase project, put the `VITE_*` values in `.env.local`,
 and use `npx netlify dev` so `/api/publish` runs too.
@@ -125,12 +127,14 @@ and use `npx netlify dev` so `/api/publish` runs too.
 **What never leaves the device**
 
 - **The data pack** (`/studio/...` paths): reference files each user extracts from their own copy of the
-  desktop package. Projects only point at these paths; recipients of a hub map use their own data pack.
+  desktop package. Projects only point at these paths; people who remix a Showcase map use their own data pack.
 - **Saints Row game files**: any file the app marks as `origin: 'game'`. This covers files picked as a CTS template
   or BBCity donor, and anything whose bytes look like a Saints Row format (BBChunk, BBCity, PVSV, PEG, VPP, CTS
-  tables or game file extensions). They're never uploaded to cloud saves or the hub. A cloud save keeps only
+  tables or game file extensions). They're never uploaded to cloud saves or the Showcase. A cloud save keeps only
   their name and hash, so you have to add them again on another device.
-- **Exported maps**: the hub shares projects, never `.chunk_xbox2`/`.vpp` output.
+- **Exported maps**: the Showcase shares how a map is built, never `.chunk_xbox2`/`.vpp` output.
+- **Files the user imported** (their own models, photos, textures): cloud saves keep them privately, but the
+  Showcase never takes them, so a user upload can't end up public. See below.
 
 **What is stored privately (only you can read it)**
 
@@ -141,36 +145,60 @@ and use `npx netlify dev` so `/api/publish` runs too.
 
 - Profiles: display name, avatar, moderator flag. Email addresses are never shown, and new profiles never
   default to the email name.
-- Hub maps that aren't hidden: title, description, tags, counters, the sanitized project snapshot, and their files at
-  `blobs/hub/<map>/...`. A hidden map can only be read by its owner and moderators. Deleting a map removes its files.
+- Showcase maps that aren't hidden: title, description, tags, counters, average rating, the map's snapshot, and the
+  author's screenshots and thumbnail at `blobs/hub/<map>/shot-<n>` and `thumb.webp`. A hidden map can only be read by
+  its owner and moderators. Deleting a map removes its pictures. Individual ratings are private to the person who gave them.
+
+**What the Showcase accepts**
+
+The Showcase only takes maps built from Map Studio's own pieces: the starter-library textures (CC0, served by the
+site from `public/textures/`), generated textures, block-out shapes and prefabs. When the site makes one of those
+files it records a **recipe** on the file (`src/lib/recipes.ts`): the library id, the generator settings, or the
+shapes a mesh is made of. The Showcase stores the map with recipes only and **no files**; remixing rebuilds every
+texture and mesh in the remixer's browser from the recipes. So nothing a user uploaded (a photo, a model from a
+download site, a texture ripped from another game) can be published, by construction rather than by inspection.
+The only uploaded images are the author's in-game screenshots (up to 6) and the thumbnail.
 
 **How publishing is checked**
 
-1. The browser checks the project first, for clear messages. A map is blocked while any object, material or setting
-   uses a game file.
-2. The browser uploads any missing user files to your private storage, then saves the project to your cloud.
-3. `/api/publish` verifies your session, loads **your stored cloud copy** (not anything sent in the request), and
-   runs the same rules (`src/lib/hubRules.ts`) on the stored bytes. It reads the real size and first 4 KB of every file
-   and rejects:
-   - game signatures and extensions
-   - any file that isn't an OBJ/MTL text file or a PNG/JPEG/BMP/GIF/WebP/TGA/DDS/TIFF image
-   - files over the size caps
-   - invalid titles and tags
-   - more publishes than the daily limit
+1. The browser checks the map first, for clear messages (`showcasePlan` in `src/lib/hubRules.ts`): every object's
+   model and textures, and the map's sky, custom minimap and loading pictures, must have a valid recipe or be a
+   data-pack path. Maps made before recipes were recorded get them back where they can be proven (shape meshes from
+   the object's shape settings, starter textures whose bytes match the library copy); anything else needs repainting.
+2. The browser uploads the screenshots and thumbnail to your private storage and sends the map's Showcase copy
+   (recipes, no files) to `/api/publish`.
+3. `/api/publish` verifies your session and runs the same rules on what it was sent. It rejects unknown starter
+   textures, out-of-range generator or shape settings, files without a recipe, invalid titles and tags, more
+   publishes than the daily limit, and maps over 5 MB of data; it strips private paths and rewrites recipes field
+   by field so nothing else rides along. It reads the real size and first 4 KB of each picture from your private
+   storage and accepts only PNG, JPEG or WebP up to 2 MB.
 
-   Only then does it copy the files to `hub/<map>/` with the service role. Browsers can't write to `hub/` at all.
-4. Downloads from the hub are checked against their SHA-256 hash in the browser before use.
+   Only then does it copy the pictures to `hub/<map>/` with the service role and write the row. Browsers can't
+   write to `hub/` at all.
+
+**Ratings and the map of the week**
+
+- One rating (1 to 5 stars) per account per map, not on your own maps; a trigger keeps each map's count and average.
+- The map of the week is a moderator's pick (**Make map of the week** on the map page, kept in `showcase_featured`
+  until Monday UTC). Without a pick it is the best-rated map published in the last 7 days (then 30), ranked as if it
+  had three extra 3.5-star ratings so one 5-star vote doesn't win outright.
 
 **Limits and known gaps**
 
-- The server inspects the first 4 KB of each file. A deliberately disguised file (a valid image header with other
-  data after it) can get past the format check. Reports (reason **Contains Saints Row game files**) and moderator
-  hiding cover this case.
+- Screenshots are the author's word: one that isn't theirs can be reported (**Someone else's work without credit**)
+  and hidden by a moderator.
 - Storage use per account isn't capped beyond 500 cloud saves and 50 MB per file. Supabase usage dashboards show
   heavy users. Files left over when you delete a cloud save stay in your private storage; content-addressing reuses
   them if you upload them again.
 - The download counter can be inflated by anyone calling its RPC, and the remix counter by any signed-in user.
-  Likes are one per account. Counters only affect sorting.
+  Ratings are one per account. Counters only affect sorting.
+
+**Maps published to the old hub**
+
+Before `0003_showcase.sql`, the hub copied users' own files. The migration takes those maps out of the listing and
+makes their files private (`showcase = false`); their owners can publish them again if they pass the Showcase rules.
+To delete them for good, run `delete from public.hub_maps where not showcase;` and remove their folders under
+`blobs/hub/` in the Storage browser.
 
 ## Play links
 
@@ -180,8 +208,9 @@ and use `npx netlify dev` so `/api/publish` runs too.
 
 A share holds **no files**. It carries the map's markers and lights, its geometry as plain OBJ
 text (numbers only: comments and material libraries are dropped), and each texture as a
-**recipe**: the generator settings, or the id of a CC0 starter-library texture. The viewer's
-browser remakes the textures. So a share can't contain anyone's pictures or any Saints Row file:
+**recipe**: the generator settings, or the id of a CC0 starter-library texture (the same recipes
+the Showcase uses, `src/lib/recipes.ts`; links made before the two were merged still open). The
+viewer's browser remakes the textures. So a share can't contain anyone's pictures or any Saints Row file:
 
 - textures the site didn't make (uploads, photos, imported models' images) block the share,
   unless the user agrees to swap them for a plain generated stand-in;
@@ -215,11 +244,14 @@ Without Supabase (accounts off), **Share** offers a `.sr1play` file instead; the
 opens it at `/play`. With `VITE_BACKEND=local`, links are simulated in this browser's IndexedDB
 (`sr1-local-shares`), so they only open in the same browser.
 
-## Turning the hub on or off
+## Turning the Showcase on or off
 
-Publishing to the public hub is **off** unless both of these are set (sign-in and cloud saves work either way):
+The Showcase is **off** unless both of these are set (sign-in and cloud saves work either way):
 
-- `VITE_HUB=on` (Builds): shows the Hub page and the Publish button.
+- `VITE_HUB=on` (Builds): shows the Showcase page and the Publish button.
 - `HUB_ENABLED=true` (Functions): lets `/api/publish` accept new maps. Unpublishing always works.
 
-With the hub off, players share maps with **Backup** (a `.sr1map.zip` with every file) and **Import project…**.
+Run `0003_showcase.sql` before turning it on. To try it without a server, set `VITE_BACKEND=local` (the simulated
+server turns the Showcase on unless `VITE_HUB=off`).
+
+With the Showcase off, players share maps with **Backup** (a `.sr1map.zip` with every file) and **Import project…**.

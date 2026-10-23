@@ -1,5 +1,5 @@
 import { lazy, Suspense, type ReactNode } from 'react'
-import { NavLink, Link, Route, Routes } from 'react-router-dom'
+import { NavLink, Link, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { Dialogs, ErrorBoundary, Toasts, Avatar } from './ui'
 import { accountsEnabled, hubEnabled, useUser } from './lib/backend'
 import Home from './pages/Home'
@@ -22,7 +22,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <nav>
           <NavLink to="/" end>My maps</NavLink>
           <NavLink to="/maps">Map catalog</NavLink>
-          {hubEnabled && <NavLink to="/hub">Hub</NavLink>}
+          {hubEnabled && <NavLink to="/showcase">Showcase</NavLink>}
           <NavLink to="/setup">Data pack</NavLink>
           <NavLink to="/about">About</NavLink>
         </nav>
@@ -41,10 +41,13 @@ export function Shell({ children }: { children: ReactNode }) {
 
 const HubOff = () => (
   <div className="page page-narrow">
-    <h1>Hub</h1>
-    <p className="muted">Public map sharing is turned off on this site. To share a map, use <b>Backup</b> on <Link to="/">My maps</Link> and send the <code>.sr1map.zip</code>; the other person opens it with <b>Import project…</b>.</p>
+    <h1>Showcase</h1>
+    <p className="muted">The public Showcase is turned off on this site. To share a map, use <b>Backup</b> on <Link to="/">My maps</Link> and send the <code>.sr1map.zip</code>; the other person opens it with <b>Import project…</b>.</p>
   </div>
 )
+
+/** Old /hub links. */
+const ToShowcase = () => { const { id } = useParams(); return <Navigate to={id ? `/showcase/${id}` : '/showcase'} replace /> }
 
 const Loading = () => <div className="page"><p className="muted">Loading…</p></div>
 
@@ -61,8 +64,10 @@ export default function App() {
           <Route path="/maps" element={<Shell><Catalog /></Shell>} />
           <Route path="/setup" element={<Shell><Setup /></Shell>} />
           <Route path="/about" element={<Shell><About /></Shell>} />
-          <Route path="/hub" element={<Shell>{hubEnabled ? <Hub /> : <HubOff />}</Shell>} />
-          <Route path="/hub/:id" element={<Shell>{hubEnabled ? <HubMap /> : <HubOff />}</Shell>} />
+          <Route path="/showcase" element={<Shell>{hubEnabled ? <Hub /> : <HubOff />}</Shell>} />
+          <Route path="/showcase/:id" element={<Shell>{hubEnabled ? <HubMap /> : <HubOff />}</Shell>} />
+          <Route path="/hub" element={<ToShowcase />} />
+          <Route path="/hub/:id" element={<ToShowcase />} />
           <Route path="/account" element={<Shell><Account /></Shell>} />
           <Route path="*" element={<Shell><div className="page"><h1>Page not found</h1><Link to="/">Back to my maps</Link></div></Shell>} />
         </Routes>

@@ -8,9 +8,8 @@
 // Saints Row, can ride along: there are no image bytes in a share at all.
 import { gunzipSync, gzipSync, strFromU8, strToU8 } from 'fflate'
 import { gameSignature, MB } from '../lib/hubRules'
-import { KINDS, type GenParams } from '../lib/procedural'
 import { isDataPackPath, normalizeProject, type Project } from '../lib/project'
-import type { TextureRecipe } from '../lib/recipes'
+import { LIBRARY_ID, cleanRecipe, fromLegacy, textureRecipeProblem, type TextureRecipe } from '../lib/recipes'
 
 export interface ShareDoc {
   format: 'sr1-map-studio-share'
@@ -83,28 +82,10 @@ export function isCleanObj(text: string): boolean {
 
 // ---------------- texture recipes ----------------
 
-const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i
-export const LIBRARY_ID = /^[a-z0-9_]{1,64}$/
+export { LIBRARY_ID }
 
-export function checkRecipe(r: unknown): string | null {
-  if (!r || typeof r !== 'object') return 'is not a texture recipe'
-  const x = r as Record<string, unknown>
-  if ('lib' in x) return typeof x.lib === 'string' && LIBRARY_ID.test(x.lib) && Object.keys(x).length === 1 ? null : 'names an unknown library texture'
-  if (!('gen' in x) || Object.keys(x).length !== 1) return 'is not a texture recipe'
-  const g = x.gen as Partial<GenParams> | null
-  if (!g || typeof g !== 'object') return 'is not a texture recipe'
-  if (typeof g.kind !== 'string' || !Object.hasOwn(KINDS, g.kind)) return 'uses an unknown texture kind'
-  const int = (v: unknown, lo: number, hi: number) => Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi
-  const num = (v: unknown, lo: number, hi: number) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi
-  if (!int(g.size, 16, SHARE_LIMITS.textureSize)) return 'has a texture size out of range'
-  if (typeof g.color !== 'string' || !HEX.test(g.color) || typeof g.accent !== 'string' || !HEX.test(g.accent)) return 'has a bad color'
-  if (!num(g.scale, 0, 256) || !num(g.wear, 0, 1) || !int(g.seed, 0, 2 ** 31 - 1)) return 'has settings out of range'
-  if (g.line !== undefined && !['none', 'yellow', 'white'].includes(g.line)) return 'has a bad road line'
-  if (g.bricks !== undefined && typeof g.bricks !== 'boolean') return 'has a bad brick setting'
-  const known = new Set(['kind', 'size', 'color', 'accent', 'scale', 'wear', 'seed', 'line', 'bricks'])
-  if (Object.keys(g).some((k) => !known.has(k))) return 'has unknown settings'
-  return null
-}
+/** Null for a good texture recipe (today's form or an early link's {gen} / {lib}); otherwise what is wrong. */
+export const checkRecipe = (r: unknown): string | null => textureRecipeProblem(fromLegacy(r))
 
 // ---------------- the whole share ----------------
 
@@ -165,7 +146,9 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
     if (bad) { problems.push(`A texture in the share ${bad}.`); break }
   }
   const uniq = [...new Set(problems)]
-  return { problems: uniq, doc: uniq.length ? null : { ...d, title: d.title.trim(), project } }
+  if (uniq.length) return { problems: uniq, doc: null }
+  const clean = Object.fromEntries(textures.map(([k, r]) => [k, cleanRecipe(fromLegacy(r) as TextureRecipe)]))
+  return { problems: uniq, doc: { ...d, title: d.title.trim(), project, textures: clean } }
 }
 
 // ---------------- packing ----------------
