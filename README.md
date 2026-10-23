@@ -56,6 +56,15 @@ to look around and fly with WASD.
 
 ![Walking through a map](docs/screenshots/walk.jpg)
 
+## Play it in the browser, share it by link
+
+Press **🎮 Play here** to play the map right in the browser: walk over weapon pickups to grab
+them, and race the clock to collect every weapon or touch every Chains drop-off, with a minimap
+in the corner. On a phone, a thumb stick and buttons appear. Press **🔗 Share** for a link anyone
+can open to play it too, with no game and no account. Links carry only the site's own generated
+and starter-library textures (never your pictures, never game files), so if your map uses your own
+images, Share tells you which and can swap them for a plain texture.
+
 ## Just say what you want
 
 The **map assistant** lets you describe changes in plain words: *"add more cover in the middle"*,

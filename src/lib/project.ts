@@ -136,6 +136,8 @@ export interface FileRef {
   name: string
   type: string
   origin: 'user' | 'game'
+  /** How the site made this texture (generated or starter library), if it did: lets play links rebuild it. */
+  recipe?: import('./recipes').TextureRecipe
 }
 
 export interface RemixInfo { hub_id: string; title: string; author: string }

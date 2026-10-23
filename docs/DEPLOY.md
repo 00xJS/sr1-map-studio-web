@@ -172,6 +172,49 @@ and use `npx netlify dev` so `/api/publish` runs too.
 - The download counter can be inflated by anyone calling its RPC, and the remix counter by any signed-in user.
   Likes are one per account. Counters only affect sorting.
 
+## Play links
+
+**Share** in the editor makes a link anyone can open to play the map in their browser at
+`/play/s/<token>`: no game, no account, phones included. Links are unlisted (a random
+128-bit token; nothing lists them) and the public hub can stay off.
+
+A share holds **no files**. It carries the map's markers and lights, its geometry as plain OBJ
+text (numbers only: comments and material libraries are dropped), and each texture as a
+**recipe**: the generator settings, or the id of a CC0 starter-library texture. The viewer's
+browser remakes the textures. So a share can't contain anyone's pictures or any Saints Row file:
+
+- textures the site didn't make (uploads, photos, imported models' images) block the share,
+  unless the user agrees to swap them for a plain generated stand-in;
+- objects whose model is a game file (`origin: 'game'`) are left out;
+- data-pack objects (`/studio/...`, such as native glass) are referenced by path only, and show
+  only for players who loaded their own data pack;
+- the SR1 character is never in a share: players load their own from their game folder.
+
+Hosting a link needs:
+
+1. The migration `supabase/migrations/0002_play_links.sql` (run it like step 2). It adds the
+   `shares` table (written only by the service role) and the `get_share(token)` function that
+   lets anyone read one share by its token.
+2. The Netlify function `netlify/functions/share.mts` (`/api/share`). It uses the same
+   `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` as the publish function, signs the user in from
+   their token, unpacks the share and checks it with `src/play/share.ts` before storing it.
+   If `/api/share` returns the app's HTML, apply the same redirect fix as for `/api/publish`
+   (step 6), with `/api/share` and `/.netlify/functions/share`.
+
+Optional function variables:
+
+| Variable | Value |
+| --- | --- |
+| `SHARES_ENABLED` | `false` stops new links (removing them still works). Default on. |
+| `SHARE_MAX_PER_DAY` | Links made or updated per user per 24 hours. Default `50`. |
+| `SHARE_MAX_PER_USER` | Links one user can have. Default `200`. |
+
+Each share is capped at 8 MB packed (`SHARE_LIMITS` in `src/play/share.ts`).
+
+Without Supabase (accounts off), **Share** offers a `.sr1play` file instead; the other person
+opens it at `/play`. With `VITE_BACKEND=local`, links are simulated in this browser's IndexedDB
+(`sr1-local-shares`), so they only open in the same browser.
+
 ## Turning the hub on or off
 
 Publishing to the public hub is **off** unless both of these are set (sign-in and cloud saves work either way):

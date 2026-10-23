@@ -198,6 +198,8 @@ export class SupabaseBackend implements Backend {
     return data
   }
 
+  async accessToken() { return (await this.session())?.access_token ?? null }
+
   private async api(method: 'POST' | 'DELETE', body: unknown): Promise<Response> {
     const s = await this.session()
     if (!s) throw new Error('Sign in first.')

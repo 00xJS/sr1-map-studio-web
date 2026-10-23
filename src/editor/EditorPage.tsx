@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Link, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useEditor, saveNow, readFlag, writeFlag, selectedItems } from './store'
 import { Viewport, getViewer } from './Viewport'
 import { Inspector } from './Inspector'
@@ -23,6 +23,7 @@ const CloudButton = lazy(() => import('./CloudButton').then((m) => ({ default: m
 const AiChat = lazy(() => import('./AiChat').then((m) => ({ default: m.AiChat })))
 const SamplePicker = lazy(() => import('../pages/SamplePicker').then((m) => ({ default: m.SamplePicker })))
 const PublishDialog = lazy(() => import('./PublishDialog').then((m) => ({ default: m.PublishDialog })))
+const ShareDialog = lazy(() => import('../play/ShareDialog').then((m) => ({ default: m.ShareDialog })))
 
 const TABS = [
   ['scene', 'Objects'], ['assets', 'Library'], ['materials', 'Textures'], ['spawns', 'Spawns'], ['lights', 'Lights'], ['export', 'Map & export'],
@@ -119,6 +120,7 @@ function Editor() {
   const tab = useEditor((s) => s.tab)
   const advanced = useEditor((s) => s.advanced)
   const [publishing, setPublishing] = useState(false)
+  const [sharing, setSharing] = useState(false)
   const [picking, setPicking] = useState(false)
   const [chatting, setChatting] = useState(false)
   const [playing, setPlaying] = useState(false)
@@ -150,7 +152,7 @@ function Editor() {
   }
   return (
     <div className={'editor ' + (advanced ? 'advanced' : 'simple')}>
-      <TopBar onPublish={() => setPublishing(true)} onPlay={() => setPlaying(true)} onTour={() => setTouring(true)} onAi={() => setChatting((v) => !v)} />
+      <TopBar onPublish={() => setPublishing(true)} onShare={() => setSharing(true)} onPlay={() => setPlaying(true)} onTour={() => setTouring(true)} onAi={() => setChatting((v) => !v)} />
       <div className="editor-main">
         <Viewport onEmptyImport={importDropped} onSamples={() => setPicking(true)} />
         <aside className="side">
@@ -180,6 +182,7 @@ function Editor() {
       {chatting && <Suspense fallback={null}><AiChat onClose={() => setChatting(false)} /></Suspense>}
       {playing && <PlayDialog onClose={() => setPlaying(false)} onSamples={() => { setPlaying(false); setPicking(true) }} />}
       {publishing && <Suspense fallback={null}><PublishDialog projectId={project.id} onClose={() => setPublishing(false)} /></Suspense>}
+      {sharing && <Suspense fallback={null}><ShareDialog projectId={project.id} onClose={() => setSharing(false)} /></Suspense>}
       {touring && !picking && !playing && <Tour onDone={endTour} />}
     </div>
   )
@@ -216,7 +219,8 @@ const KEYS_HELP = 'Camera: left-drag spin · right-drag slide · scroll zoom · 
   'Tools: V move · 2 turn · 3 size · H shape · B paint · I pick · P spawn · K weapon · L light · X erase · Esc back to Move · G snap\n' +
   'Ctrl+Z / Ctrl+Shift+Z: undo / redo · Ctrl+D: copy · Delete: delete · Ctrl+S: save'
 
-function TopBar({ onPublish, onPlay, onTour, onAi }: { onPublish: () => void; onPlay: () => void; onTour: () => void; onAi: () => void }) {
+function TopBar({ onPublish, onShare, onPlay, onTour, onAi }: { onPublish: () => void; onShare: () => void; onPlay: () => void; onTour: () => void; onAi: () => void }) {
+  const navigate = useNavigate()
   const name = useEditor((s) => s.project!.name)
   const projectId = useEditor((s) => s.project!.id)
   const remix = useEditor((s) => s.project!.remix_of)
@@ -272,6 +276,8 @@ function TopBar({ onPublish, onPlay, onTour, onAi }: { onPublish: () => void; on
         { label: 'Keyboard & mouse', run: () => void confirmDialog('Keyboard & mouse', KEYS_HELP, { confirm: 'Got it', cancel: null }) },
       ]} />
       <button className="sm" onClick={() => st().set({ walking: !st().walking, selection: null, multi: [] })} title="Walk the map at player height, like in the game">🚶 Walk</button>
+      <button className="sm" onClick={async () => { await saveNow(); navigate(`/play/${projectId}`) }} title="Play this map in the browser: weapons to pick up, timed runs, works on phones">🎮 Play here</button>
+      <button className="sm" onClick={onShare} title="A link anyone can open to play this map in their browser, no game or account needed">🔗 Share</button>
       <button className="sm" onClick={onAi} title="Describe a change in your own words">✨ Ask AI</button>
       <button className="primary" data-tour="play" onClick={onPlay}>▶ Play</button>
     </div>

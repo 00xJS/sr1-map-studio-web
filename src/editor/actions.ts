@@ -310,8 +310,9 @@ async function defaultShapeTextures(): Promise<{ files: Record<string, FileRef>;
   const { generate, defaultParams } = await import('../lib/procedural')
   const { pixelsToPng } = await import('../lib/images')
   const make = async (kind: 'concrete' | 'brick', name: string) => {
-    const file = await pixelsToPng(generate({ ...defaultParams(kind, 512), seed: 1 }), 512, name)
-    return importImage(file)
+    const params = { ...defaultParams(kind, 512), seed: 1 }
+    const { tagRecipe } = await import('../lib/recipes')
+    return importImage(tagRecipe(await pixelsToPng(generate(params), 512, name), { gen: params }))
   }
   const top = await make('concrete', 'blockout_top.png')
   const side = await make('brick', 'blockout_side.png')
