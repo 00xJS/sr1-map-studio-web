@@ -11,6 +11,7 @@ import { STAND_EYE, STAND_HEIGHT, type WalkState } from './walk'
 import { chooseGameFolder, currentPlayer, folderPickerSupported, loadFromRememberedFolder, loadPlayer, pickPackfiles, rememberedGameFolder } from '../lib/sr1char/folder'
 import type { PlayerModel } from '../lib/sr1char/player'
 import { placePendingDecal } from './PhotoDialog'
+import { attachHealthOverlay } from './health'
 
 let active: Viewer | null = null
 /** The editor's viewer (for camera center, snapping and thumbnails). */
@@ -282,7 +283,8 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
     }
     sync()
     const unsub = useEditor.subscribe(sync)
-    return () => { unsub(); setThumbnailProvider(null); active = null; viewer.dispose() }
+    const offHealth = attachHealthOverlay(viewer)
+    return () => { unsub(); offHealth(); setThumbnailProvider(null); active = null; viewer.dispose() }
   }, [])
 
   const empty = !project?.scene_items.length

@@ -409,6 +409,15 @@ export class Viewer {
     this.requestRender()
   }
 
+  private overlay: THREE.Object3D | null = null
+  /** Something drawn over the map (the health checks' heatmaps and sight lines); the caller disposes it. */
+  setOverlay(object: THREE.Object3D | null) {
+    if (this.overlay) this.scene.remove(this.overlay)
+    this.overlay = object
+    if (object) this.scene.add(object)
+    this.requestRender()
+  }
+
   /** World box of one scene object, or null while it is loading. */
   itemBounds(index: number): [Vec3, Vec3] | null {
     const it = this.project?.scene_items[index]

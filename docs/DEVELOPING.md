@@ -25,6 +25,7 @@ Deploying with Supabase and Netlify: see [docs/DEPLOY.md](docs/DEPLOY.md).
 | `src/lib/py.worker.ts`, `py.ts` | Pyodide worker and its client. |
 | `src/lib/geometry.ts` | JS port of the OBJ parser and scene transforms (must match the Python face order). |
 | `src/editor/` | Editor UI, three.js viewer, actions, undo/redo store. |
+| `src/lib/analysis/` | Map health checks (sight lines, spawn safety, red vs blue fairness, bot playtest): `analyzeMap(input)` is pure; `client.ts` runs it in workers. |
 | `src/lib/backend/` | Account/hub API: `supabase.ts` (production), `local.ts` (simulated). |
 | `src/lib/hubRules.ts` | Publish rules shared by the browser and `netlify/functions/publish.mts`. |
 | `supabase/migrations/` | Database schema, row-level security and storage policies. |

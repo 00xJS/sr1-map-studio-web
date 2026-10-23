@@ -338,3 +338,12 @@ button.big { padding: 12px; font-size: 15px; }
 .walk-crosshair::before { left: 6px; top: 0; width: 2px; height: 14px; }
 .walk-crosshair::after { top: 6px; left: 0; height: 2px; width: 14px; }
 .walk-hud { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(560px, calc(100% - 32px)); background: rgba(12, 11, 15, 0.82); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; z-index: 6; }
+
+/* Map health */
+.health-tiles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.health-tile { display: flex; flex-direction: column; align-items: center; padding: 6px 4px; border-radius: var(--radius-sm); background: var(--bg-input); border: 1px solid var(--line); }
+.health-tile b { font-size: 18px; line-height: 1.2; }
+.health-findings { margin: 0; padding-left: 16px; display: flex; flex-direction: column; gap: 3px; font-size: 12px; }
+.health-bar { height: 6px; border-radius: 3px; background: #211423; overflow: hidden; }
+.health-bar > div { height: 100%; background: var(--accent); transition: width 0.2s; }
+.health-badge { width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #120f15; flex: none; }
