@@ -122,6 +122,8 @@ function useShortcuts() {
       else if (e.key === '1') chooseTool('select')
       else if (e.key === '2') chooseTool('rotate')
       else if (e.key === '3') chooseTool('scale')
+      // While placing shapes and prefabs, R turns the ghost (Shift+R the other way) instead of picking the Road tool.
+      else if (!mod && st.tool === 'shape' && e.key.toLowerCase() === 'r') { e.preventDefault(); st.set({ placeRot: (((st.placeRot + (e.shiftKey ? -15 : 15)) % 360) + 360) % 360 }) }
       else if (!mod && TOOL_KEYS[e.key.toLowerCase()]) chooseTool(TOOL_KEYS[e.key.toLowerCase()])
       else if (e.key.toLowerCase() === 'g') st.set({ snap: !st.snap })
     }

@@ -434,8 +434,8 @@ export function bundleItems(indices: number[]): ItemBundle | null {
   return { items: rel, files }
 }
 
-/** Puts a bundle into the map with its bottom centre at `at`; returns the new indices. Groups get fresh ids. */
-export function placeBundle(b: ItemBundle, at: Vec3, label: string): number[] {
+/** Puts a bundle into the map with its bottom centre at `at`, turned by `rot` degrees; returns the new indices. Groups get fresh ids. */
+export function placeBundle(b: ItemBundle, at: Vec3, label: string, rot = 0): number[] {
   const p = currentProject()
   if (!p) return []
   const glass = b.items.filter(isGlass).length
@@ -446,7 +446,11 @@ export function placeBundle(b: ItemBundle, at: Vec3, label: string): number[] {
     Object.assign(d.files, b.files)
     for (const it of b.items) {
       const group = it.group && (regroup.get(it.group) ?? regroup.set(it.group, 'g-' + uid()).get(it.group))
-      d.scene_items.push({ ...structuredClone(it), uid: uid(), group, position: [it.position[0] + at[0], it.position[1] + at[1], it.position[2] + at[2]] })
+      // Turned about the bundle's middle the same way the editor turns objects (x' = x cos + z sin, z' = -x sin + z cos).
+      const t = (rot * Math.PI) / 180, c = Math.cos(t), sn = Math.sin(t)
+      const [x, y, z] = it.position
+      const rotation: Vec3 = [it.rotation[0], (((it.rotation[1] + rot) % 360) + 360) % 360, it.rotation[2]]
+      d.scene_items.push({ ...structuredClone(it), uid: uid(), group, rotation, position: [x * c + z * sn + at[0], y + at[1], -x * sn + z * c + at[2]] })
     }
   })
   const added = b.items.map((_, i) => start + i)

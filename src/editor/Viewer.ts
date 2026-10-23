@@ -138,6 +138,8 @@ export class Viewer {
     this.loaded.onLoad = () => this.requestRender()
     this.bindInput()
     this.bindFreeCam()
+    this.renderer.domElement.addEventListener('pointermove', (e) => this.moveGhost(e.clientX, e.clientY))
+    this.renderer.domElement.addEventListener('pointerleave', () => { if (this.ghost?.visible) { this.ghost.visible = false; this.requestRender() } })
     this.resizeObs = new ResizeObserver(() => this.resize())
     this.resizeObs.observe(host)
     this.resize()
@@ -531,6 +533,37 @@ export class Viewer {
   }
 
   // ---------------- sync ----------------
+
+  // ---------------- placement ghost ----------------
+
+  private ghost: THREE.Object3D | null = null
+  private ghostRot = 0
+
+  /** The see-through preview that follows the mouse while placing (null removes it). */
+  setGhost(obj: THREE.Object3D | null) {
+    if (this.ghost) this.scene.remove(this.ghost)
+    this.ghost = obj
+    if (obj) { obj.visible = false; obj.rotation.y = (this.ghostRot * Math.PI) / 180; this.scene.add(obj) }
+    this.requestRender()
+  }
+
+  /** The ghost's turn in degrees (the same heading a placed piece gets). */
+  setGhostRot(deg: number) {
+    this.ghostRot = deg
+    if (this.ghost) { this.ghost.rotation.y = (deg * Math.PI) / 180; this.requestRender() }
+  }
+
+  /** Moves the ghost to where a click at (x, y) would place it, snapped like a real placement. */
+  private moveGhost(x: number, y: number) {
+    if (!this.ghost) return
+    const hit = this.host.dataset.place === 'shape' && !this.walker ? this.raycast(x, y) : null
+    if (!hit) { if (this.ghost.visible) { this.ghost.visible = false; this.requestRender() } return }
+    const p = hit.point
+    const r = (v: number) => (this.opts.snap ? Math.round(v / (this.opts.step || 1)) * (this.opts.step || 1) : v)
+    this.ghost.position.set(r(p[0]), p[1], r(p[2]))
+    this.ghost.visible = true
+    this.requestRender()
+  }
 
   sync(project: Project | null, opts: ViewOptions) {
     const firstProject = this.project?.id !== project?.id

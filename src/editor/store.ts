@@ -37,6 +37,8 @@ interface EditorState {
   snap: boolean
   /** Walking the map at player height (the walk-through). */
   walking: boolean
+  /** The Shape tool's turn for the next piece placed, degrees (R / Shift+R). */
+  placeRot: number
   wireframe: boolean
   collisionView: 'off' | 'faces'
   soloMaterial: string | null
@@ -89,6 +91,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   step: 0.5,
   snap: false,
   walking: false,
+  placeRot: 0,
   wireframe: false,
   collisionView: 'off',
   soloMaterial: null,

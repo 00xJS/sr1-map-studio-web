@@ -38,13 +38,16 @@ export function saveMyPrefab(indices: number[], name: string): MyPrefab {
   return p
 }
 
+/** One saved piece, or undefined. */
+export const readMyPrefab = (id: string): MyPrefab | undefined => read().find((p) => p.id === id)
+
 export function deleteMyPrefab(id: string) { write(read().filter((p) => p.id !== id)) }
 
 export function renameMyPrefab(id: string, name: string) { write(read().map((p) => (p.id === id ? { ...p, name } : p))) }
 
 /** Places a saved piece with its bottom centre on `at`. */
-export function placeMyPrefab(id: string, at: Vec3) {
+export function placeMyPrefab(id: string, at: Vec3, rot = 0) {
   const p = read().find((x) => x.id === id)
   if (!p) throw new UserError('That saved piece is gone (it may have been deleted in another tab).')
-  return placeBundle(p.bundle, at, 'Add ' + p.name)
+  return placeBundle(p.bundle, at, 'Add ' + p.name, rot)
 }

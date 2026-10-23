@@ -33,7 +33,7 @@ const ENTRIES: Entry[] = [
   { id: 'select', label: 'Select and move', short: 'Move', key: 'V', tool: 'select', gizmo: 'translate', help: 'Click to select; drag the arrows to move.' },
   { id: 'rotate', label: 'Rotate', short: 'Turn', key: '2', tool: 'select', gizmo: 'rotate', help: 'Drag the rings to turn the selection.' },
   { id: 'scale', label: 'Scale', short: 'Size', key: '3', tool: 'select', gizmo: 'scale', help: 'Drag to resize the selection.' },
-  { id: 'shape', label: 'Shape', short: 'Shape', key: 'H', tool: 'shape', help: 'Click the map to place a shape.' },
+  { id: 'shape', label: 'Shape', short: 'Shape', key: 'H', tool: 'shape', help: 'A see-through preview follows your mouse: press R (Shift+R) to turn it, click to place.' },
   { id: 'sculpt', label: 'Terrain', short: 'Terrain', key: 'T', tool: 'sculpt', help: 'Drag on a terrain to sculpt it.' },
   { id: 'road', label: 'Road', short: 'Road', key: 'R', tool: 'road', help: 'Click points for a road, Enter to finish.' },
   { id: 'paint', label: 'Paint bucket', short: 'Paint', key: 'B', tool: 'paint', help: 'Click a surface to paint it with the chosen texture.' },

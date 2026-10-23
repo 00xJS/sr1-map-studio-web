@@ -103,7 +103,7 @@ const shapeOf = (part: Part): Shape => ({
 })
 
 /** A prefab's parts (placed at the origin) as one object, as the editor builds them. */
-async function partsObject(parts: Part[]): Promise<THREE.Object3D> {
+export async function partsObject(parts: Part[]): Promise<THREE.Object3D> {
   const texs = new Map<string, Tex>()
   const matOf = (t: Tex) => { const k = JSON.stringify(t); if (!texs.has(k)) texs.set(k, t); return 'm' + [...texs.keys()].indexOf(k) }
   const pieces = parts.map((p) => ({ shape: shapeOf(p), at: p.at, rot: p.rot ?? 0, top: matOf(p.top), side: matOf(p.side) }))
@@ -114,7 +114,7 @@ async function partsObject(parts: Part[]): Promise<THREE.Object3D> {
 }
 
 /** A saved piece ("My prefabs"): its objects from their stored files. */
-async function bundleObject(b: ThumbBundle): Promise<THREE.Object3D> {
+export async function bundleObject(b: ThumbBundle): Promise<THREE.Object3D> {
   const root = new THREE.Group()
   for (const it of b.items) {
     const ref = b.files[it.path]

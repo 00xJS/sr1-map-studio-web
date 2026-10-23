@@ -12,6 +12,7 @@ import { STAND_EYE, STAND_HEIGHT, type WalkState } from './walk'
 import { chooseGameFolder, currentPlayer, folderPickerSupported, loadFromRememberedFolder, loadPlayer, pickPackfiles, rememberedGameFolder } from '../lib/sr1char/folder'
 import type { PlayerModel } from '../lib/sr1char/player'
 import { placePendingDecal } from './PhotoDialog'
+import { ghostFor } from './ghost'
 import { PhysicsHud } from './PhysicsHud'
 import { attachHealthOverlay } from './health'
 import { attachGroundTools } from './groundTools'
@@ -34,9 +35,10 @@ function snapped(p: Vec3): Vec3 {
 
 /** Places a shape preset, prefab ("prefab:<key>") or saved piece ("mine:<id>") on a surface point. */
 function placeShape(shape: string, point: Vec3) {
-  if (shape.startsWith('prefab:')) addPrefab(shape.slice(7), snapped(point), point[1]).catch(toastError)
-  else if (shape.startsWith('mine:')) { try { placeMyPrefab(shape.slice(5), snapped(point)) } catch (err) { toastError(err) } }
-  else addShape(shape, snapped(point), point[1]).catch(toastError)
+  const rot = useEditor.getState().placeRot
+  if (shape.startsWith('prefab:')) addPrefab(shape.slice(7), snapped(point), point[1], { rot }).catch(toastError)
+  else if (shape.startsWith('mine:')) { try { placeMyPrefab(shape.slice(5), snapped(point), rot) } catch (err) { toastError(err) } }
+  else addShape(shape, snapped(point), point[1], { rot }).catch(toastError)
 }
 
 /** A tool click on a surface. Returns true if the active tool handled it. */
@@ -299,8 +301,21 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
     }
     sync()
     const unsub = useEditor.subscribe(sync)
+    // The ghost: rebuilt when the Shape tool's choice changes, turned with R.
+    let ghostKey = ''
+    const syncGhost = () => {
+      const s = useEditor.getState()
+      const key = s.tool === 'shape' && !s.placeMode ? s.toolShape : ''
+      viewer.setGhostRot(s.placeRot)
+      if (key === ghostKey) return
+      ghostKey = key
+      if (!key) { viewer.setGhost(null); return }
+      void ghostFor(key).then((g) => { if (ghostKey === key) viewer.setGhost(g) })
+    }
+    syncGhost()
+    const unsubGhost = useEditor.subscribe(syncGhost)
     const offHealth = attachHealthOverlay(viewer)
-    return () => { unsub(); offHealth(); ground(); setThumbnailProvider(null); active = null; viewer.dispose() }
+    return () => { unsub(); unsubGhost(); offHealth(); ground(); setThumbnailProvider(null); active = null; viewer.dispose() }
   }, [])
 
   const empty = !project?.scene_items.length
