@@ -6,15 +6,23 @@ the same arithmetic for all blocks at once with numpy: same candidate
 endpoints, same 565 quantization and tie-breaking (first index wins, as with
 Python's min/max), same palettes, same bit packing. install() swaps the two
 module-level entry points the exporter calls; tests check equality.
+
+Everything is integer arithmetic, so 32-bit integers (largest value: a block's
+summed squared error, under 2**22) and working through the blocks a slice at a
+time give the same bytes as wider types in one go, with far less memory
+traffic.
 """
 import numpy as np
 
 import peg_xbox2_beaver as peg
 
 
+CHUNK = 4096   # blocks per slice
+
+
 def _blocks(img):
-    """(N, 16, 4) int64 blocks in the original's order, edges clamped."""
-    a = np.asarray(img.convert('RGBA'), dtype=np.int64)
+    """(N, 16, 4) int32 blocks in the original's order, edges clamped."""
+    a = np.asarray(img.convert('RGBA'), dtype=np.int32)
     h, w = a.shape[:2]
     bh, bw = max(1, (h + 3) // 4), max(1, (w + 3) // 4)
     ys = np.minimum(np.arange(bh * 4), h - 1)
@@ -25,18 +33,19 @@ def _blocks(img):
 
 
 def _rgb565(c):
-    return ((c[..., 0] >> 3) << 11) | ((c[..., 1] >> 2) << 5) | (c[..., 2] >> 3)
+    return ((c[0] >> 3) << 11) | ((c[1] >> 2) << 5) | (c[2] >> 3)
 
 
 def _un565(v):
-    return np.stack([((v >> 11) & 31) * 255 // 31, ((v >> 5) & 63) * 255 // 63, (v & 31) * 255 // 31], axis=-1)
+    return ((v >> 11) & 31) * 255 // 31, ((v >> 5) & 63) * 255 // 63, (v & 31) * 255 // 31
 
 
-def _pick(rgb, idx):
-    return np.take_along_axis(rgb, idx[:, None, None], axis=1)[:, 0, :]
+def _pick(planes, idx):
+    return planes[:, np.arange(planes.shape[1]), idx]
 
 
-def _score(rgb, rgb0, rgb1):
+def _score(planes, rgb0, rgb1):
+    """planes: (3, N, 16) colour channels; rgb0/rgb1: (3, N) endpoint candidates."""
     c0, c1 = _rgb565(rgb0), _rgb565(rgb1)
     eq = c0 == c1
     inc = eq & (c0 < 65535)
@@ -44,25 +53,47 @@ def _score(rgb, rgb0, rgb1):
     swap = c0 < c1
     c0, c1 = np.where(swap, c1, c0), np.where(swap, c0, c1)
     p0, p1 = _un565(c0), _un565(c1)
-    pal = np.stack([p0, p1, (2 * p0 + p1) // 3, (p0 + 2 * p1) // 3], axis=1)   # (N, 4, 3)
-    d = ((rgb[:, :, None, :] - pal[:, None, :, :]) ** 2).sum(-1)                # (N, 16, 4)
-    j = d.argmin(-1)
-    err = np.take_along_axis(d, j[..., None], -1)[..., 0].sum(-1)
-    bits = (j.astype(np.uint64) << (2 * np.arange(16, dtype=np.uint64))).sum(-1)
+    pal = [(p0[ch], p1[ch], (2 * p0[ch] + p1[ch]) // 3, (p0[ch] + 2 * p1[ch]) // 3) for ch in range(3)]
+    # Nearest palette entry per pixel; a strict < keeps the first on ties, like argmin.
+    best = j = None
+    for k in range(4):
+        d = 0
+        for ch in range(3):
+            diff = planes[ch] - pal[ch][k][:, None]
+            d = d + diff * diff                                                 # (N, 16)
+        if best is None:
+            best, j = d, np.zeros(d.shape, np.uint32)
+        else:
+            closer = d < best
+            best = np.where(closer, d, best)
+            j[closer] = k
+    err = best.sum(-1)
+    bits = (j << (2 * np.arange(16, dtype=np.uint32))).sum(-1, dtype=np.uint32)
     return err, c0, c1, bits
 
 
+def _sliced(fn):
+    def run(b):
+        if len(b) <= CHUNK:
+            return fn(b)
+        return np.concatenate([fn(b[i:i + CHUNK]) for i in range(0, len(b), CHUNK)])
+    return run
+
+
+@_sliced
 def _dxt1(b):
-    rgb = b[:, :, :3]
-    lo, hi = rgb.min(1), rgb.max(1)
-    err, c0, c1, bits = _score(rgb, hi, lo)
-    multi = (rgb != rgb[:, :1, :]).any(axis=(1, 2))
+    planes = np.ascontiguousarray(b[:, :, :3].transpose(2, 0, 1))             # (3, N, 16)
+    lo, hi = planes.min(2), planes.max(2)
+    err, c0, c1, bits = _score(planes, hi, lo)
+    multi = (planes != planes[:, :, :1]).any(axis=(0, 2))
     if multi.any():
-        dist = lambda ref: ((rgb - ref[:, None, :]) ** 2).sum(-1)
-        a = _pick(rgb, dist(lo).argmax(1))
-        bb = _pick(rgb, dist(a).argmax(1))
-        a = _pick(rgb, dist(bb).argmax(1))
-        err2, d0, d1, bits2 = _score(rgb, a, bb)
+        def dist(ref):
+            diff = planes - ref[:, :, None]
+            return (diff * diff).sum(0)
+        a = _pick(planes, dist(lo).argmax(1))
+        bb = _pick(planes, dist(a).argmax(1))
+        a = _pick(planes, dist(bb).argmax(1))
+        err2, d0, d1, bits2 = _score(planes, a, bb)
         better = multi & (err2 < err)
         c0, c1, bits = np.where(better, d0, c0), np.where(better, d1, c1), np.where(better, bits2, bits)
     out = np.zeros(len(b), dtype=[('c0', '<u2'), ('c1', '<u2'), ('bits', '<u4')])
@@ -70,8 +101,9 @@ def _dxt1(b):
     return out.view(np.uint8).reshape(len(b), 8)
 
 
+@_sliced
 def _dxt5_alpha(b):
-    al = b[:, :, 3]
+    al = np.ascontiguousarray(b[:, :, 3])
     a0, a1 = al.max(1), al.min(1)
     eq = a0 == a1
     a1 = np.where(eq, np.where(a0 != 0, 0, 255), a1)

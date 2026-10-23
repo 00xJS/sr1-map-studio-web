@@ -13,14 +13,28 @@ export type WorkerRequest =
   | { id: number; type: 'call'; fn: string; args: (string | number | null)[] }
   | { id: number; type: 'texture'; path: string; max: number }
 
+/** Export progress from py/export_runner.py: stage `index` of `count`, and `done` of `total` within it when known. */
+export interface ExportProgress { stage: string; index: number; count: number; label: string; done: number | null; total: number | null }
+
 export type WorkerMessage =
   | { id: number; ok: true; value: unknown }
   | { id: number; ok: false; error: string }
   | { type: 'log'; text: string }
   | { type: 'status'; text: string }
+  | { type: 'progress'; progress: ExportProgress }
 
 let py: PyodideInterface | null = null
 let booting: Promise<PyodideInterface> | null = null
+// Compressed textures persist in IndexedDB (IDBFS at /cache), so a texture is
+// encoded once per device rather than once per export (py/export_cache.py).
+const CACHE = '/cache'
+let cacheSync: Promise<void> = Promise.resolve()
+function syncCache(p: PyodideInterface, load: boolean) {
+  cacheSync = cacheSync.then(() => new Promise<void>((resolve) => {
+    try { p.FS.syncfs(load, () => resolve()) } catch { resolve() }
+  }))
+  return cacheSync
+}
 const post = (m: WorkerMessage, transfer: Transferable[] = []) => (self as unknown as Worker).postMessage(m, transfer)
 
 async function boot(): Promise<PyodideInterface> {
@@ -33,11 +47,20 @@ async function boot(): Promise<PyodideInterface> {
   p.FS.mkdirTree('/studio')
   p.FS.mkdirTree('/work')
   p.unpackArchive(zip, 'zip', { extractDir: '/studio' })
+  let cached = false
+  try {
+    p.FS.mkdirTree(CACHE)
+    p.FS.mount(p.FS.filesystems.IDBFS, {}, CACHE)
+    await syncCache(p, true)
+    cached = true
+  } catch { /* no IndexedDB here: the cache stays in memory */ }
   p.runPython(`
 import sys, os
 sys.path.insert(0, '/studio')
 os.chdir('/work')
 import web_api
+import export_runner
+export_runner.install(${cached ? "'/cache/textures'" : 'None'})
 `)
   post({ type: 'status', text: 'ready' })
   return p
@@ -88,10 +111,13 @@ async function handle(msg: WorkerRequest) {
       if (!fn) throw new Error('Unknown Python function ' + msg.fn)
       // Every bridge function returns a JSON string; long jobs get a log callback.
       const log = (text: string) => post({ type: 'log', text: String(text) })
-      const args = msg.fn === 'export_project' ? [...msg.args, log] : msg.args
-      const raw = fn(...args)
+      // Exports go through export_runner: progress events and reuse of unchanged work.
+      const runner = msg.fn === 'export_project' ? p.globals.get('export_runner') : null
+      const progress = (json: string) => post({ type: 'progress', progress: JSON.parse(String(json)) })
+      const raw = runner ? runner.export_project(...msg.args, log, progress) : fn(...msg.args)
       const text = typeof raw === 'string' ? raw : String(raw)
-      fn.destroy?.(); api.destroy?.()
+      fn.destroy?.(); api.destroy?.(); runner?.destroy?.()
+      if (runner) void syncCache(p, false)
       const parsed = JSON.parse(text)
       if (!parsed.ok) {
         const err = new Error(parsed.error) as Error & { trace?: string }

@@ -1,5 +1,5 @@
 // Client for the Pyodide worker. The worker boots lazily on first use.
-import type { WorkerMessage, WorkerRequest } from './py.worker'
+import type { ExportProgress, WorkerMessage, WorkerRequest } from './py.worker'
 import { db } from './db'
 import type { Project } from './project'
 import { referencedPaths, isDataPackPath } from './project'
@@ -15,10 +15,12 @@ class PyClient {
   status = 'idle'
   private statusListeners = new Set<(s: string) => void>()
   private logListeners = new Set<(s: string) => void>()
+  private progressListeners = new Set<(p: ExportProgress) => void>()
   private ready: Promise<void> | null = null
 
   onStatus(fn: (s: string) => void) { this.statusListeners.add(fn); fn(this.status); return () => { this.statusListeners.delete(fn) } }
   onLog(fn: (s: string) => void) { this.logListeners.add(fn); return () => { this.logListeners.delete(fn) } }
+  onProgress(fn: (p: ExportProgress) => void) { this.progressListeners.add(fn); return () => { this.progressListeners.delete(fn) } }
 
   private ensureWorker() {
     if (this.worker) return this.worker
@@ -27,6 +29,7 @@ class PyClient {
       const m = e.data
       if ('type' in m) {
         if (m.type === 'status') { this.status = m.text; this.statusListeners.forEach((f) => f(m.text)) }
+        else if (m.type === 'progress') this.progressListeners.forEach((f) => f(m.progress))
         else this.logListeners.forEach((f) => f(m.text))
         return
       }

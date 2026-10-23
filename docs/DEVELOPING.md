@@ -23,7 +23,9 @@ Deploying with Supabase and Netlify: see [docs/DEPLOY.md](docs/DEPLOY.md).
 | `py/web_api.py` | Bridge: repeats what the desktop `MainWindow` did around each exporter call, without Qt. |
 | `py/map_features.py`, `bor_mode.py`, `sound_zones.py`, `crate_debris.py` | Post-export extras (water, presets, loading screen, Blinged Out Ride, sound zones, smashing crates); `retail_features.py` is the hook `web_api.py` calls. Checks: `py -3 tests/map_features_check.py`, `tests/retail_features_check.py` (full export with `SR1_DATA_PACK`, real crate effect with `SR1_GAME_PACKFILES`). |
 | `src/lib/gameFiles.ts` | Reads the player's own packfiles in the browser (sound names, crate effect); nothing is stored or uploaded. |
-| `py/fast_dxt.py` | Vectorized texture compression, byte-identical to the original and about 20× faster (`py -3 tests/fast_dxt_check.py`). |
+| `py/fast_dxt.py` | Vectorized texture compression, byte-identical to the original and about 40× faster (`py -3 tests/fast_dxt_check.py`). |
+| `py/export_runner.py` | What the worker calls to export: stage progress for the UI, reuse of the last geometry build and of a whole unchanged export, old job folders cleared. |
+| `py/export_cache.py`, `py/fast_geometry.py` | Export speed-ups swapped in over upstream functions: compressed textures cached by pixel hash (in memory and in IndexedDB at `/cache`), numpy tiling, collision trees and checks. Same bytes out: `py -3 tests/export_cache_check.py`. |
 | `src/lib/py.worker.ts`, `py.ts` | Pyodide worker and its client. |
 | `src/lib/geometry.ts` | JS port of the OBJ parser and scene transforms (must match the Python face order). |
 | `src/editor/` | Editor UI, three.js viewer, actions, undo/redo store. |
@@ -39,12 +41,18 @@ Desktop `.sr1map.json` projects can be imported from the home page together with
 Copy the new desktop version's Python modules into `studio-py/`, then run
 `py -3 scripts/dump-catalogs.py` to refresh the marker/weapon/vehicle catalogs, and check
 `src/lib/datapack-manifest.json` against the new `PACKAGE_MANIFEST.json`.
+The speed-ups in `py/export_cache.py`, `py/fast_geometry.py` and `py/export_runner.py` replace
+upstream functions by name, so rerun `tests/export_cache_check.py` and `tests/fast_dxt_check.py`
+(with `SR1_DATA_PACK` set) after an update: they compare against the new originals.
 
 ## Verified
 
 - The exporter self-test passes in the browser.
 - An export from the editor is byte-identical to the same project exported by desktop Python (all six
   map files: BBChunk, PEG, BBCity, HMAP, PVSV, CTS).
+- Exports through the caches write the same bytes as without them (`tests/export_cache_check.py`: cold
+  cache, nothing changed, a marker moved, a new page reading the disk cache; and the full Downtown
+  Crossroads sample compared by hand against an export from before the caches existed).
 - Not yet tested: loading exported maps in the game, and the Supabase backend against a real project.
 
 ## Notes
