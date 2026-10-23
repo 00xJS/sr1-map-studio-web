@@ -53,38 +53,38 @@ export const DRESS: Record<string, string[]> = {
  * Big and particular pieces first, then the everyday clutter.
  */
 export const URBAN_EXTRA: Record<string, string[]> = {
-  u_downtown: ['signal*2', 'busstopsign', 'taxi*2', 'car*2', 'van', 'hydrant*3', 'meters*3', 'newsbox*2', 'mailbox', 'trashcan*3', 'streetsign*2', 'bikerack',
-    'cafe*2', 'atm', 'vending', 'phone', 'stormdrain*4', 'manhole*3', 'puddle*2', 'litter*3', 'trashbags*2', 'bins*2', 'posters*3', 'graffiti*2', 'roofac*2', 'satdish'],
+  u_downtown: ['signal*2', 'busstopsign', 'citytaxi*2', 'car*2', 'cityvan', 'hydrant*3', 'meters*3', 'newsbox*2', 'mailbox', 'trashcan*3', 'streetsign*2', 'bikerack',
+    'cafe*2', 'atm', 'vending', 'phone', 'stormdrain*4', 'manholecover*3', 'puddle*2', 'litter*3', 'binbags*2', 'bins*2', 'posters*3', 'graffiti*2', 'roofac*2', 'satdish'],
   u_plaza: ['newsbox@wall', 'bench@wall*2', 'cafe*3', 'trashcan@open*3', 'drinkfountain*2', 'foodcart', 'bikerack@open', 'posters*2', 'flowers*2', 'litter@open*2', 'roofac'],
   u_park: ['trashcan@open*4', 'drinkfountain*2', 'picnic*2', 'grill*2', 'noticeboard@open', 'bikerack@open', 'foodcart', 'bush*4', 'flowers*3', 'litter@open*2', 'puddle@open*2'],
-  u_parking: ['busstopsign', 'trashcan*3', 'bench@kerb*2', 'newsbox', 'atm', 'vending@front*2', 'icemachine', 'bikerack', 'policecar', 'van',
-    'stormdrain*4', 'manhole*2', 'puddle*4', 'litter*4', 'bins*2', 'posters', 'roofac*3'],
+  u_parking: ['busstopsign', 'trashcan*3', 'bench@kerb*2', 'newsbox', 'atm', 'vending@front*2', 'icemachine', 'bikerack', 'cruiser', 'cityvan',
+    'stormdrain*4', 'manholecover*2', 'puddle*4', 'litter*4', 'bins*2', 'posters', 'roofac*3'],
   u_gas: ['utilitypole*4', 'airpump', 'icemachine', 'propanecage', 'tirerack', 'vending@front', 'phone', 'newsbox@front', 'trashcan@wall*2', 'streetsign@verge',
-    'barrels', 'bins*2', 'trashbags', 'posters*2', 'graffiti*2', 'manhole*2', 'puddle*3', 'litter*3', 'roofac'],
+    'barrels', 'bins*2', 'binbags', 'posters*2', 'graffiti*2', 'manholecover*2', 'puddle*3', 'litter*3', 'roofac'],
   u_trainyard: ['sleepers*2', 'relaybox*3', 'bench@kerb*2', 'trashcan@kerb', 'cratestack*2', 'pallets*2', 'barrels*2', 'graffiti*5', 'posters*2', 'litter@open*3', 'puddle@open*3'],
-  u_docks: ['lifering*3', 'buoys*3', 'fishnet*2', 'fishcrates*4', 'cratestack*4', 'barrels*3', 'pallets*4', 'forklift@open', 'bins', 'trashbags', 'graffiti*3', 'posters', 'litter@open*4', 'puddle@open*5'],
-  u_suburb: ['utilitypole*4', 'postbox*3', 'bins@verge*2', 'hydrant@verge*2', 'pickup', 'van', 'car', 'grill*2', 'lawnchairs*2', 'clothesline', 'bush*4', 'flowers*3', 'manhole*2', 'puddle*2', 'lowwall'],
-  u_trailer: ['grill*3', 'lawnchairs*3', 'clothesline*2', 'bins*2', 'trashbags*2', 'barrels', 'tirestack*2', 'propanecage', 'puddle@open*4', 'litter@open*3', 'chainfence'],
-  u_chinatown: ['produce*3', 'fruitcrates*3', 'cafe*2', 'vending@front', 'newsbox@front', 'trashbags*3', 'bins*2', 'bikerack@open', 'posters*3', 'graffiti',
-    'manhole@open*2', 'puddle@open*3', 'litter@open*4', 'roofac*2'],
-  u_skyscraper: ['portapotty', 'cementmixer@open', 'generator*2', 'barricade@open*3', 'cones*3', 'pallets*3', 'barrels*2', 'cratestack', 'trashbags', 'litter@open*3', 'puddle@open*4', 'chainfence'],
-  u_rooftops: ['roofac*3', 'satdish*2', 'trashbags*3', 'bins*2', 'vending', 'newsbox@wall', 'phone', 'graffiti*4', 'posters*2', 'manhole*3', 'puddle*3', 'litter*3'],
-  u_highway: ['barricade*3', 'cones@road*2', 'graffiti*5', 'trashbags*2', 'manhole*2', 'puddle*4', 'litter*4', 'jersey@road'],
+  u_docks: ['lifering*3', 'buoys*3', 'fishnet*2', 'fishcrates*4', 'cratestack*4', 'barrels*3', 'pallets*4', 'forklift@open', 'bins', 'binbags', 'graffiti*3', 'posters', 'litter@open*4', 'puddle@open*5'],
+  u_suburb: ['utilitypole*4', 'postbox*3', 'bins@verge*2', 'hydrant@verge*2', 'citypickup', 'cityvan', 'car', 'grill*2', 'lawnchairs*2', 'washingline', 'bush*4', 'flowers*3', 'manholecover*2', 'puddle*2', 'lowwall'],
+  u_trailer: ['grill*3', 'lawnchairs*3', 'washingline*2', 'bins*2', 'binbags*2', 'barrels', 'tirestack*2', 'propanecage', 'puddle@open*4', 'litter@open*3', 'chainfence'],
+  u_chinatown: ['produce*3', 'fruitcrates*3', 'cafe*2', 'vending@front', 'newsbox@front', 'binbags*3', 'bins*2', 'bikerack@open', 'posters*3', 'graffiti',
+    'manholecover@open*2', 'puddle@open*3', 'litter@open*4', 'roofac*2'],
+  u_skyscraper: ['portapotty', 'cementmixer@open', 'generator*2', 'roadbarricade@open*3', 'cones*3', 'pallets*3', 'barrels*2', 'cratestack', 'binbags', 'litter@open*3', 'puddle@open*4', 'chainfence'],
+  u_rooftops: ['roofac*3', 'satdish*2', 'binbags*3', 'bins*2', 'vending', 'newsbox@wall', 'phone', 'graffiti*4', 'posters*2', 'manholecover*3', 'puddle*3', 'litter*3'],
+  u_highway: ['roadbarricade*3', 'cones@road*2', 'graffiti*5', 'binbags*2', 'manholecover*2', 'puddle*4', 'litter*4', 'jersey@road'],
   u_school: ['bins*3', 'trashcan@open*3', 'bench@wall*3', 'picnic*2', 'vending@front', 'drinkfountain*2', 'posters*2', 'graffiti', 'roofac*2', 'litter@open*2', 'puddle@open*2', 'lowwall', 'chainfence'],
-  u_terminal: ['citybus*2', 'taxi*2', 'busstopsign*3', 'trashcan@kerb*3', 'newsbox@kerb', 'vending@front*2', 'atm', 'phone', 'stormdrain*2', 'manhole*2', 'puddle*3', 'litter*3', 'posters*2', 'graffiti', 'roofac*2'],
-  u_projects: ['bins*3', 'trashbags*3', 'clothesline', 'grill', 'lawnchairs', 'trashcan@open*2', 'graffiti*5', 'posters*2', 'litter@open*5', 'puddle@open*3', 'chainfence'],
-  u_warehouses: ['pallets*3', 'cratestack*3', 'barrels*2', 'generator', 'dumpster*2', 'bins', 'trashbags', 'graffiti*4', 'posters', 'manhole*2', 'puddle*4', 'litter*3', 'roofac*3', 'chainfence'],
+  u_terminal: ['citybus*2', 'citytaxi*2', 'busstopsign*3', 'trashcan@kerb*3', 'newsbox@kerb', 'vending@front*2', 'atm', 'phone', 'stormdrain*2', 'manholecover*2', 'puddle*3', 'litter*3', 'posters*2', 'graffiti', 'roofac*2'],
+  u_projects: ['bins*3', 'binbags*3', 'washingline', 'grill', 'lawnchairs', 'trashcan@open*2', 'graffiti*5', 'posters*2', 'litter@open*5', 'puddle@open*3', 'chainfence'],
+  u_warehouses: ['pallets*3', 'cratestack*3', 'barrels*2', 'generator', 'dumpster*2', 'bins', 'binbags', 'graffiti*4', 'posters', 'manholecover*2', 'puddle*4', 'litter*3', 'roofac*3', 'chainfence'],
   u_canal: ['lifering*2', 'cafe*3', 'bench@kerb*2', 'trashcan@kerb*2', 'bikerack@kerb', 'flowers*2', 'posters*2', 'graffiti*2', 'litter@open*2', 'puddle@open*2', 'bollards'],
-  u_junkyard: ['carwreck*3', 'tirestack*3', 'tirerack', 'barrels*3', 'pallets', 'generator', 'trashbags*2', 'dumpster', 'deadtree*2', 'graffiti*3', 'puddle@open*4', 'litter@open*3', 'chainfence'],
+  u_junkyard: ['carwreck*3', 'tirestack*3', 'tirerack', 'barrels*3', 'pallets', 'generator', 'binbags*2', 'dumpster', 'deadtree*2', 'graffiti*3', 'puddle@open*4', 'litter@open*3', 'chainfence'],
   u_church: ['gravestones', 'flowers*3', 'bush*3', 'trashcan@open*2', 'cafe*2', 'bikerack@open', 'posters', 'litter@open', 'puddle@open*2', 'lowwall'],
-  u_clubstrip: ['taxi*3', 'car*2', 'hydrant*2', 'trashcan*2', 'newsbox', 'atm*2', 'vending', 'stormdrain*4', 'manhole*3', 'puddle*4', 'litter*4', 'trashbags*3', 'bins', 'graffiti*3', 'posters*3', 'roofac*2', 'billboard'],
-  u_river: ['utilitypole*3', 'lifering*2', 'bench@kerb*2', 'trashcan@kerb*2', 'pickup', 'van', 'streetsign@verge', 'cafe*2', 'graffiti*4', 'posters', 'manhole*2', 'puddle*2', 'litter*2', 'bollards'],
-  u_market: ['produce@open*3', 'fruitcrates@open*4', 'trashcan@open*3', 'icemachine', 'bins*2', 'trashbags*2', 'cratestack', 'posters*2', 'graffiti', 'litter@open*4', 'puddle@open*2'],
-  u_ruins: ['trashbags@open*3', 'tirestack*2', 'pallets@open', 'barricade@open*2', 'deadtree*3', 'graffiti*6', 'litter@open*5', 'puddle@open*4', 'chainfence'],
-  u_mainstreet: ['utilitypole*4', 'busstop', 'taxi', 'car*2', 'van', 'pickup', 'hydrant*3', 'meters*4', 'newsbox*2', 'mailbox', 'trashcan*3', 'bikerack', 'streetsign*2',
-    'cafe*2', 'vending', 'atm', 'stormdrain*4', 'manhole*3', 'puddle*2', 'litter*3', 'trashbags*2', 'bins*2', 'posters*3', 'graffiti*2', 'roofac*2', 'billboard', 'lowwall'],
+  u_clubstrip: ['citytaxi*3', 'car*2', 'hydrant*2', 'trashcan*2', 'newsbox', 'atm*2', 'vending', 'stormdrain*4', 'manholecover*3', 'puddle*4', 'litter*4', 'binbags*3', 'bins', 'graffiti*3', 'posters*3', 'roofac*2', 'billboard'],
+  u_river: ['utilitypole*3', 'lifering*2', 'bench@kerb*2', 'trashcan@kerb*2', 'citypickup', 'cityvan', 'streetsign@verge', 'cafe*2', 'graffiti*4', 'posters', 'manholecover*2', 'puddle*2', 'litter*2', 'bollards'],
+  u_market: ['produce@open*3', 'fruitcrates@open*4', 'trashcan@open*3', 'icemachine', 'bins*2', 'binbags*2', 'cratestack', 'posters*2', 'graffiti', 'litter@open*4', 'puddle@open*2'],
+  u_ruins: ['binbags@open*3', 'tirestack*2', 'pallets@open', 'roadbarricade@open*2', 'deadtree*3', 'graffiti*6', 'litter@open*5', 'puddle@open*4', 'chainfence'],
+  u_mainstreet: ['utilitypole*4', 'busstop', 'citytaxi', 'car*2', 'cityvan', 'citypickup', 'hydrant*3', 'meters*4', 'newsbox*2', 'mailbox', 'trashcan*3', 'bikerack', 'streetsign*2',
+    'cafe*2', 'vending', 'atm', 'stormdrain*4', 'manholecover*3', 'puddle*2', 'litter*3', 'binbags*2', 'bins*2', 'posters*3', 'graffiti*2', 'roofac*2', 'billboard', 'lowwall'],
   u_office_park: ['bench@wall*3', 'trashcan@open*3', 'bikerack@open', 'flowers*3', 'bush*2', 'cafe*2', 'drinkfountain', 'vending@front', 'atm', 'newsbox@front', 'roofac*3', 'litter@open*2', 'acunit', 'lowwall'],
-  u_stadium: ['trashcan@open*4', 'foodcart*2', 'drinkfountain', 'vending@wall*2', 'atm@wall', 'bikerack@open', 'barricade@open*3', 'posters*3', 'litter@open*6', 'puddle@open*2', 'billboard@open', 'portapotty'],
+  u_stadium: ['trashcan@open*4', 'foodcart*2', 'drinkfountain', 'vending@wall*2', 'atm@wall', 'bikerack@open', 'roadbarricade@open*3', 'posters*3', 'litter@open*6', 'puddle@open*2', 'billboard@open', 'portapotty'],
 }
 
 /** Background sound for each city map: a retail map of the same kind of place. */
@@ -98,7 +98,7 @@ export const URBAN_AMBIENCE: Record<string, string> = {
 }
 
 /** Street clutter for city maps without a list of their own. */
-const URBAN_CLUTTER = ['hydrant*2', 'trashcan*2', 'meters', 'newsbox', 'vending', 'bench', 'manhole*2', 'stormdrain*2', 'puddle*2', 'litter*2', 'trashbags', 'bins', 'posters', 'graffiti']
+const URBAN_CLUTTER = ['hydrant*2', 'trashcan*2', 'meters', 'newsbox', 'vending', 'bench', 'manholecover*2', 'stormdrain*2', 'puddle*2', 'litter*2', 'binbags', 'bins', 'posters', 'graffiti']
 const THEME_FALLBACK: Record<Theme, string[]> = {
   'Starter': ['pallets', 'barrels', 'jersey'], 'Urban': URBAN_CLUTTER,
   'Urban paintball': ['cake', 'can', 'dorito', 'snake'], 'Cyber': ['neoncube', 'neonpillar', 'codepillar'],

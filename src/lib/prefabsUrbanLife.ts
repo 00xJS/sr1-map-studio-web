@@ -103,16 +103,16 @@ const sedanWith = (name: string, body: Tex, extra: (L: Lf) => Part[], len = 8.4)
   group(id(name, x, y, z), [...car(x, z, rot, body, y, len), ...local(x, y, z, rot, extra)])
 
 const VEHICLES: Record<string, PrefabDef & { category: string }> = {
-  taxi: { category: 'Vehicles', label: 'Taxi', hint: 'A yellow cab with its roof sign', make: sedanWith('Taxi', carPaint('#f2c218', 520), (L) => [
+  citytaxi: { category: 'Vehicles', label: 'Taxi', hint: 'A yellow cab with its roof sign', make: sedanWith('Taxi', carPaint('#f2c218', 520), (L) => [
     { ...box('Taxi sign', [1.6, 0.55, 0.6], L(0, 3.18, -0.4), WHITE, solid('#f2c218', '#1d1d20', 521)), bevel: 0.1 },
     box('Checker stripe', [4.06, 0.3, 3.6], L(0, 1.45, -0.2), { gen: 'hazard', tweak: { color: '#1d1d20', accent: '#f2c218', scale: 10, wear: 0, seed: 522 }, surface: 15 }),
   ]) },
-  policecar: { category: 'Vehicles', label: 'Police car', hint: 'A black-and-white cruiser with a light bar', make: sedanWith('Police car', carPaint('#1d1d20', 523), (L) => [
+  cruiser: { category: 'Vehicles', label: 'Police car', hint: 'A black-and-white cruiser with a light bar', make: sedanWith('Police car', carPaint('#1d1d20', 523), (L) => [
     { ...box('Door panel', [4.08, 1.0, 3.4], L(0, 0.75, -0.2), carPaint('#e8e8e8', 524)), bevel: 0.2 },
     box('Light bar', [2.6, 0.2, 0.6], L(0, 3.18, -0.2), BLACK), box('Red lamp', [1.2, 0.3, 0.55], L(-0.65, 3.38, -0.2), LAMP_RED), box('Blue lamp', [1.2, 0.3, 0.55], L(0.65, 3.38, -0.2), LAMP_BLUE),
     box('Push bar', [2.6, 1.0, 0.25], L(0, 0.5, 4.45), BLACK),
   ]) },
-  pickup: { category: 'Vehicles', label: 'Pickup truck', hint: 'A pickup with an open bed', ...pfp('Pickup', [paintParam('#2a5ab8')], (L, p) => {
+  citypickup: { category: 'Vehicles', label: 'Pickup truck', hint: 'A pickup with an open bed', ...pfp('Pickup', [paintParam('#2a5ab8')], (L, p) => {
     const c = paint(p, 525)
     return [
       { ...box('Truck body', [4.2, 1.5, 9.4], L(0, 0.7, 0), c), bevel: 0.35 },
@@ -122,7 +122,7 @@ const VEHICLES: Record<string, PrefabDef & { category: string }> = {
       ...ends(L, 4.2, 9.4, 1.4), ...wheels(L, 3.8, [3.0, -3.0], 1.6, 0.6),
     ]
   }) },
-  van: { category: 'Vehicles', label: 'Van', hint: 'A tall panel van', ...pfp('Van', [paintParam('#e8e8e8')], (L, p) => {
+  cityvan: { category: 'Vehicles', label: 'Van', hint: 'A tall panel van', ...pfp('Van', [paintParam('#e8e8e8')], (L, p) => {
     const c = paint(p, 527)
     return [
       { ...box('Van body', [4.4, 3.8, 9.6], L(0, 0.6, -0.2), c), bevel: 0.5 },
@@ -131,7 +131,7 @@ const VEHICLES: Record<string, PrefabDef & { category: string }> = {
       ...ends(L, 4.4, 9.6, 1.3), ...wheels(L, 4.0, [3.1, -3.3], 1.5, 0.6),
     ]
   }) },
-  schoolbus: { category: 'Vehicles', label: 'School bus', hint: 'A yellow school bus with its stop arm', make: pf('School bus', (L) => {
+  cityschoolbus: { category: 'Vehicles', label: 'School bus', hint: 'A yellow school bus with its stop arm', make: pf('School bus', (L) => {
     const yellow = carPaint('#f2b818', 529)
     return [
       { ...box('Bus body', [5.2, 5.2, 21], L(0, 0.9, -1.5), WHITE, yellow), bevel: 0.45 },
@@ -201,7 +201,7 @@ const SIGNS_STREET: Record<string, PrefabDef & { category: string }> = {
     cyl('Sign post', 0.22, 6, L(0, 0, 0), GREY, GREY, 6), box('Bus flag', [1.6, 1.4, 0.08], L(0.8, 4.4, 0), SIGN_BLUE), box('Bus mark', [0.9, 0.5, 0.09], L(0.8, 4.9, 0), WHITE),
     box('Timetable', [0.9, 1.3, 0.12], L(0, 2.0, 0.16), WHITE),
   ]) },
-  barricade: { category: 'Street', label: 'Road barricade', hint: 'A striped barricade on A-frame legs, with a warning lamp', make: pf('Barricade', (L) => [
+  roadbarricade: { category: 'Street', label: 'Road barricade', hint: 'A striped barricade on A-frame legs, with a warning lamp', make: pf('Barricade', (L) => [
     ...[-1.8, 1.8].flatMap((x) => [box('Barricade leg', [0.15, 1.9, 0.15], L(x, 0, -0.45), GREY), box('Barricade leg', [0.15, 1.9, 0.15], L(x, 0, 0.45), GREY), box('Barricade foot', [0.2, 0.15, 1.2], L(x, 0, 0), GREY)]),
     ...[0.9, 1.6].map((y) => box('Barricade board', [4.4, 0.45, 0.12], L(0, y, 0), { gen: 'hazard', tweak: { color: '#f07a1a', accent: '#f2efe6', scale: 6, wear: 0.15, seed: 530 }, surface: 15 })),
     { ...cyl('Warning lamp', 0.45, 0.4, L(1.9, 2.05, 0), LAMP_AMBER, LAMP_AMBER, 8), taper: 0.8 },
@@ -215,7 +215,7 @@ const SIGNS_STREET: Record<string, PrefabDef & { category: string }> = {
 // ---------------- kerbside and ground clutter ----------------
 
 const GROUND: Record<string, PrefabDef & { category: string }> = {
-  manhole: { category: 'Street', label: 'Manhole cover', hint: 'An iron cover flush with the road', make: pf('Manhole', (L) => [cyl('Manhole', 2.2, 0.04, L(0, 0, 0), IRON, IRON, 14)]) },
+  manholecover: { category: 'Street', label: 'Manhole cover', hint: 'An iron cover flush with the road', make: pf('Manhole', (L) => [cyl('Manhole', 2.2, 0.04, L(0, 0, 0), IRON, IRON, 14)]) },
   stormdrain: { category: 'Street', label: 'Storm drain', hint: 'A grate in the gutter against the kerb (the kerb at its back, −Z)', make: pf('Storm drain', (L) => [
     box('Drain grate', [3, 0.04, 1.3], L(0, 0, 0), GRATE, GRATE), box('Drain inlet', [3, 0.12, 0.08], L(0, 0.04, -0.66), BLACK),
   ]) },
@@ -228,7 +228,7 @@ const GROUND: Record<string, PrefabDef & { category: string }> = {
     lying('Litter can', 0.28, 0.5, L(1.0, 0, -0.4), SIGN_RED, GREY, 8, 50), lying('Litter can', 0.28, 0.5, L(-1.6, 0, -0.2), SIGN_GREEN, GREY, 8, 110),
     { ...cyl('Litter cup', 0.35, 0.5, L(0.3, 0, 1.4), WHITE, WHITE, 8), taper: 1.3 },
   ]) },
-  trashbags: { category: 'Street', label: 'Trash bags', hint: 'A heap of black bin bags put out for collection', make: pf('Trash bags', (L) => [
+  binbags: { category: 'Street', label: 'Trash bags', hint: 'A heap of black bin bags put out for collection', make: pf('Trash bags', (L) => [
     ...[[-0.9, 0, 0, 1.3, 1.0], [0.6, 0, 0.3, 1.2, 1.1], [-0.1, 0, -0.8, 1.1, 0.9], [1.5, 0, -0.6, 1.0, 0.8], [-0.2, 0.85, -0.1, 1.0, 0.8]].map(([x, y, z, s, h], i) =>
       ({ ...cyl('Trash bag', s, h, L(x, y, z), BAG, BAG, 7, i * 40), taper: 0.55 })),
     { ...box('Trash bag', [1.4, 0.7, 0.9], L(0.3, 0, 1.0), BAG, BAG, 20), bevel: 0.3 },
@@ -343,7 +343,7 @@ const PLACES: Record<string, PrefabDef & { category: string }> = {
     box('Cantilever', [0.18, 0.18, +p.reach + 0.6], L(0, 12.2, (+p.reach) / 2), GREY), box('Stay', [0.12, 0.12, +p.reach], L(0, 11.6, (+p.reach) / 2), GREY),
     cyl('Insulator', 0.3, 0.6, L(0, 12.4, 0.4), WHITE, WHITE, 8), box('Dropper', [0.06, 1.2, 0.06], L(0, 11.0, +p.reach), GREY),
   ]) },
-  lanterns: { category: 'Street', label: 'Lantern string', hint: 'Paper lanterns strung along X (hang it between two walls, high over a street); the line is 1.6 above the base', ...pfp('Lanterns', [num('len', 'Length', 6, 70, 30), sel('color', 'Lanterns', [['red', 'Red'], ['mixed', 'Mixed'], ['white', 'White']], 'red')], (L, p) => {
+  lanternstring: { category: 'Street', label: 'Lantern string', hint: 'Paper lanterns strung along X (hang it between two walls, high over a street); the line is 1.6 above the base', ...pfp('Lanterns', [num('len', 'Length', 6, 70, 30), sel('color', 'Lanterns', [['red', 'Red'], ['mixed', 'Mixed'], ['white', 'White']], 'red')], (L, p) => {
     const len = +p.len, n = Math.max(2, Math.round(len / 3.2)), out: Part[] = [box('Lantern line', [len, 0.05, 0.05], L(0, 1.6, 0), BLACK)]
     const tex = (i: number) => p.color === 'white' ? LANTERN_WHITE : p.color === 'mixed' ? [LANTERN_RED, LANTERN_GOLD, LANTERN_WHITE][i % 3] : LANTERN_RED
     for (let i = 0; i < n; i++) out.push({ ...cyl('Lantern', 0.9, 1.1, L(-len / 2 + (i + 0.5) * (len / n), 0.3, 0), tex(i), tex(i), 8), taper: 0.75 }, cyl('Lantern cap', 0.5, 0.2, L(-len / 2 + (i + 0.5) * (len / n), 1.4, 0), BLACK, BLACK, 8))
@@ -367,7 +367,7 @@ const PLACES: Record<string, PrefabDef & { category: string }> = {
     ...[-2, 2].map((x) => box('Board post', [0.35, 5, 0.35], L(x, 0, 0), DARK_WOOD)), box('Notice board', [4.4, 2.6, 0.25], L(0, 1.8, 0), DARK_WOOD, BOARD),
     box('Notices', [3.6, 1.8, 0.05], L(0, 2.2, 0.15), CHALK), ramp('Board roof', [5, 0.6, 1.2], L(0, 4.6, -0.3), PB.planks, PB.planks, 180),
   ]) },
-  flagpole: { category: 'Street', label: 'Flagpole', hint: 'A tall pole with its flag flying along X', ...pfp('Flagpole', [num('h', 'Height', 8, 30, 16), sel('flag', 'Flag', [['stars', 'Stars and stripes'], ['blue', 'Blue'], ['red', 'Red'], ['green', 'Green']], 'stars')], (L, p) => {
+  streetflagpole: { category: 'Street', label: 'Flagpole', hint: 'A tall pole with its flag flying along X', ...pfp('Flagpole', [num('h', 'Height', 8, 30, 16), sel('flag', 'Flag', [['stars', 'Stars and stripes'], ['blue', 'Blue'], ['red', 'Red'], ['green', 'Green']], 'stars')], (L, p) => {
     const h = +p.h
     const flag = p.flag === 'stars' ? { gen: 'hazard', tweak: { color: '#b8222a', accent: '#f2efe6', scale: 7, wear: 0.05, seed: 539 }, surface: 17 } as Tex : ({ blue: SIGN_BLUE, red: SIGN_RED, green: SIGN_GREEN } as Record<string, Tex>)[String(p.flag)] ?? SIGN_BLUE
     return [
@@ -383,7 +383,7 @@ const PLACES: Record<string, PrefabDef & { category: string }> = {
     box('Chair seat', [1.4, 0.12, 1.3], M(0, 0.8, 0), CLOTHES[i * 3 + 1]), box('Chair back', [1.4, 1.4, 0.12], M(0, 0.9, -0.7), CLOTHES[i * 3 + 1]),
     ...[-0.65, 0.65].map((a) => box('Chair frame', [0.08, 0.8, 1.3], M(a, 0, 0), GREY)),
   ]))) },
-  clothesline: { category: 'Street', label: 'Clothesline', hint: 'Two T-posts with washing hung between them', make: pf('Clothesline', (L) => {
+  washingline: { category: 'Street', label: 'Clothesline', hint: 'Two T-posts with washing hung between them', make: pf('Clothesline', (L) => {
     const out: Part[] = [...[-5, 5].flatMap((x) => [box('Line post', [0.25, 4.4, 0.25], L(x, 0, 0), GREY), box('Line arm', [0.2, 0.2, 2], L(x, 4.4, 0), GREY)])]
     for (const z of [-0.8, 0.8]) {
       out.push(box('Washing line', [10, 0.04, 0.04], L(0, 4.35, z), WHITE))
@@ -427,7 +427,7 @@ export const URBAN_LIFE_PREFABS: Record<string, PrefabDef & { category: string }
 /** Pieces that hang on a facade: placed against a wall at a given height. */
 export const ON_WALL = new Set(['wallac', 'windowbox', 'satdish', 'shopsign', 'posters', 'graffiti'])
 /** Paint-thin pieces players and cars cross (they never need room). */
-export const FLAT_PIECES = new Set(['manhole', 'stormdrain', 'puddle', 'litter'])
+export const FLAT_PIECES = new Set(['manholecover', 'stormdrain', 'puddle', 'litter'])
 
 // ---------------- life on a building ----------------
 

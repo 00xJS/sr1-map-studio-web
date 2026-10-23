@@ -22,11 +22,11 @@ export type Where = 'wall' | 'front' | 'side' | 'kerb' | 'verge' | 'park' | 'gut
 const PLACE: Record<string, Where> = {
   vending: 'wall', phone: 'wall', airpump: 'wall', propanecage: 'wall', bench: 'wall', noticeboard: 'wall', candles: 'wall',
   atm: 'front', icemachine: 'front', cafe: 'front', produce: 'front', fruitcrates: 'front',
-  tirerack: 'side', dumpster: 'side', trashbags: 'side', bins: 'side', pallets: 'side', cratestack: 'side', barrels: 'side', generator: 'side', acunit: 'side',
+  tirerack: 'side', dumpster: 'side', binbags: 'side', bins: 'side', pallets: 'side', cratestack: 'side', barrels: 'side', generator: 'side', acunit: 'side',
   portapotty: 'side', posters: 'side', graffiti: 'side', fishcrates: 'side', fishnet: 'side', buoys: 'side', sleepers: 'side', relaybox: 'side',
   hydrant: 'kerb', meters: 'kerb', trashcan: 'kerb', mailbox: 'kerb', newsbox: 'kerb', busstop: 'kerb', busstopsign: 'kerb', streetsign: 'kerb', bikerack: 'kerb',
   bollardrow: 'kerb', lifering: 'kerb', bollards: 'kerb', postbox: 'verge',
-  stormdrain: 'gutter', manhole: 'road', puddle: 'road', litter: 'road', barricade: 'road',
+  stormdrain: 'gutter', manholecover: 'road', puddle: 'road', litter: 'road', roadbarricade: 'road',
   roofac: 'roof', billboard: 'roof', antenna: 'roof', satdish: 'roof',
   signal: 'signal', utilitypole: 'poles',
 }
@@ -36,7 +36,7 @@ const KERB_BACK: Record<string, number> = { busstop: 2.3 }
 const WALLISH = new Set(['trailerhome', 'house', 'garage', 'diner', 'kiosk', 'containers'])
 /** Flat on a wall: placed flush, needing no room in front. */
 const DECALS = new Set(['posters', 'graffiti'])
-const VEHICLES = new Set(['car', 'taxi', 'policecar', 'van', 'pickup', 'boxtruck', 'schoolbus', 'citybus', 'foodtruck', 'cementmixer'])
+const VEHICLES = new Set(['car', 'citytaxi', 'cruiser', 'cityvan', 'citypickup', 'boxtruck', 'cityschoolbus', 'citybus', 'foodtruck', 'cementmixer'])
 
 const key = (t: Tex) => JSON.stringify(t)
 const isFlatPaint = (p: Part) => p.size[1] <= 0.05

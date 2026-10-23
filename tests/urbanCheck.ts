@@ -24,7 +24,7 @@ export function roadTextures(...ts: Tex[]) { for (const t of ts) ROAD_TEX.add(as
 const FLAT = (p: Part) => isFlat(p) || /Crosswalk|Puddle|Manhole|Drain|Litter|Marking/.test(p.label)
 /** Floors other things stand on (a kerb you step up). */
 const FLOORLIKE = /^(Ground|Sidewalk|Path|Plaza|Road|Street|Highway|Driveway|Court|Half court|Football field|Platform|Track bed|Rail spur|Island|Pump island|Porch|Bank|Quay|Pier|Harbor floor|Canal bed|Riverbed|Graveyard|Cul-de-sac|Median|Traffic island|Loading dock|Station platform|Concourse|Portico|Floor \d|Parking deck|Low deck|High deck|Walkway|Footbridge|Bridge|Road bridge|Stage|Gazebo floor|Kerb|Lot|Yard|Lawn|Floor ruin)$/
-const VEHICLE = /^(car|citybus|boxtruck|cementmixer|foodtruck|Bus|Crashed bus|Car|Food truck|Truck trailer|Van|Limo|Forklift|forklift|taxi|policecar|pickup|van|schoolbus)$/
+const VEHICLE = /^(car|citybus|boxtruck|cementmixer|foodtruck|Bus|Crashed bus|Car|Food truck|Truck trailer|Van|Limo|Forklift|forklift|citytaxi|cruiser|citypickup|cityvan|cityschoolbus)$/
 const WRECK = /^(carwreck|Crushed cars)$/
 /** Pieces with a front (local +Z) that people use: they must not face a wall. */
 const FACING = /^(bench|Bench|busstop|Bus stop|vending|Vending|atm|ATM|kiosk|Kiosk|stall|Stall|newsbox|cafe|icemachine|payphone)$/
