@@ -3,7 +3,7 @@
 // you see it from above, and create it (or fine-tune it in the wizard).
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { DENSITY, LAYOUTS, SETTINGS, newSeed, wizardSample, type WizardOptions } from '../lib/mapWizard'
-import { askWithRepair, describePrompt, formatReminder, modelProfile, setLibraryTextures } from '../lib/aiChat'
+import { askWithRepair, describePrompt, formatReminder, modelProfile, partialReply, setLibraryTextures, stripThinking } from '../lib/aiChat'
 import { describeEdit, heuristicPlan, planFromModel, type MapPlan } from '../lib/aiReview'
 import type { PendingEdits } from '../lib/pendingEdits'
 import type { Sample } from '../lib/sampleKit'
@@ -17,6 +17,7 @@ export function DescribeMap({ busy, onCreate, onTune }: { busy: boolean; onCreat
   const [text, setText] = useState('')
   const [plan, setPlan] = useState<MapPlan | null>(null)
   const [asking, setAsking] = useState(false)
+  const [thought, setThought] = useState('')
   const [error, setError] = useState('')
   const [hasKey, setHasKey] = useState(() => !!readKey())
   const [setup, setSetup] = useState(false)
@@ -30,10 +31,11 @@ export function DescribeMap({ busy, onCreate, onTune }: { busy: boolean; onCreat
     setError('')
     if (!hasKey) { setPlan(heuristicPlan(text)); return }
     setAsking(true)
+    setThought('')
     abort.current = new AbortController()
     const model = readModel(), profile = modelProfile(model)
     try {
-      const { raw } = await askWithRepair([{ role: 'system', content: describePrompt(profile) }, { role: 'user', content: text + formatReminder(profile) }], readKey(), model, { signal: abort.current.signal, profile })
+      const { raw } = await askWithRepair([{ role: 'system', content: describePrompt(profile) }, { role: 'user', content: text + formatReminder(profile) }], readKey(), model, { signal: abort.current.signal, profile, onProgress: ({ content, reasoning }) => setThought(partialReply(content) || (reasoning || stripThinking(content) ? 'Thinking' : '')) })
       setPlan(planFromModel(raw, text))
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
@@ -56,7 +58,7 @@ export function DescribeMap({ busy, onCreate, onTune }: { busy: boolean; onCreat
         <div className="row wrap">{EXAMPLES.map((x) => <button key={x} className="sm quiet" onClick={() => setText(x)}>{x}</button>)}</div>
         <div className="row wrap">
           {asking
-            ? <><span className="muted small ai-thinking">Planning your map</span><button className="sm" onClick={() => abort.current?.abort()}>Stop</button></>
+            ? <><span className="muted small ai-thinking">{thought && thought !== 'Thinking' ? thought : thought ? 'Thinking' : 'Planning your map'}</span><button className="sm" onClick={() => abort.current?.abort()}>Stop</button></>
             : <button className="primary" disabled={!text.trim() || busy} onClick={ask}>{plan ? 'Plan again' : 'Plan my map'}</button>}
           {hasKey
             ? <button className="link small" onClick={() => setSetup(true)}>AI key and model</button>

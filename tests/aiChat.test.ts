@@ -221,7 +221,7 @@ describe('a map from a sentence', () => {
   it('without the model, reads the words', () => {
     const plan = heuristicPlan(SENTENCE, 7)
     expect(plan.options).toMatchObject({ setting: 'downtown', layout: 'heights', players: 8, density: 'normal', seed: 7 })
-    expect(plan.then).toEqual([{ do: 'set_weather', clear: false }, { do: 'delete', near: [0, 0, 10] }, { do: 'add_prefab', key: 'koth', x: 0, z: 0 }])
+    expect(plan.then).toEqual([{ do: 'set_weather', clear: false }, { do: 'delete', near: [0, 0, 16] }, { do: 'add_prefab', key: 'koth', x: 0, z: 0 }])
     expect(heuristicPlan('neon arena 1v1').options).toMatchObject({ setting: 'cyber', layout: 'arena', players: 2 })
     expect(heuristicPlan('packed docks for twelve players').options).toMatchObject({ setting: 'industrial', players: 12, density: 'packed' })
   })

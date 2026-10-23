@@ -35,6 +35,7 @@ function ReviewCard({ turn }: { turn: Turn }) {
   const [busy, setBusy] = useState(false)
   const apply = async (label: string, actions: AiAction[]) => {
     setBusy(true)
+    patch(turn.id, { note: `${label}: applying…` })
     try {
       const { done, skipped } = await runAiActions(actions, 'AI fix: ' + label)
       patch(turn.id, { applied: [...(turn.applied ?? []), label], note: `${label}: ${done ? `made ${done} change${done === 1 ? '' : 's'}` : 'nothing changed'}${skipped.length ? `; skipped ${skipped.join('; ')}` : ''}.` })
@@ -70,6 +71,8 @@ export function AiChat({ onClose }: { onClose: () => void }) {
   const { turns, add, patch } = useChat()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
+  /** Waiting on the model (Stop works), as opposed to applying its edits. */
+  const [asking, setAsking] = useState(false)
   const abort = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }) }, [turns])
@@ -98,6 +101,7 @@ export function AiChat({ onClose }: { onClose: () => void }) {
     add({ role: 'user', text: msg })
     const id = add({ role: 'assistant', text: '', pending: true })
     setBusy(true)
+    setAsking(true)
     abort.current = new AbortController()
     const model = readModel()
     const profile = modelProfile(model)
@@ -120,6 +124,7 @@ export function AiChat({ onClose }: { onClose: () => void }) {
         },
         onRepair: () => patch(id, { text: '', thinking: '', note: 'Tidying up the answer…' }),
       })
+      setAsking(false)
       useChat.setState((s) => ({ history: [...s.history, { role: 'user', content: msg }, { role: 'assistant', content: stripThinking(raw).slice(0, 6000) }] }))
       if (critique) {
         const review = buildReview(facts!, raw)
@@ -132,6 +137,7 @@ export function AiChat({ onClose }: { onClose: () => void }) {
       let note: string | undefined, undoLabel: string | undefined
       if (actions.length) {
         undoLabel = 'AI: ' + (msg.length > 40 ? msg.slice(0, 40) + '…' : msg)
+        patch(id, { pending: false, thinking: undefined, text: reply || 'Working on it.', note: 'Applying…' })
         const { done, skipped } = await runAiActions(actions, undoLabel)
         note = [done ? `Made ${done} change${done === 1 ? '' : 's'}.` : 'Nothing changed.', skipped.length ? `Skipped: ${skipped.join('; ')}.` : ''].filter(Boolean).join(' ')
         if (!done) undoLabel = undefined
@@ -144,7 +150,7 @@ export function AiChat({ onClose }: { onClose: () => void }) {
       // A review still works without the model: the measurements and their fixes.
       if (facts) { const review = buildReview(facts); patch(id, { pending: false, thinking: undefined, text: review.summary, review, note: `The AI couldn't answer (${message}), so this is the editor's own check.` }); return }
       patch(id, { pending: false, thinking: undefined, text: message, error: true })
-    } finally { setBusy(false); abort.current = null }
+    } finally { setBusy(false); setAsking(false); abort.current = null }
   }
 
   const undo = (label: string) => {
@@ -189,9 +195,9 @@ export function AiChat({ onClose }: { onClose: () => void }) {
           <div className="ai-input row">
             <textarea rows={2} value={text} placeholder="e.g. add a bus stop on each side" onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(text) } }} aria-label="Message" />
-            {busy
+            {asking
               ? <button className="sm" onClick={() => abort.current?.abort()} title="Stop the answer">■ Stop</button>
-              : <button className="primary sm" disabled={!text.trim()} onClick={() => send(text)}>Send</button>}
+              : <button className="primary sm" disabled={busy || !text.trim()} onClick={() => send(text)}>{busy ? 'Working…' : 'Send'}</button>}
           </div>
         </>
       )}

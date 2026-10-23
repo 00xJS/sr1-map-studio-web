@@ -70,7 +70,7 @@ export function heuristicPlan(text: string, seed = newSeed()): MapPlan {
   const notes: string[] = []
   if (/rain|storm|weather|night|dark|fog|dusk|dawn/.test(t)) { then.push({ do: 'set_weather', clear: false }); notes.push('weather and time of day that change each match') }
   if (/(central|centre|center|middle)\W+(\w+\W+){0,3}tower|tower\W+(\w+\W+){0,3}(middle|centre|center)/.test(t) && ALL_PREFABS.koth) {
-    then.push({ do: 'delete', near: [0, 0, 10] }, { do: 'add_prefab', key: 'koth', x: 0, z: 0 })
+    then.push({ do: 'delete', near: [0, 0, 16] }, { do: 'add_prefab', key: 'koth', x: 0, z: 0 })
     notes.push('a tower in the middle')
   }
   const options: WizardOptions = { setting, layout, players, density, seed, name: `${SETTINGS[setting].label} ${LAYOUTS[layout].label}` }

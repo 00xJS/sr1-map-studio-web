@@ -235,7 +235,7 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
       skipped.push(err instanceof Error ? err.message : String(err))
     }
   }
-  if (deletes.size) { act.removeItems([...deletes]); done += deletes.size }
+  if (deletes.size) { act.removeItems([...deletes]); useEditor.getState().select(null); done += deletes.size }
   // Everything this reply did is one step on the undo list.
   const now = useEditor.getState()
   if (now.past.length > start) useEditor.setState({ past: [...now.past.slice(0, start), { project: before, label }], future: [] })

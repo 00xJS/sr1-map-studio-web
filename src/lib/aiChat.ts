@@ -145,7 +145,7 @@ const EDITS = `{"do":"add_prefab","key":"bench","x":10,"z":-20,"turn":90,"settin
 {"do":"scale","index":3,"factor":1.5}
 {"do":"duplicate","index":3,"dx":10,"dz":0}
 {"do":"prefab_settings","index":3,"settings":{"h":30}}
-{"do":"delete","indices":[3,4]}   or by name, kind or area: {"do":"delete","name":"crate"}  {"do":"delete","near":[0,0,10]}
+{"do":"delete","indices":[3,4]}   or by name, kind or area: {"do":"delete","name":"crate"}  {"do":"delete","near":[0,0,16]}
 {"do":"select","name":"wall"}   (or "indices", "prefab":"lamp", "shape":"box"; to point things out)
 {"do":"paint","name":"building","texture":"red_brick","material":"side"}   (any target; "material" is optional: a material name or its current texture)
 {"do":"place_line","item":{"do":"add_prefab","key":"lamp"},"from":[-40,-60],"to":[40,-60],"count":5,"face":"along","mirror":true}
@@ -224,7 +224,7 @@ Answer with ONE JSON object and nothing else:
 Settings: ${Object.entries(SETTINGS).map(([k, s]) => `${k}: ${s.hint}`).join(' ')}
 Layouts: ${Object.entries(LAYOUTS).map(([k, l]) => `${k}: ${l.hint}`).join(' ')}
 Density: open, normal or packed (how much clutter).
-The generator makes a fair, point-symmetric map with spawns, weapons and lights already placed. Red's end is -Z, blue's +Z. The map is about W×W editor units with W = 2×sqrt(players×450) (8 players: 120; lanes is 1.2× longer and 1.2× narrower); keep edits within ±(W/2 - 8). The ground top is y 1. The middle (0,0) already has a centrepiece; to replace it, first {"do":"delete","near":[0,0,10]}.
+The generator makes a fair, point-symmetric map with spawns, weapons and lights already placed. Red's end is -Z, blue's +Z. The map is about W×W editor units with W = 2×sqrt(players×450) (8 players: 120; lanes is 1.2× longer and 1.2× narrower); keep edits within ±(W/2 - 8). The ground top is y 1. The middle (0,0) already has a centrepiece; to replace it, first {"do":"delete","near":[0,0,16]}.
 Use "then" only for what the generator can't do: rain or night ({"do":"set_weather","clear":false}), a particular centrepiece, more of something, textures. Use "mirror": true for anything off-centre.
 
 Edits:
