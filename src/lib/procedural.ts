@@ -6,7 +6,7 @@
 export type TextureKind =
   | 'concrete' | 'asphalt' | 'brick' | 'tiles' | 'metal_plate' | 'diamond_plate'
   | 'wood_planks' | 'grass' | 'dirt' | 'gravel' | 'sand'
-  | 'facade' | 'storefront' | 'garage_door' | 'hazard'
+  | 'facade' | 'storefront' | 'garage_door' | 'hazard' | 'matrix' | 'water'
 
 export interface GenParams {
   kind: TextureKind
@@ -41,6 +41,8 @@ export const KINDS: Record<TextureKind, KindInfo> = {
   facade: { label: 'Windows', surface: 0, color: '#b7a58a', accent: '#2e3b48', scale: 2, wear: 0.3, accentLabel: 'Glass', scaleLabel: 'Windows across' },
   storefront: { label: 'Storefront', surface: 15, color: '#2c2c30', accent: '#41617a', scale: 2, wear: 0.15, accentLabel: 'Glass', scaleLabel: 'Panes across' },
   garage_door: { label: 'Garage door', surface: 16, color: '#9aa0a6', accent: '#55595e', scale: 1, wear: 0.3, accentLabel: 'Grooves', scaleLabel: 'Doors across' },
+  water: { label: 'Water', surface: 20, color: '#1f5470', accent: '#7fb6c9', scale: 6, wear: 0.4, accentLabel: 'Glints', scaleLabel: 'Ripples' },
+  matrix: { label: 'Digital rain', surface: 15, color: '#020a04', accent: '#36ff6b', scale: 24, wear: 0.5, accentLabel: 'Glow', scaleLabel: 'Columns' },
   hazard: { label: 'Hazard stripes', surface: 15, color: '#e8b81c', accent: '#1d1d1f', scale: 4, wear: 0.3, accentLabel: 'Stripe', scaleLabel: 'Stripes' },
 }
 
@@ -274,6 +276,30 @@ function pattern(p: GenParams): Pixel {
       const c = stripe ? base : accent
       const worn = clamp01((fbm(u, v, 8, 4, s) - 0.6) * 4) * wear
       return mix(shade(c, 0.92 + 0.1 * noise(u, v, 256, 256, s + 1)), [120, 115, 105], worn * 0.6)
+    }
+    case 'water': return (u, v) => {
+      // Soft swells plus fine ripples that catch the light.
+      const swell = fbm(u, v, 3, 4, s)
+      const warp = fbm(u, v, n, 3, s + 1) * 1.5
+      const ripple = 0.5 + 0.5 * Math.sin((u * n * 2 + v * n + warp) * Math.PI * 2)
+      const glint = clamp01((ripple - 0.88) * 8) * (0.4 + wear)
+      const deep = shade(base, 0.8 + 0.35 * swell)
+      return mix(deep, accent, glint * 0.7 + ripple * 0.08)
+    }
+    case 'matrix': return (u, v) => {
+      // Columns of falling glyphs: each column has a bright head and a fading trail; rows wrap so it tiles.
+      const cols = Math.max(4, n), rows = cols
+      const cx = Math.floor(u * cols), cy = Math.floor(v * rows)
+      const fx = u * cols - cx, fy = v * rows - cy
+      const head = Math.floor(hash(cx, 11, s) * rows), trail = 4 + Math.floor(hash(cx, 13, s) * (6 + wear * 10))
+      const behind = (((head - cy) % rows) + rows) % rows
+      const glow = behind === 0 ? 1 : behind < trail ? Math.pow(1 - behind / trail, 1.4) : 0.05 + 0.07 * hash(cx, cy, s + 9)
+      // Each cell is a made-up 5 × 7 pixel glyph.
+      const gx = Math.floor(((fx - 0.14) / 0.72) * 5), gy = Math.floor(((fy - 0.08) / 0.84) * 7)
+      const on = gx >= 0 && gx < 5 && gy >= 0 && gy < 7 && hash(cx * 37 + cy * 101 + gx, gy + 17, s) < 0.46
+      if (!on) return shade(base, 1 + glow * 0.6)
+      const ink = behind === 0 ? mix(accent, [225, 255, 230], 0.75) : accent
+      return mix(base, ink, clamp01(glow * 1.1))
     }
     case 'sand': return (u, v) => {
       const warp = fbm(u, v, 4, 4, s) * 2

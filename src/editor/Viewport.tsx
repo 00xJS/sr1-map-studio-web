@@ -7,6 +7,7 @@ import { ToolOptions, ToolStrip, chooseTool } from './Tools'
 import { toast, toastError } from '../ui'
 import type { Vec3 } from '../lib/project'
 import { placeMyPrefab } from './myPrefabs'
+import type { WalkState } from './walk'
 
 let active: Viewer | null = null
 /** The editor's viewer (for camera center, snapping and thumbnails). */
@@ -74,10 +75,54 @@ function CameraPad() {
   )
 }
 
+const SPAWNS = ['Shared spawn', 'Red team spawn', 'Blue team spawn']
+
+/** Walk-through overlay: starts the walk at a spawn, shows the controls, hops between spawns. */
+function WalkHud() {
+  const [state, setState] = useState<WalkState>({ locked: false, third: false, running: false, height: 0 })
+  const [at, setAt] = useState(0)
+  const spawns = useEditor((s) => s.project?.markers.filter((m) => SPAWNS.includes(m.type)) ?? [])
+  const stop = () => useEditor.getState().set({ walking: false })
+  useEffect(() => {
+    const v = active
+    if (!v) return
+    const first = spawns[0]
+    const start: Vec3 = first ? first.position : [v.center()[0], v.surfaceBelow(v.center()[0], 1e4, v.center()[2]) ?? 1, v.center()[2]]
+    v.startWalk(start, first?.yaw ?? 0, stop, setState)
+    return () => v.stopWalk()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+  const go = (step: number) => {
+    if (!spawns.length) return
+    const i = (at + step + spawns.length) % spawns.length
+    setAt(i)
+    active?.walkTo(spawns[i].position, spawns[i].yaw ?? 0)
+  }
+  return (
+    <>
+      <div className="walk-crosshair" />
+      <div className="walk-hud">
+        <b>Walking the map</b>
+        <span className="small">{state.locked ? 'WASD move · Shift run · Space jump · V third person · R back to start · Esc frees the mouse' : 'Click the map to look around with the mouse'}</span>
+        <div className="row">
+          {spawns.length > 0 && <>
+            <button className="sm" onClick={() => go(-1)}>◀</button>
+            <span className="small">{spawns[at]?.type ?? 'Spawn'} {at + 1} of {spawns.length}</span>
+            <button className="sm" onClick={() => go(1)}>▶</button>
+          </>}
+          <span className="spacer" />
+          <button className="sm primary" onClick={stop}>Stop walking (Esc)</button>
+        </div>
+      </div>
+    </>
+  )
+}
+
 export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: File[]) => void; onSamples: () => void }) {
   const host = useRef<HTMLDivElement>(null)
   const project = useEditor((s) => s.project)
   const placeMode = useEditor((s) => s.placeMode)
+  const walking = useEditor((s) => s.walking)
   const [dropping, setDropping] = useState(false)
 
   useEffect(() => {
@@ -175,6 +220,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
       }}
     >
       <div ref={host} style={{ position: 'absolute', inset: 0 }} />
+      {walking ? <WalkHud /> : <>
       <ToolStrip />
       <ToolOptions />
       {placeMode && (
@@ -197,6 +243,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
       )}
       <CameraPad />
       <div className="viewport-hint">Left-drag: spin · Right-drag: slide · Scroll: zoom · Esc: back to Move</div>
+      </>}
     </div>
   )
 }

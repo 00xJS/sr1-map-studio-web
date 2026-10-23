@@ -84,7 +84,7 @@ interface Look {
 }
 
 const FACADES = [PB.brick, PB.oldBrick, PB.plaster, PB.beige, U.apartments, U.office, U.officeGreen, U.shopfront, U.projects]
-const NEON = [CY.cyan, CY.pink, CY.lime, CY.purple, CY.orange]
+const NEON = [CY.cyan, CY.pink, CY.lime, CY.purple, CY.orange, CY.matrix]
 const CAR_COLORS = ['#a8322b', '#2f5f8f', '#d8d4cc', '#2a2a2e', '#c9a23a', '#3f7a3a', '#7a7f86']
 
 const LOOKS: Record<WizardSetting, Look> = {
@@ -114,7 +114,7 @@ const LOOKS: Record<WizardSetting, Look> = {
     dress: ['snake', 'xbunker', 'maya', 'temple', 'cake', 'dorito', 'can', 'tombstone', 'palletwall', 'spool', 'tirestack', 'hay'],
   },
   cyber: {
-    theme: 'Cyber', ground: [CY.gridCyan, CY.gridPink, CY.gridPurple, CY.gridLime], wall: CY.panel, wallTop: CY.panelLight, wallH: 6,
+    theme: 'Cyber', ground: [CY.gridCyan, CY.gridPink, CY.gridPurple, CY.gridLime, CY.matrix], wall: CY.panel, wallTop: CY.panelLight, wallH: 6,
     structure: (r, x, z, w, d, h) => [{ ...box('Neon block', [w, Math.min(h, 14), d], [x, 1, z], CY.dark, r.pick(NEON)), big: true }],
     deck: { top: CY.panel, side: CY.purple },
     centre: ['datacore', 'neonpillar', 'lightgate'],

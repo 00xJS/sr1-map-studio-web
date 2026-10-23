@@ -24,7 +24,7 @@ export const U = {
   shopfront: { gen: 'tiles', tweak: { color: '#3d5c72', accent: '#2a2a2a', scale: 2, wear: 0.1, seed: 88 }, surface: 15 } as Tex,
   roof: { lib: 'gravel_concrete_03', surface: 12 } as Tex,
   slate: { lib: 'roof_slates_03', surface: 0 } as Tex,
-  water: { gen: 'tiles', tweak: { color: '#2a5d7a', accent: '#24506a', scale: 8, wear: 0.3, seed: 89 }, surface: 20 } as Tex,
+  water: { gen: 'water', tweak: { seed: 89 }, surface: 20 } as Tex,
   white: { gen: 'tiles', tweak: { color: '#e6e4de', accent: '#c9c6bd', scale: 1, wear: 0.1, seed: 94 }, surface: 0 } as Tex,
   marble: { lib: 'marble_01', surface: 13 } as Tex,
   stone: { lib: 'medieval_blocks_03', surface: 0 } as Tex,

@@ -5,7 +5,7 @@
 // "top" material, all others "side". Origin is the bottom center.
 import type { Vec3 } from './project'
 
-export type ShapeKind = 'box' | 'ramp' | 'stairs' | 'cylinder' | 'roof'
+export type ShapeKind = 'box' | 'ramp' | 'stairs' | 'cylinder' | 'roof' | 'blob'
 
 export interface Shape {
   kind: ShapeKind
@@ -21,6 +21,8 @@ export interface Shape {
   bevel?: number
   /** Cylinder: lying on its side, its length along X (wheels, logs, pipes). Size stays width (length) × height × depth. */
   lie?: boolean
+  /** Blob: the outline as [x, z] points round the middle (each visible from the centre), extruded up by the height. */
+  outline?: [number, number][]
 }
 
 export interface ShapePreset { label: string; shape: Shape; hint: string }
@@ -131,6 +133,20 @@ function faces(s: Shape): Face[] {
       for (let i = 0; i < n; i++) {
         const za = z1 - (d * i) / n, zb = z1 - (d * (i + 1)) / n
         out.push(...boxFaces(x0, x1, 0, (h * (i + 1)) / n, zb, za))
+      }
+      return out
+    }
+    case 'blob': {
+      // A flat organic slab (pond, lawn, puddle): fans from the middle so any outline seen from the centre works.
+      const ring = s.outline?.length ? s.outline : [[-w / 2, -d / 2], [w / 2, -d / 2], [w / 2, d / 2], [-w / 2, d / 2]] as [number, number][]
+      const n = ring.length
+      const c: V = [0, h / 2, 0]
+      const out: Face[] = []
+      for (let i = 0; i < n; i++) {
+        const [ax, az] = ring[i], [bx, bz] = ring[(i + 1) % n]
+        out.push({ pts: outward([[0, h, 0], [ax, h, az], [bx, h, bz]], [0, -1e6, 0]), top: true })
+        out.push({ pts: outward([[0, 0, 0], [ax, 0, az], [bx, 0, bz]], [0, 1e6, 0]), top: false })
+        out.push({ pts: outward([[ax, 0, az], [bx, 0, bz], [bx, h, bz], [ax, h, az]], c), top: false })
       }
       return out
     }

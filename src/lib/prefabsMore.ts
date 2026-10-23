@@ -1,7 +1,7 @@
 // More prefabs, by theme, for building fun game maps: paintball fields, cyber
 // arenas, obstacle courses, king-of-the-hill towers, forts, street scenes.
 // Each is one object (a group) placed with its base at y and turned by rot.
-import { CY, PB, box, cyl, lying, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
+import { CY, PB, blob, box, cyl, lying, organic, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
 import { group, local, wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
 
 const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
@@ -26,6 +26,22 @@ const N = (p: Params) => NEON_TEX[String(p.color)] ?? CY.cyan
 
 const STONE: Tex = { lib: 'medieval_blocks_03', surface: 0 }
 const SLATE: Tex = { lib: 'roof_slates_03', surface: 0 }
+const POND_WATER: Tex = { gen: 'water', tweak: { color: '#2a5a52', accent: '#9cc4b8', seed: 340 }, surface: 20 }
+const MUD: Tex = { gen: 'dirt', tweak: { color: '#4a3a2a', accent: '#2e241a', wear: 0.4, seed: 338 } }
+const REED: Tex = { gen: 'grass', tweak: { color: '#5d7a2c', accent: '#3d5a1c', scale: 2, wear: 0.2, seed: 339 }, surface: 7 }
+
+/** A pond with a natural edge: a muddy bank, the water, rocks and reeds round the rim. */
+export function pondParts(L: (dx: number, dy: number, dz: number) => [number, number, number], w: number, d: number, seed: number): Part[] {
+  const edge = organic(w, d, seed)
+  const bank = edge.map(([x, z]): [number, number] => [+(x * 1.12 + Math.sign(x) * 0.6).toFixed(3), +(z * 1.12 + Math.sign(z) * 0.6).toFixed(3)])
+  const out: Part[] = [blob('Pond bank', bank, 0.06, L(0, 0, 0), MUD, MUD, 4), blob('Pond', edge, 0.14, L(0, 0, 0), POND_WATER, MUD, 8)]
+  edge.forEach(([x, z], i) => {
+    if (i % 3 === 0) out.push({ ...cyl('Rock', 1 + ((i * 7) % 5) * 0.25, 0.5 + ((i * 3) % 4) * 0.15, L(x * 1.08, 0, z * 1.08), ROCK, ROCK, 7), taper: 0.6 })
+    else if (i % 3 === 1) out.push(...[0, 1, 2].map((k) => cyl('Reed', 0.12, 1.4 + k * 0.4, L(x * 1.05 + k * 0.25, 0, z * 1.05 - k * 0.2), REED, REED, 4)))
+  })
+  return out
+}
+
 const ROCK: Tex = { lib: 'rock_face_03', surface: 0 }
 const LEAVES: Tex = { gen: 'grass', tweak: { color: '#2f5e22', accent: '#4c7a2a', scale: 3, wear: 0.2, seed: 84 }, surface: 7 }
 const PALM: Tex = { gen: 'grass', tweak: { color: '#3f7a2a', accent: '#8a9a3a', scale: 6, wear: 0.3, seed: 350 }, surface: 7 }
@@ -129,6 +145,11 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
     { ...cyl('Rock', 4, 2.4, L(0, 0, 0), ROCK, ROCK, 6, 10), taper: 0.5 }, { ...cyl('Rock', 2.6, 1.6, L(3, 0, 1), ROCK, ROCK, 5, 40), taper: 0.4 },
     { ...cyl('Rock', 1.8, 1, L(-2.4, 0, 1.6), ROCK, ROCK, 5, 70), taper: 0.5 },
   ]) },
+  pond: { category: 'Nature', label: 'Pond', hint: 'A pond with a natural edge, rocks and reeds', ...pfp('Pond', [
+    { key: 'w', label: 'Width', kind: 'number', min: 6, max: 80, step: 1, default: 24 },
+    { key: 'd', label: 'Depth', kind: 'number', min: 6, max: 80, step: 1, default: 16 },
+    { key: 'shape', label: 'Shape', kind: 'number', min: 1, max: 99, step: 1, default: 7 },
+  ], (L, p) => pondParts(L, +p.w, +p.d, +p.shape)) },
   boulder: { category: 'Nature', label: 'Boulder', hint: 'A big boulder to hide behind', make: pf('Boulder', (L) => [
     { ...cyl('Boulder', 7, 2.5, L(0, 0, 0), ROCK, ROCK, 7, 15), taper: 1.15 }, { ...cyl('Boulder', 8, 2.5, L(0, 2.5, 0), ROCK, ROCK, 7, 35), taper: 0.45 },
   ]) },

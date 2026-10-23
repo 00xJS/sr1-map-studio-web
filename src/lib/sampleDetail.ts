@@ -9,7 +9,9 @@ import type { Part, Sample, Tex } from './sampleKit'
 import { CY, PB } from './sampleKit'
 import { U } from './urbanKit'
 import { bench, building, car, dumpster, group, tagPrefab, type Style } from './prefabs'
-import { box } from './sampleKit'
+import { box, lying } from './sampleKit'
+
+const HUB: Tex = { gen: 'metal_plate', tweak: { color: '#b9bcc0', accent: '#8d9094', scale: 1, wear: 0, seed: 336 }, surface: 15 }
 
 const BUILDING_LABELS = /^(Building|Warehouse|Courthouse|Mall|Store|Car wash|Station|Park office|School|Ticket hall|Tower|Control room|Stair bulkhead)$/
 const LABEL_STYLE: Record<string, Style> = {
@@ -40,7 +42,10 @@ function bus(p: Part): Part[] {
     { ...box('Bus body', [w, h - 0.6, len], at(0, 0.6, 0), p.top, p.side, rot), bevel: 0.4 },
     box('Bus windows', [w + 0.1, 1.4, len - 3], at(0, h - 2.4, -0.5), glass, glass, rot),
     ...[[-w / 2 + 0.3, len / 2 - 3], [w / 2 - 0.3, len / 2 - 3], [-w / 2 + 0.3, -len / 2 + 3], [w / 2 - 0.3, -len / 2 + 3]]
-      .map(([a, b]) => ({ ...box('Wheel', [0.7, 1.5, 1.5], at(a, 0, b), PB.tire, PB.tire, rot), bevel: 0.3 })),
+      .flatMap(([a, b]) => [
+        lying('Wheel', 1.5, 0.7, at(a, 0, b), PB.tire, PB.tire, 14, rot),
+        lying('Hubcap', 0.8, 0.76, at(a, 0.35, b), HUB, HUB, 10, rot),
+      ]),
   ])
 }
 

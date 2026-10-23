@@ -71,6 +71,7 @@ function useShortcuts() {
       const t = e.target as HTMLElement
       const typing = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT'
       const st = useEditor.getState()
+      if (st.walking) return
       const mod = e.ctrlKey || e.metaKey
       if (mod && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? st.redo() : st.undo() }
       else if (mod && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); st.redo() }
@@ -268,6 +269,7 @@ function TopBar({ onPublish, onPlay, onTour, onAi }: { onPublish: () => void; on
         { label: 'Take the tour', run: onTour },
         { label: 'Keyboard & mouse', run: () => void confirmDialog('Keyboard & mouse', KEYS_HELP, { confirm: 'Got it', cancel: null }) },
       ]} />
+      <button className="sm" onClick={() => st().set({ walking: !st().walking, selection: null, multi: [] })} title="Walk the map at player height, like in the game">🚶 Walk</button>
       <button className="sm" onClick={onAi} title="Describe a change in your own words">✨ Ask AI</button>
       <button className="primary" data-tour="play" onClick={onPlay}>▶ Play</button>
     </div>

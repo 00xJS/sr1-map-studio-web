@@ -35,6 +35,8 @@ interface EditorState {
   step: number
   /** Gizmo moves in `step` units and rotates in 15° steps. */
   snap: boolean
+  /** Walking the map at player height (the walk-through). */
+  walking: boolean
   wireframe: boolean
   collisionView: 'off' | 'faces'
   soloMaterial: string | null
@@ -82,6 +84,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   gizmo: 'translate',
   step: 0.5,
   snap: false,
+  walking: false,
   wireframe: false,
   collisionView: 'off',
   soloMaterial: null,

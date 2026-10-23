@@ -331,3 +331,10 @@ button.big { padding: 12px; font-size: 15px; }
 .ai-msg.error { color: var(--bad); }
 .ai-input { padding: 8px; border-top: 1px solid var(--line); gap: 6px; align-items: flex-end; }
 .ai-input textarea { flex: 1; resize: none; }
+
+/* Walk-through */
+.walk-crosshair { position: absolute; left: 50%; top: 50%; width: 14px; height: 14px; margin: -7px 0 0 -7px; pointer-events: none; z-index: 5; }
+.walk-crosshair::before, .walk-crosshair::after { content: ''; position: absolute; background: rgba(255, 255, 255, 0.85); }
+.walk-crosshair::before { left: 6px; top: 0; width: 2px; height: 14px; }
+.walk-crosshair::after { top: 6px; left: 0; height: 2px; width: 14px; }
+.walk-hud { position: absolute; left: 50%; bottom: 16px; transform: translateX(-50%); width: min(560px, calc(100% - 32px)); background: rgba(12, 11, 15, 0.82); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px 12px; display: flex; flex-direction: column; gap: 6px; z-index: 6; }

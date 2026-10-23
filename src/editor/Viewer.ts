@@ -6,6 +6,7 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import type { MinimapRect } from '../lib/minimap'
+import { Walker, type WalkState } from './walk'
 import type { ObjModel } from '../lib/geometry'
 import { loadModel, peekModel, textureUrl } from '../lib/assets'
 import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
@@ -133,6 +134,7 @@ export class Viewer {
   }
 
   dispose() {
+    this.stopWalk()
     cancelAnimationFrame(this.raf)
     this.resizeObs.disconnect()
     // TransformControls.dispose() in r169 assumes an Object3D; detach manually.
@@ -148,6 +150,13 @@ export class Viewer {
 
   private loop = () => {
     this.raf = requestAnimationFrame(this.loop)
+    if (this.walker) {
+      const now = performance.now()
+      this.walker.step((now - this.lastFly) / 1000)
+      this.lastFly = now
+      this.renderer.render(this.scene, this.camera)
+      return
+    }
     const moved = this.flyStep()
     const damped = this.orbit.update()
     if (this.needsRender || moved || damped || this.dragging) {
@@ -246,6 +255,60 @@ export class Viewer {
     return { point: hit.point.toArray() as Vec3, item: index, face }
   }
 
+  // ---------------- walk-through ----------------
+
+  private walker: Walker | null = null
+  private beforeWalk: { pos: THREE.Vector3; target: THREE.Vector3; fov: number; hidden: [THREE.Object3D, boolean][] } | null = null
+
+  get walking() { return !!this.walker }
+
+  /** Solid scene objects the walker bumps into (not ones marked pass-through). */
+  private solids(): THREE.Object3D[] {
+    const out: THREE.Object3D[] = []
+    for (const it of this.project?.scene_items ?? []) {
+      if (it.collision_disabled) continue
+      const n = this.items.get(it.uid)
+      if (n?.mesh && n.group.visible) out.push(n.mesh)
+    }
+    return out
+  }
+
+  /** Puts the camera at player height at `at` (a spawn, say) and hands the controls to the walker. */
+  startWalk(at: Vec3, yaw: number, onExit: () => void, onState?: (s: WalkState) => void) {
+    this.stopWalk()
+    const hidden: [THREE.Object3D, boolean][] = [this.grid, this.box, this.lightRoot, this.gizmo.getHelper(), this.pivot].map((o) => [o, o.visible])
+    hidden.forEach(([o]) => { o.visible = false })
+    this.beforeWalk = { pos: this.camera.position.clone(), target: this.orbit.target.clone(), fov: this.camera.fov, hidden }
+    this.orbit.enabled = false
+    this.gizmo.enabled = false
+    this.camera.fov = 70
+    this.camera.near = 0.05
+    this.camera.updateProjectionMatrix()
+    const solids = this.solids()
+    this.walker = new Walker({ camera: this.camera, scene: this.scene, canvas: this.renderer.domElement, solids: () => solids }, at, yaw, onExit)
+    this.walker.onState = onState
+    this.lastFly = performance.now()
+  }
+
+  /** Moves the walker to another spot without leaving the walk. */
+  walkTo(at: Vec3, yaw: number) { this.walker?.respawn(at, yaw) }
+
+  stopWalk() {
+    if (!this.walker) return
+    this.walker.dispose()
+    this.walker = null
+    const b = this.beforeWalk!
+    b.hidden.forEach(([o, v]) => { o.visible = v })
+    this.camera.position.copy(b.pos)
+    this.orbit.target.copy(b.target)
+    this.camera.fov = b.fov
+    this.camera.updateProjectionMatrix()
+    this.orbit.enabled = true
+    this.gizmo.enabled = true
+    this.beforeWalk = null
+    this.requestRender()
+  }
+
   /** World box of one scene object, or null while it is loading. */
   itemBounds(index: number): [Vec3, Vec3] | null {
     const it = this.project?.scene_items[index]
@@ -269,7 +332,7 @@ export class Viewer {
   }
 
   private click(x: number, y: number, additive = false) {
-    if (this.opts.readOnly) return
+    if (this.opts.readOnly || this.walker) return
     const rc = new THREE.Raycaster()
     rc.setFromCamera(this.ndc(x, y), this.camera)
     // Markers and lights first: they are small and sit on top of geometry.

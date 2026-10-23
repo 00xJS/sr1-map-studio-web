@@ -7,12 +7,17 @@
 import type { Vec3 } from './project'
 import { ALL_MODES, CY, LIGHT, PB, box, cyl, ground, mirror, mirrorLights, perimeter, teamMarkers, type Part, type Sample, type Tex } from './sampleKit'
 import { G, S, U, awning, barrier, bench, billboard, bldg, busStop, car, climb, crosswalk, dumpster, fence, hydrant, lamp, lampLight, piece, planter, slope, tree } from './urbanKit'
+import { ALL_PREFABS } from './prefabRegistry'
+import { tagPrefab } from './prefabs'
 
 const meta = { theme: 'Urban' as const, modes: ALL_MODES, size: 'full' as const, added: '2026-10-22' }
 const lamps = (spots: [number, number, number?][]): Part[] => spots.flatMap(([x, z, y]) => lamp(x, z, y ?? S))
 const lampLights = (spots: [number, number, number?][], c: Vec3 = LIGHT.warm) => mirrorLights(...spots.map(([x, z, y]) => lampLight(x, z, y ?? S, c)))
 const pad = (x: number, z: number, w: number, d: number, tex: Tex = U.walk) => box('Sidewalk', [w, 0.3, d], [x, G, z], tex, PB.concrete, 0, 4)
 const water = (x: number, z: number, w: number, d: number, y = G) => box('Water', [w, 0.12, d], [x, y, z], U.water, U.water, 0, 8)
+/** A natural pond (one object, editable as the Pond prefab). */
+const pond = (x: number, z: number, w: number, d: number, shape: number, y = G): Part[] =>
+  tagPrefab(ALL_PREFABS.pond.make(x, z, 0, y, { w, d, shape }), 'pond', { w, d, shape }, [x, y, z], 0)
 const truck = (x: number, z: number, rot: number, color: string, seed: number): Part[] => [
   box('Truck trailer', [5, 6, 18], [x, G, z], PB.steel, PB.car(color, seed), rot),
 ]
@@ -104,7 +109,7 @@ export const URBAN: Sample[] = [
       ...[0, 60, 120, 180, 240, 300].map((a) => cyl('Gazebo post', 0.8, 5, [+(6 * Math.cos(a * Math.PI / 180)).toFixed(2), G + 1.15, +(6 * Math.sin(a * Math.PI / 180)).toFixed(2)], PB.wood, PB.wood, 8)),
       cyl('Gazebo roof', 16, 1, [0, G + 6.15, 0], U.slate, PB.wood, 8),
       ...mirror(
-        water(-50, -50, 40, 24),
+        ...pond(-50, -50, 40, 24, 3),
         ...[[-80, -80], [-60, -84], [-20, -70], [20, -84], [40, -60], [70, -76], [86, -40], [60, -20], [24, -30], [-30, -24], [-74, -30], [-86, -60]].flatMap(([x, z]) => tree(x, z, G, 1.2)),
         bench(-14, -30, 90, G), bench(14, -50, 90, G), bench(-40, -6, 0, G), bench(40, -6, 0, G),
         box('Slide tower', [5, 4, 5], [60, G, -50], PB.red, PB.yellow), slope(60, -41.5, 3, 4, 12, 180, G, PB.yellow, PB.yellow), climb(60, -55, 4, 5, 0, G, 3, PB.blue),
@@ -247,7 +252,7 @@ export const URBAN: Sample[] = [
         box('Driveway', [8, 0.08, 20], [-20, G, -30], PB.concrete, PB.concrete, 90), box('Driveway', [8, 0.08, 20], [20, G, -50], PB.concrete, PB.concrete, 90),
         car(-22, -30, 90, '#b8322a', 131), car(22, -50, 90, '#2a5ab8', 132), car(10, -80, 0, '#d0d0d0', 133),
         fence(-60, -50, 40, 90, 2, PB.wood), fence(-40, -10, 30, 0, 2, PB.wood), fence(60, -80, 40, 0, 2, PB.wood),
-        water(70, -80, 14, 8, G), ...[[-64, -14], [70, -30], [-90, -50], [30, -88], [80, -10]].flatMap(([x, z]) => tree(x, z, G)),
+        ...pond(70, -80, 14, 8, 11), ...[[-64, -14], [70, -30], [-90, -50], [30, -88], [80, -10]].flatMap(([x, z]) => tree(x, z, G)),
         box('Mailbox', [0.6, 1.4, 0.6], [-14, G, -24], PB.steel), box('Mailbox', [0.6, 1.4, 0.6], [14, G, -44], PB.steel),
         box('Trampoline', [6, 1, 6], [-74, G, -64], PB.black),
         ...lamps([[-12, -60, G], [12, -20, G]]),

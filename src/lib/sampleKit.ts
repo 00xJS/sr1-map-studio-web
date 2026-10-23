@@ -28,6 +28,8 @@ export interface Part {
   bevel?: number
   /** Cylinder lying on its side along X (see Shape.lie). */
   lie?: boolean
+  /** Blob outline (see Shape.outline). */
+  outline?: [number, number][]
   /** Parts with the same group are exported as one object (a prefab). */
   group?: string
   /** The prefab these parts were made by, so the editor can rebuild it with new settings. */
@@ -69,6 +71,23 @@ export const cyl = (label: string, d: number, h: number, at: Vec3, top: Tex, sid
 /** A cylinder on its side, `len` long along X and `d` across: wheels, logs, pipes. */
 export const lying = (label: string, d: number, len: number, at: Vec3, top: Tex, side: Tex = top, sides = 16, rot = 0): Part =>
   ({ label, kind: 'cylinder', size: [len, d, d], at, top, side, segments: sides, rot, tile: 4, lie: true })
+/** A flat slab with an organic outline ([x, z] points round its middle), `h` thick. */
+export function blob(label: string, outline: [number, number][], h: number, at: Vec3, top: Tex, side: Tex = top, tile = 6): Part {
+  const xs = outline.map((p) => p[0]), zs = outline.map((p) => p[1])
+  const w = 2 * Math.max(...xs.map(Math.abs)), d = 2 * Math.max(...zs.map(Math.abs))
+  return { label, kind: 'blob', size: [w, h, d], at, top, side, tile, outline }
+}
+
+/** A natural, wobbly outline about w × d across; the same seed gives the same shape. */
+export function organic(w: number, d: number, seed: number, points = 28, wobble = 0.16): [number, number][] {
+  const s1 = seed * 1.7, s2 = seed * 2.9, s3 = seed * 0.6
+  return [...Array(points)].map((_, i) => {
+    const a = (i / points) * Math.PI * 2
+    const r = 1 + wobble * (Math.sin(3 * a + s1) * 0.6 + Math.sin(5 * a + s2) * 0.3 + Math.sin(2 * a + s3) * 0.5) / 1.4
+    return [+(Math.cos(a) * (w / 2) * r).toFixed(3), +(Math.sin(a) * (d / 2) * r).toFixed(3)]
+  })
+}
+
 /** A ground slab w × d, 1 thick, top at y 1. */
 export const ground = (w: number, d: number, top: Tex, side: Tex = top, tile = 6): Part => box('Ground', [w, 1, d], [0, 0, 0], top, side, 0, tile)
 
@@ -183,6 +202,8 @@ export const PB = {
 
 /** Cyber: dark floors with glowing grid lines, steel panels and solid neon blocks. */
 export const CY = {
+  /** Falling green code, like a certain film. */
+  matrix: { gen: 'matrix', tweak: { seed: 61 }, surface: 15 } as Tex,
   gridCyan: grid('#00e5ff', 21),
   gridPink: grid('#ff2bd6', 22),
   gridLime: grid('#39ff88', 23),
