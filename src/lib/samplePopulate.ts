@@ -5,7 +5,7 @@
 // red (−Z) and blue (+Z) get the same chances.
 import type { Vec3 } from './project'
 import type { MarkerSpec, Sample, Theme } from './sampleKit'
-import { blocker, support } from './sampleScale'
+import { blocker, over, support } from './sampleScale'
 import { prepareMap } from './analysis/analyze'
 import { nodeNear, PLAYER } from './analysis/floor'
 import { sampleInput } from './analysis/sampleInput'
@@ -29,18 +29,63 @@ const flip = (p: Vec3): Vec3 => [-p[0], p[1], -p[2]]
 const d2 = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[2] - b[2]) + Math.abs(a[1] - b[1]) * 2
 const lookAtCenter = (p: Vec3) => +((Math.atan2(-p[0], p[2]) * 180) / Math.PI).toFixed(1)
 
-/** Spots players can stand on: a 4-unit grid over the map, at the heights the map's own markers use (known to be reachable). */
-export function candidates(s: Sample): Vec3[] {
+/**
+ * Spots players can stand on: a 4-unit grid over the map, at the heights the map's own markers use, joined
+ * to one of those markers (known to be reachable) over open floor, so nothing lands on a roof or a prop top
+ * nobody can climb. `floor` is what counts as floor (default: every part; the samples pass the map from
+ * before dressing, so nothing stands on a dressed prop).
+ */
+export function candidates(s: Sample, floor: Sample['parts'] = s.parts): Vec3[] {
   const heights = [...new Set(s.markers.map(([, p]) => p[1]))]
   const xs = s.parts.flatMap((p) => [p.at[0] - p.size[0], p.at[0] + p.size[0]])
   const zs = s.parts.flatMap((p) => [p.at[2] - p.size[2], p.at[2] + p.size[2]])
   const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)]
-  const out: Vec3[] = []
+  const open = (p: Vec3) => support(floor, p) >= 0 && !blocker(s.parts, p)
+  const spots = new Map<string, Vec3>()
+  const key = (x: number, y: number, z: number) => `${x},${y},${z}`
   for (let x = Math.ceil(x0 / 4) * 4; x <= x1; x += 4) for (let z = Math.ceil(z0 / 4) * 4; z <= z1; z += 4) for (const y of heights) {
     const p: Vec3 = [x, y, z]
-    if (support(s.parts, p) >= 0 && !blocker(s.parts, p)) out.push(p)
+    if (open(p)) spots.set(key(x, y, z), p)
   }
-  return out
+  // Walk out from the markers to neighbouring spots, across floor (or a gap small enough to step over) with nothing in the way.
+  const seen = new Set<string>(), queue: Vec3[] = []
+  for (const [, m] of s.markers) for (const p of spots.values()) {
+    const k = key(...p)
+    if (p[1] === m[1] && Math.hypot(p[0] - m[0], p[2] - m[2]) <= 4.5 && !seen.has(k)) { seen.add(k); queue.push(p) }
+  }
+  const way = (a: Vec3, dx: number, dz: number, t: number): Vec3 => [a[0] + dx * t, a[1], a[2] + dz * t]
+  while (queue.length) {
+    const a = queue.pop()!
+    for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
+      const k = key(a[0] + dx * 4, a[1], a[2] + dz * 4), b = spots.get(k)
+      if (!b || seen.has(k) || blocker(s.parts, way(a, dx, dz, 2))) continue
+      if (support(floor, way(a, dx, dz, 2)) < 0 && (support(floor, way(a, dx, dz, 1)) < 0 || support(floor, way(a, dx, dz, 3)) < 0)) continue
+      seen.add(k); queue.push(b)
+    }
+  }
+  return [...spots.entries()].filter(([k]) => seen.has(k)).map(([, p]) => p)
+}
+
+/** How far a spawn at p sees along a heading at eye height before something solid is in the way (up to `max`). */
+function view(parts: Sample['parts'], p: Vec3, yaw: number, max: number): number {
+  const t = (yaw * Math.PI) / 180, eye = p[1] + 3.2
+  for (let d = 1; d <= max; d += 0.5) {
+    const x = p[0] + Math.sin(t) * d, z = p[2] - Math.cos(t) * d
+    if (parts.some((q) => q.kind !== 'terrain' && !q.water && q.size[1] > 0.3 && q.at[1] < eye && q.at[1] + q.size[1] > eye - 0.4 && over(q, x, z, 0))) return d
+  }
+  return max
+}
+
+/** A spawn facing a wall turns to the nearest heading with a few metres of open view (point-symmetric maps stay symmetric). */
+function aim(parts: Sample['parts'], p: Vec3, yaw: number): number {
+  if (view(parts, p, yaw, 8) >= 8) return yaw
+  let best = yaw, far = 0
+  for (let k = 1; k <= 12; k++) for (const sign of [1, -1]) {
+    const y = yaw + sign * k * 15, d = view(parts, p, y, 8)
+    if (d >= 8) return +(((y + 540) % 360) - 180).toFixed(1)
+    if (d > far) { far = d; best = y }
+  }
+  return +(((best + 540) % 360) - 180).toFixed(1)
 }
 
 /** Farthest-point picks: each new spot is as far as possible from everything already taken (and its mirror is clear too). */
@@ -72,7 +117,8 @@ function openYaw(bvh: Bvh, p: Vec3, yaw: number): number {
   return yaw
 }
 
-export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS): Sample {
+/** `floor`: the map's floor before dressing (see candidates). */
+export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sample['parts'] = s.parts): Sample {
   // Only spots a player can walk to from the map's own spawns: not the top of a tall crate or a ledge with no way up.
   const walk = s.markers.length ? prepareMap(sampleInput(s), { cell: 2 }) : null
   const reached = (p: Vec3) => {
@@ -81,7 +127,7 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS): Sample {
     const P = walk.g.grid.pos
     return n >= 0 && walk.g.grid.reachable[n] === 1 && Math.abs(P[n * 3 + 1] - p[1]) < 0.6 && Math.hypot(P[n * 3] - p[0], P[n * 3 + 2] - p[2]) <= 1.5
   }
-  const pool = candidates(s).filter((p) => reached(p) && reached(flip(p)))
+  const pool = candidates(s, floor).filter((p) => reached(p) && reached(flip(p)))
   if (!pool.length) return s
   const zs = pool.map((p) => p[2])
   const depth = Math.max(...zs) - Math.min(...zs)
@@ -117,9 +163,11 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS): Sample {
   // Weapons: scattered everywhere, not on top of spawns; the strongest closest to the middle.
   const weaponNeed = Math.max(0, t.weapons - of('Weapon pickup').length)
   const away = spawns()
-  const spots = pick(pool, [...of('Weapon pickup'), ...away], Math.ceil(weaponNeed / 2), 10,
-    (p) => (p[2] < 0 || (p[2] === 0 && p[0] < 0)) && away.every((a) => d2(a, p) > 8), s.parts)
-    .sort((a, b) => Math.hypot(a[0], a[2]) - Math.hypot(b[0], b[2]))
+  const weaponOk = (p: Vec3) => (p[2] < 0 || (p[2] === 0 && p[0] < 0)) && away.every((a) => d2(a, p) > 8)
+  let spots = pick(pool, [...of('Weapon pickup'), ...away], Math.ceil(weaponNeed / 2), 10, weaponOk, s.parts)
+  // Closer together on small maps, if that's what it takes.
+  if (spots.length < Math.ceil(weaponNeed / 2)) spots = [...spots, ...pick(pool, [...of('Weapon pickup'), ...away, ...spots, ...spots.map(flip)], Math.ceil(weaponNeed / 2) - spots.length, 6, weaponOk, s.parts)]
+  spots.sort((a, b) => Math.hypot(a[0], a[2]) - Math.hypot(b[0], b[2]))
   const weapons = s.theme === 'Cyber' ? CYBER_POOL : URBAN_POOL
   spots.forEach((p, i) => {
     const id = weapons[i % weapons.length]
@@ -136,8 +184,8 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS): Sample {
     lights.push([[p[0], p[1] + 7, p[2]], c], [[-p[0], p[1] + 7, -p[2]], c])
   })
 
+  const aimed = markers.map(([type, p, patch]): MarkerSpec => (/spawn/i.test(type) ? [type, p, { ...patch, yaw: aim(s.parts, p, patch?.yaw ?? 0) }] : [type, p, patch]))
   // Nobody starts nose to a wall: spawns looking into one turn toward the nearest open view.
-  const faced = walk ? markers.map(([type, p, m]): MarkerSpec => (m?.yaw !== undefined && /spawn/.test(type) ? [type, p, { ...m, yaw: openYaw(walk.bvh, p, m.yaw) }] : [type, p, m])) : markers
-
+  const faced = walk ? aimed.map(([type, p, m]): MarkerSpec => (m?.yaw !== undefined && /spawn/.test(type) ? [type, p, { ...m, yaw: openYaw(walk.bvh, p, m.yaw) }] : [type, p, m])) : aimed
   return { ...s, markers: faced, lights: lights.slice(0, 64) }
 }

@@ -9,13 +9,13 @@ import { KINDS, defaultParams, generate } from './procedural'
 import { pixelsToPng } from './images'
 import { storeFile } from './files'
 import { tagRecipe } from './recipes'
-import { ALL_MODES, GB, box, turn, type Part, type Sample, type Tex, type Theme } from './sampleKit'
-import { PAINTBALL } from './samplesPaintball'
+import { ALL_MODES, GB, PB, box, turn, type Part, type Sample, type Tex, type Theme } from './sampleKit'
+import { PAINTBALL, poster, put } from './samplesPaintball'
 import { CYBER } from './samplesCyber'
 import { URBAN } from './samplesUrban'
 import { mapSize, spreadSample } from './sampleScale'
-import { FULL_TARGETS, populate } from './samplePopulate'
-import { DENSE, LIGHT_DRESS, dress } from './sampleDress'
+import { FULL_TARGETS, populate, type PopulateTargets } from './samplePopulate'
+import { DENSE, LIGHT_DRESS, dress, type DressOptions } from './sampleDress'
 import { detailize } from './sampleDetail'
 import { cyberLife } from './prefabsCyberLife'
 
@@ -41,6 +41,8 @@ const T = {
   grass: { gen: 'grass' } as Tex,
 }
 
+const DOOR: Tex = { gen: 'garage_door', tweak: { seed: 322 } }
+
 /** Four spawns per team on opposite sides, facing each other. */
 const teams = (x: number, y: number, zs: number[]): [string, Vec3, Partial<Marker>?][] => [
   ...zs.map((z): [string, Vec3, Partial<Marker>] => ['Red team spawn', [-x, y, z], { yaw: 90 }]),
@@ -62,7 +64,7 @@ const STARTER: Sample[] = [
     markers: [['Shared spawn', [-25, 1, -25]], ['Shared spawn', [25, 1, -25]], ['Shared spawn', [-25, 1, 25]], ['Shared spawn', [25, 1, 25]], weapon('ak47', [0, 1, 0])],
   },
   {
-    id: 'arena', theme: 'Starter', name: 'Arena', icon: '🏟', modes: ALL_MODES,
+    id: 'arena', theme: 'Starter', name: 'Arena', icon: '🏟', modes: ALL_MODES, ambience: 'amb_mp_arena',
     description: 'Walled square with a raised center platform, four ramps, pillars and cover. Set up for every mode.',
     parts: [
       box('Floor', [100, 1, 100], [0, 0, 0], T.floorWorn, T.concrete),
@@ -77,6 +79,8 @@ const STARTER: Sample[] = [
       { label: 'Ramp', kind: 'ramp', size: [6, 4, 12], at: [-14, 1, 0], rot: -90, top: T.wood, side: T.darkConcrete },
       ...[[-30, -30], [30, -30], [-30, 30], [30, 30]].map(([x, z]): Part => ({ label: 'Pillar', kind: 'cylinder', size: [3, 10, 3], at: [x, 1, z], top: T.concrete, side: T.oldBrick, segments: 16 })),
       ...[[-20, 10], [20, -10], [10, 25], [-10, -25]].map(([x, z]) => box('Box', [4, 3, 4], [x, 1, z], T.plywood, T.plywood, 0, 3)),
+      // Floodlights in the corners, facing the middle.
+      ...([[-46, -46, 45], [46, -46, 315], [46, 46, 225], [-46, 46, 135]] as const).flatMap(([x, z, r]) => put('floodlight', x, z, r)),
     ],
     markers: [
       ...[[-40, -40], [40, -40], [-40, 40], [40, 40], [0, -40], [0, 40], [-40, 0], [40, 0]].map(([x, z]): [string, Vec3] => ['Shared spawn', [x, 1, z]]),
@@ -89,7 +93,7 @@ const STARTER: Sample[] = [
     lights: [[[0, 12, 0], [1, 0.85, 0.65]], [[-30, 12, -30]], [[30, 12, 30]]],
   },
   {
-    id: 'warehouse', theme: 'Starter', name: 'Warehouse', icon: '🏭', modes: ALL_MODES,
+    id: 'warehouse', theme: 'Starter', name: 'Warehouse', icon: '🏭', modes: ALL_MODES, ambience: 'amb_mp_ptp_02',
     description: 'Indoor hall with corrugated walls, crate stacks, support columns and a catwalk reached by stairs.',
     parts: [
       box('Floor', [90, 1, 60], [0, 0, 0], T.darkConcrete, T.concrete),
@@ -102,18 +106,25 @@ const STARTER: Sample[] = [
       { label: 'Stairs', kind: 'stairs', size: [4, 8, 12], at: [35, 1, -18], top: T.diamond, side: T.metal, segments: 12 },
       ...[[-25, -10], [0, -10], [25, -10], [-25, 12], [0, 12], [25, 12]].map(([x, z]) => box('Column', [2, 13, 2], [x, 1, z], T.metal, T.metal)),
       ...([[-15, 1, 5], [-12, 1, 5], [-15, 4, 5], [10, 1, -2], [13, 1, -2], [10, 1, 1], [20, 1, 18], [20, 4, 18], [-30, 1, 20], [-27, 1, 20]] as Vec3[]).map((at) => box('Crate', [3, 3, 3], at, T.plywood, T.plywood, 0, 3)),
+      // Racking along the back wall, a roll-up loading door and an exit sign at each end, and a painted walkway.
+      ...([-33, -18, 18, 33] as const).flatMap((x) => put('racking', x, 28.4, 180, { bays: 2, levels: 3 })),
+      ...([[44.9, 270], [-44.9, 90]] as const).flatMap(([x, r]) => [
+        { ...box('Roll-up door', [12, 9, 0.12], [x, 1, -20], DOOR, DOOR, r), fit: true },
+        poster('EXIT', 2.4, 0.9, [Math.sign(x) * 44.97, 10.6, -20], r, '#1f7a34', '#ffffff'),
+      ]),
+      ...[-21.5, -19.5].map((z) => box('Walkway paint', [80, 0.04, 0.4], [0, 1, z], PB.yellow)),
     ],
     markers: [
       ...[[-38, -15], [38, -15], [-38, 22], [38, 22], [0, 24], [-10, 0], [10, 8], [0, -20]].map(([x, z]): [string, Vec3] => ['Shared spawn', [x, 1, z]]),
       ...teams(40, 1, [-8, 0, 8, 16]),
-      weapon('ak47', [0, 9, -26]), weapon('pump_action_shotgun', [-15, 1, 10]), weapon('tec9', [13, 1, 4]), weapon('pipe_bomb', [20, 7, 18]),
+      weapon('ak47', [0, 9, -26]), weapon('pump_action_shotgun', [-15, 1, 10]), weapon('tec9', [13, 1, 4]), weapon('pipe_bomb', [24, 1, 18]),
       ['Chains drop-off', [-20, 1, -15]], ['Chains drop-off', [20, 1, 25]],
       ['Pimp entrance', [0, 9, -26]],
     ],
     lights: [[[-25, 13, 0]], [[0, 13, 0]], [[25, 13, 0]]],
   },
   {
-    id: 'rooftops', theme: 'Starter', name: 'Rooftops', icon: '🏙', modes: ALL_MODES,
+    id: 'rooftops', theme: 'Starter', name: 'Rooftops', icon: '🏙', modes: ALL_MODES, ambience: 'amb_mp_bac_03',
     description: 'Eight buildings around a plaza, joined by bridges. Stairs lead up from the plaza.',
     parts: [
       box('Ground', [140, 1, 140], [0, 0, 0], T.asphalt, T.concrete, 0, 6),
@@ -136,7 +147,7 @@ const STARTER: Sample[] = [
     lights: [[[0, 8, 0], [1, 0.8, 0.55]]],
   },
   centerX({
-    id: 'street', theme: 'Starter', name: 'Street', icon: '🛣', modes: ALL_MODES,
+    id: 'street', theme: 'Starter', name: 'Street', icon: '🛣', modes: ALL_MODES, ambience: 'amb_mp_bac_01',
     description: 'A city block: road with a center line, curbs and sidewalks, buildings on both sides and parked cover.',
     parts: [
       // The road sits at x 0..24 so the texture's center line lands in the middle of the lane.
@@ -147,7 +158,9 @@ const STARTER: Sample[] = [
       ...([[-55, 20, T.oldBrick], [-20, 14, T.plaster], [15, 18, T.brick], [50, 12, T.beige]] as [number, number, Tex][]).map(([z, h, side]) => box('Building', [24, h, 26], [44, 0, z], T.concrete, side)),
       box('Barrier', [40, 4, 1], [12, 0, -70.5], T.concrete, T.concrete),
       box('Barrier', [40, 4, 1], [12, 0, 70.5], T.concrete, T.concrete),
-      ...([[6, -30], [18, -5], [6, 22], [18, 45]] as [number, number][]).map(([x, z]) => box('Van', [4, 3, 8], [x, 1, z], T.metal, T.metal)),
+      ...([[6, -30, '#d0d0d0'], [18, -5, '#2a5ab8'], [6, 22, '#e0b020'], [18, 45, '#202020']] as const).map(([x, z, c], i) => box('Car', [4, 3, 8], [x, 1, z], PB.car(c, 371 + i), PB.car(c, 371 + i), x < 12 ? 180 : 0)),
+      // Street lamps along the curbs, their heads over the road.
+      ...([[-1, -40, 90], [-1, 10, 90], [25, -10, 270], [25, 40, 270]] as const).flatMap(([x, z, r]) => put('lamp', x, z, r, {}, 1.4)),
     ],
     markers: [
       ...[[-4, -50], [28, -35], [-4, -10], [28, 10], [-4, 30], [28, 55]].map(([x, z]): [string, Vec3] => ['Shared spawn', [x, 1.4, z]]),
@@ -159,7 +172,7 @@ const STARTER: Sample[] = [
       ['Chains drop-off', [12, 1, -40]], ['Chains drop-off', [12, 1, 40]],
       ['Pimp entrance', [-4, 1.4, 0]],
     ],
-    lights: [[[-4, 9, -40]], [[28, 9, 0]], [[-4, 9, 40]]],
+    lights: [[[0.8, 10, -40]], [[0.8, 10, 10]], [[23.2, 10, -10]], [[23.2, 10, 40]]],
   }, -12),
 
 ]
@@ -186,9 +199,11 @@ export function sampleFor(id: string, compact = false): Sample {
   const small = (s.size ?? 'compact') === 'compact'
   // Cyber arenas get their screens, trims, team markings and lane arrows once the floor is dressed.
   const life = (x: Sample, lights: number, screenEvery: number) => (x.theme === 'Cyber' ? cyberLife(x, { lights, screenEvery }) : x)
-  if (compact && small) return populate(life(dress(detailize(s), { ...DENSE, perArea: 900 }), COMPACT_TARGETS.lights, 18), COMPACT_TARGETS)
+  // Spawns and pickups go on the map's own floor, never on top of a dressed prop.
+  const fill = (base: Sample, o: DressOptions, t: PopulateTargets, every: number) => populate(life(dress(base, o), t.lights, every), t, base.parts)
+  if (compact && small) return fill(detailize(s), { ...DENSE, perArea: 900 }, COMPACT_TARGETS, 18)
   // Spread-out compact maps get filled with prefabs in the space that opened up; urban maps get street clutter.
-  return populate(life(small ? dress(detailize(spreadSample(s, 2)), DENSE) : dress(detailize(s), LIGHT_DRESS), FULL_TARGETS.lights, 26), FULL_TARGETS)
+  return small ? fill(detailize(spreadSample(s, 2)), DENSE, FULL_TARGETS, 26) : fill(detailize(s), LIGHT_DRESS, FULL_TARGETS, 26)
 }
 
 export interface SampleStats { widthM: number; depthM: number; players: number; spawns: number; weapons: number; lights: number }

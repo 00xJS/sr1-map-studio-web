@@ -7,7 +7,7 @@ export type TextureKind =
   | 'concrete' | 'asphalt' | 'brick' | 'tiles' | 'metal_plate' | 'diamond_plate'
   | 'wood_planks' | 'grass' | 'dirt' | 'gravel' | 'sand'
   | 'facade' | 'storefront' | 'garage_door' | 'hazard' | 'matrix' | 'water'
-  | 'chevrons' | 'emblem' | 'screen' | 'scoreboard'
+  | 'chevrons' | 'emblem' | 'screen' | 'scoreboard' | 'banner'
 
 export interface GenParams {
   kind: TextureKind
@@ -44,6 +44,7 @@ export const KINDS: Record<TextureKind, KindInfo> = {
   garage_door: { label: 'Garage door', surface: 16, color: '#9aa0a6', accent: '#55595e', scale: 1, wear: 0.3, accentLabel: 'Grooves', scaleLabel: 'Doors across' },
   water: { label: 'Water', surface: 20, color: '#1f5470', accent: '#7fb6c9', scale: 6, wear: 0.4, accentLabel: 'Glints', scaleLabel: 'Ripples' },
   matrix: { label: 'Digital rain', surface: 15, color: '#020a04', accent: '#36ff6b', scale: 24, wear: 0.5, accentLabel: 'Glow', scaleLabel: 'Columns' },
+  banner: { label: 'Sign / banner', surface: 15, color: '#1d4fa8', accent: '#ffffff', scale: 4, wear: 0.15, accentLabel: 'Lettering', scaleLabel: 'Width ÷ height' },
   hazard: { label: 'Hazard stripes', surface: 15, color: '#e8b81c', accent: '#1d1d1f', scale: 4, wear: 0.3, accentLabel: 'Stripe', scaleLabel: 'Stripes' },
   chevrons: { label: 'Lane arrows', surface: 15, color: '#0d1118', accent: '#18d8ff', scale: 3, wear: 0, accentLabel: 'Glow', scaleLabel: 'Arrows' },
   emblem: { label: 'Team emblem', surface: 15, color: '#120d14', accent: '#ff3dd8', scale: 8, wear: 0, accentLabel: 'Glow', scaleLabel: 'Grid lines' },
@@ -113,6 +114,94 @@ const mix = (a: number[], b: number[], t: number) => [lerp(a[0], b[0], t), lerp(
 const shade = (c: number[], k: number) => [c[0] * k, c[1] * k, c[2] * k]
 
 // ---------------- patterns ----------------
+
+/**
+ * Made-up wording for signs, banners, flags and logos (the seed picks one; nothing here is a real brand).
+ * A long banner (scale = its width over its height) shows it on one line, with a paint-splat mark when it is
+ * long enough; a square tile (scale 1, for bunkers) puts a splat over the words.
+ */
+export const BANNERS = [
+  'SPLAT CITY', 'MASKS ON', 'GAME ON', 'PAINT CHECK', 'AIR FILL', 'CHRONO', 'NO BLIND FIRE', 'REF ZONE', 'SAFE ZONE',
+  'TEAM RED', 'TEAM BLUE', 'RED 3:2 BLUE', 'FIELD 1', 'BUNKER BROS', 'HOPPER HQ', 'PODS & PAINT', 'BARREL BAGS ON',
+  'GO PAINT', 'SPLATTER', 'STAY BACK',
+  'EXIT', 'DANGER', 'NO ENTRY', 'OPEN', 'PARKING', 'LEVEL 2', 'MIND THE GAP',
+  'KEEP OUT', 'HARD HATS', 'FRESH FISH', 'NOODLES', 'SKATE AT OWN RISK', 'NO PARKING', 'EXIT 12', 'RED', 'BLUE',
+  // Just the splat, for things seen from every side (a word would read backwards on half of them).
+  '',
+]
+
+/** A 5 × 7 pixel font: seven rows of five bits per letter. */
+const GLYPHS: Record<string, string> = {
+  A: '01110 10001 10001 11111 10001 10001 10001', B: '11110 10001 10001 11110 10001 10001 11110', C: '01110 10001 10000 10000 10000 10001 01110',
+  D: '11110 10001 10001 10001 10001 10001 11110', E: '11111 10000 10000 11110 10000 10000 11111', F: '11111 10000 10000 11110 10000 10000 10000',
+  G: '01110 10001 10000 10111 10001 10001 01111', H: '10001 10001 10001 11111 10001 10001 10001', I: '01110 00100 00100 00100 00100 00100 01110',
+  J: '00111 00010 00010 00010 00010 10010 01100', K: '10001 10010 10100 11000 10100 10010 10001', L: '10000 10000 10000 10000 10000 10000 11111',
+  M: '10001 11011 10101 10101 10001 10001 10001', N: '10001 11001 10101 10011 10001 10001 10001', O: '01110 10001 10001 10001 10001 10001 01110',
+  P: '11110 10001 10001 11110 10000 10000 10000', Q: '01110 10001 10001 10001 10101 10010 01101', R: '11110 10001 10001 11110 10100 10010 10001',
+  S: '01111 10000 10000 01110 00001 00001 11110', T: '11111 00100 00100 00100 00100 00100 00100', U: '10001 10001 10001 10001 10001 10001 01110',
+  V: '10001 10001 10001 10001 10001 01010 00100', W: '10001 10001 10001 10101 10101 10101 01010', X: '10001 10001 01010 00100 01010 10001 10001',
+  Y: '10001 10001 01010 00100 00100 00100 00100', Z: '11111 00001 00010 00100 01000 10000 11111',
+  0: '01110 10001 10011 10101 11001 10001 01110', 1: '00100 01100 00100 00100 00100 00100 01110', 2: '01110 10001 00001 00010 00100 01000 11111',
+  3: '11110 00001 00001 01110 00001 00001 11110', 4: '00010 00110 01010 10010 11111 00010 00010', 5: '11111 10000 11110 00001 00001 10001 01110',
+  6: '00110 01000 10000 11110 10001 10001 01110', 7: '11111 00001 00010 00100 01000 01000 01000', 8: '01110 10001 10001 01110 10001 10001 01110',
+  9: '01110 10001 10001 01111 00001 00010 01100', ':': '00000 00100 00100 00000 00100 00100 00000', '&': '01100 10010 10100 01000 10101 10010 01101',
+  '!': '00100 00100 00100 00100 00100 00000 00100', '-': '00000 00000 00000 11111 00000 00000 00000', '.': '00000 00000 00000 00000 00000 00000 00100',
+}
+const glyphBit = (ch: string, x: number, y: number) => GLYPHS[ch]?.[y * 6 + x] === '1'
+
+/** Words onto lines of at most `max` letters. */
+function wrapWords(text: string, max: number): string[] {
+  const out: string[] = []
+  for (const w of text.split(' ')) {
+    if (out.length && out[out.length - 1].length + 1 + w.length <= max) out[out.length - 1] += ' ' + w
+    else out.push(w)
+  }
+  return out
+}
+
+function bannerPattern(p: GenParams, base: number[], accent: number[], s: number, wear: number): Pixel {
+  const aspect = Math.max(1, Math.min(8, p.scale))
+  const pick = Math.abs(Math.round(p.seed)) % BANNERS.length, text = BANNERS[pick]
+  // The paintball wording (the first 20) carries a splat; street and site signs are plain; '' is the splat alone.
+  const splat = pick < 20 || !text, long = aspect >= 2
+  const lines = !text ? [] : long ? [text] : wrapWords(text, 7).slice(0, 2)
+  const n = Math.max(1, ...lines.map((l) => l.length))
+  // Long banners: a splat mark on the left (when there's room), the words beside it. Tiles: a splat over the words.
+  const markW = splat && aspect >= 3 ? 0.8 / aspect : 0
+  const room = 0.84 - markW, high = long ? 0.56 : splat ? 0.3 : 0.6
+  const ph = Math.min((room * aspect) / (6 * n - 1), high / (8 * lines.length - 1))
+  const v0 = (long || !splat ? 0.5 : 0.74) - ((8 * lines.length - 1) * ph) / 2
+  const [splatV, splatR] = text ? [0.33, 0.17] : [0.5, 0.26]
+  const blob = (u: number, v: number, cu: number, cv: number, r: number) => {
+    const dx = (u - cu) * aspect, dy = v - cv, a = Math.atan2(dy, dx)
+    const edge = r * (1 + 0.12 * Math.sin(a * 7 + s) + 0.07 * Math.sin(a * 13 + s * 2))
+    if (Math.hypot(dx, dy) < edge) return true
+    // A few drops thrown off round it.
+    for (let k = 0; k < 5; k++) {
+      const b = (k / 5) * Math.PI * 2 + hash(k, 3, s) * 0.9, d = r * (1.3 + 0.2 * hash(k, 5, s))
+      if (Math.hypot(dx - Math.cos(b) * d, dy - Math.sin(b) * d) < r * (0.08 + 0.08 * hash(k, 7, s))) return true
+    }
+    return false
+  }
+  const markU = 0.08 + markW / 2
+  return (u, v) => {
+    let c = shade(base, 0.95 + 0.08 * noise(u, v, 128, 128, s))
+    const e = Math.min(u * aspect, (1 - u) * aspect, v, 1 - v)
+    if (e > 0.045 && e < 0.075) c = accent
+    if (markW ? blob(u, v, markU, 0.5, 0.26) : splat && (!long || !text) && blob(u, v, 0.5, splatV, splatR)) c = accent
+    const li = Math.floor((v - v0) / (8 * ph))
+    if (li >= 0 && li < lines.length) {
+      const line = lines[li], lw = ((6 * line.length - 1) * ph) / aspect
+      const u0 = (markW ? 0.08 + markW : 0) + (1 - (markW ? 0.08 + markW : 0) - lw) / 2 - (markW ? 0.04 : 0)
+      const gx = Math.floor(((u - u0) * aspect) / ph), gy = Math.floor((v - v0 - li * 8 * ph) / ph)
+      const ch = Math.floor(gx / 6)
+      if (gx >= 0 && gy >= 0 && gy < 7 && ch < line.length && gx % 6 < 5 && glyphBit(line[ch], gx % 6, gy)) c = accent
+    }
+    const grime = clamp01((fbm(u, v, 4, 4, s + 3) - 0.62) * 4) * wear
+    return mix(c, [70, 66, 60], grime * 0.5)
+  }
+}
+
 
 type Pixel = (u: number, v: number) => number[]
 
@@ -393,6 +482,7 @@ function pattern(p: GenParams): Pixel {
       }
       return c
     }
+    case 'banner': return bannerPattern(p, base, accent, s, wear)
     case 'sand': return (u, v) => {
       const warp = fbm(u, v, 4, 4, s) * 2
       const ripple = 0.5 + 0.5 * Math.sin((v * n + warp) * Math.PI * 2)
