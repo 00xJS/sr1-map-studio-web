@@ -7,6 +7,7 @@ export type TextureKind =
   | 'concrete' | 'asphalt' | 'brick' | 'tiles' | 'metal_plate' | 'diamond_plate'
   | 'wood_planks' | 'grass' | 'dirt' | 'gravel' | 'sand'
   | 'facade' | 'storefront' | 'garage_door' | 'hazard' | 'matrix' | 'water'
+  | 'chevrons' | 'emblem' | 'screen' | 'scoreboard'
 
 export interface GenParams {
   kind: TextureKind
@@ -44,6 +45,10 @@ export const KINDS: Record<TextureKind, KindInfo> = {
   water: { label: 'Water', surface: 20, color: '#1f5470', accent: '#7fb6c9', scale: 6, wear: 0.4, accentLabel: 'Glints', scaleLabel: 'Ripples' },
   matrix: { label: 'Digital rain', surface: 15, color: '#020a04', accent: '#36ff6b', scale: 24, wear: 0.5, accentLabel: 'Glow', scaleLabel: 'Columns' },
   hazard: { label: 'Hazard stripes', surface: 15, color: '#e8b81c', accent: '#1d1d1f', scale: 4, wear: 0.3, accentLabel: 'Stripe', scaleLabel: 'Stripes' },
+  chevrons: { label: 'Lane arrows', surface: 15, color: '#0d1118', accent: '#18d8ff', scale: 3, wear: 0, accentLabel: 'Glow', scaleLabel: 'Arrows' },
+  emblem: { label: 'Team emblem', surface: 15, color: '#120d14', accent: '#ff3dd8', scale: 8, wear: 0, accentLabel: 'Glow', scaleLabel: 'Grid lines' },
+  screen: { label: 'Data screen', surface: 15, color: '#07141a', accent: '#18d8ff', scale: 9, wear: 0.3, accentLabel: 'Glow', scaleLabel: 'Text rows' },
+  scoreboard: { label: 'Scoreboard', surface: 15, color: '#e8322b', accent: '#2a7fff', scale: 1, wear: 0, accentLabel: 'Right team', scaleLabel: 'Unused' },
 }
 
 export const defaultParams = (kind: TextureKind, size = 512): GenParams => {
@@ -110,6 +115,17 @@ const shade = (c: number[], k: number) => [c[0] * k, c[1] * k, c[2] * k]
 // ---------------- patterns ----------------
 
 type Pixel = (u: number, v: number) => number[]
+
+/** Seven-segment digits (segments a..g as bits 6..0), for screens and scoreboards. */
+const SEG7 = [0b1111110, 0b0110000, 0b1101101, 0b1111001, 0b0110011, 0b1011011, 0b1011111, 0b1110000, 0b1111111, 0b1111011]
+/** Is (x, y), 0..1 across a digit's box, on a lit segment of digit d? */
+function seg7(d: number, x: number, y: number, tx = 0.2, ty = tx / 2): boolean {
+  if (x < 0 || x > 1 || y < 0 || y > 1) return false
+  const on = (k: number) => (SEG7[d] >> (6 - k)) & 1
+  const midX = x > tx * 0.7 && x < 1 - tx * 0.7, top = y > ty * 0.7 && y < 0.5 - ty * 0.2, low = y > 0.5 + ty * 0.2 && y < 1 - ty * 0.7
+  return (!!on(0) && y < ty && midX) || (!!on(1) && x > 1 - tx && top) || (!!on(2) && x > 1 - tx && low)
+    || (!!on(3) && y > 1 - ty && midX) || (!!on(4) && x < tx && low) || (!!on(5) && x < tx && top) || (!!on(6) && Math.abs(y - 0.5) < ty / 2 && midX)
+}
 
 function pattern(p: GenParams): Pixel {
   const base = rgb(p.color), accent = rgb(p.accent)
@@ -300,6 +316,82 @@ function pattern(p: GenParams): Pixel {
       if (!on) return shade(base, 1 + glow * 0.6)
       const ink = behind === 0 ? mix(accent, [225, 255, 230], 0.75) : accent
       return mix(base, ink, clamp01(glow * 1.1))
+    }
+    case 'chevrons': return (u, v) => {
+      // Glowing arrows pointing to the top of the image (v 0), a lit line down each side; repeats along v.
+      const fu = Math.abs(u - 0.5) * 2, fv = (v * n) % 1
+      const d = Math.abs(fv - (0.2 + fu * 0.45))
+      const arm = fu < 0.78 ? clamp01(1 - d / 0.09) : 0
+      const halo = fu < 0.84 ? clamp01(1 - d / 0.26) * 0.3 : 0
+      const side = clamp01(1 - Math.abs(fu - 0.93) / 0.035)
+      const c = shade(base, 0.9 + 0.12 * noise(u, v, 128, 128, s))
+      return mix(c, accent, clamp01(Math.max(arm, side * 0.85, halo)) * (1 - wear * 0.4 * fbm(u, v, 8, 3, s + 1)))
+    }
+    case 'emblem': return (u, v) => {
+      // A badge: a lit ring, a hexagon and a symbol (star, triangle or double chevron, by seed) on a faint grid.
+      const x = u - 0.5, y = v - 0.5, r = Math.hypot(x, y), a = Math.atan2(y, x)
+      let hr = -Infinity
+      for (let k = 0; k < 6; k++) hr = Math.max(hr, x * Math.cos((k * Math.PI) / 3) + y * Math.sin((k * Math.PI) / 3))
+      const kind = p.seed % 3
+      const symbol = kind === 0 ? r < 0.075 + 0.12 * Math.pow(0.5 + 0.5 * Math.cos(5 * (a + Math.PI / 2)), 2)
+        : kind === 1 ? [90, -30, -150].every((deg) => x * Math.cos((deg * Math.PI) / 180) + y * Math.sin((deg * Math.PI) / 180) < 0.1)
+          : Math.abs(x) < 0.15 && (Math.abs(y - (Math.abs(x) * 0.9 - 0.08)) < 0.035 || Math.abs(y - (Math.abs(x) * 0.9 + 0.05)) < 0.035)
+      const ring = clamp01(1 - Math.abs(r - 0.41) / 0.03), halo = clamp01(1 - Math.abs(r - 0.41) / 0.09) * 0.3
+      const hex = clamp01(1 - Math.abs(hr - 0.29) / 0.018) * 0.85
+      const grid = (u * n) % 1 < 0.025 || (v * n) % 1 < 0.025 ? 0.12 : 0
+      const glow = symbol ? 1 : Math.max(ring, hex, halo, r < 0.29 ? 0.08 : grid)
+      return mix(shade(base, 0.95 + 0.1 * noise(u, v, 64, 64, s)), accent, glow)
+    }
+    case 'screen': return (u, v) => {
+      // A console screen: a lit frame, a title bar, rows of made-up text, a bar chart and scan lines.
+      const edge = Math.min(u, 1 - u, v, 1 - v)
+      if (edge < 0.02) return shade(accent, 0.5)
+      if (edge < 0.032) return shade(base, 0.5)
+      const scan = (v * 96) % 1 < 0.5 ? 0.9 : 1.04
+      const c = shade(base, scan)
+      const glyph = (cx: number, cy: number, gx: number, gy: number) => hash(cx * 31 + gx, cy * 17 + gy, s) < 0.55
+      if (v > 0.06 && v < 0.12) {
+        const cx = Math.floor(u * 48), fx = u * 48 - cx, fy = (v - 0.06) / 0.06
+        const text = u > 0.06 && u < 0.4 && fx > 0.15 && fx < 0.85 && glyph(cx, 99, Math.floor(fx * 3), Math.floor(fy * 5))
+        return text ? mix(c, [235, 255, 255], 0.8) : mix(c, accent, 0.35)
+      }
+      if (u > 0.06 && u < 0.58 && v > 0.17 && v < 0.93) {
+        const row = Math.floor(((v - 0.17) / 0.76) * n), fy = (((v - 0.17) / 0.76) * n) % 1
+        const cx = Math.floor((u - 0.06) * 60), fx = ((u - 0.06) * 60) % 1
+        const len = 0.2 + 0.8 * hash(row, 5, s)
+        const on = (u - 0.06) / 0.52 < len && fy > 0.25 && fy < 0.8 && fx > 0.12 && fx < 0.88 && glyph(cx, row, Math.floor(fx * 3), Math.floor(((fy - 0.25) / 0.55) * 5))
+        const bright = hash(row, 9, s) < 0.15 + wear * 0.3
+        return on ? mix(c, bright ? [255, 220, 120] : accent, 0.9) : c
+      }
+      if (u > 0.64 && u < 0.94 && v > 0.3 && v < 0.93) {
+        const k = Math.floor(((u - 0.64) / 0.3) * 6), fx = (((u - 0.64) / 0.3) * 6) % 1
+        const h = 0.2 + 0.75 * hash(k, 21, s)
+        return fx > 0.15 && fx < 0.85 && (0.93 - v) / 0.63 < h ? mix(c, accent, 0.55 + 0.4 * ((0.93 - v) / 0.63 / h)) : c
+      }
+      if (u > 0.64 && u < 0.94 && v > 0.15 && v < 0.25) {
+        const g = Math.floor(((u - 0.64) / 0.3) * 4)
+        return seg7((p.seed + g * 3) % 10, (((u - 0.64) / 0.3) * 4) % 1 * 1.25 - 0.12, (v - 0.15) / 0.1, 0.2, 0.14) ? mix(c, accent, 0.95) : c
+      }
+      return c
+    }
+    case 'scoreboard': return (u, v) => {
+      // Two team panels (color left, accent right) with big 00 scores and a 10:00 clock over the middle.
+      const dark = [11, 13, 18]
+      const edge = Math.min(u, 1 - u, v, 1 - v)
+      if (edge < 0.03) return [60, 66, 78]
+      const left = u < 0.5, team = left ? base : accent
+      let c = mix(dark, team, Math.abs(u - 0.5) < 0.006 ? 0.9 : 0.28 + 0.06 * ((v * 80) % 1 < 0.5 ? 1 : 0))
+      const lit = [240, 246, 255]
+      for (const x0 of left ? [0.11, 0.27] : [0.61, 0.77]) if (seg7(0, (u - x0) / 0.13, (v - 0.42) / 0.38, 0.22, 0.08)) c = lit
+      if (v > 0.08 && v < 0.24) {
+        const digits = [1, 0, -1, 0, 0]
+        digits.forEach((d, i) => {
+          const x0 = 0.375 + i * 0.052
+          if (d < 0) { if (Math.abs(u - x0 - 0.02) < 0.009 && (Math.abs(v - 0.13) < 0.012 || Math.abs(v - 0.19) < 0.012)) c = [255, 214, 90]; return }
+          if (seg7(d, (u - x0) / 0.042, (v - 0.08) / 0.16, 0.24, 0.1)) c = [255, 214, 90]
+        })
+      }
+      return c
     }
     case 'sand': return (u, v) => {
       const warp = fbm(u, v, 4, 4, s) * 2

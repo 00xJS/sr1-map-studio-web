@@ -134,8 +134,9 @@ const LOOKS: Record<WizardSetting, Look> = {
     theme: 'Cyber', ground: [CY.gridCyan, CY.gridPink, CY.gridPurple, CY.gridLime, CY.matrix], wall: CY.panel, wallTop: CY.panelLight, wallH: 6,
     structure: (r, x, z, w, d, h) => [{ ...box('Neon block', [w, Math.min(h, 14), d], [x, 1, z], CY.dark, r.pick(NEON)), big: true }],
     deck: { top: CY.panel, side: CY.purple },
-    centre: ['datacore', 'neonpillar', 'lightgate'],
-    dress: ['floatplat', 'lightgate', 'neonpillar', 'holowall', 'neoncube', 'jumppad', 'hexpillar', 'serverrow'],
+    centre: ['datacore', 'neonpillar', 'holocore'],
+    // Jump pads and light gates are left out: dropped at random turns they lead nowhere.
+    dress: ['floatplat', 'codepillar', 'neonpillar', 'holowall', 'neoncube', 'terminal', 'hexpillar', 'serverrow'],
   },
 }
 

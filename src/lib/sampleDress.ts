@@ -30,17 +30,18 @@ export const DRESS: Record<string, string[]> = {
   pb_village: ['tower', 'bunker', 'sandbagwall', 'hay', 'logs', 'barrels', 'rocks', 'deadtree'],
   pb_market: ['foodtruck', 'stall', 'foodcart', 'picnic', 'barrels', 'trashcan'],
   pb_overpass: ['car', 'jersey', 'dumpster', 'barrels', 'cones', 'trafficlight'],
-  cy_grid: ['floatplat', 'lightgate', 'neonpillar', 'holowall', 'neoncube', 'jumppad', 'hexpillar'],
-  cy_core: ['datacore', 'lightgate', 'holowall', 'neonpillar', 'neoncube'],
-  cy_circuit: ['serverrow', 'holowall', 'neonpillar', 'neoncube', 'jumppad'],
-  cy_hex: ['lightgate', 'neoncube', 'jumppad'],
-  cy_servers: ['datacore', 'serverrow', 'holowall', 'neonpillar', 'neoncube'],
-  cy_islands: ['floatplat', 'lightgate', 'neonpillar', 'jumppad', 'neoncube'],
-  cy_pyramid: ['lightgate', 'holowall', 'neonpillar', 'neoncube', 'jumppad'],
-  cy_maze: ['lightgate', 'neoncube', 'jumppad'],
-  cy_skyline: ['neonpillar', 'neoncube', 'jumppad'],
-  cy_colosseum: ['holowall', 'neonpillar', 'neoncube', 'jumppad'],
-  cy_lanes: ['lightgate', 'holowall', 'neoncube', 'jumppad'],
+  // Jump pads and light gates are placed by hand in each map, where they lead somewhere.
+  cy_grid: ['floatplat', 'neonpillar', 'holowall', 'neoncube', 'codepillar', 'hexpillar'],
+  cy_core: ['holowall', 'codepillar', 'terminal', 'neonpillar', 'neoncube'],
+  cy_circuit: ['serverrow', 'holowall', 'neonpillar', 'neoncube', 'terminal'],
+  cy_hex: ['neoncube', 'codepillar'],
+  cy_servers: ['serverrow', 'terminal', 'holowall', 'codepillar', 'neoncube'],
+  cy_islands: ['floatplat', 'neonpillar', 'codepillar', 'neoncube'],
+  cy_pyramid: ['holowall', 'neonpillar', 'codepillar', 'neoncube'],
+  cy_maze: ['neoncube', 'codepillar'],
+  cy_skyline: ['neonpillar', 'neoncube', 'holosign'],
+  cy_colosseum: ['holowall', 'neonpillar', 'neoncube', 'terminal'],
+  cy_lanes: ['holowall', 'neoncube', 'codepillar'],
   cy_reactor: ['fueltank', 'piperack', 'serverrow', 'generator', 'barrels', 'neoncube'],
 }
 
@@ -60,7 +61,7 @@ const URBAN_EXTRA: Record<string, string[]> = {
 const URBAN_CLUTTER = ['hydrant', 'trashcan', 'meters', 'vending', 'phone', 'mailbox', 'atm', 'cones', 'bush', 'flowers', 'bench', 'foodcart']
 const THEME_FALLBACK: Record<Theme, string[]> = {
   'Starter': ['pallets', 'barrels', 'jersey'], 'Urban': URBAN_CLUTTER,
-  'Urban paintball': ['cake', 'can', 'dorito', 'snake'], 'Cyber': ['neoncube', 'neonpillar', 'jumppad'],
+  'Urban paintball': ['cake', 'can', 'dorito', 'snake'], 'Cyber': ['neoncube', 'neonpillar', 'codepillar'],
 }
 
 const footprint = new Map<string, number>()
@@ -99,7 +100,7 @@ export function dress(s: Sample, o: DressOptions = DENSE): Sample {
   const markers = s.markers.map(([, p]) => p)
   // Is there room for a piece of radius r at p: nothing solid within r + gap, and no marker too close?
   const roomy = (p: Vec3, r: number) =>
-    !parts.some((q) => q.at[1] < p[1] + 4 && q.at[1] + q.size[1] > p[1] + 0.35 && Math.max(q.size[0], q.size[2]) < 150 && over(q, p[0], p[2], r + o.gap))
+    !parts.some((q) => q.at[1] < p[1] + 4 && q.at[1] + q.size[1] > p[1] + 0.35 && (Math.max(q.size[0], q.size[2]) < 150 || Math.min(q.size[0], q.size[2]) < 4) && over(q, p[0], p[2], r + o.gap))
     && markers.every((m) => Math.abs(m[1] - p[1]) > 3 || Math.hypot(m[0] - p[0], m[2] - p[2]) > r + 3)
   const taken: Vec3[] = [...markers, ...parts.filter((q) => q.at[1] + q.size[1] > ground + 0.35 && Math.max(q.size[0], q.size[2]) < 40).map((q) => q.at)]
   const dist = (p: Vec3) => {
