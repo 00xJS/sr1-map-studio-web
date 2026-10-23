@@ -69,13 +69,13 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
   }
 
   if (modes.includes('Protect Tha Pimp')) {
-    const need = ([['Red team spawn', 'red team spawns'], ['Blue team spawn', 'blue team spawns'], ['Pimp entrance', 'a pimp entrance']] as const)
+    const need = ([['Red team spawn', 'red team spawns'], ['Blue team spawn', 'blue team spawns'], ['Pimp entrance', "the pimp's escape point"]] as const)
       .filter(([type]) => !count(type))
     if (need.length) add({
       id: 'ptp', state: 'needed', text: `Protect Tha Pimp needs ${need.map(([, t]) => t).join(', ')}`,
       fix: { kind: 'tool', tool: 'spawn', spawn: need[0][0] }, action: 'Place',
     })
-    else add({ id: 'ptp', state: 'done', text: 'Protect Tha Pimp: teams and pimp placed' })
+    else add({ id: 'ptp', state: 'done', text: "Protect Tha Pimp: teams and the pimp's escape point placed" })
   }
 
   items.push(...retailChecklist(modes, p.markers))

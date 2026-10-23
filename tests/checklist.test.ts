@@ -41,7 +41,7 @@ describe('ready-to-play checklist', () => {
     p.settings.modes = ['Protect Tha Pimp']
     const c = mapChecklist(p, true).find((x) => x.id === 'ptp')!
     expect(c.state).toBe('needed')
-    expect(c.text).toContain('red team spawns, blue team spawns, a pimp entrance')
+    expect(c.text).toContain("red team spawns, blue team spawns, the pimp's escape point")
     expect(c.fix).toEqual({ kind: 'tool', tool: 'spawn', spawn: 'Red team spawn' })
   })
 

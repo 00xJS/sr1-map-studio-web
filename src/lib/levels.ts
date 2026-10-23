@@ -71,11 +71,11 @@ export function checkModes(settings: Pick<ProjectSettings, 'modes'>, markers: Ma
   }
   if (modes.includes('Protect Tha Pimp')) {
     const red = count('Red team spawn'), blue = count('Blue team spawn'), pimp = count('Pimp entrance')
-    const missing = [!red && 'Red team spawns', !blue && 'Blue team spawns', !pimp && 'a Pimp entrance'].filter(Boolean)
+    const missing = [!red && 'Red team spawns', !blue && 'Blue team spawns', !pimp && "the pimp's escape point (Pimp entrance marker)"].filter(Boolean)
     if (missing.length) errors.push(`Protect Tha Pimp needs ${missing.join(', ')}.`)
     else if (red < 4 || blue < 4) warnings.push(`Protect Tha Pimp: ${red} red and ${blue} blue spawns. Retail PTP maps use 6 per team.`)
   } else if (count('Pimp entrance')) {
-    warnings.push('Pimp entrances are only used by Protect Tha Pimp, which is not selected.')
+    warnings.push("The pimp's escape points (Pimp entrance markers) are only used by Protect Tha Pimp, which is not selected.")
   }
   if (modes.includes(BOR)) {
     const need = borMissing(markers)
