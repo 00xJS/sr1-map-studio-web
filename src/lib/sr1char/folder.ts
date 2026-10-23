@@ -23,17 +23,17 @@ type Handle = FileSystemDirectoryHandle & {
 
 export const folderPickerSupported = () => typeof window !== 'undefined' && 'showDirectoryPicker' in window
 
-/** Searches a folder for the packfiles, packfiles folders first, stopping once all are found. */
-async function findInHandle(dir: Handle, found = new Map<string, File>(), depth = 0): Promise<Map<string, File>> {
+/** Searches a folder for the packfiles (`wanted`, lower case), packfiles folders first, stopping once all are found. */
+async function findInHandle(dir: Handle, found = new Map<string, File>(), depth = 0, wanted = PACKFILES): Promise<Map<string, File>> {
   const subdirs: Handle[] = []
   for await (const h of dir.values()) {
     const n = h.name.toLowerCase()
-    if (h.kind === 'file') { if (PACKFILES.includes(n) && !found.has(n)) found.set(n, await (h as FileSystemFileHandle).getFile()) }
+    if (h.kind === 'file') { if (wanted.includes(n) && !found.has(n)) found.set(n, await (h as FileSystemFileHandle).getFile()) }
     else if (!SKIP_DIRS.has(n)) subdirs.push(h as Handle)
   }
   if (depth < 5) for (const d of subdirs.sort((a, b) => dirRank(a.name) - dirRank(b.name))) {
-    if (found.size === PACKFILES.length) break
-    await findInHandle(d, found, depth + 1)
+    if (found.size === wanted.length) break
+    await findInHandle(d, found, depth + 1, wanted)
   }
   return found
 }
@@ -81,6 +81,24 @@ export async function rememberedGameFolder(): Promise<{ name: string; ready: boo
 }
 
 export async function forgetGameFolder() { await db.setMeta(KEY, null) }
+
+/**
+ * Other packfiles from the same game folder (lower-case names), read by byte range like the character's.
+ * Uses the remembered folder; `ask` lets the browser prompt for it again, or for the folder (needs a click).
+ * Null when there is no folder (or the user cancelled).
+ */
+export async function gameFolderFiles(names: string[], ask: boolean): Promise<Map<string, File> | null> {
+  let h = await db.getMeta<Handle>(KEY).catch(() => undefined)
+  if (h && !(await permitted(h, ask).catch(() => false))) h = undefined
+  if (!h) {
+    if (!ask || !folderPickerSupported()) return null
+    try { h = await (window as any).showDirectoryPicker({ id: 'saintsreborn-game', mode: 'read' }) as Handle }
+    catch (e) { if ((e as Error).name === 'AbortError') return null; throw e }
+  }
+  const found = await findInHandle(h, new Map(), 0, names)
+  if (found.size) await db.setMeta(KEY, h).catch(() => {})
+  return found
+}
 
 /** Builds the character from the remembered folder. `ask` lets the browser prompt (needs a click). */
 export async function loadFromRememberedFolder(ask: boolean): Promise<PlayerModel | null> {

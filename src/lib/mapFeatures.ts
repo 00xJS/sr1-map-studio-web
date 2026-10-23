@@ -44,11 +44,15 @@ export const MOVABLE_PRESETS: [profile: string, label: string][] = [
   ["Cardboard Box  4'x4'x4'", 'Big cardboard box, 200 lb'],
 ]
 
-/** Stock profiles that make a "breakable wood" object break (it disappears, no debris). */
+/** The game's wooden crate: smashes into boards and dust, with its debris read from the player's game files at export. */
+export const CRATE_PROFILE = 'CrateFruit'
+
+/** Stock profiles that make a "breakable wood" object break (it disappears; only the crate leaves debris). */
 export const BREAKING_PRESETS: [profile: string, label: string][] = [
   ['Can', 'Breaks when shot (like a can), 7 lb'],
   ['SofaPillow', 'Breaks only from explosions, 4 lb'],
   ['Normal Glass Moveable', 'Fragile: breaks at the first hit, 1 lb'],
+  [CRATE_PROFILE, 'Wooden crate: smashes into boards (explosions, cars), 20 lb'],
 ]
 
 /** Plain-language hint for the swimmable water setting. */

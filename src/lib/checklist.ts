@@ -1,6 +1,7 @@
 // "Ready to play" checklist: what a map still needs before it can go into the
 // game ('needed' blocks Play), and what would make it better ('suggested').
 import { PIMP_EXIT, SPAWN_TYPES, isCustomNative, isGlass, type Project } from './project'
+import { retailChecklist } from './retailModes'
 
 export type Fix =
   | { kind: 'tool'; tool: string; spawn?: string }
@@ -76,6 +77,8 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
     })
     else add({ id: 'ptp', state: 'done', text: 'Protect Tha Pimp: teams and pimp placed' })
   }
+
+  items.push(...retailChecklist(modes, p.markers))
 
   const exits = count(PIMP_EXIT)
   if (exits) add({ id: 'exit', state: 'needed', text: `Erase ${exits === 1 ? 'the pimp exit marker' : `${exits} pimp exit markers`}: the game has no pimp exit`, fix: { kind: 'tool', tool: 'erase' }, action: 'Erase' })

@@ -73,7 +73,9 @@ minimap, drawn from above, and goes straight into your Saints Reborn maps folder
 a zip to share).
 
 Every map supports **Gangsta Brawl**, **Team Gangsta Brawl**, **Big Ass Chains**, **Team Big Ass
-Chains** and **Protect Tha Pimp**.
+Chains** and **Protect Tha Pimp**. Place team cars, garages, a chop shop and a victory garage to add
+**Blinged Out Ride** (new, not yet tried in game). Sound zones play the game's own ambience sounds
+where you put them, and wooden crates can smash into boards, both read from your own game files.
 
 ![Putting the map in the game](docs/screenshots/play.jpg)
 

@@ -35,6 +35,7 @@ from sr1_native_limits import MAX_NATIVE_OBJECTS, MAX_NATIVE_TRIANGLES, MIN_NATI
 from vehicle_catalog_v041 import VEHICLE_CATALOG
 import fast_dxt
 import map_features as features
+import retail_features as retail
 
 # Same output as the original compressor, about 20x faster (see fast_dxt.py).
 fast_dxt.install()
@@ -347,6 +348,7 @@ def _export(s, log):
         raise ValueError('Load a base map first.')
     # "Breakable wood" and weight presets become stock profiles (see map_features).
     wanted_profiles = features.prepare_breakables(items)
+    crate_donor = retail.choose_crates(s, items, wanted_profiles, log)
     preflight = breakable_tools.check_scene(items, ws, _parse)
     if preflight['errors']:
         raise ValueError('\n'.join(preflight['errors']))
@@ -372,8 +374,8 @@ def _export(s, log):
         raise ValueError('Place at least one spawn in the Spawns tab. Random default spawns are disabled.')
     # Pimp entrances only matter in Protect Tha Pimp, which loads its own CTS.
     ptp_markers = [m for m in markers if m.get('type') in ('Red team spawn', 'Blue team spawn', 'Pimp entrance')]
-    main_markers = [m for m in markers if m.get('type') != 'Pimp entrance']
-    if len(main_markers) != len(markers):
+    main_markers = [m for m in markers if m.get('type') != 'Pimp entrance' and not retail.extra_marker(m)]
+    if any(m.get('type') == 'Pimp entrance' for m in markers):
         log('Pimp entrance markers go only into the Protect Tha Pimp CTS.')
     if s.get('ptp'):
         _check_ptp(ptp_markers)
@@ -425,6 +427,8 @@ def _export(s, log):
     if wanted_profiles:
         placements = result.get('native_glass', {}).get('placements', [])
         features.set_profiles(chunk, {placements[j]['source']: name for j, name in wanted_profiles.items()}, log)
+    if crate_donor:
+        retail.crate_debris.add_debris(chunk, out / (base + '.peg_xbox2'), crate_donor, log)
     rect = s.get('minimap_rect')
     if rect and opt('minimap_texture'):
         _write_minimap_region(out, base, [float(v) for v in rect], fixed_origin, ws, bool(s.get('mirror_x', True)), log)
@@ -439,6 +443,7 @@ def _export(s, log):
             features.write_loading_screen(out, base, loading, job, log)
         except Exception as exc:  # a missing picture should not stop the map export
             log('Loading screen skipped: ' + str(exc))
+    extras = retail.finish(s, out, base, markers, ws, mirror, (0., 0., 0.) if space == 'game' else fixed_origin, space, log)
     files = sorted(str(p) for p in out.rglob('*') if p.is_file())
     summary = {
         'render_triangles': result['bbchunk']['render_triangles'],
@@ -450,6 +455,7 @@ def _export(s, log):
         'native_props': result.get('native_props', {}).get('created', 0),
         'lights': result.get('lighting', {}).get('exported', 0),
         'water_volumes': water_count,
+        **extras,
     }
     return {'map_name': base, 'out_dir': str(out), 'files': files, 'summary': summary}
 

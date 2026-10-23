@@ -3,6 +3,7 @@
 // are virtual paths inside the Pyodide file system:
 //   /work/f/<sha256>/<name>  user files (content addressed)
 //   /studio/<folder>/...     the user's local data pack (never uploaded)
+import { retailMarkerDefaults } from './retailModes'
 
 export type Vec3 = [number, number, number]
 
@@ -81,6 +82,18 @@ export interface Marker {
   char_type: string
   group: string
   leash_distance: number
+  /** Box zones (Blinged Out Ride triggers, box sound zones): width, height, depth in metres. */
+  size?: Vec3
+  /** Sound zones: 'sphere' (uses radius) or 'box' (uses size). */
+  shape?: 'sphere' | 'box'
+  /** Sound zones: the sound's name in the game's ambience bank. */
+  sound?: string
+  /** Sound zones: 0-1. */
+  volume?: number
+  /** Sound zones: play now and then (with a pause between delay_min_s and delay_max_s) instead of looping. */
+  sound_random?: boolean
+  delay_min_s?: number
+  delay_max_s?: number
 }
 
 export interface Light {
@@ -95,9 +108,10 @@ export interface Light {
 }
 
 // Exact names the game accepts (it rejects anything else); Protect Tha Pimp
-// loads its own <map>_ptp.cts with team spawns and pimp entrances.
-export type GameMode = 'Gangsta Brawl' | 'Team Gangsta Brawl' | 'Big Ass Chains' | 'Team Big Ass Chains' | 'Protect Tha Pimp'
-export const GAME_MODES: GameMode[] = ['Gangsta Brawl', 'Team Gangsta Brawl', 'Big Ass Chains', 'Team Big Ass Chains', 'Protect Tha Pimp']
+// loads its own <map>_ptp.cts with team spawns and pimp entrances, Blinged
+// Out Ride its own <map>_bor.cts (see retailModes.ts).
+export type GameMode = 'Gangsta Brawl' | 'Team Gangsta Brawl' | 'Big Ass Chains' | 'Team Big Ass Chains' | 'Protect Tha Pimp' | 'Blinged Out Ride'
+export const GAME_MODES: GameMode[] = ['Gangsta Brawl', 'Team Gangsta Brawl', 'Big Ass Chains', 'Team Big Ass Chains', 'Protect Tha Pimp', 'Blinged Out Ride']
 export const PIMP_EXIT = 'Pimp exit (experimental)'
 
 export interface ProjectSettings {
@@ -194,7 +208,7 @@ export function newMarker(type: string, position: Vec3 = [0, 0, 0]): Marker {
   }
   if (type === 'Weapon pickup') m.label = m.weapon
   if (type === 'Vehicle spawn') m.label = m.vehicle
-  return m
+  return Object.assign(m, retailMarkerDefaults(type))
 }
 
 export function newLight(position: Vec3 = [0, 3, 0]): Light {

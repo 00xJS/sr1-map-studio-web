@@ -7,8 +7,11 @@ import { catalogs } from '../../lib/catalogs'
 import { py } from '../../lib/py'
 import { db } from '../../lib/db'
 import { PIMP_EXIT, SPAWN_TYPES, baseName, type Marker, type Vec3 } from '../../lib/project'
+import { RETAIL_MARKER_TYPES } from '../../lib/retailModes'
+import { RetailMarkerFields } from '../RetailMarkerFields'
 
 const TRIGGERS = new Set(catalogs.trigger_kinds)
+const MARKER_TYPES = [...catalogs.marker_types, ...RETAIL_MARKER_TYPES]
 
 export function MarkersPanel() {
   const project = useEditor((s) => s.project)!
@@ -27,7 +30,7 @@ export function MarkersPanel() {
         <span className="section-title">Spawns &amp; gameplay markers</span>
         <div className="row">
           <select className="grow" value={type} onChange={(e) => useEditor.getState().set({ placeMarkerType: e.target.value })}>
-            {catalogs.marker_types.map((t) => <option key={t}>{t}</option>)}
+            {MARKER_TYPES.map((t) => <option key={t}>{t}</option>)}
           </select>
           <button className={placeMode === 'marker' ? 'on' : 'primary'} disabled={!project.scene_items.length} onClick={() => useEditor.getState().set({ placeMode: placeMode === 'marker' ? null : 'marker' })}>
             {placeMode === 'marker' ? 'Click the map…' : '◎ Place on map'}
@@ -74,7 +77,7 @@ function MarkerEditor({ m, index }: { m: Marker; index: number }) {
       <Field label="Type">
         <select value={m.type} onChange={(e) => set('Marker type', (d) => { d.type = e.target.value })}>
           {m.type === PIMP_EXIT && <option value={PIMP_EXIT}>Pimp exit (not in the game, change this)</option>}
-          {catalogs.marker_types.map((t) => <option key={t}>{t}</option>)}
+          {MARKER_TYPES.map((t) => <option key={t}>{t}</option>)}
         </select>
       </Field>
       <Field label="Position"><Vec3Input value={m.position} onChange={(v) => set('Move marker', (d) => { d.position = v })} /></Field>
@@ -103,6 +106,7 @@ function MarkerEditor({ m, index }: { m: Marker; index: number }) {
           {m.type === 'Sphere trigger (custom)' && <Field label="Trigger action"><input value={m.trigger_action} onChange={(e) => set('Trigger action', (d) => { d.trigger_action = e.target.value }, 'action')} /></Field>}
         </div>
       )}
+      <RetailMarkerFields m={m} index={index} set={set} />
       {m.type === 'Special spawn' && (
         <Field label="NPC activity">
           <input list="special" value={m.special_type} onChange={(e) => set('Activity', (d) => { d.special_type = e.target.value }, 'special')} />

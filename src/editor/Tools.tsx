@@ -7,6 +7,7 @@ import { SHAPE_PRESETS } from '../lib/shapes'
 import { ALL_PREFABS, PREFAB_CATEGORIES } from '../lib/prefabRegistry'
 import { catalogs } from '../lib/catalogs'
 import { MARKER_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/labels'
+import { retailToolMarkers } from '../lib/retailModes'
 import { deleteMyPrefab, renameMyPrefab, useMyPrefabs } from './myPrefabs'
 import { confirmDialog } from '../ui'
 
@@ -128,6 +129,7 @@ export function ToolOptions() {
   const toolSpawn = useEditor((s) => s.toolSpawn)
   const toolWeapon = useEditor((s) => s.toolWeapon)
   const advanced = useEditor((s) => s.advanced)
+  const modes = useEditor((s) => s.project?.settings.modes ?? [])
   const [open, setOpen] = useState(false)
   useEffect(() => { if (tool !== 'paint' && tool !== 'pick') setOpen(false) }, [tool])
   useEffect(() => {
@@ -176,7 +178,7 @@ export function ToolOptions() {
       )}
       {tool === 'spawn' && (
         <select value={toolSpawn} onChange={(e) => set({ toolSpawn: e.target.value })} title={MARKER_HINTS[toolSpawn]}>
-          {(advanced ? catalogs.marker_types.filter((t) => t !== 'Weapon pickup') : SIMPLE_MARKERS).map((t) => <option key={t} value={t}>{markerLabel(t)}</option>)}
+          {[...(advanced ? catalogs.marker_types.filter((t) => t !== 'Weapon pickup') : SIMPLE_MARKERS), ...retailToolMarkers(modes)].map((t) => <option key={t} value={t}>{markerLabel(t)}</option>)}
         </select>
       )}
       {tool === 'weapon' && (
