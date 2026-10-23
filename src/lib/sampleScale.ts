@@ -11,6 +11,7 @@
 // - Markers move with whatever they stand on.
 import type { Vec3 } from './project'
 import type { MarkerSpec, Part, Sample } from './sampleKit'
+import { heightAt } from './terrain'
 
 /** Footprint at or above this (units) counts as structure. */
 const BIG = 16
@@ -56,9 +57,21 @@ export function support(parts: Part[], [x, y, z]: Vec3): number {
 
 /** Something within half a unit of a marker between its feet and head height (about 3.4 units). */
 export function blocker(parts: Part[], [x, y, z]: Vec3): Part | undefined {
-  return parts.find((p) => p.at[1] < y + 3.4 && p.at[1] + p.size[1] > y + 0.01 && over(p, x, z, 0.5)
+  return parts.find((p) => p.kind === 'terrain' ? terrainBlocks(p, x, y, z) : p.at[1] < y + 3.4 && p.at[1] + p.size[1] > y + 0.01 && over(p, x, z, 0.5)
     // Paint, paths, curbs and water films at foot level are stepped over, not walls.
     && !(p.size[1] <= 0.3 && p.at[1] + p.size[1] <= y + 0.35))
+}
+
+/** Terrain is in the way where its surface within half a unit of the spot rises more than a kerb above the feet. */
+function terrainBlocks(p: Part, x: number, y: number, z: number) {
+  const t = ((p.rot ?? 0) * Math.PI) / 180
+  const shape = { kind: p.kind, size: p.size, tile: 4, cells: p.cells, heights: p.heights }
+  for (const [ox, oz] of [[0, 0], [0.5, 0], [-0.5, 0], [0, 0.5], [0, -0.5]]) {
+    const dx = x + ox - p.at[0], dz = z + oz - p.at[2]
+    const hgt = heightAt(shape, dx * Math.cos(t) - dz * Math.sin(t), dx * Math.sin(t) + dz * Math.cos(t))
+    if (hgt !== null && p.at[1] + p.size[1] + hgt > y + 0.35) return true
+  }
+  return false
 }
 
 export function spreadSample(s: Sample, k: number): Sample {

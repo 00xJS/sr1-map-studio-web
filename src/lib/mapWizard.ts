@@ -11,9 +11,10 @@ import { prefabParams, tagPrefab } from './prefabs'
 import { detailize } from './sampleDetail'
 import { dress, type DressOptions } from './sampleDress'
 import { populate, type PopulateTargets } from './samplePopulate'
+import { neighbourhood } from './neighbourhood'
 
 export type WizardSetting = 'downtown' | 'industrial' | 'paintball' | 'cyber'
-export type WizardLayout = 'blocks' | 'plaza' | 'lanes' | 'arena' | 'heights'
+export type WizardLayout = 'blocks' | 'plaza' | 'lanes' | 'arena' | 'heights' | 'neighbourhood'
 export type WizardDensity = 'open' | 'normal' | 'packed'
 
 export interface WizardOptions {
@@ -23,6 +24,8 @@ export interface WizardOptions {
   density: WizardDensity
   seed: number
   name?: string
+  /** Neighbourhood: hills along the side walls and a raised plaza (default on). */
+  terrain?: boolean
 }
 
 export const SETTINGS: Record<WizardSetting, { label: string; icon: string; hint: string }> = {
@@ -38,6 +41,7 @@ export const LAYOUTS: Record<WizardLayout, { label: string; hint: string }> = {
   lanes: { label: 'Three lanes', hint: 'Long map, two walls of cover splitting it into three lanes with crossings.' },
   arena: { label: 'Ring arena', hint: 'A broken ring of walls round a raised middle.' },
   heights: { label: 'High ground', hint: 'Raised decks with ramps to fight over.' },
+  neighbourhood: { label: 'Neighbourhood', hint: 'Real streets with sidewalks, crossings and street lamps round blocks of buildings, alleys and a park; hills at the edges and a raised plaza if you like.' },
 }
 
 export const DENSITY: Record<WizardDensity, { label: string; fill: number; dress: DressOptions }> = {
@@ -64,13 +68,13 @@ function rng(seed: number) {
     chance: (p: number) => next() < p,
   }
 }
-type Rng = ReturnType<typeof rng>
+export type Rng = ReturnType<typeof rng>
 
 export const newSeed = () => Math.floor(Math.random() * 2 ** 31)
 
 // ---------------- the look of each setting ----------------
 
-interface Look {
+export interface Look {
   theme: Theme
   ground: Tex[]
   wall: Tex; wallTop: Tex; wallH: number
@@ -84,13 +88,13 @@ interface Look {
 }
 
 /** A building players can walk into (a room or a two-storey shell), sized to the plot, door toward the middle of the map. */
-function walkIn(key: string, x: number, z: number, w: number, d: number, extra: Record<string, string | number> = {}): Part[] {
+function walkIn(key: string, x: number, z: number, w: number, d: number, extra: Record<string, string | number> = {}, y = 1): Part[] {
   const def = ALL_PREFABS[key]
   if (!def) return []
   const lim = (k: string, v: number) => { const pd = def.params?.find((q) => q.key === k); return pd ? Math.max(pd.min ?? v, Math.min(pd.max ?? v, v)) : v }
   const params = prefabParams(def, { w: lim('w', Math.round(w)), d: lim('d', Math.round(d)), ...extra })
   // Plots sit on red's half (−Z), so the front (+Z) faces the middle.
-  return tagPrefab(def.make(x, z, 0, 1, params), key, params, [x, 1, z], 0)
+  return tagPrefab(def.make(x, z, 0, y, params), key, params, [x, y, z], 0)
 }
 
 const FACADES = [PB.brick, PB.oldBrick, PB.plaster, PB.beige, U.apartments, U.office, U.officeGreen, U.shopfront, U.projects]
@@ -304,6 +308,7 @@ export function wizardLayout(o: WizardOptions): Sample {
   const look = LOOKS[o.setting]
   const [W, D] = wizardSize(o.players, o.layout)
   const strip = 14
+  if (o.layout === 'neighbourhood') return neighbourhoodSample(o, look, r, W, D, strip)
   const h = new Half(W, D, strip, look, r)
   lay(h, o)
   const mid = centre(o, look, r)
@@ -327,6 +332,29 @@ export function wizardLayout(o: WizardOptions): Sample {
       ...(o.setting === 'cyber' ? mirror(cyl('Neon pillar', 2, 8, [-W / 2 + 4, 1, -D / 2 + 4], CY.dark, r.pick(NEON), 6)) : []),
     ],
     markers: teamMarkers({ red, shared: [], weapons, drops: [], pimp: [0, 1, sz] }),
+    dressWith: look.dress.filter((k) => ALL_PREFABS[k]),
+  }
+}
+
+/** Streets, blocks, a park and hills (see neighbourhood.ts), with spawns at each end. */
+function neighbourhoodSample(o: WizardOptions, look: Look, r: Rng, W: number, D: number, strip: number): Sample {
+  const height = () => (o.setting === 'downtown' ? r.pick([14, 18, 24, 30]) : o.setting === 'industrial' ? r.pick([8, 10, 12]) : r.pick([5, 6, 8]))
+  const hood = neighbourhood({ o, look, r, W, D, strip, height, walkIn, high: o.setting === 'cyber' ? CYBER_HIGH : WEAPONS_HIGH })
+  const sz = -D / 2 + strip / 2
+  const red: Vec3[] = [-0.3, -0.1, 0.1, 0.3].map((f) => [Math.round(f * W), 1, sz])
+  const name = o.name?.trim() || `${SETTINGS[o.setting].label} ${LAYOUTS[o.layout].label}`
+  return {
+    id: `wiz_${o.setting}_${o.layout}`,
+    name, icon: SETTINGS[o.setting].icon, theme: look.theme, modes: ALL_MODES, size: 'full',
+    description: `${LAYOUTS[o.layout].label} in a ${SETTINGS[o.setting].label.toLowerCase()} setting for about ${o.players} players (seed ${o.seed}).`,
+    parts: [
+      ground(W, D, o.setting === 'cyber' ? r.pick(look.ground) : PB.concrete, PB.concrete, 8),
+      ...perimeter(W, D, hood.wallH, look.wall, look.wallTop),
+      ...hood.centre,
+      ...mirror(...hood.half),
+    ],
+    markers: teamMarkers({ red, shared: [], weapons: hood.weapons, drops: [], pimp: [0, 1, sz] }),
+    lights: hood.lights,
     dressWith: look.dress.filter((k) => ALL_PREFABS[k]),
   }
 }

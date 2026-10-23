@@ -9,7 +9,7 @@ export type Selection = { kind: 'item' | 'marker' | 'light'; index: number } | n
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
 export type PlaceMode = null | 'marker' | 'light' | 'face' | 'decal'
 /** Paint-style tools: 'select' shows the gizmo; the others act on every click in the viewport. */
-export type Tool = 'select' | 'shape' | 'paint' | 'pick' | 'spawn' | 'weapon' | 'light' | 'erase'
+export type Tool = 'select' | 'shape' | 'paint' | 'pick' | 'spawn' | 'weapon' | 'light' | 'erase' | 'sculpt' | 'road'
 
 /** A texture the paint bucket applies: generated, from the starter library, or a file already in the map. */
 export interface Swatch {

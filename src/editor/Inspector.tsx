@@ -20,6 +20,7 @@ import { MARKER_HINTS, MODE_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/la
 import { GAME_MODES, isCustomNative, isGlass, type Light, type Marker, type SceneItem, type Vec3 } from '../lib/project'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
 import { prefabParams } from '../lib/prefabs'
+import { RoadPanel, TERRAIN_LOOK, TerrainPanel } from './GroundToolOptions'
 import { AMBIENCE_OPTIONS, ambienceHint, waterHint } from '../lib/mapFeatures'
 import { PhysicsPanel } from './PhysicsPanel'
 import { RetailMarkerFields } from './RetailMarkerFields'
@@ -270,6 +271,8 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
       </div>
 
       {it.prefab && ALL_PREFABS[it.prefab.key]?.params && <PrefabSettings it={it} index={index} />}
+      {it.prefab?.key === 'road' && <RoadPanel />}
+      {it.shape?.kind === 'terrain' && <TerrainPanel it={it} />}
 
       {fixedGlass
         ? <div className="group"><span className="section-title">Look</span><span className="small muted">A breakable glass window. It keeps its glass look and size.</span></div>
@@ -315,7 +318,7 @@ function LookEditor({ it, index }: { it: SceneItem; index: number }) {
   }, [picking])
   const custom = isCustomNative(it)
   const shown = custom ? mats.slice(0, 1) : mats
-  const label = (mat: string) => (it.shape ? (mat === 'top' ? 'Top' : 'Sides') : mat)
+  const label = (mat: string) => (it.shape?.kind === 'terrain' ? TERRAIN_LOOK[mat] ?? mat : it.shape ? (mat === 'top' ? 'Top' : 'Sides') : mat)
   return (
     <div className="group">
       <span className="section-title">Look</span>
@@ -490,7 +493,7 @@ function PrefabSettings({ it, index }: { it: SceneItem; index: number }) {
     <div className="group">
       <div className="row between"><span className="section-title">{def.label} settings</span>{busy && <span className="faint small">Rebuilding…</span>}</div>
       <div className="form-grid">
-        {def.params!.map((d) => (
+        {def.params!.filter((d) => d.kind !== 'path').map((d) => (
           <Field key={d.key} label={d.label}>
             {d.kind === 'select'
               ? <select value={String(values[d.key])} onChange={(e) => change(d.key, e.target.value)}>{d.options!.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>

@@ -13,6 +13,7 @@ import type { PlayerModel } from '../lib/sr1char/player'
 import { placePendingDecal } from './PhotoDialog'
 import { PhysicsHud } from './PhysicsHud'
 import { attachHealthOverlay } from './health'
+import { attachGroundTools } from './groundTools'
 
 let active: Viewer | null = null
 /** The editor's viewer (for camera center, snapping and thumbnails). */
@@ -273,6 +274,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
       },
     })
     active = viewer
+    const ground = attachGroundTools(viewer)
     if (import.meta.env.DEV) (window as any).__viewer = viewer
     setThumbnailProvider(() => viewer.capture())
     const sync = () => {
@@ -288,7 +290,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
     sync()
     const unsub = useEditor.subscribe(sync)
     const offHealth = attachHealthOverlay(viewer)
-    return () => { unsub(); offHealth(); setThumbnailProvider(null); active = null; viewer.dispose() }
+    return () => { unsub(); offHealth(); ground(); setThumbnailProvider(null); active = null; viewer.dispose() }
   }, [])
 
   const empty = !project?.scene_items.length
