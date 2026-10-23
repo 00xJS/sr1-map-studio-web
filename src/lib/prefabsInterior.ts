@@ -537,7 +537,7 @@ const VEHICLES: Record<string, PrefabDef & { category: string }> = {
     { ...box('Trailer', [8, 5, 22], L(0, 1, 0), PB.steel, solid('#e6dcc4', '#c9bc9e', 432)), bevel: 0.3 },
     box('Trailer stripe', [8.06, 0.5, 22.06], L(0, 2.6, 0), PB.blue), box('Skirting', [7.6, 1, 21.6], L(0, 0, 0), PB.corrugated),
     ...[-7, -2, 6].map((z) => box('Window', [8.1, 1.4, 2.4], L(0, 3.3, z), GLASS)), box('Trailer door', [0.1, 3.6, 2], L(4.05, 1.3, 2), solid('#7a5a3a', '#5a3f2a', 433)),
-    stairs('Steps', [2.2, 1.3, 2.4], L(5.3, 0, 2), PB.concrete, PB.concrete, 270, 3), box('Hitch', [1, 0.6, 3], L(0, 0.4, 12.4), BLACK),
+    stairs('Steps', [2.2, 1.3, 2.4], L(5.3, 0, 2), PB.concrete, PB.concrete, 90, 3), box('Hitch', [1, 0.6, 3], L(0, 0.4, 12.4), BLACK),
   ]) },
   carwreck: { category: 'Vehicles', label: 'Crushed cars', hint: 'A stack of crushed car hulks for a junkyard', ...pfp('Crushed cars', [num('n', 'Cars', 1, 5, 3)], (L, p) => {
     const paints = [PB.car('#8a3a2b', 440), PB.car('#2f5f8f', 441), PB.car('#7a7f86', 442), PB.car('#3f7a3a', 443), PB.rusty]

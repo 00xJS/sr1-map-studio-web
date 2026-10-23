@@ -8,6 +8,7 @@ export type TextureKind =
   | 'wood_planks' | 'grass' | 'dirt' | 'gravel' | 'sand'
   | 'facade' | 'storefront' | 'garage_door' | 'hazard' | 'matrix' | 'water'
   | 'chevrons' | 'emblem' | 'screen' | 'scoreboard'
+  | 'poster' | 'graffiti' | 'sign'
 
 export interface GenParams {
   kind: TextureKind
@@ -49,6 +50,10 @@ export const KINDS: Record<TextureKind, KindInfo> = {
   emblem: { label: 'Team emblem', surface: 15, color: '#120d14', accent: '#ff3dd8', scale: 8, wear: 0, accentLabel: 'Glow', scaleLabel: 'Grid lines' },
   screen: { label: 'Data screen', surface: 15, color: '#07141a', accent: '#18d8ff', scale: 9, wear: 0.3, accentLabel: 'Glow', scaleLabel: 'Text rows' },
   scoreboard: { label: 'Scoreboard', surface: 15, color: '#e8322b', accent: '#2a7fff', scale: 1, wear: 0, accentLabel: 'Right team', scaleLabel: 'Unused' },
+  // Made to be stretched once over a panel (a poster, a sign, a tag on a wall) rather than repeated.
+  poster: { label: 'Poster', surface: 5, color: '#c8322b', accent: '#f2c218', scale: 3, wear: 0.25, accentLabel: 'Print', scaleLabel: 'Text lines' },
+  graffiti: { label: 'Graffiti tag', surface: 0, color: '#ff3dd8', accent: '#1d1d20', scale: 5, wear: 0.4, accentLabel: 'Outline', scaleLabel: 'Letters' },
+  sign: { label: 'Shop sign', surface: 15, color: '#1d1d20', accent: '#f2c218', scale: 6, wear: 0.15, accentLabel: 'Letters', scaleLabel: 'Letters' },
 }
 
 export const defaultParams = (kind: TextureKind, size = 512): GenParams => {
@@ -111,6 +116,31 @@ const rgb = (hex: string): [number, number, number] => {
 }
 const mix = (a: number[], b: number[], t: number) => [lerp(a[0], b[0], t), lerp(a[1], b[1], t), lerp(a[2], b[2], t)]
 const shade = (c: number[], k: number) => [c[0] * k, c[1] * k, c[2] * k]
+
+// ---------------- lettering ----------------
+// Made-up block letters (no font, nothing copied): each is a few of eight
+// strokes on a 5 x 7 grid, picked from shapes that read like real letters.
+
+/** Strokes: top, middle, bottom, upper left, lower left, upper right, lower right, centre. */
+const STROKES: [number, number, number, number][] = [[0, 0, 1, 0], [0, 0.5, 1, 0.5], [0, 1, 1, 1], [0, 0, 0, 0.5], [0, 0.5, 0, 1], [1, 0, 1, 0.5], [1, 0.5, 1, 1], [0.5, 0, 0.5, 1]]
+const LETTERS = [0b00011111, 0b01111010, 0b00011100, 0b01111100, 0b01111101, 0b01111011, 0b10000001, 0b10000101, 0b00011011, 0b00111011, 0b00011101, 0b01001111, 0b01101011, 0b10011100]
+const letter = (k: number) => LETTERS[k % LETTERS.length]
+/** Is grid cell (gx 0-4, gy 0-6) inked in letter `code`? */
+function blockLetter(code: number, gx: number, gy: number): boolean {
+  return STROKES.some(([x0, y0, x1, y1], i) => !!(code & (1 << i)) && gx >= x0 * 4 && gx <= x1 * 4 && gy >= y0 * 6 && gy <= y1 * 6)
+}
+/** Distance from (x, y) to the nearest stroke of a letter, in its 0-1 box. */
+function strokeDist(code: number, x: number, y: number): number {
+  let d = 9
+  STROKES.forEach(([x0, y0, x1, y1], i) => {
+    if (!(code & (1 << i))) return
+    const dx = x1 - x0, dy = y1 - y0, l2 = dx * dx + dy * dy
+    const t = clamp01(((x - x0) * dx + (y - y0) * dy) / l2)
+    d = Math.min(d, Math.hypot(x - x0 - t * dx, y - y0 - t * dy))
+  })
+  return d
+}
+const bright = (c: number[]) => (c[0] * 0.3 + c[1] * 0.59 + c[2] * 0.11) / 255
 
 // ---------------- patterns ----------------
 
@@ -393,6 +423,80 @@ function pattern(p: GenParams): Pixel {
       }
       return c
     }
+    case 'poster': return (u, v) => {
+      // Paper margin (the same all round, so it tiles), a headline, a big motif, small print, and some tearing.
+      const paper = [236, 232, 220]
+      const m = 0.05
+      if (u < m || u > 1 - m || v < m || v > 1 - m) return shade(paper, 0.95 + 0.05 * noise(u, v, 64, 64, s))
+      const x = (u - m) / (1 - 2 * m), y = (v - m) / (1 - 2 * m)
+      let c = shade(base, 0.92 + 0.12 * fbm(x, y, 3, 3, s))
+      const ink = bright(base) > 0.55 ? [30, 30, 34] : [240, 238, 230]
+      const motif = Math.floor(hash(1, 2, s) * 3)
+      if (y > 0.26 && y < 0.7) {
+        const cx = 0.5 + (hash(3, 4, s) - 0.5) * 0.3, cy = 0.48
+        if (motif === 0 && Math.hypot(x - cx, (y - cy) * 1.3) < 0.26) c = mix(accent, [255, 255, 255], 0.15 * fbm(x, y, 4, 3, s + 1))
+        else if (motif === 1 && x + (y - 0.26) * 0.8 > 0.6) c = shade(accent, 0.9 + 0.2 * noise(x, y, 16, 16, s + 2))
+        else if (motif === 2 && x > 0.12 && x < 0.88 && y > 0.3 && y < 0.66) c = shade(mix(accent, base, 0.4 + 0.5 * fbm(x, y, 4, 4, s + 3)), 0.7 + 0.5 * fbm(x, y, 8, 3, s + 4))
+      }
+      // Headline in block letters.
+      if (y > 0.07 && y < 0.23) {
+        const cols = 7, gx = Math.floor(x * cols), fx = x * cols - gx
+        const lx = Math.floor(((fx - 0.1) / 0.8) * 5), ly = Math.floor(((y - 0.07) / 0.16) * 7)
+        if (lx >= 0 && lx < 5 && ly >= 0 && ly < 7 && blockLetter(letter(Math.floor(hash(gx, 9, s) * 99)), lx, ly)) c = motif === 1 ? ink : accent
+      }
+      // Lines of small print.
+      for (let i = 0; i < n; i++) {
+        const y0 = 0.76 + i * (0.16 / n)
+        if (y > y0 && y < y0 + 0.08 / n + 0.012 && x > 0.08 && x < 0.92 - 0.2 * hash(i, 5, s) && (x * 40) % 1 > 0.18) c = ink
+      }
+      // Torn and weathered.
+      const torn = clamp01((fbm(u, v, 4, 4, s + 6) - 0.72 + wear * 0.15) * 6) * (0.4 + wear)
+      return mix(shade(c, 1 - 0.15 * wear * fbm(u, v, 6, 3, s + 7)), paper, torn)
+    }
+    case 'graffiti': {
+      // Bubble letters with a dark outline, a two-tone fill, a shine and drips; see-through everywhere else.
+      const letters = Math.max(2, Math.min(8, n))
+      const codes = [...Array(letters)].map((_, i) => letter(Math.floor(hash(i, 21, s) * 99)))
+      const tilt = (hash(2, 22, s) - 0.5) * 0.3
+      return (u, v) => {
+        const out = [...base, 0]
+        if (u < 0.03 || u > 0.97 || v < 0.03 || v > 0.97) return out
+        const wob = (fbm(u, v, 6, 3, s + 1) - 0.5) * 0.06
+        const x = ((u - 0.06 + (v - 0.5) * tilt) / 0.88) * letters + wob * 4, y = (v - 0.22) / 0.56 + wob
+        const gi = Math.floor(x)
+        let d = 9, which = -1
+        for (const g of [gi - 1, gi, gi + 1]) {
+          if (g < 0 || g >= letters) continue
+          const lift = (hash(g, 23, s) - 0.5) * 0.16
+          const e = strokeDist(codes[g], (x - g - 0.18) / 0.64, y + lift) * 0.64
+          if (e < d) { d = e; which = g }
+        }
+        const r = 0.17, line = 0.05
+        if (d < r) {
+          const shine = d < r * 0.35 && y < 0.35 + 0.05 * hash(which, 24, s)
+          const c = shine ? mix(base, [255, 255, 255], 0.7) : mix(shade(base, 1.1), shade(base, 0.6), clamp01(y))
+          return [...c, 255]
+        }
+        if (d < r + line) return [...accent, 255]
+        // Drips under the letters, and overspray.
+        const col = Math.floor(u * 90)
+        if (hash(col, 25, s) < 0.12 + wear * 0.15 && y > 0.9 && y < 0.95 + hash(col, 26, s) * 0.6 * (0.5 + wear) && Math.abs(((u * 90) % 1) - 0.5) < 0.22) return [...shade(base, 0.8), 230]
+        if (d < r + line + 0.1 && hash(Math.floor(u * 400), Math.floor(v * 400), s + 27) < 0.05 * (1 + wear)) return [...base, 160]
+        return out
+      }
+    }
+    case 'sign': return (u, v) => {
+      // A frame (the same all round), a lit panel and a row of letters.
+      const frame = 0.06
+      if (u < frame || u > 1 - frame || v < frame * 1.6 || v > 1 - frame * 1.6) return shade(accent, 0.45 + 0.1 * noise(u, v, 64, 64, s))
+      let c = shade(base, 0.95 + 0.1 * fbm(u, v, 3, 3, s))
+      const cols = Math.max(2, n), x = ((u - frame) / (1 - 2 * frame)) * cols, gx = Math.floor(x), fx = x - gx
+      const y = (v - 0.25) / 0.5
+      const lx = Math.floor(((fx - 0.12) / 0.76) * 5), ly = Math.floor(y * 7)
+      if (lx >= 0 && lx < 5 && ly >= 0 && ly < 7 && blockLetter(letter(Math.floor(hash(gx, 31, s) * 99)), lx, ly)) c = shade(accent, 0.95 + 0.1 * noise(u, v, 32, 32, s + 1))
+      const grime = clamp01((fbm(u, v, 4, 4, s + 2) - 0.6) * 4) * wear
+      return shade(c, 1 - 0.3 * grime)
+    }
     case 'sand': return (u, v) => {
       const warp = fbm(u, v, 4, 4, s) * 2
       const ripple = 0.5 + 0.5 * Math.sin((v * n + warp) * Math.PI * 2)
@@ -412,7 +516,7 @@ export function generate(p: GenParams): Uint8ClampedArray {
     for (let x = 0; x < size; x++) {
       const c = px(x / size, v)
       const i = (y * size + x) * 4
-      out[i] = c[0]; out[i + 1] = c[1]; out[i + 2] = c[2]; out[i + 3] = 255
+      out[i] = c[0]; out[i + 1] = c[1]; out[i + 2] = c[2]; out[i + 3] = c.length > 3 ? c[3] : 255
     }
   }
   return out

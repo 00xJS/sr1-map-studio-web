@@ -5,12 +5,16 @@
 // players can reach; the sample builder fills in the rest of the spawns,
 // weapons, drop-offs and lights.
 import type { Vec3 } from './project'
-import { ALL_MODES, CY, LIGHT, PB, box, cyl, ground, mirror, mirrorLights, perimeter, teamMarkers, type Part, type Sample, type Tex } from './sampleKit'
+import { ALL_MODES, CY, LIGHT, PB, box, cyl, ground, mirror, mirrorLights, perimeter, stairs, teamMarkers, turn, type Part, type Sample, type Tex } from './sampleKit'
 import { G, S, U, awning, barrier, bench, billboard, bldg, busStop, car, climb, crosswalk, dumpster, fence, hydrant, lamp, lampLight, piece, planter, slope, tree } from './urbanKit'
 import { ALL_PREFABS } from './prefabRegistry'
-import { tagPrefab } from './prefabs'
+import { facadeTex, group, prefabParams, tagPrefab, type Style } from './prefabs'
 
 const meta = { theme: 'Urban' as const, modes: ALL_MODES, size: 'full' as const, added: '2026-10-22' }
+const GLASS: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 330 }, surface: 9 }
+const DOOR_WOOD: Tex = { gen: 'wood_planks', tweak: { color: '#4a3324', accent: '#2e1f15', scale: 3, wear: 0.15, seed: 400 }, surface: 21 }
+/** Where the club strip's clubs stand along each side (all on their own half: the mirror makes the other). */
+const CLUBS = [-92, -66, -40, -14]
 const lamps = (spots: [number, number, number?][]): Part[] => spots.flatMap(([x, z, y]) => lamp(x, z, y ?? S))
 const lampLights = (spots: [number, number, number?][], c: Vec3 = LIGHT.warm) => mirrorLights(...spots.map(([x, z, y]) => lampLight(x, z, y ?? S, c)))
 const pad = (x: number, z: number, w: number, d: number, tex: Tex = U.walk) => box('Sidewalk', [w, 0.3, d], [x, G, z], tex, PB.concrete, 0, 4)
@@ -18,15 +22,28 @@ const water = (x: number, z: number, w: number, d: number, y = G) => box('Water'
 /** A natural pond (one object, editable as the Pond prefab). */
 const pond = (x: number, z: number, w: number, d: number, shape: number, y = G): Part[] =>
   tagPrefab(ALL_PREFABS.pond.make(x, z, 0, y, { w, d, shape }), 'pond', { w, d, shape }, [x, y, z], 0)
-const truck = (x: number, z: number, rot: number, color: string, seed: number): Part[] => [
-  box('Truck trailer', [5, 6, 18], [x, G, z], PB.steel, PB.car(color, seed), rot),
-]
-const house = (x: number, z: number, rot: number, wall: Tex): Part[] => piece(x, z, rot, G, [
-  ['House', [18, 8, 14], [0, 0, 0], PB.wood, wall],
-  ['Roof', [18, 4, 7], [0, 8, -3.5], U.slate, U.slate],
-  ['Roof', [18, 4, 7], [0, 8, 3.5], U.slate, U.slate],
-  ['Porch', [8, 0.6, 4], [0, 0, 9], PB.planks, PB.wood],
+/** A semi: its trailer (the back is local −Z, toward a loading dock) and the cab in front. */
+const truck = (x: number, z: number, rot: number, color: string, seed: number): Part[] => piece(x, z, rot, G, [
+  ['Truck trailer', [5, 6, 18], [0, 0, 0], PB.steel, PB.car(color, seed)],
+  ['Truck cab', [5, 5, 5.5], [0, 0, 12.2], PB.car(color, seed + 1)],
+  ['Cab glass', [4.6, 1.6, 0.1], [0, 3.1, 14.97], GLASS],
 ])
+/** A house (one object): walls with windows, a gable roof and chimney, and a porch with its front door (+Z before turning). */
+const house = (x: number, z: number, rot: number, style: Style): Part[] => {
+  const L = (dx: number, dy: number, dz: number): Vec3 => { const [ox, oz] = turn(dx, dz, rot); return [x + ox, G + dy, z + oz] }
+  return group(`House@${x},${z}`, [
+    box('House', [18, 8, 14], L(0, 0, 0), PB.wood, facadeTex(style), rot, 7),
+    { ...box('Roof', [19, 4.5, 15.4], L(0, 8, 0), U.slate, U.slate, rot), kind: 'roof' },
+    box('Chimney', [1.6, 5.5, 1.6], L(5.5, 8, -3), PB.brick, PB.brick, rot),
+    box('Porch', [8, 0.6, 4], L(0, 0, 9), PB.planks, PB.wood, rot), box('Front door', [2.8, 5, 0.2], L(0, 0.6, 7.1), DOOR_WOOD, DOOR_WOOD, rot),
+    ...[-3.7, 3.7].map((dx) => box('Porch post', [0.3, 4.2, 0.3], L(dx, 0.6, 10.7), U.white, U.white, rot)), box('Porch roof', [8.4, 0.3, 4.4], L(0, 4.8, 9), U.slate, U.slate, rot),
+  ])
+}
+/** A prefab by its key, placed and tagged so the editor can change it later. */
+const pre = (key: string, x: number, z: number, rot = 0, y = G, params: Record<string, number | string> = {}): Part[] => {
+  const def = ALL_PREFABS[key], p = { ...prefabParams(def), ...params }
+  return tagPrefab(def.make(x, z, rot, y, p), key, p, [x, y, z], rot)
+}
 const tent = (x: number, z: number, top: Tex): Part[] => [
   ...[[-3, -3], [3, -3], [-3, 3], [3, 3]].map(([dx, dz]) => cyl('Tent pole', 0.3, 4, [x + dx, G, z + dz], PB.steel, PB.steel, 6)),
   box('Tent roof', [7, 0.4, 7], [x, G + 4, z], top),
@@ -54,10 +71,11 @@ export const URBAN: Sample[] = [
         box('Kiosk', [6, 3.5, 6], [-38, S, -56], PB.yellow, PB.yellow),
         ...tree(-30, -30), ...tree(-50, -30), ...tree(-30, -68), bench(-46, -44, 90),
         ...lamps([[20, -20], [20, -60], [60, -20], [92, -20], [-20, -20], [-20, -60], [-58, -20], [-92, -20]]),
-        car(13, -40, 0, '#b8322a', 101), car(-13, -62, 0, '#2a5ab8', 102), car(13, -85, 0, '#d0d0d0', 103),
-        car(-40, -13, 90, '#2f8a3a', 104), car(70, -13, 90, '#e0b020', 105),
-        box('Bus', [5, 6, 22], [4, G, -40], PB.yellow, PB.car('#e0b020', 106), 15),
+        car(13, -40, 180, '#b8322a', 101), car(-13, -62, 0, '#2a5ab8', 102), car(13, -85, 180, '#d0d0d0', 103),
+        car(-40, -13, 270, '#2f8a3a', 104), car(70, -13, 270, '#e0b020', 105),
+        box('Crashed bus', [5, 6, 22], [4, G, -40], PB.yellow, PB.car('#e0b020', 106), 15),
         ...crosswalk(0, -19, 30), barrier(0, -66),
+        ...pre('policecar', 10, -60, 180), ...pre('cones', 4, -55, 15), ...pre('barricade', -2, -26, 0),
       ),
     ],
     markers: teamMarkers({
@@ -104,7 +122,7 @@ export const URBAN: Sample[] = [
     parts: [
       ground(200, 200, U.grass, PB.dirt),
       ...perimeter(200, 200, 4, U.hedge),
-      box('Path', [200, 0.1, 8], [0, G, 0], U.walk, U.walk, 0, 4), box('Path', [8, 0.1, 200], [0, G, 0], U.walk, U.walk, 0, 4),
+      box('Path', [200, 0.1, 8], [0, G, 0], U.walk, U.walk, 0, 4), ...[-56, 56].map((z) => box('Path', [8, 0.1, 88], [0, G, z], U.walk, U.walk, 0, 4)),
       cyl('Plaza', 26, 0.15, [0, G, 0], U.plazaTiles, PB.concrete, 24), cyl('Gazebo floor', 14, 1, [0, G + 0.15, 0], PB.planks, PB.wood, 8),
       ...[0, 60, 120, 180, 240, 300].map((a) => cyl('Gazebo post', 0.8, 5, [+(6 * Math.cos(a * Math.PI / 180)).toFixed(2), G + 1.15, +(6 * Math.sin(a * Math.PI / 180)).toFixed(2)], PB.wood, PB.wood, 8)),
       cyl('Gazebo roof', 16, 1, [0, G + 6.15, 0], U.slate, PB.wood, 8),
@@ -112,7 +130,7 @@ export const URBAN: Sample[] = [
         ...pond(-50, -50, 40, 24, 3),
         ...[[-80, -80], [-60, -84], [-20, -70], [20, -84], [40, -60], [70, -76], [86, -40], [60, -20], [24, -30], [-30, -24], [-74, -30], [-86, -60]].flatMap(([x, z]) => tree(x, z, G, 1.2)),
         bench(-14, -30, 90, G), bench(14, -50, 90, G), bench(-40, -6, 0, G), bench(40, -6, 0, G),
-        box('Slide tower', [5, 4, 5], [60, G, -50], PB.red, PB.yellow), slope(60, -41.5, 3, 4, 12, 180, G, PB.yellow, PB.yellow), climb(60, -55, 4, 5, 0, G, 3, PB.blue),
+        box('Slide tower', [5, 4, 5], [60, G, -50], PB.red, PB.yellow), slope(60, -41.5, 3, 4, 12, 0, G, PB.yellow, PB.yellow), climb(60, -55, 4, 5, 180, G, 3, PB.blue),
         ...[[52, -30], [58, -30], [64, -30]].map(([x, z]) => box('Swing frame', [0.4, 5, 0.4], [x, G, z], PB.steel)), box('Swing bar', [13, 0.4, 0.4], [58, G + 5, -30], PB.steel),
         ...lamps([[-12, -20, G], [12, -60, G], [-60, -10, G], [80, -10, G]]),
       ),
@@ -134,7 +152,7 @@ export const URBAN: Sample[] = [
       ...perimeter(200, 220, 4, PB.cinder),
       ...mirror(
         bldg(0, -98, 170, 24, 16, U.shopfront, G, U.roof, 'Mall'),
-        box('Entrance canopy', [30, 0.8, 10], [0, G + 7, -81], PB.steel), ...[-13, 13].map((x) => cyl('Canopy post', 1, 7, [x, G, -77], PB.steel)),
+        box('Entrance canopy', [30, 0.8, 10], [0, G + 7.3, -81], PB.steel), ...[-13, 13].map((x) => cyl('Canopy post', 1, 7.3, [x, G, -77], PB.steel)),
         box('Sidewalk', [170, 0.3, 8], [0, G, -82], U.walk, PB.concrete),
         ...[-64, -40, -16].flatMap((z, r) => [-80, -68, -56, -44, -24, -12, 12, 24, 44, 56, 68, 80]
           .filter((_, i) => (i + r) % 3 !== 1)
@@ -166,11 +184,11 @@ export const URBAN: Sample[] = [
         ...[[-14, -64], [14, -64], [-14, -48], [14, -48]].map(([x, z]) => cyl('Canopy post', 1.2, 8, [x, G, z], PB.steel)),
         ...[[-7, -56], [7, -56]].flatMap(([x, z]) => [box('Pump island', [3, 0.5, 10], [x, G, z], PB.concrete), box('Pump', [1.5, 3, 2], [x, G + 0.5, z - 2.5], PB.red), box('Pump', [1.5, 3, 2], [x, G + 0.5, z + 2.5], PB.red)]),
         bldg(0, -86, 40, 18, 10, U.shopfront, G, U.roof, 'Store'), awning(0, -77, 30, 0, PB.green, G),
-        box('Ice machine', [4, 4, 2], [24, G, -78], U.white),
+        ...pre('icemachine', 25, -78, 0), car(-10.8, -56, 180, '#2a5ab8', 125), car(10.8, -54, 0, '#d0d0d0', 126),
         ...billboard(-60, -30, 0, PB.yellow), ...billboard(70, -70, 30, PB.blue),
         ...truck(-50, -60, 0, '#d0d0d0', 121), ...truck(56, -36, 90, '#b8322a', 122),
         car(-30, -24, 90, '#2a5ab8', 123), car(30, -40, 0, '#202020', 124), dumpster(-24, -88, 0, G),
-        bldg(-80, -80, 30, 30, 8, PB.brick, G, U.roof, 'Car wash'), climb(-80, -61, 8, 10, 180, G),
+        bldg(-80, -80, 30, 30, 8, PB.brick, G, U.roof, 'Car wash'), climb(-60, -84, 8, 10, 90, G),
         ...lamps([[-30, -18, G], [30, -18, G], [-90, -40, G], [90, -20, G]]),
       ),
     ],
@@ -193,12 +211,14 @@ export const URBAN: Sample[] = [
         ...[-60, -36, -12].flatMap((z) => [box('Track bed', [220, 0.2, 7], [0, G, z], PB.planks, PB.planks, 0, 3), box('Rail', [220, 0.4, 0.4], [0, G + 0.2, z - 2.4], PB.rusty), box('Rail', [220, 0.4, 0.4], [0, G + 0.2, z + 2.4], PB.rusty)]),
         box('Boxcar', [24, 7, 6], [-70, G + 0.6, -60], PB.boxRed), box('Boxcar', [24, 7, 6], [-40, G + 0.6, -60], PB.boxBlue), box('Boxcar', [24, 7, 6], [40, G + 0.6, -36], PB.boxGreen),
         box('Boxcar', [24, 7, 6], [-20, G + 0.6, -12], PB.boxRed), box('Boxcar', [24, 7, 6], [70, G + 0.6, -12], PB.boxBlue), box('Tanker', [24, 6, 6], [10, G + 0.6, -60], PB.steel, PB.black),
-        box('Station platform', [60, 3, 10], [-50, G, -84], PB.floorWorn, PB.cinder), bldg(-50, -94, 30, 6, 8, PB.brick, G + 3, U.slate, 'Station'),
-        climb(-14, -84, 3, 6, 90, G, 6),
+        box('Station platform', [60, 3, 20], [-50, G, -89], PB.floorWorn, PB.cinder), bldg(-50, -95, 30, 6, 8, PB.brick, G + 3, U.slate, 'Station'),
+        climb(-17, -84, 3, 6, 90, G, 6),
         cyl('Fuel tank', 12, 9, [60, G, -84], PB.steel, PB.steel, 20), cyl('Fuel tank', 12, 9, [80, G, -70], PB.steel, PB.steel, 20),
-        box('Footbridge', [6, 1, 52], [100, G + 9, -36], PB.diamond, PB.steel), climb(100, -68, 10, 12, 180, G, 6, PB.steel),
-        ...[-62, -10].map((z) => box('Bridge leg', [6, 9, 1], [100, G, z], PB.steel)),
-        cyl('Signal', 0.5, 7, [0, G, -48], PB.black), cyl('Signal', 0.5, 7, [-90, G, -24], PB.black),
+        box('Footbridge', [6, 1, 63], [100, G + 9, -35], PB.diamond, PB.steel), climb(100, -72.5, 10, 12, 180, G, 6, PB.steel),
+        ...[-66, -4].map((z) => box('Bridge leg', [6, 9, 1], [100, G, z], PB.steel)),
+        ...pre('railsignal', 0, -48, 90), ...pre('railsignal', -90, -24, 270),
+        ...[-90, -50, -10, 22, 70].flatMap((x) => pre('catenary', x, -48, 0, G, { reach: 12 })), box('Contact wire', [190, 0.08, 0.08], [-5, G + 11, -36], PB.steel),
+        ...pre('railswitch', -10, -65.5, 0), ...pre('railswitch', 20, -17.5, 0),
         ...lamps([[-70, -84, G + 3], [-30, -84, G + 3], [30, -48, G], [-80, -48, G]]),
       ),
     ],
@@ -222,7 +242,8 @@ export const URBAN: Sample[] = [
         box('Pier', [10, 0.8, 24], [-40, 0.2, -18], PB.planks, PB.wood), box('Pier', [10, 0.8, 24], [40, 0.2, -18], PB.planks, PB.wood),
         ...[-40, 40].flatMap((x) => [-12, -24].map((z) => cyl('Piling', 1, 2.2, [x + 4, -1, z], PB.wood, PB.wood, 8))),
         box('Boat', [8, 3, 22], [-20, -1, -8], U.white, PB.boxBlue), box('Boat cabin', [6, 3, 8], [-20, 2, -10], U.white),
-        climb(-80, -27, 3, 6, 0, -1, 6),
+        ...pre('boat', -48, -16, 0, -1, { color: 'blue' }), ...pre('forklift', -30, -44, 90),
+        climb(-80, -27, 2, 6, 0, -1, 6),
         bldg(-60, -90, 50, 26, 14, PB.corrugated, G, U.roof, 'Warehouse'), bldg(70, -96, 40, 20, 12, PB.boxBlue, G, U.roof, 'Warehouse'),
         ...[[20, -50], [44, -50]].map(([x, z]) => box('Crane leg', [2, 26, 2], [x, G, z], PB.yellow)), box('Crane beam', [30, 2, 3], [32, G + 26, -50], PB.yellow),
         box('Container', [6, 6, 24], [80, G, -50], PB.boxRed, PB.boxRed, 90), box('Container', [6, 6, 24], [80, G + 6, -50], PB.boxGreen, PB.boxGreen, 90),
@@ -248,12 +269,11 @@ export const URBAN: Sample[] = [
       ...perimeter(200, 200, 4, PB.wood),
       box('Street', [16, 0.08, 200], [0, G, 0], U.road, U.road, 0, 6), cyl('Cul-de-sac', 50, 0.1, [0, G, 0], U.road, U.road, 24),
       ...mirror(
-        ...house(-40, -30, 90, PB.beige), ...house(-40, -70, 90, PB.plaster), ...house(40, -50, 270, PB.beige), ...house(-80, -88, 0, PB.oldBrick),
-        box('Driveway', [8, 0.08, 20], [-20, G, -30], PB.concrete, PB.concrete, 90), box('Driveway', [8, 0.08, 20], [20, G, -50], PB.concrete, PB.concrete, 90),
-        car(-22, -30, 90, '#b8322a', 131), car(22, -50, 90, '#2a5ab8', 132), car(10, -80, 0, '#d0d0d0', 133),
-        fence(-60, -50, 40, 90, 2, PB.wood), fence(-40, -10, 30, 0, 2, PB.wood), fence(60, -80, 40, 0, 2, PB.wood),
+        ...house(-40, -30, 90, 'beige'), ...house(-40, -70, 90, 'plaster'), ...house(40, -50, 270, 'beige'), ...house(-80, -88, 0, 'darkbrick'),
+        box('Driveway', [8, 0.08, 32], [-24, G, -44], PB.concrete, PB.concrete, 90), box('Driveway', [8, 0.08, 32], [24, G, -64], PB.concrete, PB.concrete, 90),
+        car(-30, -44, 270, '#b8322a', 131), car(30, -64, 90, '#2a5ab8', 132), car(10, -80, 180, '#d0d0d0', 133),
+        fence(-60, -50, 40, 90, 2, PB.wood), fence(-40, -10, 30, 0, 2, PB.wood), fence(60, -88, 40, 0, 2, PB.wood),
         ...pond(70, -80, 14, 8, 11), ...[[-64, -14], [70, -30], [-90, -50], [30, -88], [80, -10]].flatMap(([x, z]) => tree(x, z, G)),
-        box('Mailbox', [0.6, 1.4, 0.6], [-14, G, -24], PB.steel), box('Mailbox', [0.6, 1.4, 0.6], [14, G, -44], PB.steel),
         box('Trampoline', [6, 1, 6], [-74, G, -64], PB.black),
         ...lamps([[-12, -60, G], [12, -20, G]]),
       ),
@@ -275,14 +295,11 @@ export const URBAN: Sample[] = [
       ...perimeter(200, 200, 4, PB.corrugated),
       bldg(0, 0, 18, 12, 7, PB.planks, G, U.roof, 'Park office'),
       ...mirror(
-        ...[-80, -50, -20, 20, 50, 80].flatMap((x, i) => [
-          box('Trailer', [8, 5, 24], [x, G, -66], U.white, i % 2 ? PB.boxBlue : PB.steel),
-          box('Porch', [5, 1, 4], [x + 6.5, G, -60], PB.planks, PB.wood), climb(x + 6.5, -55.5, 1, 2, 180, G, 3, PB.wood),
-        ]),
-        ...[-70, -30, 30, 70].map((x) => box('Trailer', [24, 5, 8], [x, G, -30], U.white, PB.planks)),
+        ...[-80, -50, -20, 20, 50, 80].flatMap((x) => pre('trailerhome', x, -66, 0)),
+        ...[-70, -30, 30, 70].flatMap((x) => pre('trailerhome', x, -30, 90)),
         car(-45, -84, 20, '#5a4a3a', 141), car(60, -44, 90, '#7a2a20', 142), car(0, -42, 0, '#2f5a3a', 143),
         cyl('Propane tank', 2, 3, [-90, G, -50], U.white), cyl('Propane tank', 2, 3, [90, G, -16], U.white),
-        box('Laundry line', [12, 0.2, 0.2], [-50, G + 4, -46], PB.steel), ...[-56, -44].map((x) => cyl('Line post', 0.3, 4, [x, G, -46], PB.wood, PB.wood, 6)),
+        ...pre('clothesline', -50, -46, 0),
         ...tree(-90, -90, G), ...tree(90, -88, G), ...tree(-10, -90, G),
         ...lamps([[-35, -46, G], [35, -46, G], [-35, -12, G]]),
       ),
@@ -313,6 +330,8 @@ export const URBAN: Sample[] = [
           awning(31, z, 16, 270, [PB.green, PB.red, PB.blue, PB.yellow][i], G),
         ]),
         ...tent(-14, -60, PB.red), ...tent(14, -36, PB.yellow), ...tent(-14, -24, PB.green),
+        ...[-92, -68, -44, -20].flatMap((z, i) => pre('lanterns', 0, z, 0, G + 8, { len: 62, color: i % 2 ? 'mixed' : 'red' })),
+        ...[-78, -54, -30].flatMap((z) => [-40, -50].flatMap((x) => pre('laundry', x, z, 90, G + 9.3, { len: 4 }))),
         box('Cart', [3, 2.5, 5], [6, G, -78], PB.wood),
         bldg(-80, -40, 12, 60, 10, PB.cinder, G), climb(-68, -30, 10, 12, 90, G, 4),
         dumpster(-62, -54, 0, G), ...lamps([[-28, -80, G], [28, -56, G], [-28, -30, G], [28, -8, G]]),
@@ -370,9 +389,8 @@ export const URBAN: Sample[] = [
         slope(-46, -69, 4, 4, 16, 270, 13, PB.planks, PB.wood), slope(0, -69, 4, 4, 16, 90, 13, PB.planks, PB.wood), slope(46, -69, 4, 8, 16, 270, 13, PB.planks, PB.wood),
         slope(-69, -46, 4, 8, 16, 180, 13, PB.planks, PB.wood), slope(-23, -46, 4, 4, 16, 0, 13, PB.planks, PB.wood),
         slope(-23, 0, 4, 4, 16, 180, 13, PB.planks, PB.wood), slope(69, -46, 4, 8, 16, 0, 13, PB.planks, PB.wood),
-        climb(-45, -30, 12, 14, 270, G), climb(23, -91, 12, 14, 180, G),
-        ...[[-69, -69], [23, -69], [-23, -23], [69, -23]].map(([x, z]) => box('AC unit', [5, 2.5, 4], [x + 8, 13, z + 8], PB.steel)),
-        car(-46, -30, 0, '#b8322a', 151), car(0, -40, 0, '#2a5ab8', 152), car(46, -10, 90, '#d0d0d0', 153), dumpster(-46, -84, 90, G),
+        climb(-45, -12, 12, 14, 270, G), climb(23, -91, 12, 14, 180, G),
+        car(-46, -40, 0, '#b8322a', 151), car(0, -40, 0, '#2a5ab8', 152), car(46, -10, 90, '#d0d0d0', 153), dumpster(-46, -84, 90, G),
         ...lamps([[-46, -94, G], [0, -94, G], [46, -46, G], [-90, 0, G]]),
       ),
     ],
@@ -421,12 +439,12 @@ export const URBAN: Sample[] = [
       box('Football field', [60, 0.1, 100], [0, G, 0], U.turf, U.turf, 0, 8),
       ...mirror(
         bldg(0, -100, 110, 16, 12, PB.brick, G, U.roof, 'School'), bldg(-47, -76, 16, 32, 12, PB.brick, G), bldg(47, -76, 16, 32, 12, PB.brick, G),
-        climb(-30, -86, 12, 14, 90, G),
+        climb(-32, -86, 12, 14, 90, G),
         box('Goal post', [0.6, 8, 0.6], [-6, G, -48], PB.yellow), box('Goal post', [0.6, 8, 0.6], [6, G, -48], PB.yellow), box('Crossbar', [12.6, 0.6, 0.6], [0, G + 3, -48], PB.yellow),
-        climb(40, -20, 4, 6, 270, G, 30, PB.wood),
-        box('Court', [30, 0.12, 20], [-70, G, -30], U.walk, U.walk), cyl('Hoop', 0.5, 7, [-70, G, -40.5], PB.steel), box('Backboard', [4, 3, 0.3], [-70, G + 6, -39.8], U.white),
-        box('Bus', [5, 6, 22], [80, G, -60], PB.yellow, PB.yellow), box('Bus', [5, 6, 22], [88, G, -60], PB.yellow, PB.yellow),
-        cyl('Flagpole', 0.4, 16, [0, G, -88], PB.steel), box('Bike rack', [8, 1.2, 1], [-20, G, -88], PB.steel),
+        stairs('Bleachers', [30, 4, 6], [40, G, -20], PB.wood, PB.steel, 270, 5),
+        box('Court', [30, 0.12, 20], [-70, G, -30], U.walk, U.walk), ...pre('hoop', -85.4, -30, 90), ...pre('hoop', -54.6, -30, 270),
+        ...pre('schoolbus', 80, -62, 0), ...pre('schoolbus', 88, -62, 0),
+        ...pre('flagpole', 12, -86, 0), ...pre('bikerack', -20, -88, 0, G, { n: 4, bikes: 3 }),
         ...tree(-90, -60, G), ...tree(-90, -10, G), ...tree(64, -10, G), ...tree(24, -80, G),
         ...lamps([[-34, -50, G], [34, -50, G], [-80, -80, G]]),
       ),
@@ -451,11 +469,11 @@ export const URBAN: Sample[] = [
         bldg(0, -95, 100, 18, 12, U.shopfront, G, U.roof, 'Ticket hall'), awning(0, -86, 60, 0, PB.blue, G),
         ...[-60, -20, 20, 60].flatMap((x) => [
           box('Platform', [8, 0.6, 60], [x, G, -44], U.walk, PB.concrete),
-          box('Shelter roof', [10, 0.4, 50], [x, G + 6, -44], PB.steel), ...[-62, -26].map((z) => cyl('Shelter post', 0.6, 5.4, [x, G + 0.6, z], PB.steel, PB.steel, 8)),
+          box('Shelter roof', [8, 0.4, 50], [x, G + 6, -44], PB.steel), ...[-62, -26].map((z) => cyl('Shelter post', 0.6, 5.4, [x, G + 0.6, z], PB.steel, PB.steel, 8)),
           bench(x, -50, 90, G + 0.6),
         ]),
         ...[-40, 0, 40].map((x, i) => box('Bus', [5, 6, 22], [x, G, -44 + (i - 1) * 6], U.white, PB.car(['#2a5ab8', '#2f8a3a', '#b8322a'][i], 171 + i))),
-        ...[-75, 75].map((x) => cyl('Walkway pillar', 2, 9, [x, G, 0], PB.concrete)), climb(-76, -10, 10, 14, 180, G, 6, PB.steel),
+        cyl('Walkway pillar', 2, 9, [-75, G, 0], PB.concrete), climb(-76, -10, 10, 14, 180, G, 6, PB.steel),
         box('Kiosk', [4, 3, 4], [-90, G, -80], PB.yellow), dumpster(90, -80, 0, G),
         ...lamps([[-80, -60, G], [80, -30, G], [0, -12, G]]),
       ),
@@ -477,9 +495,9 @@ export const URBAN: Sample[] = [
       ...perimeter(200, 200, 5, PB.corrugated),
       ...mirror(
         bldg(-60, -70, 26, 40, 30, U.projects, G), bldg(60, -60, 40, 24, 24, U.projects, G), bldg(-10, -96, 60, 8, 10, U.projects, G),
-        climb(-60, -40, 10, 12, 0, G), box('Balcony', [26, 0.6, 4], [-60, G + 9.4, -48], PB.concrete),
-        box('Half court', [24, 0.1, 20], [10, G, -54], U.walk, U.walk), cyl('Hoop', 0.5, 7, [10, G, -64.5], PB.steel), box('Backboard', [4, 3, 0.3], [10, G + 6, -63.8], U.white),
-        box('Slide tower', [5, 4, 5], [-20, G, -30], PB.red, PB.yellow), slope(-20, -21.5, 3, 4, 12, 180, G, PB.yellow, PB.yellow),
+        climb(-70, -40, 10, 12, 0, G), box('Balcony', [26, 0.6, 4], [-60, G + 9.4, -48], PB.concrete),
+        box('Half court', [24, 0.1, 20], [10, G, -54], U.walk, U.walk), ...pre('hoop', 10, -64.5, 0),
+        box('Slide tower', [5, 4, 5], [-20, G, -30], PB.red, PB.yellow), slope(-20, -21.5, 3, 4, 12, 0, G, PB.yellow, PB.yellow), climb(-20, -34, 4, 3, 180, G, 2, PB.blue),
         ...[-30, -24, -18].map((x) => dumpster(x, -84, 0, G)),
         fence(30, -30, 40, 0, 3), fence(-80, -20, 30, 90, 3),
         ...[60, 70, 80].map((x, i) => car(x, -30, 0, ['#5a4a3a', '#202020', '#7a2a20'][i], 181 + i)),
@@ -503,10 +521,10 @@ export const URBAN: Sample[] = [
       ground(210, 210, PB.oldAsphalt, PB.concrete),
       ...perimeter(210, 210, 6, PB.corrugated),
       ...mirror(
-        bldg(-50, -86, 70, 30, 16, PB.corrugated, G, U.roof, 'Warehouse'), box('Loading dock', [70, 2.5, 8], [-50, G, -67], PB.floorWorn, PB.concrete), climb(-90, -67, 2.5, 4, 90, G, 8),
-        bldg(60, -50, 50, 40, 14, PB.boxBlue, G, U.roof, 'Warehouse'), box('Loading dock', [8, 2.5, 40], [31, G, -50], PB.floorWorn, PB.concrete), climb(31, -26, 2.5, 4, 180, G, 8),
-        ...truck(-70, -52, 0, '#d0d0d0', 191), ...truck(-30, -52, 0, '#b8322a', 192), ...truck(14, -36, 90, '#2a5ab8', 193),
-        box('Forklift', [3, 3, 5], [-10, G, -58], PB.yellow), box('Forklift', [3, 3, 5], [20, G + 2.5, -64], PB.yellow),
+        bldg(-50, -86, 70, 30, 16, PB.corrugated, G, U.roof, 'Warehouse'), box('Loading dock', [70, 2.5, 8], [-50, G, -67], PB.floorWorn, PB.concrete), climb(-87, -67, 2.5, 4, 270, G, 8),
+        bldg(60, -50, 50, 40, 14, PB.boxBlue, G, U.roof, 'Warehouse'), box('Loading dock', [8, 2.5, 40], [31, G, -50], PB.floorWorn, PB.concrete), climb(31, -28, 2.5, 4, 0, G, 8),
+        ...truck(-70, -52, 0, '#d0d0d0', 191), ...truck(-30, -52, 0, '#b8322a', 192), ...truck(14, -36, 270, '#2a5ab8', 193),
+        ...pre('forklift', -10, -58, 180), ...pre('forklift', 31, -62, 90, G + 2.5), ...pre('boxtruck', -10, -25, 90),
         ...[[-80, -30], [-60, -30], [0, -80]].flatMap(([x, z]) => [box('Pallets', [4, 2, 4], [x, G, z], PB.wood), box('Pallets', [4, 2, 4], [x, G + 2, z], PB.wood)]),
         box('Rail spur', [210, 0.3, 6], [0, G, -14], PB.planks, PB.planks, 0, 3), box('Boxcar', [24, 7, 6], [-60, G + 0.3, -14], PB.boxRed),
         ...lamps([[-90, -40, G], [0, -40, G], [90, -90, G]]),
@@ -532,7 +550,7 @@ export const URBAN: Sample[] = [
         box('Bank', [200, 4, 90], [0, -3, -65], PB.cobble, U.stone, 0, 6),
         box('Bridge', [8, 1, 40], [-60, 0, 0], PB.planks, PB.wood),
         climb(40, -17, 3, 6, 0, -2, 6, U.stone), climb(-90, -17, 3, 6, 0, -2, 6, U.stone),
-        box('Boat', [6, 2.5, 18], [-30, -2, -12], U.white, PB.boxBlue, 90), box('Boat', [6, 2.5, 18], [70, -2, -10], U.white, PB.red, 90),
+        box('Boat', [6, 2.5, 18], [-30, -2, -12], U.white, PB.boxBlue, 90), box('Boat', [6, 2.5, 18], [82, -2, -10], U.white, PB.red, 90),
         ...[-80, -50, -20, 10, 40, 70].map((x, i) => bldg(x, -94, 26, 20, 14 + (i % 3) * 4, [PB.brick, PB.plaster, PB.beige][i % 3], G)),
         ...[[-70, -60], [-50, -60], [30, -60]].flatMap(([x, z]) => [box('Café table', [2, 1.2, 2], [x, G, z], PB.wood), box('Umbrella', [4, 0.3, 4], [x, G + 3.5, z], PB.red), cyl('Umbrella pole', 0.2, 3.5, [x, G, z + 1.4], PB.steel, PB.steel, 6)]),
         ...[-90, -30, 30, 90].map((x) => cyl('Bollard', 0.8, 1, [x, G, -21], PB.black, PB.black, 8)),
@@ -566,7 +584,7 @@ export const URBAN: Sample[] = [
         box('Scrap heap', [16, 3, 16], [-30, G, -40], PB.rusty), box('Scrap heap', [10, 3, 10], [-30, G + 3, -40], PB.rusty), box('Scrap heap', [5, 3, 5], [-30, G + 6, -40], PB.rusty),
         cyl('Tire pile', 8, 2.5, [60, G, -80], PB.tire), cyl('Tire pile', 5, 2.5, [60, G + 2.5, -80], PB.tire),
         box('Magnet crane', [4, 22, 4], [80, G, -10], PB.yellow), box('Crane arm', [30, 2, 2], [66, G + 22, -10], PB.yellow),
-        box('Office trailer', [24, 6, 8], [-60, G, -94], U.white, PB.planks), climb(-46, -94, 6, 7, 90, G),
+        box('Office trailer', [24, 6, 8], [-60, G, -94], U.white, PB.planks), climb(-44.5, -94, 6, 7, 90, G),
         ...lamps([[-90, -50, G], [30, -90, G], [-10, -20, G]]),
       ),
     ],
@@ -587,11 +605,12 @@ export const URBAN: Sample[] = [
       ...perimeter(200, 210, 7, U.stone),
       box('Church', [30, 18, 50], [0, G, 0], U.slate, U.stone), box('Bell tower', [12, 34, 12], [0, G, 0], U.slate, U.stone),
       ...mirror(
-        climb(0, -27.5, 2, 5, 180, G, 14, U.stone),
+        box('Church porch', [16, 2, 4], [0, G, -27], U.stone), climb(0, -31, 2, 4, 180, G, 10, U.stone), box('Church door', [5, 8, 0.2], [0, G + 2, -25.1], DOOR_WOOD),
+        ...pre('candles', 5.5, -26.4, 180, G + 2), ...pre('noticeboard', 11, -36, 180),
         box('Graveyard', [40, 0.15, 50], [-50, G, -10], U.grass, U.grass), fence(-50, -35.5, 40, 0, 1.6, PB.black), fence(-70, -10, 50, 90, 1.6, PB.black),
         ...[-62, -54, -46, -38].flatMap((x) => [-28, -18, -8, 2, 12].map((z) => box('Tombstone', [2, 2.5, 0.6], [x, G + 0.15, z], U.stone))),
         ...[-80, -50, -20, 20, 50, 80].map((x, i) => bldg(x, -92, 26, 16, 12 + (i % 2) * 4, [PB.brick, PB.oldBrick, PB.plaster][i % 3], G)),
-        ...[[-30, -50], [30, -50], [-80, -60], [80, -60], [60, -20], [40, 10]].flatMap(([x, z]) => tree(x, z, G)),
+        ...[[-30, -50], [30, -50], [-80, -60], [80, -60], [60, -20], [24, 10]].flatMap(([x, z]) => tree(x, z, G)),
         bench(-20, -60, 0, G), bench(20, -60, 0, G), box('Well', [4, 1.4, 4], [40, G, -40], U.stone),
         ...lamps([[-16, -40, G], [16, -70, G], [70, -40, G]]),
       ),
@@ -613,16 +632,16 @@ export const URBAN: Sample[] = [
       ...perimeter(200, 210, 10, U.clubWall, PB.black),
       box('Median', [6, 0.5, 160], [0, G, 0], U.hedge, PB.concrete),
       ...mirror(
-        pad(-42, -40, 20, 130), pad(42, -40, 20, 130),
-        ...[-88, -60, -32, -4].flatMap((z, i) => [
-          bldg(-74, z, 44, 26, 14 + (i % 2) * 6, i % 2 ? U.clubWall : U.clubWall2, G),
+        pad(-42, -52.5, 20, 105), pad(42, -52.5, 20, 105),
+        ...CLUBS.flatMap((z, i) => [
+          bldg(-74, z, 44, 22, 14 + (i % 2) * 6, i % 2 ? U.clubWall : U.clubWall2, G),
           box('Club canopy', [4, 0.4, 10], [-50, G + 5, z], [U.neonPink, U.neonCyan, U.neonPurple, U.neonPink][i]),
-          box('Rope post', [0.4, 1.2, 0.4], [-48, S, z + 6], PB.steel), box('Rope post', [0.4, 1.2, 0.4], [-48, S, z - 6], PB.steel),
-          bldg(74, z, 44, 26, 16 - (i % 2) * 4, i % 2 ? U.clubWall2 : U.clubWall, G),
+          ...pre('velvetrope', -47, z + 1, 90, S, { n: 4 }),
+          bldg(74, z, 44, 22, 16 - (i % 2) * 4, i % 2 ? U.clubWall2 : U.clubWall, G),
           box('Club sign', [0.4, 4, 12], [51.8, G + 9, z], [U.neonCyan, U.neonPink, U.neonPurple, U.neonCyan][i]),
         ]),
-        box('Limo', [4, 3, 14], [-28, G, -70], PB.black, PB.black), box('Limo', [4, 3, 14], [28, G, -30], U.white, U.white),
-        car(-28, -40, 0, '#202020', 231), car(28, -84, 0, '#9b2a7a', 232), car(-14, -14, 0, '#18a0c8', 233),
+        box('Limo', [4, 3, 14], [-28, G, -70], PB.black, PB.black), box('Limo', [4, 3, 14], [28, G, -52], U.white, U.white, 180),
+        car(-28, -40, 0, '#202020', 231), car(28, -84, 180, '#9b2a7a', 232), ...pre('taxi', -14, -14, 0),
         ...lamps([[-34, -80], [34, -60], [-34, -20], [34, -8]]),
       ),
     ],
@@ -633,7 +652,7 @@ export const URBAN: Sample[] = [
       drops: [[-16, 1, -30]],
       pimp: [0, 1, -100],
     }),
-    lights: [...lampLights([[-34, -80], [34, -60], [-34, -20], [34, -8]], LIGHT.pink), ...mirrorLights(...[-88, -60, -32, -4].map((z, i): [Vec3, Vec3] => [[-46, 7, z], [LIGHT.cyan, LIGHT.pink, LIGHT.purple, LIGHT.cyan][i]]))],
+    lights: [...lampLights([[-34, -80], [34, -60], [-34, -20], [34, -8]], LIGHT.pink), ...mirrorLights(...CLUBS.map((z, i): [Vec3, Vec3] => [[-46, 7, z], [LIGHT.cyan, LIGHT.pink, LIGHT.purple, LIGHT.cyan][i]]))],
   },
   {
     ...meta, id: 'u_river', name: 'River Bridge', icon: '🌉',
@@ -641,14 +660,16 @@ export const URBAN: Sample[] = [
     parts: [
       box('Riverbed', [200, 1, 48], [0, -6, 0], U.water, U.water, 0, 8),
       ...perimeter(200, 220, 8, PB.cinder),
-      box('Road bridge', [24, 1, 48], [0, 0, 0], U.roadLine, PB.concrete), // ends at the banks (no flicker) box('Bridge rail', [0.6, 1.5, 52], [-11.7, G, 0], PB.concrete), box('Bridge rail', [0.6, 1.5, 52], [11.7, G, 0], PB.concrete),
+      // The bridge ends at the banks: overlapping them made the two surfaces flicker.
+      box('Road bridge', [24, 1, 48], [0, 0, 0], U.roadLine, PB.concrete), box('Bridge rail', [0.6, 1.5, 48], [-11.7, G, 0], PB.concrete), box('Bridge rail', [0.6, 1.5, 48], [11.7, G, 0], PB.concrete),
       ...mirror(
         box('Bank', [200, 7, 86], [0, -6, -67], PB.floorWorn, U.rock, 0, 6),
         box('Footbridge', [6, 1, 48], [-60, 0, 0], PB.planks, PB.steel),
         ...[-6, 6].map((x) => cyl('Bridge pier', 4, 6, [x, -5, -12], PB.concrete)),
-        climb(30, -14, 6, 8, 0, -5, 6, PB.concrete), climb(-90, -14, 6, 8, 0, -5, 6, PB.concrete),
+        climb(30, -20, 6, 8, 0, -5, 6, PB.concrete), climb(-90, -20, 6, 8, 0, -5, 6, PB.concrete),
+        box('Road', [24, 0.06, 86], [0, G, -67], U.roadLine, U.roadLine, 0, 24),
         ...[-80, -40, 40, 80].map((x, i) => bldg(x, -90, 30, 24, 14 + (i % 2) * 6, [PB.brick, U.apartments, PB.oldBrick, PB.plaster][i], G)),
-        car(-4, -10, 0, '#b8322a', 241, G), car(5, -60, 0, '#2a5ab8', 242), box('Boat', [6, 2.5, 18], [50, -5, -8], U.white, PB.boxBlue, 90),
+        car(-4, -10, 0, '#b8322a', 241, G), car(5, -60, 180, '#2a5ab8', 242), box('Boat', [6, 2.5, 18], [50, -5, -8], U.white, PB.boxBlue, 90),
         ...[[-40, -40], [60, -50], [-70, -60]].flatMap(([x, z]) => tree(x, z, G)), bench(-30, -30, 0, G), bench(70, -30, 0, G),
         ...lamps([[-30, -26, G], [30, -26, G], [-80, -50, G], [80, -66, G]]),
       ),
@@ -670,11 +691,11 @@ export const URBAN: Sample[] = [
       ...perimeter(200, 200, 6, PB.brick),
       box('Stage', [20, 3, 14], [0, G, 0], PB.planks, PB.black),
       ...mirror(
-        climb(0, -11, 3, 4, 180, G, 8, PB.wood),
+        climb(0, -9, 3, 4, 180, G, 8, PB.wood),
         ...[-70, -50, -30, 30, 50, 70].flatMap((x, i) => [-70, -46].flatMap((z, j) => tent(x, z, [PB.red, PB.yellow, PB.green, PB.blue, PB.orange][(i + j) % 5]))),
-        box('Food truck', [5, 6, 14], [-14, G, -30], U.white, PB.orange), box('Food truck', [5, 6, 14], [14, G, -60], U.white, PB.car('#2a5ab8', 251)),
+        ...pre('foodtruck', -14, -30, 0), ...pre('foodtruck', 14, -60, 180),
         ...[[-40, -20], [40, -20], [-80, -20]].map(([x, z]) => box('Picnic table', [6, 1.5, 3], [x, G, z], PB.wood)),
-        ...[-90, -60, -30, 30, 60, 90].map((x, i) => bldg(x, -92, 26, 14, 10 + (i % 3) * 3, [PB.brick, PB.plaster, PB.beige][i % 3], G)),
+        ...[-87, -60, -33, 33, 60, 87].map((x, i) => bldg(x, -92, 26, 14, 10 + (i % 3) * 3, [PB.brick, PB.plaster, PB.beige][i % 3], G)),
         ...[[-90, -40], [90, -30], [0, -80]].flatMap(([x, z]) => tree(x, z, G)),
         ...lamps([[-60, -30, G], [60, -30, G], [-20, -84, G]]),
       ),
@@ -700,7 +721,7 @@ export const URBAN: Sample[] = [
         ...([[-70, -80, 30, 1.5, 9], [-84, -66, 1.5, 28, 6], [-40, -50, 20, 1.5, 4], [30, -80, 1.5, 24, 12], [44, -68, 28, 1.5, 7],
           [70, -40, 24, 1.5, 3], [-20, -24, 1.5, 18, 5], [80, -90, 30, 1.5, 10], [-60, -20, 16, 1.5, 7]] as [number, number, number, number, number][])
           .map(([x, z, w, d, h]) => box('Broken wall', [w, h, d], [x, G, z], U.burnt, U.burnt)),
-        box('Floor ruin', [20, 1, 14], [-70, G + 6, -72], U.burnt), climb(-70, -58, 6, 8, 180, G, 6, U.burnt),
+        box('Floor ruin', [24, 1, 14], [-72, G + 6, -72], U.burnt), box('Broken wall', [1.5, 6, 1.5], [-61, G, -66], U.burnt), climb(-70, -61, 6, 8, 0, G, 6, U.burnt),
         ...[[-30, -70], [60, -56], [10, -40], [-80, -40]].flatMap(([x, z], i) => [box('Rubble', [8, 1.5, 8], [x, G, z], U.rubble), box('Rubble', [4, 1.5, 4], [x + (i % 2 ? 1 : -1), G + 1.5, z], U.rubble)]),
         ...[[-50, -90, 30], [30, -30, 70], [-10, -70, 120]].map(([x, z, r], i) => car(x, z, r, ['#2a2622', '#332a24', '#1f1d1c'][i], 261 + i)),
         ...[[-40, -36], [40, -40], [-90, -90], [0, -60]].map(([x, z]) => cyl('Fire barrel', 1.6, 2, [x, G, z], PB.rusty, PB.rusty, 10)),
@@ -722,17 +743,17 @@ export const URBAN: Sample[] = [
       ground(200, 220, U.road, PB.concrete),
       ...perimeter(200, 220, 8, PB.brick),
       ...mirror(
-        pad(-30, -50, 16, 120), pad(30, -50, 16, 120),
+        pad(-30, -55, 16, 110), pad(30, -55, 16, 110),
         ...[-96, -76, -56, -36, -16].flatMap((z, i) => [
           bldg(-58, z, 40, 16, 10 + (i % 3) * 4, [PB.brick, PB.plaster, U.shopfront, PB.beige, PB.oldBrick][i], G),
           awning(-38, z, 12, 90, [PB.red, PB.blue, PB.green, PB.yellow, PB.orange][i], G),
           bldg(58, z, 40, 16, 12 + (i % 2) * 4, [PB.plaster, PB.brick, PB.beige, U.shopfront, PB.brick][i], G),
           awning(38, z, 12, 270, [PB.green, PB.yellow, PB.red, PB.blue, PB.red][i], G),
         ]),
-        box('Marquee', [0.6, 4, 16], [37.7, G + 6, -56], U.neonCyan), box('Diner sign', [0.6, 3, 10], [-37.7, G + 7, -76], U.neonPink),
-        climb(-58, -26, 10, 12, 0, G, 4, PB.rusty), cyl('Water tower', 6, 6, [-66, G + 14, -36], PB.wood, PB.planks), ...[[-68, -38], [-64, -34]].map(([x, z]) => box('Tower leg', [0.6, 4, 0.6], [x, G + 10, z], PB.steel)),
-        box('Phone booth', [2, 4.5, 2], [-24, S, -66], PB.red), box('Phone booth', [2, 4.5, 2], [24, S, -26], PB.blue),
-        car(-18, -80, 0, '#b8322a', 271), car(18, -60, 0, '#d0d0d0', 272), car(-18, -30, 0, '#2a5ab8', 273), car(18, -96, 0, '#2f8a3a', 274),
+        box('Marquee', [0.6, 4, 16], [37.45, G + 6, -56], U.neonCyan), box('Diner sign', [0.6, 3, 10], [-37.7, G + 7.4, -76], U.neonPink),
+        climb(-84, -36, 10, 12, 270, G, 4, PB.rusty), cyl('Water tower', 6, 6, [-66, G + 14, -36], PB.wood, PB.planks), ...[[-68, -38], [-64, -34]].map(([x, z]) => box('Tower leg', [0.6, 4, 0.6], [x, G + 10, z], PB.steel)),
+        ...pre('phone', -24, -66, 90, S), ...pre('phone', 24, -26, 270, S),
+        car(-18, -80, 0, '#b8322a', 271), car(18, -60, 180, '#d0d0d0', 272), car(-18, -30, 0, '#2a5ab8', 273), car(18, -96, 180, '#2f8a3a', 274),
         ...crosswalk(0, -46, 30), bench(-30, -86, 90), bench(30, -40, 90),
         ...lamps([[-25, -100], [25, -80], [-25, -50], [25, -14]]),
       ),
@@ -756,7 +777,7 @@ export const URBAN: Sample[] = [
       ...mirror(
         bldg(-60, -80, 40, 30, 36, U.office, G), bldg(60, -70, 30, 40, 28, U.officeGreen, G), bldg(0, -96, 30, 16, 20, U.office, G),
         box('Parking deck', [40, 1, 30], [-60, G + 9, -30], PB.floorWorn, PB.concrete), ...[[-78, -44], [-42, -44], [-78, -16], [-42, -16]].map(([x, z]) => box('Deck column', [2, 9, 2], [x, G, z], PB.concrete)),
-        slope(-30, -30, 8, 10, 30, 90, G, PB.floorWorn, PB.concrete),
+        slope(-25, -30, 8, 10, 30, 90, G, PB.floorWorn, PB.concrete),
         car(-70, -30, 0, '#d0d0d0', 281, G + 10), car(-60, -36, 0, '#202020', 282), car(-50, -24, 0, '#2a5ab8', 283),
         water(40, -30, 20, 8),
         ...[[-20, -50], [20, -50], [0, -30], [-20, -14], [80, -20]].flatMap(([x, z]) => planter(x, z, G)),
@@ -782,10 +803,11 @@ export const URBAN: Sample[] = [
       ...perimeter(210, 210, 6, PB.cinder),
       cyl('Stadium', 70, 24, [0, G, 0], U.roof, U.office, 32), cyl('Concourse', 84, 4, [0, G, 0], PB.floorWorn, PB.concrete, 32),
       ...mirror(
-        climb(0, -46, 4, 6, 180, G, 16), climb(-46, 0, 4, 6, 270, G, 16),
+        climb(0, -44.6, 4, 6, 180, G, 16), climb(-44.6, 0, 4, 6, 270, G, 16),
         ...[-30, -10, 10, 30].map((x) => box('Ticket booth', [4, 4, 4], [x, G, -64], PB.red, U.white)),
         ...[-24, -16, -8, 8, 16, 24].map((x) => box('Turnstile', [1, 1.2, 3], [x, G, -54], PB.steel)),
         cyl('Statue base', 6, 2, [-60, G, -70], U.marble), cyl('Statue', 2, 7, [-60, G + 2, -70], U.marble),
+        ...pre('flagpole', -20, -74, 0, G, { h: 18 }), ...pre('flagpole', 20, -74, 0, G, { h: 18, flag: 'blue' }), ...pre('taxi', -30, -96, 0), ...pre('policecar', 30, -96, 0),
         box('Merch stand', [6, 3, 4], [60, G, -60], PB.blue), box('Merch stand', [6, 3, 4], [-80, G, -30], PB.yellow),
         ...[-90, -60, 60, 90].map((x) => car(x, -96, 0, ['#d0d0d0', '#2a5ab8', '#b8322a', '#202020'][Math.abs(x) % 4], 291 + Math.abs(x) % 7)),
         ...[[-80, -80], [80, -80], [80, -40]].flatMap(([x, z]) => tree(x, z, G)),

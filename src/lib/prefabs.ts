@@ -63,6 +63,10 @@ export interface BuildingOptions {
   label?: string
   /** Spots (spawns, pickups) that rooftop clutter must stay away from. */
   keepClear?: Vec3[]
+  /** Leave out the awning over the shop front (the map has its own there). */
+  noAwning?: boolean
+  /** Side the fire escape climbs (default: beside the front), or 'none'. */
+  escape?: 'N' | 'S' | 'E' | 'W' | 'none'
 }
 
 /** A building with a storefront, window floors, ledges, a cornice, a parapet and rooftop clutter. Stays inside its footprint except for awnings and fire escapes (under 3 units out). */
@@ -84,7 +88,7 @@ export function building(o: BuildingOptions): Part[] {
   // Ground floor: shop windows and a door on the front, an awning over them.
   if (st.store && h >= FLOOR) {
     parts.push(box('Storefront', [fw - 1, 5.5, 0.3], L(0, 0.4, fd / 2 + 0.1), STORE, STORE, rot, 5.5))
-    parts.push(box('Awning', [Math.min(fw - 2, 14), 0.3, 2.6], L(0, 5.2, fd / 2 + 1.4), AWNINGS[Math.abs(Math.round(x + z)) % AWNINGS.length], AWNINGS[Math.abs(Math.round(x * 3 + z)) % AWNINGS.length], rot, 2))
+    if (!o.noAwning) parts.push(box('Awning', [Math.min(fw - 2, 14), 0.3, 2.6], L(0, 5.2, fd / 2 + 1.4), AWNINGS[Math.abs(Math.round(x + z)) % AWNINGS.length], AWNINGS[Math.abs(Math.round(x * 3 + z)) % AWNINGS.length], rot, 2))
   } else if (o.style === 'warehouse') {
     parts.push(box('Roll-up door', [Math.min(8, fw - 2), 6, 0.3], L(0, 0, fd / 2 + 0.1), GARAGE, GARAGE, rot, 8))
   } else {
@@ -126,15 +130,27 @@ export function building(o: BuildingOptions): Part[] {
     parts.splice(clutterFrom, parts.length - clutterFrom, ...kept)
   }
   // Fire escape: a landing per floor down one side.
-  if (st.fire && floors >= 2) {
-    const side = front === 'N' || front === 'S' ? 'E' : 'S'
+  if (st.fire && floors >= 2 && o.escape !== 'none') {
+    const side = o.escape ?? (front === 'N' || front === 'S' ? 'E' : 'S')
     const srot = { S: 0, N: 180, E: 90, W: 270 }[side]
-    const sd = side === 'E' ? w : d
+    const sd = side === 'E' || side === 'W' ? w : d
     for (let f = 1; f < floors; f++) {
       const [ox, oz] = turn(0, sd / 2 + 1.25, srot)
       parts.push(box('Fire escape', [8, 0.25, 2.5], [x + ox, y + f * FLOOR, z + oz], PB.rusty, PB.rusty, srot))
       const [rx, rz] = turn(0, sd / 2 + 2.4, srot)
       parts.push(box('Railing', [8, 1, 0.15], [x + rx, y + f * FLOOR + 0.25, z + rz], PB.rusty, PB.rusty, srot))
+      // A ladder up to the next landing, at alternate ends.
+      if (f < floors - 1) {
+        const end = f % 2 ? 3.2 : -3.2
+        for (const a of [-0.4, 0.4]) {
+          const [lx, lz] = turn(end + a, sd / 2 + 1.9, srot)
+          parts.push(box('Ladder rail', [0.12, FLOOR - 0.25, 0.12], [x + lx, y + f * FLOOR + 0.25, z + lz], PB.rusty, PB.rusty, srot))
+        }
+        for (let k = 1; k <= 5; k++) {
+          const [lx, lz] = turn(end, sd / 2 + 1.9, srot)
+          parts.push(box('Ladder rung', [0.8, 0.1, 0.1], [x + lx, y + f * FLOOR + 0.25 + k * 1.15, z + lz], PB.rusty, PB.rusty, srot))
+        }
+      }
     }
   }
   return group(id, parts)
