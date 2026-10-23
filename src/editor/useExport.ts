@@ -28,7 +28,7 @@ export function useExport() {
       before?.()
       await saveNow()
       const viewer = getViewer()
-      const project = await withAutoMinimap(useEditor.getState().project!, viewer ? (o) => viewer.captureTopDown(o) : undefined, log)
+      const project = await withAutoMinimap(useEditor.getState().project!, viewer ? { rect: (pad) => viewer.minimapRect(pad), capture: (o) => viewer.captureTopDown(o) } : undefined, log)
       const out = await runExport(project, log)
       log(`Export complete: ${out.result.files.length} map files.`)
       if (maps) {

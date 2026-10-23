@@ -4,7 +4,7 @@ import { useEditor } from '../store'
 import { useExport } from '../useExport'
 import * as act from '../actions'
 import { Check, Field, FileButton, NumberInput, infoDialog, toastError } from '../../ui'
-import { BOUNDS_PAD_M, MINIMAP_SPAN, minimapMode } from '../../lib/minimap'
+import { minimapMode, minimapPad } from '../../lib/minimap'
 import { getViewer } from '../Viewport'
 import { dataPackStatus, hasGroup, type DataPackStatus } from '../../lib/datapack'
 import { downloadBlob } from '../../lib/exporter'
@@ -153,12 +153,13 @@ function MinimapSetting() {
     if (!v) return
     setBusy(true)
     try {
-      const blob = await v.captureTopDown({ size: 512, span: MINIMAP_SPAN, padUnits: BOUNDS_PAD_M / (project.settings.world_scale || 0.5), mirror: !project.settings.mirror_x })
+      const rect = v.minimapRect(minimapPad(project))
+      const blob = rect && await v.captureTopDown({ size: 512, rect, mirror: !project.settings.mirror_x })
       if (blob) await infoDialog('Minimap preview', <img src={URL.createObjectURL(blob)} alt="Minimap preview" style={{ width: '100%', borderRadius: 6 }} />)
     } finally { setBusy(false) }
   }
   return (
-    <Field label="Minimap" hint={mode === 'auto' ? 'Rendered from straight above every time you export, so it always matches the map.' : 'Your own top-down image, 1024×1024 recommended.'}>
+    <Field label="Minimap" hint={mode === 'auto' ? 'Rendered from straight above every time you export, so it always matches the map.' : 'Your own top-down image, square, 1024×1024 recommended. It is stretched over the whole map plus a 3 m border, north up.'}>
       <div className="col">
         <div className="row wrap">
           <button className={'sm' + (mode === 'auto' ? ' on' : '')} onClick={() => update('Minimap', (d) => { d.settings.minimap_mode = 'auto' })}>Automatic</button>

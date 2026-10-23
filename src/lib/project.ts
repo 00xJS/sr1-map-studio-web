@@ -113,6 +113,8 @@ export interface ProjectSettings {
   always_clear_weather: boolean
   /** 'auto' renders the minimap from above at every export; 'custom' uses minimap_texture. Unset: custom if an image is set, else auto. */
   minimap_mode?: 'auto' | 'custom'
+  /** Set at export: the square the minimap image covers, [minX, minZ, maxX, maxZ] in editor units. */
+  minimap_rect?: [number, number, number, number]
 }
 
 /** origin 'game': taken from the user's own game files. Kept on this device only. */

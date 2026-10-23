@@ -39,7 +39,7 @@ export async function runExport(project: Project, onLog: (t: string) => void): P
     markers: project.markers.map(strip),
     lights: project.lights.map(strip),
     base_name: s.base_name, world_scale: s.world_scale, mirror_x: s.mirror_x, flip_obj_v: s.flip_obj_v,
-    double_sided: s.double_sided, sky_texture: s.sky_texture, minimap_texture: s.minimap_texture, sky_scale: s.sky_scale,
+    double_sided: s.double_sided, sky_texture: s.sky_texture, minimap_texture: s.minimap_texture, minimap_rect: s.minimap_rect, sky_scale: s.sky_scale,
     bbcity_donor: s.bbcity_donor, cts_template: s.cts_template, marker_game_coords: s.marker_game_coords, ...sky,
     ptp: s.modes.includes('Protect Tha Pimp'),
   }

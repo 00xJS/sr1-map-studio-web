@@ -5,6 +5,7 @@
 import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
+import type { MinimapRect } from '../lib/minimap'
 import type { ObjModel } from '../lib/geometry'
 import { loadModel, peekModel, textureUrl } from '../lib/assets'
 import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
@@ -658,20 +659,30 @@ export class Viewer {
   /** Point at the camera target (used to place things "in front of you"). */
   center(): Vec3 { return this.orbit.target.toArray() as Vec3 }
 
+  /** Square area the minimap covers, in editor units: the map's footprint plus `padUnits` on every side. */
+  minimapRect(padUnits: number): MinimapRect | null {
+    const box = new THREE.Box3().setFromObject(this.root, true)
+    if (box.isEmpty()) return null
+    const half = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2 + padUnits
+    const cx = (box.min.x + box.max.x) / 2, cz = (box.min.z + box.max.z) / 2
+    const r = (v: number) => +v.toFixed(3)
+    return [r(cx - half), r(cz - half), r(cx + half), r(cz + half)]
+  }
+
   /**
-   * Straight-down picture of the map for its minimap: +X right, +Z down (the
-   * exporter's mirror turns that into the game's layout), square, centred on
-   * the map's bounds and `span` times the longer side once padded.
+   * Straight-down picture of `rect` for the minimap: +X right, +Z down (the
+   * exporter's X mirror turns that into the game's layout; `mirror` flips it
+   * for maps exported without the mirror).
    */
-  async captureTopDown(o: { size: number; span: number; padUnits: number; mirror?: boolean }): Promise<Blob | null> {
+  async captureTopDown(o: { size: number; rect: MinimapRect; mirror?: boolean }): Promise<Blob | null> {
     const box = new THREE.Box3().setFromObject(this.root)
     if (box.isEmpty()) return null
-    const c = box.getCenter(new THREE.Vector3()), sz = box.getSize(new THREE.Vector3())
-    const half = ((Math.max(sz.x, sz.z) + 2 * o.padUnits) * o.span) / 2
-    const cam = new THREE.OrthographicCamera(-half, half, half, -half, 0.1, sz.y + 2000)
-    cam.position.set(c.x, box.max.y + 500, c.z)
+    const [x0, z0, x1, z1] = o.rect
+    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2
+    const cam = new THREE.OrthographicCamera(-(x1 - x0) / 2, (x1 - x0) / 2, (z1 - z0) / 2, -(z1 - z0) / 2, 0.1, box.max.y - box.min.y + 2000)
+    cam.position.set(cx, box.max.y + 500, cz)
     cam.up.set(0, 0, -1)
-    cam.lookAt(c.x, box.min.y, c.z)
+    cam.lookAt(cx, box.min.y, cz)
     const hidden = [this.markerRoot, this.lightRoot, this.grid, this.box, this.gizmo.getHelper()]
     const was = hidden.map((h) => h.visible)
     hidden.forEach((h) => { h.visible = false })
