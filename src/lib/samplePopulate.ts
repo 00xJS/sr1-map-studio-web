@@ -6,6 +6,11 @@
 import type { Vec3 } from './project'
 import type { MarkerSpec, Sample, Theme } from './sampleKit'
 import { blocker, support } from './sampleScale'
+import { prepareMap } from './analysis/analyze'
+import { nodeNear, PLAYER } from './analysis/floor'
+import { sampleInput } from './analysis/sampleInput'
+import { OPAQUE, SOLID } from './analysis/types'
+import type { Bvh } from './analysis/bvh'
 
 const URBAN_POOL = ['rpg_launcher', 'sniper_rifle', 'spas12', 'm16', 'ak47', 'pump_action_shotgun', 'mac10', 'tec9', 'magnum', 'desert eagle', 'glock', 'molotov', 'pipe_bomb', 'grenade', 'baseball_bat', 'beretta']
 const CYBER_POOL = ['rpg_laser', 'sniper_rifle', 'spas12', 'ak47L', 'm16', 'mac10L', 'magnumL', 'tec9b', 'desert_eagle_gold', 'grenade', 'pipe_bomb', 'glock']
@@ -58,8 +63,25 @@ function pick(pool: Vec3[], taken: Vec3[], count: number, minGap: number, ok: (p
   return chosen
 }
 
+/** Heading (yaw 0 faces −Z) turned the least from `yaw` that looks down open floor rather than into a wall. */
+function openYaw(bvh: Bvh, p: Vec3, yaw: number): number {
+  const eye = p[1] + 0.1 + PLAYER.standEye
+  const clear = (a: number, len: number) => { const t = (a * Math.PI) / 180; return !bvh.blocked(p[0], eye, p[2], p[0] + Math.sin(t) * len, eye, p[2] - Math.cos(t) * len, SOLID) }
+  const turns = [0, ...[...Array(12)].flatMap((_, i) => [15 * (i + 1), -15 * (i + 1)])]
+  for (const len of [12, 6]) for (const d of turns) if (clear(yaw + d, len)) return +(((yaw + d + 540) % 360) - 180).toFixed(1)
+  return yaw
+}
+
 export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS): Sample {
-  const pool = candidates(s)
+  // Only spots a player can walk to from the map's own spawns: not the top of a tall crate or a ledge with no way up.
+  const walk = s.markers.length ? prepareMap(sampleInput(s), { cell: 2 }) : null
+  const reached = (p: Vec3) => {
+    if (!walk) return true
+    const n = nodeNear(walk.g, p[0], p[1] + 0.1, p[2])
+    const P = walk.g.grid.pos
+    return n >= 0 && walk.g.grid.reachable[n] === 1 && Math.abs(P[n * 3 + 1] - p[1]) < 0.6 && Math.hypot(P[n * 3] - p[0], P[n * 3 + 2] - p[2]) <= 1.5
+  }
+  const pool = candidates(s).filter((p) => reached(p) && reached(flip(p)))
   if (!pool.length) return s
   const zs = pool.map((p) => p[2])
   const depth = Math.max(...zs) - Math.min(...zs)
@@ -67,9 +89,16 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS): Sample {
   const of = (type: string) => markers.filter(([m]) => m === type).map(([, p]) => p)
   const spawns = () => [...of('Shared spawn'), ...of('Red team spawn'), ...of('Blue team spawn')]
 
-  // Team spawns: spread across each team's end of the map.
-  const red = pick(pool, of('Red team spawn'), Math.max(0, t.perTeam - of('Red team spawn').length), 6, (p) => p[2] < -depth * 0.3, s.parts)
-  for (const p of red) markers.push(['Red team spawn', p, { yaw: 180 }], ['Blue team spawn', flip(p), { yaw: 0 }])
+  // Team spawns: spread across each team's end of the map, out of sight of the other team's spawns where there's room.
+  const eye = (p: Vec3) => [p[0], p[1] + 0.1 + PLAYER.standEye, p[2]]
+  const hidden = (p: Vec3) => !walk || of('Blue team spawn').concat([flip(p)]).every((b) => walk.bvh.blocked(...(eye(b) as Vec3), ...(eye(p) as Vec3), OPAQUE))
+  for (const strict of [true, false]) {
+    for (let need = t.perTeam - of('Red team spawn').length; need > 0; need--) {
+      const [p] = pick(pool, of('Red team spawn'), 1, 6, (q) => q[2] < -depth * 0.3 && (!strict || hidden(q)), s.parts)
+      if (!p) break
+      markers.push(['Red team spawn', p, { yaw: 180 }], ['Blue team spawn', flip(p), { yaw: 0 }])
+    }
+  }
 
   // Free-for-all spawns: everywhere, as far apart as possible.
   const sharedNeed = Math.max(0, t.shared - of('Shared spawn').length)
@@ -107,5 +136,8 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS): Sample {
     lights.push([[p[0], p[1] + 7, p[2]], c], [[-p[0], p[1] + 7, -p[2]], c])
   })
 
-  return { ...s, markers, lights: lights.slice(0, 64) }
+  // Nobody starts nose to a wall: spawns looking into one turn toward the nearest open view.
+  const faced = walk ? markers.map(([type, p, m]): MarkerSpec => (m?.yaw !== undefined && /spawn/.test(type) ? [type, p, { ...m, yaw: openYaw(walk.bvh, p, m.yaw) }] : [type, p, m])) : markers
+
+  return { ...s, markers: faced, lights: lights.slice(0, 64) }
 }

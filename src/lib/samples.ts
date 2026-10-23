@@ -17,6 +17,7 @@ import { mapSize, spreadSample } from './sampleScale'
 import { FULL_TARGETS, populate } from './samplePopulate'
 import { DENSE, LIGHT_DRESS, dress } from './sampleDress'
 import { detailize } from './sampleDetail'
+import { cyberLife } from './prefabsCyberLife'
 
 export type { Sample, Theme }
 
@@ -183,9 +184,11 @@ export function sampleFor(id: string, compact = false): Sample {
   const s = SAMPLES.find((x) => x.id === id)
   if (!s) throw new Error('Unknown sample map')
   const small = (s.size ?? 'compact') === 'compact'
-  if (compact && small) return populate(dress(detailize(s), { ...DENSE, perArea: 900 }), COMPACT_TARGETS)
+  // Cyber arenas get their screens, trims, team markings and lane arrows once the floor is dressed.
+  const life = (x: Sample, lights: number, screenEvery: number) => (x.theme === 'Cyber' ? cyberLife(x, { lights, screenEvery }) : x)
+  if (compact && small) return populate(life(dress(detailize(s), { ...DENSE, perArea: 900 }), COMPACT_TARGETS.lights, 18), COMPACT_TARGETS)
   // Spread-out compact maps get filled with prefabs in the space that opened up; urban maps get street clutter.
-  return populate(small ? dress(detailize(spreadSample(s, 2)), DENSE) : dress(detailize(s), LIGHT_DRESS), FULL_TARGETS)
+  return populate(life(small ? dress(detailize(spreadSample(s, 2)), DENSE) : dress(detailize(s), LIGHT_DRESS), FULL_TARGETS.lights, 26), FULL_TARGETS)
 }
 
 export interface SampleStats { widthM: number; depthM: number; players: number; spawns: number; weapons: number; lights: number }
@@ -325,6 +328,7 @@ export async function buildFrom(sample: Sample, onProgress?: (t: string) => void
   project.lights = (sample.lights || []).map(([at, color]): Light => ({ ...newLight(at), ...(color ? { color } : {}), range: lightRange, inner_range: lightRange * 0.35 }))
   project.files = files
   project.settings.modes = sample.modes
+  if (sample.ambience) project.settings.ambience = sample.ambience
   const base = sample.id.replace(/[^a-z0-9]/g, '').slice(0, 7)
   project.settings.base_name = base + Math.floor(1000 + Math.random() * 9000)
   project.settings.display_name = sample.name

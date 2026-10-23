@@ -65,6 +65,8 @@ export interface Sample {
   added?: string
   /** Prefabs the dressing pass fills open floor with (default: the map's own list, else its theme's). */
   dressWith?: string[]
+  /** Background sound: a retail map's ambience file (see AMBIENCE_OPTIONS in mapFeatures.ts). */
+  ambience?: string
 }
 
 export const ALL_MODES: GameMode[] = ['Gangsta Brawl', 'Team Gangsta Brawl', 'Big Ass Chains', 'Team Big Ass Chains', 'Protect Tha Pimp']

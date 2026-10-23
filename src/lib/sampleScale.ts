@@ -77,10 +77,11 @@ function terrainBlocks(p: Part, x: number, y: number, z: number) {
 export function spreadSample(s: Sample, k: number): Sample {
   if (k === 1) return s
   const boxes = s.parts.map(aabb)
-  const big = s.parts.map((p) => !!p.big || (Math.max(p.size[0], p.size[2]) >= BIG && !KEEP.test(p.label)))
+  // Parts of a prefab (a group) move as one piece and keep their size, unless marked big.
+  const big = s.parts.map((p) => !!p.big || (!p.group && Math.max(p.size[0], p.size[2]) >= BIG && !KEEP.test(p.label)))
   // A small piece wedged between two structures (a bridge, a step) has to stretch with them.
   s.parts.forEach((p, i) => {
-    if (big[i] || KEEP.test(p.label)) return
+    if (big[i] || p.group || KEEP.test(p.label)) return
     const n = boxes.filter((b, j) => big[j] && j !== i && beside(boxes[i], b)).length
     if (n >= 2) big[i] = true
   })
@@ -93,7 +94,7 @@ export function spreadSample(s: Sample, k: number): Sample {
   s.parts.forEach((_, i) => {
     if (big[i]) return
     for (let j = i + 1; j < s.parts.length; j++) {
-      if (!big[j] && !(leans[i] && leans[j]) && touches(boxes[i], boxes[j])) parent[find(i)] = find(j)
+      if (!big[j] && ((!!s.parts[i].group && s.parts[i].group === s.parts[j].group) || (!(leans[i] && leans[j]) && touches(boxes[i], boxes[j])))) parent[find(i)] = find(j)
     }
   })
   const groups = new Map<number, number[]>()
@@ -121,7 +122,7 @@ export function spreadSample(s: Sample, k: number): Sample {
   const parts = s.parts.map((p, i): Part => {
     if (big[i]) return { ...p, at: [p.at[0] * k, p.at[1], p.at[2] * k], size: [p.size[0] * k, p.size[1], p.size[2] * k] }
     const [dx, dz] = shift.get(find(i))!
-    return { ...p, at: [p.at[0] + dx, p.at[1], p.at[2] + dz] }
+    return { ...p, at: [p.at[0] + dx, p.at[1], p.at[2] + dz], ...(p.prefab ? { prefab: { ...p.prefab, at: [p.prefab.at[0] + dx, p.prefab.at[1], p.prefab.at[2] + dz] } } : {}) }
   })
 
   const moveMarker = (pos: Vec3): Vec3 => {
