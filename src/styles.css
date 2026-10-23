@@ -317,3 +317,15 @@ button.big { padding: 12px; font-size: 15px; }
 .catalog-card .body b { font-size: 15px; }
 .prefab-groups { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
 .prefab-group { gap: 8px; }
+
+/* AI chat */
+.ai-chat { position: fixed; right: 16px; bottom: 16px; width: min(400px, calc(100vw - 32px)); max-height: min(70vh, 640px); display: flex; flex-direction: column; background: var(--bg-panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 12px 40px rgba(0,0,0,.45); z-index: 60; }
+.ai-head { padding: 8px 10px; border-bottom: 1px solid var(--line); gap: 6px; }
+.ai-body { padding: 10px; overflow-y: auto; }
+.ai-list { flex: 1; display: flex; flex-direction: column; gap: 8px; min-height: 120px; }
+.ai-msg { padding: 7px 10px; border-radius: 8px; max-width: 90%; white-space: pre-wrap; font-size: 13px; display: flex; flex-direction: column; gap: 3px; }
+.ai-msg.user { align-self: flex-end; background: var(--accent-soft); }
+.ai-msg.assistant { align-self: flex-start; background: var(--bg-raised); }
+.ai-msg.error { color: var(--bad); }
+.ai-input { padding: 8px; border-top: 1px solid var(--line); gap: 6px; align-items: flex-end; }
+.ai-input textarea { flex: 1; resize: none; }

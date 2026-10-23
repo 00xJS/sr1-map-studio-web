@@ -330,15 +330,16 @@ function pruneFiles(d: Project) {
 }
 
 /** Adds a block-out shape at the camera target, resting on the surface below if there is one. */
-export async function addShape(presetKey: string, at: Vec3, groundY: number | null) {
+export async function addShape(presetKey: string, at: Vec3, groundY: number | null, o: { rot?: number; size?: Vec3 } = {}) {
   const preset = SHAPE_PRESETS[presetKey]
   if (!preset) return
   const shape = structuredClone(preset.shape)
+  if (o.size) shape.size = o.size.map((v) => Math.max(0.1, Math.min(400, +v || 1))) as Vec3
   const stored = await storeShape(shape)
   const tex = await defaultShapeTextures()
   const item: SceneItem = {
     uid: uid(), name: shapeName(preset.label, shape), path: stored.vpath, source_path: stored.vpath, shape,
-    position: [at[0], groundY ?? 0, at[2]], rotation: [0, 0, 0], scale: 1,
+    position: [at[0], groundY ?? 0, at[2]], rotation: [0, o.rot ?? 0, 0], scale: 1,
     textures: { top: tex.top, side: tex.side }, alpha: { top: false, side: false }, surface_ids: { top: 0, side: 0 }, physics_intent: 'Static',
   }
   update('Add ' + preset.label.toLowerCase(), (d) => {
@@ -377,10 +378,10 @@ async function prefabItem(key: string, params: Record<string, number | string>, 
 }
 
 /** Stamps a prefab (a building, car, tree, bus stop...) where the user clicked. */
-export async function addPrefab(key: string, at: Vec3, groundY: number | null) {
+export async function addPrefab(key: string, at: Vec3, groundY: number | null, o: { rot?: number; params?: Record<string, number | string> } = {}) {
   const def = ALL_PREFABS[key]
   if (!def) return
-  const { item, files } = await prefabItem(key, {}, [at[0], groundY ?? 0, at[2]], 0)
+  const { item, files } = await prefabItem(key, o.params ?? {}, [at[0], groundY ?? 0, at[2]], o.rot ?? 0)
   update('Add ' + def.label.toLowerCase(), (d) => {
     Object.assign(d.files, files)
     d.scene_items.push(item)

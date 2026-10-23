@@ -20,6 +20,7 @@ import { accountsEnabled, hubEnabled } from '../lib/backend'
 import { confirmDialog, toast, toastError } from '../ui'
 
 const CloudButton = lazy(() => import('./CloudButton').then((m) => ({ default: m.CloudButton })))
+const AiChat = lazy(() => import('./AiChat').then((m) => ({ default: m.AiChat })))
 const SamplePicker = lazy(() => import('../pages/SamplePicker').then((m) => ({ default: m.SamplePicker })))
 const PublishDialog = lazy(() => import('./PublishDialog').then((m) => ({ default: m.PublishDialog })))
 
@@ -118,6 +119,7 @@ function Editor() {
   const advanced = useEditor((s) => s.advanced)
   const [publishing, setPublishing] = useState(false)
   const [picking, setPicking] = useState(false)
+  const [chatting, setChatting] = useState(false)
   const [playing, setPlaying] = useState(false)
   const [touring, setTouring] = useState(false)
   const hasItems = project.scene_items.length > 0
@@ -147,7 +149,7 @@ function Editor() {
   }
   return (
     <div className={'editor ' + (advanced ? 'advanced' : 'simple')}>
-      <TopBar onPublish={() => setPublishing(true)} onPlay={() => setPlaying(true)} onTour={() => setTouring(true)} />
+      <TopBar onPublish={() => setPublishing(true)} onPlay={() => setPlaying(true)} onTour={() => setTouring(true)} onAi={() => setChatting((v) => !v)} />
       <div className="editor-main">
         <Viewport onEmptyImport={importDropped} onSamples={() => setPicking(true)} />
         <aside className="side">
@@ -174,6 +176,7 @@ function Editor() {
       </div>
       {advanced && <LogBar />}
       {picking && <Suspense fallback={null}><SamplePicker onClose={() => setPicking(false)} onBuilt={useSample} /></Suspense>}
+      {chatting && <Suspense fallback={null}><AiChat onClose={() => setChatting(false)} /></Suspense>}
       {playing && <PlayDialog onClose={() => setPlaying(false)} onSamples={() => { setPlaying(false); setPicking(true) }} />}
       {publishing && <Suspense fallback={null}><PublishDialog projectId={project.id} onClose={() => setPublishing(false)} /></Suspense>}
       {touring && !picking && !playing && <Tour onDone={endTour} />}
@@ -212,7 +215,7 @@ const KEYS_HELP = 'Camera: left-drag spin · right-drag slide · scroll zoom · 
   'Tools: V move · 2 turn · 3 size · H shape · B paint · I pick · P spawn · K weapon · L light · X erase · Esc back to Move · G snap\n' +
   'Ctrl+Z / Ctrl+Shift+Z: undo / redo · Ctrl+D: copy · Delete: delete · Ctrl+S: save'
 
-function TopBar({ onPublish, onPlay, onTour }: { onPublish: () => void; onPlay: () => void; onTour: () => void }) {
+function TopBar({ onPublish, onPlay, onTour, onAi }: { onPublish: () => void; onPlay: () => void; onTour: () => void; onAi: () => void }) {
   const name = useEditor((s) => s.project!.name)
   const projectId = useEditor((s) => s.project!.id)
   const remix = useEditor((s) => s.project!.remix_of)
@@ -265,6 +268,7 @@ function TopBar({ onPublish, onPlay, onTour }: { onPublish: () => void; onPlay: 
         { label: 'Take the tour', run: onTour },
         { label: 'Keyboard & mouse', run: () => void confirmDialog('Keyboard & mouse', KEYS_HELP, { confirm: 'Got it', cancel: null }) },
       ]} />
+      <button className="sm" onClick={onAi} title="Describe a change in your own words">✨ Ask AI</button>
       <button className="primary" data-tour="play" onClick={onPlay}>▶ Play</button>
     </div>
   )

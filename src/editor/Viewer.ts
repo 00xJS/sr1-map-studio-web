@@ -246,6 +246,15 @@ export class Viewer {
     return { point: hit.point.toArray() as Vec3, item: index, face }
   }
 
+  /** World box of one scene object, or null while it is loading. */
+  itemBounds(index: number): [Vec3, Vec3] | null {
+    const it = this.project?.scene_items[index]
+    const g = it && this.items.get(it.uid)?.group
+    if (!g) return null
+    const b = new THREE.Box3().setFromObject(g)
+    return b.isEmpty() ? null : [b.min.toArray() as Vec3, b.max.toArray() as Vec3]
+  }
+
   /** Height of the first scene surface straight below (x, z), or null. */
   surfaceBelow(x: number, y: number, z: number): number | null {
     const meshes: THREE.Object3D[] = []
