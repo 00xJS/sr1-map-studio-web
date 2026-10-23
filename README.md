@@ -74,5 +74,11 @@ Chains** and **Protect Tha Pimp**.
 
 ---
 
-Based on SR1 Map Studio and the Saints Reborn Map Converter by whompay. Free and open source under
-GPL-3.0-or-later. Working on the code? See [docs/DEVELOPING.md](docs/DEVELOPING.md).
+## Credits
+
+SR1 Map Studio was created by **kewizzle**. This site started from kewizzle's original SR1 Map
+Studio program and its map exporter, turned into a web app and built out from there. The map-format
+code comes from the Saints Reborn Map Converter by **whompay**.
+
+Free and open source under GPL-3.0-or-later. Working on the code? See
+[docs/DEVELOPING.md](docs/DEVELOPING.md).

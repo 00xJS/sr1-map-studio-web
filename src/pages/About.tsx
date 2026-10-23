@@ -5,7 +5,7 @@ export default function About() {
     <div className="page page-narrow">
       <h1>About</h1>
       <div className="card">
-        <p>SR1 Map Studio (web) is a browser port of <b>SR1 Map Studio v1.13</b>, the Saints Row 1 / Saints Reborn map editor. The original Python exporter runs unmodified inside your browser through Pyodide (Python compiled to WebAssembly); the editor interface was rebuilt for the web.</p>
+        <p>SR1 Map Studio (web) is a browser port of <b>SR1 Map Studio v1.13</b> by <b>kewizzle</b>, the Saints Row 1 / Saints Reborn map editor. It started from kewizzle's original program and exporter and has been built out from there. The original Python exporter runs unmodified inside your browser through Pyodide (Python compiled to WebAssembly); the editor interface was rebuilt for the web.</p>
         <p className="small muted">Exporter version {catalogs.exporter_version}. Map-format code is a Python port of the Saints Reborn Map Converter by whompay.</p>
       </div>
       <div className="card">
