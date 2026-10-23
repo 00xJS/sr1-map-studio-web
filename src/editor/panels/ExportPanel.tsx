@@ -11,7 +11,7 @@ import { getViewer } from '../Viewport'
 import { dataPackStatus, hasGroup, type DataPackStatus } from '../../lib/datapack'
 import { downloadBlob } from '../../lib/exporter'
 import { GAME_MODES, SPAWN_TYPES, baseName, type ProjectSettings } from '../../lib/project'
-import { checkModes, levelEntries } from '../../lib/levels'
+import { checkModes, levelEntries, unusedModeMarkers } from '../../lib/levels'
 import { installSupported } from '../../lib/install'
 
 const sanitize = (s: string) => s.trim().replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()
@@ -66,7 +66,15 @@ export function ExportPanel() {
             <Check key={m} checked={s.modes.includes(m)} onChange={(v) => set('modes', GAME_MODES.filter((x) => (x === m ? v : s.modes.includes(x))))}>{m}</Check>
           ))}
         </div>
-        {modeCheck.warnings.map((w) => <span key={w} className="small warn">{w}</span>)}
+        {modeCheck.warnings.map((w) => {
+          const unused = unusedModeMarkers(s.modes, project.markers).find((u) => u.text === w)
+          return (
+            <span key={w} className="small warn row wrap" style={{ gap: 8 }}>
+              <span className="grow">{w}</span>
+              {unused && <button className="sm" onClick={() => act.removeMarkersOfType(unused.types)} title="Deletes them in one step; Undo brings them back">Remove {unused.count === 1 ? 'it' : `the ${unused.count}`}</button>}
+            </span>
+          )
+        })}
         {entries.length > 0 && (
           <table className="mats" style={{ marginTop: 4 }}>
             <thead><tr><th>Mode</th><th>Spawn file</th><th title="Unique across every installed map pack; stays the same while the file name and mode stay the same">Level ID</th><th title="Weapon and vehicle slots a Custom match can swap: the distinct types you placed (6 weapons when none)">Custom slots</th></tr></thead>

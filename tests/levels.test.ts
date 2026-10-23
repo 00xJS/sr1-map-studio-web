@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { strFromU8 } from 'fflate'
-import { checkModes, customizableCounts, levelEntries, levelId } from '../src/lib/levels'
+import { checkModes, customizableCounts, levelEntries, levelId, unusedModeMarkers } from '../src/lib/levels'
 import { packageMetadata } from '../src/lib/exporter'
 import { GAME_MODES, newMarker, PIMP_EXIT, type GameMode, type Marker } from '../src/lib/project'
 
@@ -68,6 +68,13 @@ describe('checkModes', () => {
     expect(r.errors).toEqual([])
     expect(r.warnings.join('\n')).toMatch(/at least 2/)
     expect(r.warnings.join('\n')).toMatch(/only used by Protect Tha Pimp/)
+  })
+
+  it('lists markers only unselected modes use, for one-click removal', () => {
+    const u = unusedModeMarkers(['Gangsta Brawl'], [...ptpReady, at('Pimp entrance'), at('Chains drop-off')])
+    expect(u.map((x) => [x.types, x.count])).toEqual([[['Pimp entrance'], 2], [['Chains drop-off'], 1]])
+    // Blinged Out Ride keeps its cash drop-off, and Protect Tha Pimp its entrance.
+    expect(unusedModeMarkers(['Blinged Out Ride', 'Protect Tha Pimp'], [...ptpReady, at('Chains drop-off')])).toEqual([])
   })
 
   it('needs at least one mode', () => {

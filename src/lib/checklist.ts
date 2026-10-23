@@ -2,6 +2,7 @@
 // game ('needed' blocks Play), and what would make it better ('suggested').
 import { PIMP_EXIT, SPAWN_TYPES, isCustomNative, isGlass, type Project } from './project'
 import { retailChecklist } from './retailModes'
+import { unusedModeMarkers } from './levels'
 
 export type Fix =
   | { kind: 'tool'; tool: string; spawn?: string }
@@ -9,6 +10,8 @@ export type Fix =
   | { kind: 'modes' }
   | { kind: 'setup' }
   | { kind: 'select'; index: number }
+  /** Delete every marker of these types (ones only an unselected game mode uses). */
+  | { kind: 'removeMarkers'; types: string[]; label: string }
 
 export interface CheckItem {
   id: string
@@ -79,6 +82,12 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
   }
 
   items.push(...retailChecklist(modes, p.markers))
+
+  // Markers left over from a game mode that was switched off: one click removes them.
+  unusedModeMarkers(modes, p.markers).forEach((u, i) => add({
+    id: 'unused-' + i, state: 'suggested', text: `${u.text} Remove ${u.count === 1 ? 'it' : `the ${u.count}`}?`,
+    fix: { kind: 'removeMarkers', types: u.types, label: u.text }, action: 'Remove',
+  }))
 
   const exits = count(PIMP_EXIT)
   if (exits) add({ id: 'exit', state: 'needed', text: `Erase ${exits === 1 ? 'the pimp exit marker' : `${exits} pimp exit markers`}: the game has no pimp exit`, fix: { kind: 'tool', tool: 'erase' }, action: 'Erase' })

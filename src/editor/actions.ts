@@ -282,6 +282,17 @@ export function removeSelected() {
   if (selection) removeTarget(selection)
 }
 
+/** Deletes every marker of the given types, as one undo step (unused game-mode markers). */
+export function removeMarkersOfType(types: string[]) {
+  const n = currentProject()?.markers.filter((m) => types.includes(m.type)).length ?? 0
+  if (!n) return 0
+  update(`Remove ${n} unused marker${n === 1 ? '' : 's'}`, (d) => { d.markers = d.markers.filter((m) => !types.includes(m.type)) })
+  const sel = useEditor.getState().selection
+  if (sel?.kind === 'marker') useEditor.getState().select(null)
+  log(`Removed ${n} marker${n === 1 ? '' : 's'} that no selected game mode uses (Undo brings ${n === 1 ? 'it' : 'them'} back).`)
+  return n
+}
+
 /** Deletes one object, marker or light (the Eraser tool and the Delete key). */
 export function removeTarget(selection: { kind: 'item' | 'marker' | 'light'; index: number }) {
   if (selection.kind === 'item') return removeItem(selection.index)

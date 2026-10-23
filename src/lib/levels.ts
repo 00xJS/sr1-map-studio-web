@@ -4,7 +4,7 @@
 // Protect Tha Pimp loads its own <map>_ptp.cts, as the retail PTP maps do;
 // Blinged Out Ride its own <map>_bor.cts plus levels/<map>_mode.xtbl.
 import { PIMP_EXIT, SPAWN_TYPES, type GameMode, type Marker, type ProjectSettings } from './project'
-import { BOR, borExtraCars, borMissing, borWarnings } from './retailModes'
+import { BOR, BOR_TYPES, borExtraCars, borMissing, borWarnings } from './retailModes'
 
 export interface LevelEntry {
   mode: GameMode
@@ -55,6 +55,27 @@ export function levelEntries(map: string, modes: GameMode[], markers: Marker[]):
 
 export interface ModeCheck { errors: string[]; warnings: string[] }
 
+/** Markers that only a game mode which isn't selected uses: the warning to show and the marker types a one-click fix removes. */
+export interface UnusedMarkers { text: string; types: string[]; count: number }
+
+export function unusedModeMarkers(modes: GameMode[], markers: Pick<Marker, 'type'>[]): UnusedMarkers[] {
+  const count = (types: string[]) => markers.filter((m) => types.includes(m.type)).length
+  const out: UnusedMarkers[] = []
+  const pimp = ['Pimp entrance']
+  if (!modes.includes('Protect Tha Pimp') && count(pimp)) {
+    out.push({ text: "The pimp's escape points (Pimp entrance markers) are only used by Protect Tha Pimp, which is not selected.", types: pimp, count: count(pimp) })
+  }
+  // Drop-offs serve both Chains modes and Blinged Out Ride (its cash drop-off).
+  const drops = ['Chains drop-off']
+  if (!modes.some((m) => m.includes('Chains')) && !modes.includes(BOR) && count(drops)) {
+    out.push({ text: 'Chains drop-off markers are only used by Big Ass Chains and Blinged Out Ride, which are not selected.', types: drops, count: count(drops) })
+  }
+  if (!modes.includes(BOR) && count(BOR_TYPES)) {
+    out.push({ text: 'The Blinged Out Ride markers (cars, garages, chop shops, victory zone, cash spawns) are only used by Blinged Out Ride, which is not selected.', types: BOR_TYPES, count: count(BOR_TYPES) })
+  }
+  return out
+}
+
 export function checkModes(settings: Pick<ProjectSettings, 'modes'>, markers: Marker[]): ModeCheck {
   const errors: string[] = []
   const warnings: string[] = []
@@ -74,13 +95,12 @@ export function checkModes(settings: Pick<ProjectSettings, 'modes'>, markers: Ma
     const missing = [!red && 'Red team spawns', !blue && 'Blue team spawns', !pimp && "the pimp's escape point (Pimp entrance marker)"].filter(Boolean)
     if (missing.length) errors.push(`Protect Tha Pimp needs ${missing.join(', ')}.`)
     else if (red < 4 || blue < 4) warnings.push(`Protect Tha Pimp: ${red} red and ${blue} blue spawns. Retail PTP maps use 6 per team.`)
-  } else if (count('Pimp entrance')) {
-    warnings.push("The pimp's escape points (Pimp entrance markers) are only used by Protect Tha Pimp, which is not selected.")
   }
   if (modes.includes(BOR)) {
     const need = borMissing(markers)
     if (need.length) errors.push(`Blinged Out Ride needs ${need.map((n) => n.text).join(', ')}.`)
     else warnings.push(...borWarnings(markers))
   }
+  warnings.push(...unusedModeMarkers(modes, markers).map((u) => u.text))
   return { errors, warnings }
 }
