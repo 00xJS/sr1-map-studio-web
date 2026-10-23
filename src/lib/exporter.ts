@@ -1,6 +1,6 @@
 // Full map export: runs sr1_export.export_map in the worker and packages the
 // result as a folder you can drop into SaintsReborn/dist/maps.
-import { zipSync, strToU8 } from 'fflate'
+import { zip as zipAsync, strToU8, type AsyncZippable } from 'fflate'
 import { py } from './py'
 import { dataPackStatus } from './datapack'
 import type { Marker, Project, ProjectSettings } from './project'
@@ -8,8 +8,11 @@ import { checkModes, levelEntries } from './levels'
 import { BOR } from './retailModes'
 import { crateDebrisSpec } from './crateDebris'
 
-/** entries: the zip's files by path ("<folder>/levels/..."), for installing without unzipping. */
-export interface ExportOutput { result: ExportResult; zip: Blob; folder: string; entries: Record<string, Uint8Array> }
+/**
+ * entries: the zip's files by path ("<folder>/levels/..."), for installing without unzipping.
+ * zip: made only when asked for (installing doesn't need it), off the main thread.
+ */
+export interface ExportOutput { result: ExportResult; zip: () => Promise<Blob>; folder: string; entries: Record<string, Uint8Array> }
 
 export interface ExportResult {
   map_name: string
@@ -19,7 +22,8 @@ export interface ExportResult {
 
 const strip = <T extends { uid?: string }>(x: T) => { const { uid: _u, ...rest } = x; return rest }
 
-export async function runExport(project: Project, onLog: (t: string) => void): Promise<ExportOutput> {
+/** onStage: 'prepare' and 'pack', the editor-side stages around Python's own (see exportProgress.ts). */
+export async function runExport(project: Project, onLog: (t: string) => void, onStage?: (stage: 'prepare' | 'pack') => void): Promise<ExportOutput> {
   const status = await dataPackStatus()
   if (!status.ready) throw new Error('Set up your data pack first (Data pack page): the exporter needs the Beaver Creek map template from your SR1 Map Studio package.')
   const modeCheck = checkModes(project.settings, project.markers)
@@ -53,6 +57,7 @@ export async function runExport(project: Project, onLog: (t: string) => void): P
   }
   onLog('Running SR1 map exporter…')
   const result = await py.call<ExportResult>('export_project', JSON.stringify(spec))
+  onStage?.('pack')
   const files = await py.readFiles(result.files)
   const folder = (s.display_name || result.map_name).replace(/[<>:"/\\|?*]+/g, '').trim() || result.map_name
   const entries: Record<string, Uint8Array> = {}
@@ -63,8 +68,20 @@ export async function runExport(project: Project, onLog: (t: string) => void): P
   }
   Object.assign(entries, packageMetadata(folder, result.map_name, s.display_name || result.map_name, s, project.markers, project.description))
   entries[`${folder}/MAP_STUDIO_EXPORT.txt`] = strToU8(exportNotes(project, result))
-  const zip = new Blob([zipSync(entries, { level: 6 })], { type: 'application/zip' })
-  return { result, zip, folder, entries }
+  return { result, zip: lazyZip(entries), folder, entries }
+}
+
+/**
+ * The map files are mostly compressed textures (a big map's PEG is 80+ MB):
+ * light deflate packs them nearly as small as level 6 in about half the time.
+ */
+export function lazyZip(entries: Record<string, Uint8Array>): () => Promise<Blob> {
+  let made: Promise<Blob> | null = null
+  return () => made ??= new Promise<Blob>((resolve, reject) => {
+    const files: AsyncZippable = {}
+    for (const [k, v] of Object.entries(entries)) files[k] = [v, { level: /_xbox2$/.test(k) ? 1 : 6 }]
+    zipAsync(files, (err, data) => err ? reject(err) : resolve(new Blob([data], { type: 'application/zip' })))
+  }).catch((e) => { made = null; throw e })
 }
 
 const CRLF = '\r\n'

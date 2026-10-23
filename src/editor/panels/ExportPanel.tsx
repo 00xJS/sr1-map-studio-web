@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { useEditor } from '../store'
 import { useExport } from '../useExport'
+import { ExportProgressBar } from '../ExportProgressBar'
 import * as act from '../actions'
 import { Check, Field, FileButton, NumberInput, infoDialog, toastError } from '../../ui'
 import { minimapMode, minimapPad } from '../../lib/minimap'
@@ -21,7 +22,7 @@ export function ExportPanel() {
   const s = project.settings
   const [pack, setPack] = useState<DataPackStatus | null>(null)
   const exp = useExport()
-  const { busy, result, error, mapsDir } = exp
+  const { busy, result, error, mapsDir, progress } = exp
   useEffect(() => { dataPackStatus().then(setPack) }, [])
   const set = <K extends keyof ProjectSettings>(k: K, v: ProjectSettings[K], merge = false) =>
     update('Export setting', (d) => { d.settings[k] = v }, merge ? { merge: 'set-' + k } : undefined)
@@ -138,6 +139,7 @@ export function ExportPanel() {
           {busy ? 'Exporting… (see build log)' : 'Export Saints Row map →'}
         </button>
       )}
+      {busy && <ExportProgressBar progress={progress} />}
       {error && <div className="callout bad"><pre style={{ margin: 0, whiteSpace: 'pre-wrap', maxHeight: 260, overflow: 'auto' }} className="small mono">{error}</pre></div>}
       {result && (
         <div className="callout ok">
@@ -148,7 +150,7 @@ export function ExportPanel() {
             <span className="small">{result.installedTo
               ? <>Installed to <code>{result.installedTo}</code>. Start (or restart) the game and look for it in a private party.</>
               : <>Unzip <b>{result.folder}</b> into <code>SaintsReborn/dist/maps</code>, then start the game.</>}</span>
-            <div className="row"><button className="sm" onClick={() => downloadBlob(result.zip, `${result.folder}.zip`)}>Download again</button></div>
+            <div className="row"><button className="sm" onClick={async () => downloadBlob(await result.zip(), `${result.folder}.zip`)}>Download again</button></div>
           </div>
         </div>
       )}

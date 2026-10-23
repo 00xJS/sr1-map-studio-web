@@ -196,6 +196,7 @@ table.mats tr:hover td { background: #22172a; }
 .logbar pre { margin: 0; height: 150px; overflow: auto; padding: 6px 10px; font: 11px/1.45 var(--mono); color: #d9c6d6; white-space: pre-wrap; }
 .progress { height: 3px; background: #211423; overflow: hidden; }
 .progress > div { height: 100%; width: 35%; background: var(--accent); animation: slide 1.2s infinite ease-in-out; }
+.progress.determinate > div { animation: none; }
 @keyframes slide { from { transform: translateX(-100%); } to { transform: translateX(300%); } }
 
 /* ---------- overlays ---------- */

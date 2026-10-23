@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { useEditor } from './store'
 import { useExport } from './useExport'
+import { ExportProgressBar } from './ExportProgressBar'
 import { Checklist, useApplyFix, useChecklist } from './Checklist'
 import { Modal } from '../ui'
 import { blockers } from '../lib/checklist'
@@ -46,14 +47,14 @@ export function PlayDialog({ onClose, onSamples }: { onClose: () => void; onSamp
             ? <>Installed to <code>{exp.result.installedTo}</code>. Start (or restart) Saints Reborn and look for <b>{project.settings.display_name}</b> in a private party.</>
             : <>Unzip <b>{exp.result.folder}</b> into <code>SaintsReborn/dist/maps</code>, then start the game and look for <b>{project.settings.display_name}</b> in a private party.</>}</span>
           {exp.result.installedTo && <span className="small muted">Changed something? Press Play again and it replaces the installed copy.</span>}
-          <div className="row"><button className="sm" onClick={() => downloadBlob(exp.result!.zip, `${exp.result!.folder}.zip`)}>Download a copy (.zip)</button><span className="spacer" /><button className="sm primary" onClick={onClose}>Back to editing</button></div>
+          <div className="row"><button className="sm" onClick={async () => { const r = exp.result!; downloadBlob(await r.zip(), `${r.folder}.zip`) }}>Download a copy (.zip)</button><span className="spacer" /><button className="sm primary" onClick={onClose}>Back to editing</button></div>
         </div></div>
       ) : exp.busy ? (
         <div className="col">
           <b>Building your map…</b>
-          <div className="progress"><div /></div>
+          <ExportProgressBar progress={exp.progress} />
           <span className="small muted ellipsis">{lastLog || 'Starting the map builder…'}</span>
-          <span className="faint small">The first time takes longer while the builder loads.</span>
+          <span className="faint small">The first build takes longer: the builder loads and encodes every texture. Later builds reuse what did not change.</span>
         </div>
       ) : (
         <>
