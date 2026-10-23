@@ -19,6 +19,8 @@ export interface Shape {
   taper?: number
   /** Box: rounds off the vertical and top edges by this many units. */
   bevel?: number
+  /** Cylinder: lying on its side, its length along X (wheels, logs, pipes). Size stays width (length) × height × depth. */
+  lie?: boolean
 }
 
 export interface ShapePreset { label: string; shape: Shape; hint: string }
@@ -133,6 +135,11 @@ function faces(s: Shape): Face[] {
       return out
     }
     case 'cylinder': {
+      if (s.lie) {
+        // Built upright with the length as its height, then tipped onto its side.
+        const c: V = [0, h / 2, 0]
+        return faces({ ...s, lie: false, size: [h, w, d] }).map((f) => upward(f.pts.map(([x, y, z]): V => [y - w / 2, x + h / 2, z]), c))
+      }
       const n = Math.max(3, Math.min(64, Math.round(s.segments ?? 16)))
       const ring = (y: number) => [...Array(n)].map((_, i): V => {
         const a = (i / n) * Math.PI * 2

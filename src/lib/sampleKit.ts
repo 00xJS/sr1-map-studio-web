@@ -26,6 +26,8 @@ export interface Part {
   /** Cylinder taper (0 = cone) and box bevel, as in Shape. */
   taper?: number
   bevel?: number
+  /** Cylinder lying on its side along X (see Shape.lie). */
+  lie?: boolean
   /** Parts with the same group are exported as one object (a prefab). */
   group?: string
   /** The prefab these parts were made by, so the editor can rebuild it with new settings. */
@@ -64,6 +66,9 @@ export const stairs = (label: string, size: Vec3, at: Vec3, top: Tex, side: Tex 
 /** Round (or 3-, 6-, 8-sided) column; `d` is the diameter. */
 export const cyl = (label: string, d: number, h: number, at: Vec3, top: Tex, side: Tex = top, sides = 16, rot = 0, tile = 4): Part =>
   ({ label, kind: 'cylinder', size: [d, h, d], at, top, side, segments: sides, rot, tile })
+/** A cylinder on its side, `len` long along X and `d` across: wheels, logs, pipes. */
+export const lying = (label: string, d: number, len: number, at: Vec3, top: Tex, side: Tex = top, sides = 16, rot = 0): Part =>
+  ({ label, kind: 'cylinder', size: [len, d, d], at, top, side, segments: sides, rot, tile: 4, lie: true })
 /** A ground slab w × d, 1 thick, top at y 1. */
 export const ground = (w: number, d: number, top: Tex, side: Tex = top, tile = 6): Part => box('Ground', [w, 1, d], [0, 0, 0], top, side, 0, tile)
 

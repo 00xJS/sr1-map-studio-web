@@ -4,7 +4,7 @@
 // editor and one mesh in the game. Used by the sample maps and by the editor's
 // Shape tool.
 import type { Vec3 } from './project'
-import { CY, PB, box, cyl, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
+import { CY, PB, box, cyl, lying, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
 
 /** A floor of a building, in units (3.5 m). */
 export const FLOOR = 7
@@ -141,14 +141,32 @@ export function building(o: BuildingOptions): Part[] {
 
 // ---------------- street props ----------------
 
-/** A car: body, cabin and wheels. */
+const CAR_GLASS: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 330 }, surface: 9 }
+const HEADLIGHT: Tex = { gen: 'tiles', tweak: { color: '#f4f1e2', accent: '#c9c4ad', scale: 1, wear: 0, seed: 333 }, surface: 9 }
+const TAILLIGHT: Tex = { gen: 'tiles', tweak: { color: '#c4161c', accent: '#7a0c10', scale: 1, wear: 0, seed: 334 }, surface: 9 }
+const TRIM: Tex = { gen: 'metal_plate', tweak: { color: '#1d1d20', accent: '#1d1d20', scale: 2, wear: 0.1, seed: 335 }, surface: 15 }
+const CHROME: Tex = { gen: 'metal_plate', tweak: { color: '#b9bcc0', accent: '#8d9094', scale: 1, wear: 0, seed: 336 }, surface: 15 }
+
+/** Four round wheels with hubcaps, `track` apart side to side, axles at ±`base` along the car. */
+export const wheels = (L: (dx: number, dy: number, dz: number) => Vec3, track: number, base: number[], d = 1.3, w = 0.55): Part[] =>
+  base.flatMap((b) => [-1, 1].flatMap((sx) => [
+    lying('Wheel', d, w, L(sx * track / 2, 0, b), PB.tire, PB.tire, 14),
+    lying('Hubcap', d * 0.55, w + 0.06, L(sx * track / 2, (d - d * 0.55) / 2, b), CHROME, CHROME, 10),
+  ]))
+
+/** A car: rounded body, glass cabin with a painted roof, lights, bumpers and round wheels. The front is +Z. */
 export function car(x: number, z: number, rot: number, paint: Tex, y = 1, len = 8): Part[] {
-  const glass: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 330 }, surface: 9 }
-  const tire = PB.tire
+  const f = len / 2
   return group(gid('Car', x, y, z), local(x, y, z, rot, (L) => [
-    { ...box('Car body', [4, 1.5, len], L(0, 0.45, 0), paint, paint), bevel: 0.35 },
-    { ...box('Car cabin', [3.5, 1.2, len - 3.8], L(0, 1.95, -0.4), glass, glass), bevel: 0.45 },
-    ...[[-1.75, len / 2 - 1.4], [1.75, len / 2 - 1.4], [-1.75, -len / 2 + 1.4], [1.75, -len / 2 + 1.4]].map(([a, b]): Part => ({ ...box('Wheel', [0.6, 1.3, 1.3], L(a, 0, b), tire, tire), bevel: 0.25 })),
+    { ...box('Car body', [4, 1.35, len], L(0, 0.5, 0), paint, paint), bevel: 0.4 },
+    { ...box('Car cabin', [3.5, 1.15, len - 3.8], L(0, 1.85, -0.4), CAR_GLASS, CAR_GLASS), bevel: 0.45 },
+    { ...box('Car roof', [3.3, 0.18, len - 4.4], L(0, 3.0, -0.4), paint, paint), bevel: 0.08 },
+    { ...box('Bumper', [4.1, 0.45, 0.35], L(0, 0.45, f - 0.05), TRIM, TRIM), bevel: 0.12 },
+    { ...box('Bumper', [4.1, 0.45, 0.35], L(0, 0.45, -f + 0.05), TRIM, TRIM), bevel: 0.12 },
+    box('Grille', [1.8, 0.45, 0.06], L(0, 0.95, f + 0.02), TRIM),
+    ...[-1.45, 1.45].flatMap((a) => [box('Headlight', [0.8, 0.35, 0.06], L(a, 1.1, f + 0.02), HEADLIGHT), box('Tail light', [0.7, 0.35, 0.06], L(a, 1.15, -f - 0.02), TAILLIGHT)]),
+    ...[-1, 1].map((sx) => ({ ...box('Mirror', [0.35, 0.25, 0.2], L(sx * 2.1, 1.9, len / 2 - 3), paint, paint), bevel: 0.05 })),
+    ...wheels(L, 3.6, [f - 1.4, -f + 1.4]),
   ]))
 }
 
@@ -341,7 +359,7 @@ export const PREFABS: Record<string, PrefabDef> = {
       { ...box('Truck body', [5, 5.5, 13], L(0, 0.6, 0), CY.white, carPaint('#f07a1a', 342)), bevel: 0.3 },
       { ...box('Truck cab', [4.8, 3, 3], L(0, 0.6, 8), CY.white, carPaint('#f07a1a', 342)), bevel: 0.4 },
       box('Serving hatch', [0.3, 0.3, 6], L(3, 4, -1), PB.steel),
-      ...[[-2.4, -4], [2.4, -4], [-2.4, 7.5], [2.4, 7.5]].map(([a, b]) => ({ ...box('Wheel', [0.6, 1.3, 1.3], L(a, 0, b), PB.tire), bevel: 0.25 })),
+      ...wheels(L, 4.6, [-4, 7.5], 1.5, 0.6),
     ])),
   },
   phone: {

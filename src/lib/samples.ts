@@ -241,7 +241,7 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
   const items: SceneItem[] = []
   const shapeOf = (part: Part): Shape => ({
     kind: part.kind, size: part.size, tile: part.tile ?? 4,
-    ...(part.segments ? { segments: part.segments } : {}), ...(part.taper !== undefined ? { taper: part.taper } : {}), ...(part.bevel ? { bevel: part.bevel } : {}),
+    ...(part.segments ? { segments: part.segments } : {}), ...(part.taper !== undefined ? { taper: part.taper } : {}), ...(part.bevel ? { bevel: part.bevel } : {}), ...(part.lie ? { lie: true } : {}),
   })
   // Parts of a prefab (same group) become one object; the rest stay one object each.
   const units: Part[][] = []

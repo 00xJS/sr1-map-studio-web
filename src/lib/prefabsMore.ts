@@ -1,8 +1,8 @@
 // More prefabs, by theme, for building fun game maps: paintball fields, cyber
 // arenas, obstacle courses, king-of-the-hill towers, forts, street scenes.
 // Each is one object (a group) placed with its base at y and turned by rot.
-import { CY, PB, box, cyl, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
-import { group, local, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { CY, PB, box, cyl, lying, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
+import { group, local, wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
 
 const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
 /** Shorthand: a prefab whose parts are given in its local frame. */
@@ -29,6 +29,8 @@ const SLATE: Tex = { lib: 'roof_slates_03', surface: 0 }
 const ROCK: Tex = { lib: 'rock_face_03', surface: 0 }
 const LEAVES: Tex = { gen: 'grass', tweak: { color: '#2f5e22', accent: '#4c7a2a', scale: 3, wear: 0.2, seed: 84 }, surface: 7 }
 const PALM: Tex = { gen: 'grass', tweak: { color: '#3f7a2a', accent: '#8a9a3a', scale: 6, wear: 0.3, seed: 350 }, surface: 7 }
+/** Cut log ends: pale wood with rings. */
+const LOG_END: Tex = { gen: 'wood_planks', tweak: { color: '#b08a5a', accent: '#7a5a38', scale: 1, seed: 337 } }
 const BARK: Tex = { gen: 'wood_planks', tweak: { color: '#5a3f2a', accent: '#3a2818', scale: 3, seed: 85 } }
 const DEAD: Tex = { gen: 'wood_planks', tweak: { color: '#6a6058', accent: '#3a332e', scale: 3, seed: 351 } }
 const HAY: Tex = { gen: 'sand', tweak: { color: '#d8b85a', accent: '#a8873a', scale: 10, seed: 352 }, surface: 21 }
@@ -104,7 +106,7 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   ]) },
   foodcart: { category: 'Street', label: 'Food cart', hint: 'A hot dog cart with an umbrella', make: pf('Food cart', (L) => [
     { ...box('Cart', [4, 2.2, 2], L(0, 0.4, 0), PB.steel, PB.yellow), bevel: 0.15 },
-    { ...box('Wheel', [0.3, 1, 1], L(-2.1, 0, 0), PB.tire), bevel: 0.15 }, { ...box('Wheel', [0.3, 1, 1], L(2.1, 0, 0), PB.tire), bevel: 0.15 },
+    lying('Wheel', 1, 0.3, L(-2.15, 0, 0), PB.tire, PB.tire, 12), lying('Wheel', 1, 0.3, L(2.15, 0, 0), PB.tire, PB.tire, 12),
     cyl('Umbrella pole', 0.15, 3, L(0, 2.6, 0), PB.steel, PB.steel, 6), { ...cyl('Umbrella', 5, 0.9, L(0, 5.2, 0), PB.red, PB.yellow, 8), taper: 0 },
   ]) },
   jersey: { category: 'Street', label: 'Barrier line', hint: 'Three jersey barriers', ...pfp('Barriers', [{ key: 'n', label: 'Barriers', kind: 'number', min: 1, max: 8, step: 1, default: 3 }], (L, p) => [...Array(+p.n)].map((_, i) => ({ ...box('Jersey barrier', [8, 2, 1.2], L((i - (+p.n - 1) / 2) * 8.4, 0, 0), PB.concrete), bevel: 0.3 }))) },
@@ -132,8 +134,8 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   ]) },
   flowers: { category: 'Nature', label: 'Flower bed', hint: 'A raised flower bed', make: pf('Flowers', (L) => [{ ...box('Flower bed', [8, 0.9, 3], L(0, 0, 0), FLOWERS, STONE), bevel: 0.15 }]) },
   logs: { category: 'Nature', label: 'Log pile', hint: 'Stacked logs', make: pf('Logs', (L) => [
-    ...[-1.1, 0, 1.1].map((a) => ({ ...box('Log', [6, 1, 1], L(0, 0, a), BARK, BARK), bevel: 0.35 })),
-    ...[-0.55, 0.55].map((a) => ({ ...box('Log', [6, 1, 1], L(0, 1, a), BARK, BARK), bevel: 0.35 })), { ...box('Log', [6, 1, 1], L(0, 2, 0), BARK, BARK), bevel: 0.35 },
+    ...[-1.1, 0, 1.1].map((a) => lying('Log', 1.1, 6, L(0, 0, a), LOG_END, BARK, 10)),
+    ...[-0.55, 0.55].map((a) => lying('Log', 1.1, 6.2, L(0, 0.95, a), LOG_END, BARK, 10)), lying('Log', 1.1, 5.8, L(0, 1.9, 0), LOG_END, BARK, 10),
   ]) },
   hay: { category: 'Nature', label: 'Hay bales', hint: 'Stacked hay bales', make: pf('Hay', (L) => [
     ...[-1.6, 1.6].map((a) => ({ ...box('Hay bale', [3, 1.6, 2], L(a, 0, 0), HAY, HAY), bevel: 0.2 })), { ...box('Hay bale', [3, 1.6, 2], L(0, 1.6, 0), HAY, HAY), bevel: 0.2 },
@@ -210,7 +212,7 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   fueltank: { category: 'Industrial', label: 'Fuel tank', hint: 'A big tank with a ladder', make: pf('Fuel tank', (L) => [cyl('Tank', 10, 8, L(0, 0, 0), PB.steel, PB.steel, 20), { ...cyl('Tank roof', 10, 1.4, L(0, 8, 0), PB.steel, PB.steel, 20), taper: 0.3 }, box('Ladder', [0.8, 9, 0.2], L(0, 0, 5.05), PB.rusty)]) },
   piperack: { category: 'Industrial', label: 'Pipe rack', hint: 'Pipes on a raised frame to walk under', make: pf('Pipe rack', (L) => [
     ...[-8, 0, 8].flatMap((a) => [box('Rack leg', [0.6, 6, 0.6], L(a, 0, -2), PB.steel), box('Rack leg', [0.6, 6, 0.6], L(a, 0, 2), PB.steel), box('Rack beam', [0.5, 0.5, 4.6], L(a, 6, 0), PB.steel)]),
-    ...[-1.2, 0, 1.2].map((b, i) => box('Pipe', [18, 0.8, 0.8], L(0, 6.5, b), [PB.steel, PB.rusty, PB.yellow][i])),
+    ...[-1.2, 0, 1.2].map((b, i) => lying('Pipe', 0.9, 18, L(0, 6.5, b), [PB.steel, PB.rusty, PB.yellow][i], [PB.steel, PB.rusty, PB.yellow][i], 12)),
   ]) },
   catwalk: { category: 'Industrial', label: 'Catwalk', hint: 'A raised walkway with stairs', make: pf('Catwalk', (L) => [
     box('Catwalk', [16, 0.4, 3], L(0, 6, 0), PB.diamond, PB.steel), ...[-7.5, 7.5].flatMap((a) => [box('Leg', [0.4, 6, 0.4], L(a, 0, -1.3), PB.steel), box('Leg', [0.4, 6, 0.4], L(a, 0, 1.3), PB.steel)]),
@@ -220,7 +222,7 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   forklift: { category: 'Industrial', label: 'Forklift', hint: 'A forklift with raised forks', make: pf('Forklift', (L) => [
     { ...box('Forklift', [3, 2, 4.5], L(0, 0.4, 0), PB.yellow), bevel: 0.25 }, box('Mast', [2.6, 5, 0.3], L(0, 0.4, 2.5), PB.black), box('Forks', [2, 0.2, 2.4], L(0, 1.6, 3.8), PB.steel),
     ...posts4(L, 2.6, 2.4, 2.4, PB.black, 0.15, 2.4), box('Cab roof', [2.8, 0.2, 2.6], L(0, 4.8, 0), PB.black),
-    ...[[-1.5, -1.4], [1.5, -1.4], [-1.5, 1.4], [1.5, 1.4]].map(([a, b]) => ({ ...box('Wheel', [0.5, 1, 1], L(a, 0, b), PB.tire), bevel: 0.2 })),
+    ...wheels(L, 3.1, [-1.4, 1.4], 1.1, 0.5),
   ]) },
   pallets: { category: 'Industrial', label: 'Pallet stack', hint: 'Pallets with boxes', make: pf('Pallet stack', (L) => [box('Pallet', [4, 0.6, 4], L(0, 0, 0), PB.wood), { ...box('Boxes', [3.6, 2.4, 3.6], L(0, 0.6, 0), PB.plywood), bevel: 0.1 }, box('Pallet', [4, 0.6, 4], L(0, 3, 0), PB.wood)]) },
 
