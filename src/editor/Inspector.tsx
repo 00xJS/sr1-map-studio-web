@@ -9,6 +9,7 @@ import { saveMyPrefab } from './myPrefabs'
 const PhotoDialog = lazy(() => import('./PhotoDialog').then((m) => ({ default: m.PhotoDialog })))
 import { Palette, chooseTool } from './Tools'
 import { Checklist, useApplyFix, useChecklist } from './Checklist'
+import { HealthSection } from './HealthPanel'
 import { niceName, paintMaterial } from './paint'
 import { Check, Field, FileButton, NumberInput, toast, toastError, useBusy } from '../ui'
 import { catalogs } from '../lib/catalogs'
@@ -75,6 +76,8 @@ function MapOverview({ onSamples, onPlay }: { onSamples: () => void; onPlay: () 
         <Checklist items={items} onFix={fix} />
         <button className="primary" onClick={onPlay}>{blocked ? 'Play in game…' : '▶ Play in game'}</button>
       </div>
+
+      <HealthSection />
 
       <div className="group" id="game-modes">
         <span className="section-title">Game modes</span>

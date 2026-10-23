@@ -13,6 +13,7 @@ import { MaterialsPanel } from './panels/MaterialsPanel'
 import { MarkersPanel } from './panels/MarkersPanel'
 import { LightsPanel } from './panels/LightsPanel'
 import { ExportPanel } from './panels/ExportPanel'
+import { HealthPanel } from './HealthPanel'
 import { db } from '../lib/db'
 import { normalizeProject, type Project } from '../lib/project'
 import { py } from '../lib/py'
@@ -29,7 +30,7 @@ const PublishDialog = lazy(() => import('./PublishDialog').then((m) => ({ defaul
 const ShareDialog = lazy(() => import('../play/ShareDialog').then((m) => ({ default: m.ShareDialog })))
 
 const TABS = [
-  ['scene', 'Objects'], ['assets', 'Library'], ['materials', 'Textures'], ['spawns', 'Spawns'], ['lights', 'Lights'], ['export', 'Map & export'],
+  ['scene', 'Objects'], ['assets', 'Library'], ['materials', 'Textures'], ['spawns', 'Spawns'], ['lights', 'Lights'], ['health', 'Health'], ['export', 'Map & export'],
 ] as const
 
 export default function EditorPage() {
@@ -205,6 +206,7 @@ function Editor() {
                 {tab === 'spawns' && <MarkersPanel />}
                 {tab === 'lights' && <LightsPanel />}
                 {tab === 'export' && <ExportPanel />}
+                {tab === 'health' && <HealthPanel />}
               </div>
             </>
           ) : <Inspector onSamples={() => setPicking(true)} onPlay={() => setPlaying(true)} />}
