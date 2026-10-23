@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Modal, toastError } from '../ui'
-import { SAMPLES, THEMES, THEME_INFO, buildSample, hasCompact, type Sample, type Theme } from '../lib/samples'
+import { SAMPLES, THEMES, THEME_INFO, buildFrom, buildSample, hasCompact, type Sample, type Theme } from '../lib/samples'
+import { MapWizard } from './MapWizard'
 import type { Project } from '../lib/project'
 
 
@@ -20,12 +21,12 @@ function Pic({ s }: { s: Sample }) {
  */
 export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project) => Promise<void> | void; onBlank?: () => void }) {
   const [progress, setProgress] = useState<string | null>(null)
-  const [theme, setTheme] = useState<Theme>('Starter')
+  const [theme, setTheme] = useState<Theme | 'wizard'>('wizard')
   const [small, setSmall] = useState(false)
-  const choose = async (id: string) => {
+  const choose = async (id: string | Sample) => {
     setProgress('Starting…')
     try {
-      await props.onBuilt(await buildSample(id, setProgress, { compact: small }))
+      await props.onBuilt(await (typeof id === 'string' ? buildSample(id, setProgress, { compact: small }) : buildFrom(id, setProgress)))
       props.onClose()
     } catch (e) {
       toastError(e)
@@ -38,12 +39,15 @@ export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project)
     <Modal title="Start a map" wide onClose={busy ? undefined : props.onClose}
       footer={<>{busy && <span className="grow small muted">{progress}</span>}<button onClick={props.onClose} disabled={busy}>Cancel</button></>}>
       <div className="row wrap">
+        <button className={'sm' + (theme === 'wizard' ? ' on' : '')} onClick={() => setTheme('wizard')}>✨ Map wizard</button>
         {THEMES.map((t) => (
           <button key={t} className={'sm' + (theme === t ? ' on' : '')} onClick={() => setTheme(t)}>
             {t} <span className="faint">{SAMPLES.filter((s) => s.theme === t).length}</span>
           </button>
         ))}
       </div>
+      {theme === 'wizard' && <MapWizard busy={busy} onCreate={(s) => choose(s)} onBlank={props.onBlank} />}
+      {theme !== 'wizard' && <>
       <p className="small muted">{THEME_INFO[theme]} Every sample is built from simple shapes with free textures, sized for 8–12 player matches like the retail maps, and already has plenty of spawns, weapons and lights. Change anything you like.</p>
       {shown.some(hasCompact) && (
         <label className="row small"><input type="checkbox" checked={small} onChange={(e) => setSmall(e.target.checked)} /> Small version (half the size, for 2–6 players)</label>
@@ -66,6 +70,7 @@ export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project)
           </button>
         ))}
       </div>
+      </>}
     </Modal>
   )
 }

@@ -49,6 +49,8 @@ export interface Sample {
   size?: 'compact' | 'full'
   /** Date added (YYYY-MM-DD), for the catalog's New badge. */
   added?: string
+  /** Prefabs the dressing pass fills open floor with (default: the map's own list, else its theme's). */
+  dressWith?: string[]
 }
 
 export const ALL_MODES: GameMode[] = ['Gangsta Brawl', 'Team Gangsta Brawl', 'Big Ass Chains', 'Team Big Ass Chains', 'Protect Tha Pimp']

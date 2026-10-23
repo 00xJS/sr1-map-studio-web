@@ -74,7 +74,7 @@ export const DENSE: DressOptions = { perArea: 650, gap: 2.5, maxPairs: 40 }
 export const LIGHT_DRESS: DressOptions = { perArea: 2200, gap: 1.2, maxPairs: 24 }
 
 export function dress(s: Sample, o: DressOptions = DENSE): Sample {
-  const keys = (s.theme === 'Urban' ? URBAN_CLUTTER : DRESS[s.id] ?? THEME_FALLBACK[s.theme]).filter((k) => ALL_PREFABS[k])
+  const keys = (s.dressWith ?? (s.theme === 'Urban' ? URBAN_CLUTTER : DRESS[s.id] ?? THEME_FALLBACK[s.theme])).filter((k) => ALL_PREFABS[k])
   if (!keys.length || !s.markers.length) return s
   const ground = Math.min(...s.markers.map(([, p]) => p[1]))
   const floor = candidates(s).filter((p) => p[1] === ground && (p[2] < 0 || (p[2] === 0 && p[0] < 0)))

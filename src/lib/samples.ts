@@ -297,7 +297,11 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
 /** Builds a sample into a new project (geometry, textures and markers stored locally). */
 export async function buildSample(id: string, onProgress?: (t: string) => void, opts: { compact?: boolean } = {}): Promise<Project> {
   const sample = sampleFor(id, opts.compact)
-  const lightRange = opts.compact && (sample.size ?? 'compact') === 'compact' ? 16 : 24
+  return buildFrom(sample, onProgress, opts.compact && (sample.size ?? 'compact') === 'compact' ? 16 : 24)
+}
+
+/** A project from a finished sample (one from sampleFor, or the new map wizard's). */
+export async function buildFrom(sample: Sample, onProgress?: (t: string) => void, lightRange = 24): Promise<Project> {
   const project = newProject(sample.name)
   const { items, files } = await materialize(sample.parts, onProgress)
   project.scene_items = items
