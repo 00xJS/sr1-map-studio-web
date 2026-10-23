@@ -6,7 +6,9 @@ import * as THREE from 'three'
 import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import type { MinimapRect } from '../lib/minimap'
-import { Walker, type WalkBody, type WalkState } from './walk'
+import { RADIUS, STAND_HEIGHT, Walker, type WalkBody, type WalkState } from './walk'
+import { PhysicsPreview, type PhysicsStatus } from './physicsPreview'
+import { presetOf } from '../lib/physicsProps'
 import type { ObjModel } from '../lib/geometry'
 import { loadModel, peekModel, textureUrl } from '../lib/assets'
 import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
@@ -158,6 +160,7 @@ export class Viewer {
     if (this.walker) {
       const now = performance.now()
       this.walker.step((now - this.lastFly) / 1000)
+      this.physics?.step(Math.min((now - this.lastFly) / 1000, 0.1))
       this.lastFly = now
       this.renderer.render(this.scene, this.camera)
       return
@@ -328,6 +331,7 @@ export class Viewer {
   // ---------------- walk-through ----------------
 
   private walker: Walker | null = null
+  private physics: PhysicsPreview | null = null
   private walkBody: WalkBody | null = null
   private beforeWalk: { pos: THREE.Vector3; target: THREE.Vector3; fov: number; hidden: [THREE.Object3D, boolean][]; background: THREE.Scene['background']; fog: THREE.Scene['fog'] } | null = null
   private daySky: THREE.Texture | null = null
@@ -374,8 +378,16 @@ export class Viewer {
     this.camera.near = 0.05
     this.camera.updateProjectionMatrix()
     const solids = this.solids()
-    this.walker = new Walker({ camera: this.camera, scene: this.scene, canvas: this.renderer.domElement, solids: () => solids }, at, yaw, onExit, this.walkBody)
+    // Props blown away in the physics preview are hidden: the walker no longer bumps into them.
+    this.walker = new Walker({ camera: this.camera, scene: this.scene, canvas: this.renderer.domElement, solids: () => solids.filter((o) => o.parent?.visible !== false) }, at, yaw, onExit, this.walkBody)
     this.walker.onState = onState
+    const walker = this.walker
+    // Physics props move in the walk-through (the engine loads only for maps that have some).
+    if (this.project?.scene_items.some((it) => presetOf(it))) this.physics = new PhysicsPreview({
+      scene: this.scene, camera: this.camera, canvas: this.renderer.domElement,
+      objects: () => (this.project?.scene_items ?? []).flatMap((it) => { const n = this.items.get(it.uid); return n ? [{ it, group: n.group, mesh: n.mesh }] : [] }),
+      player: () => ({ pos: walker.pos, height: STAND_HEIGHT, radius: RADIUS }),
+    })
     this.lastFly = performance.now()
   }
 
@@ -400,8 +412,13 @@ export class Viewer {
     await new Promise((r) => setTimeout(r, 0)) // the meshes attach in the models' own handlers
   }
 
+  /** The walk-through's physics preview: loading, how many props, how many destroyed. */
+  physicsStatus(): PhysicsStatus | null { return this.physics?.status() ?? null }
+
   stopWalk() {
     if (!this.walker) return
+    this.physics?.dispose()
+    this.physics = null
     this.walker.dispose()
     this.walker = null
     const b = this.beforeWalk!

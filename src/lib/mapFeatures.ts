@@ -42,6 +42,14 @@ export const MOVABLE_PRESETS: [profile: string, label: string][] = [
   ["Cardboard Box  0.5'x0.5'x0.5'1", 'Small cardboard box, 5 lb'],
   ["Cardboard Box  1'x1'x1'", 'Cardboard box, 15 lb'],
   ["Cardboard Box  4'x4'x4'", 'Big cardboard box, 200 lb'],
+  // Physics-prop behaviours (see physicsProps.ts).
+  ['Tire', 'Rolls and bounces (tire), 10 lb'],
+  ['Red Ball', 'Very bouncy ball that cannot break, 4 lb'],
+  ['SoccerBall', 'Soccer ball, 5 lb'],
+  ["Iron Object 1'x1'x1'", 'Metal block, 10 lb'],
+  ['Trashcan', 'Trash can that cannot break, 50 lb'],
+  ['CableSpool', 'Heavy cable spool, 500 lb'],
+  ['Log Timber', 'Very heavy log that only cars and blasts move, 2000 lb'],
 ]
 
 /** Stock profiles that make a "breakable wood" object break (it disappears, no debris). */

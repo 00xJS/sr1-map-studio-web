@@ -13,6 +13,7 @@
     "typecheck": "tsc -b"
   },
   "dependencies": {
+    "@dimforge/rapier3d-compat": "^0.21.0",
     "@supabase/supabase-js": "^2.45.4",
     "fflate": "^0.8.2",
     "immer": "^10.1.1",
