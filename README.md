@@ -20,6 +20,10 @@ through [Pyodide](https://pyodide.org); the editor interface is rebuilt with Rea
   in the browser from shapes and free textures, with spawns, weapons and lights for their modes;
   a Paint-style tool strip (select/rotate/scale, shape, paint bucket, eyedropper, spawn, weapon,
   light, eraser) with a texture palette.
+- **Simple and Advanced modes:** Simple (the default) has one side panel that shows whatever is
+  selected, or a "ready to play" checklist when nothing is; a first-run tour; camera buttons; and
+  one Play button that checks, names, builds and installs the map. Advanced keeps every setting in
+  tabs.
 - **Phase 2, accounts:** sign in, save projects to the cloud and open them on another device.
 - **Phase 3, hub:** publish projects, browse/search/sort, like, remix, report and moderate.
 

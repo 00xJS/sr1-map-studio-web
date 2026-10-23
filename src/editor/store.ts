@@ -46,6 +46,8 @@ interface EditorState {
   faceRange: [number, number]
   logs: string[]
   tab: string
+  /** Advanced mode shows every setting in tabs; simple mode one panel for what's selected. */
+  advanced: boolean
   open(project: Project): void
   close(): void
   update(label: string, recipe: (d: Draft<Project>) => void, opts?: { merge?: string }): void
@@ -57,6 +59,9 @@ interface EditorState {
 }
 
 const LIMIT = 150
+
+export function readFlag(key: string) { try { return localStorage.getItem(key) === '1' } catch { return false } }
+export function writeFlag(key: string, on: boolean) { try { localStorage.setItem(key, on ? '1' : '0') } catch { /* private window */ } }
 let lastMerge: { key: string; at: number } | null = null
 /** End the current merged edit (e.g. when a gizmo drag is released). */
 export const breakMerge = () => { lastMerge = null }
@@ -84,6 +89,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   faceRange: [0, 0],
   logs: [],
   tab: 'scene',
+  advanced: readFlag('sr1-advanced'),
   open(project) {
     set({ project, selection: null, lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [] })
   },
@@ -156,5 +162,7 @@ useEditor.subscribe((s, prev) => {
 })
 
 export const currentProject = () => useEditor.getState().project
+
+useEditor.subscribe((s, prev) => { if (s.advanced !== prev.advanced) writeFlag('sr1-advanced', s.advanced) })
 
 if (import.meta.env.DEV) (globalThis as any).__editor = useEditor

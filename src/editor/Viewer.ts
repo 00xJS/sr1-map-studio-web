@@ -582,6 +582,25 @@ export class Viewer {
 
   resetView() { this.framed = false; this.focusSelection() }
 
+  /** Fit the whole map in view. */
+  frameAll() { this.frame(this.root) }
+
+  /** Camera buttons: circle the target by `deg` degrees. */
+  orbitBy(deg: number) {
+    const offset = this.camera.position.clone().sub(this.orbit.target)
+    offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), deg * Math.PI / 180)
+    this.camera.position.copy(this.orbit.target).add(offset)
+    this.requestRender()
+  }
+
+  /** Camera buttons: move toward (factor < 1) or away from the target. */
+  zoomBy(factor: number) {
+    const offset = this.camera.position.clone().sub(this.orbit.target).multiplyScalar(factor)
+    if (offset.length() < 0.5) return
+    this.camera.position.copy(this.orbit.target).add(offset)
+    this.requestRender()
+  }
+
   /** Point at the camera target (used to place things "in front of you"). */
   center(): Vec3 { return this.orbit.target.toArray() as Vec3 }
 

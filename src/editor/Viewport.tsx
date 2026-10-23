@@ -54,6 +54,23 @@ function useTool(point: Vec3, item: number, face: number): boolean {
   }
 }
 
+const PAD: [string, string, () => void][] = [
+  ['⟲', 'Circle left', () => active?.orbitBy(-45)],
+  ['⟳', 'Circle right', () => active?.orbitBy(45)],
+  ['+', 'Zoom in', () => active?.zoomBy(0.7)],
+  ['−', 'Zoom out', () => active?.zoomBy(1.4)],
+  ['⤢', 'See the whole map', () => active?.frameAll()],
+]
+
+/** Camera buttons for people who don't use mouse-drag controls. */
+function CameraPad() {
+  return (
+    <div className="camera-pad" data-tour="camera">
+      {PAD.map(([icon, label, fn]) => <button key={label} className="sm" title={label} aria-label={label} onClick={fn}>{icon}</button>)}
+    </div>
+  )
+}
+
 export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: File[]) => void; onSamples: () => void }) {
   const host = useRef<HTMLDivElement>(null)
   const project = useEditor((s) => s.project)
@@ -164,7 +181,8 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
           </div>
         </div>
       )}
-      <div className="viewport-hint">Left drag orbit · right drag pan · wheel zoom · WASD/QE fly · F focus · G snap · Esc back to Select</div>
+      <CameraPad />
+      <div className="viewport-hint">Left-drag: spin · Right-drag: slide · Scroll: zoom · Esc: back to Move</div>
     </div>
   )
 }

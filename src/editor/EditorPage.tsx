@@ -1,7 +1,10 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
-import { useEditor, saveNow } from './store'
+import { useEditor, saveNow, readFlag, writeFlag } from './store'
 import { Viewport, getViewer } from './Viewport'
+import { Inspector } from './Inspector'
+import { PlayDialog } from './PlayDialog'
+import { Tour } from './Tour'
 import { TOOL_KEYS, chooseTool } from './Tools'
 import * as act from './actions'
 import { ScenePanel } from './panels/ScenePanel'
@@ -21,7 +24,7 @@ const SamplePicker = lazy(() => import('../pages/SamplePicker').then((m) => ({ d
 const PublishDialog = lazy(() => import('./PublishDialog').then((m) => ({ default: m.PublishDialog })))
 
 const TABS = [
-  ['scene', 'Scene'], ['assets', 'Assets'], ['materials', 'Materials'], ['spawns', 'Spawns'], ['lights', 'Lights'], ['export', 'Export'],
+  ['scene', 'Objects'], ['assets', 'Library'], ['materials', 'Textures'], ['spawns', 'Spawns'], ['lights', 'Lights'], ['export', 'Map & export'],
 ] as const
 
 export default function EditorPage() {
@@ -92,8 +95,15 @@ function useShortcuts() {
 function Editor() {
   const project = useEditor((s) => s.project)!
   const tab = useEditor((s) => s.tab)
+  const advanced = useEditor((s) => s.advanced)
   const [publishing, setPublishing] = useState(false)
   const [picking, setPicking] = useState(false)
+  const [playing, setPlaying] = useState(false)
+  const [touring, setTouring] = useState(false)
+  const hasItems = project.scene_items.length > 0
+  // First visit: show the tour once there's something to look at.
+  useEffect(() => { if (hasItems && !readFlag('sr1-tour-done')) setTouring(true) }, [hasItems])
+  const endTour = () => { writeFlag('sr1-tour-done', true); setTouring(false) }
   const importDropped = async (files: File[]) => {
     try {
       const st = useEditor.getState()
@@ -116,36 +126,73 @@ function Editor() {
     useEditor.getState().select(null)
   }
   return (
-    <div className="editor">
-      <TopBar onPublish={() => setPublishing(true)} />
+    <div className={'editor ' + (advanced ? 'advanced' : 'simple')}>
+      <TopBar onPublish={() => setPublishing(true)} onPlay={() => setPlaying(true)} onTour={() => setTouring(true)} />
       <div className="editor-main">
         <Viewport onEmptyImport={importDropped} onSamples={() => setPicking(true)} />
         <aside className="side">
-          <div className="tabs" role="tablist">
-            {TABS.map(([k, label]) => (
-              <button key={k} role="tab" className={tab === k ? 'active' : ''} onClick={() => useEditor.getState().set({ tab: k })}>
-                {label}{k === 'spawns' && project.markers.length ? ` (${project.markers.length})` : ''}
-              </button>
-            ))}
-          </div>
-          <div className="panel">
-            {tab === 'scene' && <ScenePanel />}
-            {tab === 'assets' && <AssetsPanel />}
-            {tab === 'materials' && <MaterialsPanel />}
-            {tab === 'spawns' && <MarkersPanel />}
-            {tab === 'lights' && <LightsPanel />}
-            {tab === 'export' && <ExportPanel />}
-          </div>
+          {advanced ? (
+            <>
+              <div className="tabs" role="tablist">
+                {TABS.map(([k, label]) => (
+                  <button key={k} role="tab" className={tab === k ? 'active' : ''} onClick={() => useEditor.getState().set({ tab: k })}>
+                    {label}{k === 'spawns' && project.markers.length ? ` (${project.markers.length})` : ''}
+                  </button>
+                ))}
+              </div>
+              <div className="panel" data-tour="panel">
+                {tab === 'scene' && <ScenePanel />}
+                {tab === 'assets' && <AssetsPanel />}
+                {tab === 'materials' && <MaterialsPanel />}
+                {tab === 'spawns' && <MarkersPanel />}
+                {tab === 'lights' && <LightsPanel />}
+                {tab === 'export' && <ExportPanel />}
+              </div>
+            </>
+          ) : <Inspector onSamples={() => setPicking(true)} onPlay={() => setPlaying(true)} />}
         </aside>
       </div>
-      <LogBar />
+      {advanced && <LogBar />}
       {picking && <Suspense fallback={null}><SamplePicker onClose={() => setPicking(false)} onBuilt={useSample} /></Suspense>}
+      {playing && <PlayDialog onClose={() => setPlaying(false)} onSamples={() => { setPlaying(false); setPicking(true) }} />}
       {publishing && <Suspense fallback={null}><PublishDialog projectId={project.id} onClose={() => setPublishing(false)} /></Suspense>}
+      {touring && !picking && !playing && <Tour onDone={endTour} />}
     </div>
   )
 }
 
-function TopBar({ onPublish }: { onPublish: () => void }) {
+type MenuItem = { label: string; on?: boolean; run: () => void; title?: string } | null
+
+/** A small drop-down menu; null items are separators. */
+function Menu({ label, items, title }: { label: string; items: MenuItem[]; title?: string }) {
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [open])
+  return (
+    <div className="menu-wrap" onMouseDown={(e) => e.stopPropagation()}>
+      <button className={'sm' + (open ? ' on' : '')} onClick={() => setOpen(!open)} title={title} aria-haspopup="menu" aria-expanded={open}>{label} ▾</button>
+      {open && (
+        <div className="menu" role="menu">
+          {items.map((it, i) => it ? (
+            <button key={i} role={it.on === undefined ? 'menuitem' : 'menuitemcheckbox'} aria-checked={it.on} title={it.title} className="menu-item" onClick={() => { it.run(); setOpen(false) }}>
+              <span className="check">{it.on ? '✓' : ''}</span>{it.label}
+            </button>
+          ) : <hr key={i} />)}
+        </div>
+      )}
+    </div>
+  )
+}
+
+const KEYS_HELP = 'Camera: left-drag spin · right-drag slide · scroll zoom · F zoom to selection · WASD / Q E fly (Shift = faster)\n' +
+  'Tools: V move · 2 turn · 3 size · H shape · B paint · I pick · P spawn · K weapon · L light · X erase · Esc back to Move · G snap\n' +
+  'Ctrl+Z / Ctrl+Shift+Z: undo / redo · Ctrl+D: copy · Delete: delete · Ctrl+S: save'
+
+function TopBar({ onPublish, onPlay, onTour }: { onPublish: () => void; onPlay: () => void; onTour: () => void }) {
   const name = useEditor((s) => s.project!.name)
   const projectId = useEditor((s) => s.project!.id)
   const remix = useEditor((s) => s.project!.remix_of)
@@ -157,6 +204,7 @@ function TopBar({ onPublish }: { onPublish: () => void }) {
   const snap = useEditor((s) => s.snap)
   const collision = useEditor((s) => s.collisionView)
   const doubleSided = useEditor((s) => s.project!.settings.double_sided)
+  const advanced = useEditor((s) => s.advanced)
   const update = useEditor((s) => s.update)
   const [pyStatus, setPyStatus] = useState(py.status)
   useEffect(() => py.onStatus(setPyStatus), [])
@@ -168,23 +216,36 @@ function TopBar({ onPublish }: { onPublish: () => void }) {
       <span className="save-state">{({ saved: 'Saved', saving: 'Saving…', unsaved: 'Edited', error: 'Save failed' } as const)[saveState]}</span>
       {remix && <span className="chip" title={`Remix of ${remix.title} by ${remix.author}`}>remix</span>}
       <div className="btn-group">
-        <button className="sm" disabled={!canUndo} onClick={() => st().undo()} title={undoLabel ? `Undo ${undoLabel} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}>↶</button>
+        <button className="sm" disabled={!canUndo} onClick={() => st().undo()} title={undoLabel ? `Undo ${undoLabel} (Ctrl+Z)` : 'Undo (Ctrl+Z)'}>↶ Undo</button>
         <button className="sm" disabled={!canRedo} onClick={() => st().redo()} title="Redo (Ctrl+Shift+Z)">↷</button>
       </div>
-      <button className={'sm' + (snap ? ' on' : '')} onClick={() => st().set({ snap: !snap })} title="Move in steps of the Scene tab's Fine/Normal/Coarse size and rotate in 15° steps (G)">Snap</button>
-      <button className={'sm' + (wireframe ? ' on' : '')} onClick={() => st().set({ wireframe: !wireframe })}>Wireframe</button>
-      <button className={'sm' + (!doubleSided ? ' on' : '')} onClick={() => update('Backface culling', (d) => { d.settings.double_sided = !doubleSided })} title="On = normal one-sided SR1 rendering. Off also exports reversed render-only copies so both sides show in game.">Cull backfaces</button>
-      <button className={'sm' + (collision === 'faces' ? ' on' : '')} onClick={() => st().set({ collisionView: collision === 'faces' ? 'off' : 'faces' })}>Collision</button>
-      <button className="sm" onClick={() => getViewer()?.focusSelection()} title="Focus selected (F)">Focus</button>
+      <button className={'sm' + (snap ? ' on' : '')} onClick={() => st().set({ snap: !snap })} title="Line things up on a grid and turn in 15° steps (G)">Snap</button>
+      <Menu label="View" items={[
+        { label: 'Wireframe', on: wireframe, run: () => st().set({ wireframe: !wireframe }), title: 'Show the triangles' },
+        { label: 'Show collision', on: collision === 'faces', run: () => st().set({ collisionView: collision === 'faces' ? 'off' : 'faces' }), title: 'Green = solid, red = players pass through' },
+        { label: 'Show both sides of walls', on: doubleSided, run: () => update('Show both sides', (d) => { d.settings.double_sided = !doubleSided }), title: 'In the game, surfaces normally show from the front only. On also shows their backs.' },
+        null,
+        { label: 'Zoom to selection (F)', run: () => getViewer()?.focusSelection() },
+        { label: 'See the whole map', run: () => getViewer()?.frameAll() },
+      ]} />
       <span className="spacer" />
-      <span className="small faint row" title="Python exporter runtime">
-        <span className={'status-dot ' + (pyStatus === 'ready' ? 'ok' : pyStatus.startsWith('error') ? 'bad' : 'warn')} />
-        {pyStatus === 'ready' ? 'Exporter ready' : pyStatus === 'idle' ? 'Exporter idle' : pyStatus}
-      </span>
+      {advanced && (
+        <span className="small faint row builder-status" title="Map builder (Python) status">
+          <span className={'status-dot ' + (pyStatus === 'ready' ? 'ok' : pyStatus.startsWith('error') ? 'bad' : 'warn')} />
+          {pyStatus === 'ready' ? 'Builder ready' : pyStatus === 'idle' ? 'Builder idle' : pyStatus}
+        </span>
+      )}
+      <div className="btn-group" title="Simple shows what most maps need. Advanced shows every setting.">
+        <button className={'sm' + (!advanced ? ' on' : '')} onClick={() => st().set({ advanced: false })}>Simple</button>
+        <button className={'sm' + (advanced ? ' on' : '')} onClick={() => st().set({ advanced: true })}>Advanced</button>
+      </div>
       {accountsEnabled && <Suspense fallback={null}><CloudButton projectId={projectId} /></Suspense>}
       {hubEnabled && <button className="sm" onClick={async () => { await saveNow(true); onPublish() }}>Publish</button>}
-      <button className="sm primary" onClick={() => st().set({ tab: 'export' })}>Export</button>
-      <button className="sm quiet" onClick={() => confirmDialog('Keyboard & mouse', 'Left drag: orbit · Right drag: pan · Wheel: zoom\nWASD / Q E: fly (Shift = faster) · F: focus selection\nTools (left strip): V select · 2 rotate · 3 scale · H shape · B paint bucket · I eyedropper\nP spawn · K weapon · L light · X eraser · Esc back to select · G snap\nCtrl+Z / Ctrl+Shift+Z: undo / redo\nCtrl+D: duplicate · Delete: remove · Ctrl+S: save\nDrag assets from the Assets tab onto the map.', { confirm: 'Got it', cancel: null })}>?</button>
+      <Menu label="Help" items={[
+        { label: 'Take the tour', run: onTour },
+        { label: 'Keyboard & mouse', run: () => void confirmDialog('Keyboard & mouse', KEYS_HELP, { confirm: 'Got it', cancel: null }) },
+      ]} />
+      <button className="primary" data-tour="play" onClick={onPlay}>▶ Play</button>
     </div>
   )
 }

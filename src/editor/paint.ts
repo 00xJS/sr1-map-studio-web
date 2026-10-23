@@ -26,7 +26,7 @@ export const librarySwatches = async (): Promise<Swatch[]> => (await loadLibrary
 }))
 
 /** "red_brick_1024.png" -> "red brick" */
-const niceName = (vpath: string) => baseName(vpath).replace(/\.\w+$/, '').replace(/(_\d+)+$/, '').replace(/_/g, ' ')
+export const niceName = (vpath: string) => baseName(vpath).replace(/\.\w+$/, '').replace(/(_\d+)+$/, '').replace(/_/g, ' ')
 
 /** Textures already used by objects in the map. */
 export function mapSwatches(): Swatch[] {
@@ -87,7 +87,11 @@ export async function paintAt(index: number, face: number, swatch: Swatch) {
   if (!it) return
   if (isGlass(it) && !isCustomNative(it)) throw new Error('Glass panes keep their glass look. Paint the objects around them.')
   const mat = await materialAt(index, face)
-  if (!mat) return
+  if (mat) await paintMaterial(index, mat, swatch)
+}
+
+/** Put the swatch on one material of an object. */
+export async function paintMaterial(index: number, mat: string, swatch: Swatch) {
   if (swatch.source.kind === 'file') {
     const vpath = swatch.source.vpath
     useEditor.getState().update('Paint', (d) => {

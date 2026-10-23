@@ -1,0 +1,368 @@
+// Simple mode's side panel: one panel that shows whatever is selected, or the
+// map itself (checklist, game modes, adding things, everything in the map)
+// when nothing is.
+import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+import { useEditor, type Swatch } from './store'
+import * as act from './actions'
+import { getViewer } from './Viewport'
+import { Palette, chooseTool } from './Tools'
+import { Checklist, useApplyFix, useChecklist } from './Checklist'
+import { niceName, paintMaterial } from './paint'
+import { Check, Field, FileButton, NumberInput, toastError, useBusy } from '../ui'
+import { catalogs } from '../lib/catalogs'
+import { loadModel, textureUrl } from '../lib/assets'
+import { dataPackStatus, hasGroup, type DataPackStatus } from '../lib/datapack'
+import { blockers } from '../lib/checklist'
+import { MARKER_HINTS, MODE_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/labels'
+import { GAME_MODES, isCustomNative, isGlass, type Light, type Marker, type SceneItem, type Vec3 } from '../lib/project'
+
+const TextureStudio = lazy(() => import('./TextureStudio').then((m) => ({ default: m.TextureStudio })))
+const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
+
+/** Opens advanced mode on the tab that holds the rest of the settings. */
+function MoreOptions({ tab, children }: { tab: string; children: ReactNode }) {
+  return <button className="sm quiet more" onClick={() => useEditor.getState().set({ advanced: true, tab })}>{children} →</button>
+}
+
+export function Inspector({ onSamples, onPlay }: { onSamples: () => void; onPlay: () => void }) {
+  const project = useEditor((s) => s.project)!
+  const sel = useEditor((s) => s.selection)
+  const item = sel?.kind === 'item' ? project.scene_items[sel.index] : undefined
+  const marker = sel?.kind === 'marker' ? project.markers[sel.index] : undefined
+  const light = sel?.kind === 'light' ? project.lights[sel.index] : undefined
+  const title = item ? item.name : marker ? markerLabel(marker.type) + (marker.type === 'Weapon pickup' ? `: ${weaponName(marker.weapon)}` : '') : light ? 'Light' : 'Your map'
+  return (
+    <>
+      <div className="inspector-head">
+        {sel && <button className="sm quiet" onClick={() => useEditor.getState().select(null)} title="Back to the map overview (Esc)">← Map</button>}
+        <b className="grow ellipsis">{title}</b>
+      </div>
+      <div className="panel inspector" data-tour="panel">
+        {item && <ObjectInspector key={item.uid} it={item} index={sel!.index} />}
+        {marker && <MarkerInspector key={marker.uid} m={marker} index={sel!.index} />}
+        {light && <LightInspector key={light.uid} l={light} index={sel!.index} />}
+        {!item && !marker && !light && <MapOverview onSamples={onSamples} onPlay={onPlay} />}
+      </div>
+    </>
+  )
+}
+
+const weaponName = (id: string) => catalogs.weapons.find(([, w]) => w === id)?.[0] ?? id
+const vehicleName = (id: string) => catalogs.vehicles.find(([, v]) => v === id)?.[0] ?? id
+
+// ---------------- nothing selected: the map ----------------
+
+function MapOverview({ onSamples, onPlay }: { onSamples: () => void; onPlay: () => void }) {
+  const project = useEditor((s) => s.project)!
+  const update = useEditor((s) => s.update)
+  const items = useChecklist()
+  const fix = useApplyFix(onSamples)
+  const blocked = blockers(items).length > 0
+  const modes = project.settings.modes
+  return (
+    <>
+      <div className="group">
+        <span className="section-title">Ready to play?</span>
+        <Checklist items={items} onFix={fix} />
+        <button className="primary" onClick={onPlay}>{blocked ? 'Play in game…' : '▶ Play in game'}</button>
+      </div>
+
+      <div className="group" id="game-modes">
+        <span className="section-title">Game modes</span>
+        {GAME_MODES.map((m) => (
+          <Check key={m} checked={modes.includes(m)} onChange={(v) => update('Game modes', (d) => { d.settings.modes = GAME_MODES.filter((x) => (x === m ? v : modes.includes(x))) })}>
+            <span className="col" style={{ gap: 0 }}><span>{m}</span><span className="faint small">{MODE_HINTS[m]}</span></span>
+          </Check>
+        ))}
+      </div>
+
+      <AddThings />
+      <Everything />
+      <p className="faint small">Click anything in the map to change it here. Need every setting? <MoreOptions tab="scene">Advanced mode</MoreOptions></p>
+    </>
+  )
+}
+
+function AddThings() {
+  const project = useEditor((s) => s.project)!
+  const [pack, setPack] = useState<DataPackStatus | null>(null)
+  const [run, busy] = useBusy()
+  useEffect(() => { dataPackStatus().then(setPack) }, [])
+  const center = () => (getViewer()?.center() ?? [0, 0, 0]) as Vec3
+  const lib = project.asset_library
+  const tool = (id: string, label: string) => <button className="sm" onClick={() => chooseTool(id)}>{label}</button>
+  return (
+    <div className="group">
+      <span className="section-title">Add to your map</span>
+      <div className="row wrap">
+        {tool('shape', 'Shape')}{tool('spawn', 'Spawn')}{tool('weapon', 'Weapon')}{tool('light', 'Light')}
+        {hasGroup(pack, 'glass') && <button className="sm" disabled={busy} onClick={() => run(() => act.addGlass(Object.keys(catalogs.glass_styles)[0], center()))}>Glass window</button>}
+      </div>
+      <div className="row wrap">
+        <FileButton className="sm" multiple accept={MODEL_ACCEPT} disabled={busy}
+          title="OBJ (with its MTL and textures), GLB, glTF or FBX from Blender or a model website"
+          onFiles={(f) => run(() => act.importModelFiles(f, project.scene_items.length ? 'add' : 'base'))}>Your own 3D model…</FileButton>
+      </div>
+      {lib.length > 0 && (
+        <div className="list" style={{ maxHeight: 160 }}>
+          {lib.map((a, i) => (
+            <div key={a.uid} className="list-item" title="Click to place where the camera is looking" onClick={() => act.placeAsset(i, center()).catch(toastError)}>
+              <span className="grow ellipsis">{a.name}</span><span className="meta">place</span>
+            </div>
+          ))}
+        </div>
+      )}
+      <span className="faint small">Shapes, spawns, weapons and lights: pick the tool, then click the map where you want it.</span>
+    </div>
+  )
+}
+
+function Everything() {
+  const project = useEditor((s) => s.project)!
+  const [open, setOpen] = useState(false)
+  const select = useEditor((s) => s.select)
+  const total = project.scene_items.length + project.markers.length + project.lights.length
+  const row = (key: string, label: ReactNode, onClick: () => void) => <div key={key} className="list-item" onClick={onClick}><span className="grow ellipsis">{label}</span></div>
+  return (
+    <div className="group">
+      <button className="quiet section-toggle" onClick={() => setOpen(!open)}>
+        <span className="section-title">Everything in your map ({total})</span><span className="faint">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="list" style={{ maxHeight: 320 }}>
+          <div className="list-head">Objects</div>
+          {project.scene_items.map((x, i) => row(x.uid, x.name, () => { select({ kind: 'item', index: i }); getViewer()?.focusSelection() }))}
+          <div className="list-head">Spawns &amp; pickups</div>
+          {project.markers.map((m, i) => row(m.uid, <>{markerLabel(m.type)}{m.type === 'Weapon pickup' && <span className="faint">: {weaponName(m.weapon)}</span>}</>, () => select({ kind: 'marker', index: i })))}
+          {!project.markers.length && <div className="list-item faint">None yet</div>}
+          <div className="list-head">Lights</div>
+          {project.lights.map((l, i) => row(l.uid, l.name, () => select({ kind: 'light', index: i })))}
+          {!project.lights.length && <div className="list-item faint">None yet</div>}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------- an object ----------------
+
+function TexThumb({ path }: { path: string }) {
+  const project = useEditor((s) => s.project)
+  const [url, setUrl] = useState<string | null>(null)
+  useEffect(() => { setUrl(null); if (path) textureUrl(project, path).then(setUrl) }, [path])
+  return url ? <img className="tex-thumb" src={url} alt="" /> : <span className="tex-thumb" />
+}
+
+function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
+  const update = useEditor((s) => s.update)
+  const [run] = useBusy()
+  const set = (label: string, fn: (d: SceneItem) => void, merge?: string) =>
+    update(label, (d) => { fn(d.scene_items[index] as SceneItem) }, merge ? { merge: merge + index } : undefined)
+  const fixedGlass = isGlass(it) && !isCustomNative(it)
+  const turn = (deg: number) => set('Turn', (d) => { d.rotation = [d.rotation[0], ((d.rotation[1] + deg) % 360 + 360) % 360, d.rotation[2]] })
+  return (
+    <>
+      <div className="group">
+        <Field label="Name"><input value={it.name} onChange={(e) => set('Rename', (d) => { d.name = e.target.value }, 'name')} /></Field>
+        <div className="row wrap">
+          <button className="sm" onClick={() => turn(-90)} title="Turn 90° left">↺ Turn</button>
+          <button className="sm" onClick={() => turn(90)} title="Turn 90° right">↻ Turn</button>
+          <button className="sm" onClick={() => run(async () => act.duplicateItem(index))}>Copy</button>
+          <button className="sm" onClick={() => getViewer()?.focusSelection()}>Zoom to it</button>
+          <span className="spacer" />
+          <button className="sm danger" onClick={() => act.removeItem(index)}>Delete</button>
+        </div>
+        <span className="faint small">Drag the colored arrows in the view to move it. The tools on the left turn and resize it too.</span>
+      </div>
+
+      {fixedGlass
+        ? <div className="group"><span className="section-title">Look</span><span className="small muted">A breakable glass window. It keeps its glass look and size.</span></div>
+        : <LookEditor it={it} index={index} />}
+
+      <div className="group">
+        <span className="section-title">Size</span>
+        {it.shape ? <ShapeSize it={it} index={index} /> : (
+          <Field label="Scale" hint="1 = the size it was made at">
+            <NumberInput value={it.scale} step={0.1} min={0.001} max={10000} disabled={fixedGlass} onChange={(v) => set('Scale', (d) => { d.scale = v })} />
+          </Field>
+        )}
+      </div>
+
+      {!isGlass(it) && (
+        <div className="group">
+          <Check checked={!it.collision_disabled} onChange={(v) => set('Solid', (d) => { d.collision_disabled = !v })}>
+            <span className="col" style={{ gap: 0 }}><span>Solid</span><span className="faint small">Players and cars can't pass through it.</span></span>
+          </Check>
+        </div>
+      )}
+      <MoreOptions tab="scene">More options: breakable, movable or explosive, exact position</MoreOptions>
+    </>
+  )
+}
+
+function LookEditor({ it, index }: { it: SceneItem; index: number }) {
+  const project = useEditor((s) => s.project)
+  const [mats, setMats] = useState<string[]>([])
+  const [picking, setPicking] = useState<string | null>(null)
+  const [studio, setStudio] = useState<string | null>(null)
+  const [run] = useBusy()
+  useEffect(() => { loadModel(project, it.path).then((m) => setMats(m.mats.map((x) => x || 'default'))).catch(() => setMats(Object.keys(it.textures || {}))) }, [it.path])
+  useEffect(() => {
+    if (!picking) return
+    const close = () => setPicking(null)
+    window.addEventListener('mousedown', close)
+    return () => window.removeEventListener('mousedown', close)
+  }, [picking])
+  const custom = isCustomNative(it)
+  const shown = custom ? mats.slice(0, 1) : mats
+  const label = (mat: string) => (it.shape ? (mat === 'top' ? 'Top' : 'Sides') : mat)
+  return (
+    <div className="group">
+      <span className="section-title">Look</span>
+      {shown.map((mat) => {
+        const tex = custom ? it.glass_custom_texture : it.textures?.[mat]
+        return (
+          <div key={mat} className="col" style={{ gap: 6 }}>
+          <div className="row look-row">
+            <TexThumb path={tex || ''} />
+            <div className="col grow" style={{ gap: 0, minWidth: 0 }}>
+              <span className="small">{label(mat)}</span>
+              <span className={'small ellipsis ' + (tex ? 'faint' : 'bad')}>{tex ? niceName(tex) : 'No texture yet'}</span>
+            </div>
+            <button className={'sm' + (picking === mat ? ' on' : '')} onMouseDown={(e) => e.stopPropagation()} onClick={() => setPicking(picking === mat ? null : mat)}>Change ▾</button>
+            <button className="sm quiet" onClick={() => setStudio(mat)} title="Use a photo, your camera, or make your own colors">Photo…</button>
+          </div>
+          {picking === mat && <Palette onClose={() => setPicking(null)} current={tex ? 'file:' + tex : undefined}
+            onPick={(s: Swatch) => run(() => paintMaterial(index, mat, s))} />}
+          </div>
+        )
+      })}
+      <span className="faint small">Or use the Paint bucket tool and click any surface.</span>
+      {studio && <Suspense fallback={null}><TextureStudio index={index} mat={studio} onClose={() => setStudio(null)} /></Suspense>}
+    </div>
+  )
+}
+
+function ShapeSize({ it, index }: { it: SceneItem; index: number }) {
+  const [run] = useBusy()
+  const shape = it.shape!
+  const set = (patch: Partial<typeof shape>) => run(() => act.updateShape(index, patch))
+  const dim = (i: number, label: string) => (
+    <Field label={label}><NumberInput value={shape.size[i]} step={0.5} min={0.1} max={2000} onChange={(v) => {
+      const size = [...shape.size] as Vec3
+      size[i] = v
+      set({ size })
+    }} /></Field>
+  )
+  return (
+    <>
+      <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>{dim(0, 'Width')}{dim(1, 'Height')}{dim(2, 'Depth')}</div>
+      {shape.kind === 'stairs' && <Field label="Steps"><NumberInput value={shape.segments ?? 8} step={1} digits={0} min={1} max={64} onChange={(v) => set({ segments: Math.round(v) })} /></Field>}
+      <Field label="Pattern size" hint="Smaller = smaller bricks and tiles">
+        <input type="range" min={0.5} max={16} step={0.5} value={shape.tile} onChange={(e) => set({ tile: +e.target.value })} />
+      </Field>
+    </>
+  )
+}
+
+// ---------------- a spawn or pickup ----------------
+
+function MarkerInspector({ m, index }: { m: Marker; index: number }) {
+  const update = useEditor((s) => s.update)
+  const set = (label: string, fn: (d: Marker) => void) => update(label, (d) => {
+    const x = d.markers[index]
+    fn(x)
+    if (x.type === 'Weapon pickup') x.label = x.weapon
+    if (x.type === 'Vehicle spawn') x.label = x.vehicle
+  })
+  const types = m.type === 'Weapon pickup' ? ['Weapon pickup'] : SIMPLE_MARKERS.includes(m.type) ? SIMPLE_MARKERS : [m.type, ...SIMPLE_MARKERS]
+  const turn = (deg: number) => set('Turn', (d) => { d.yaw = ((Math.round(d.yaw + deg) % 360) + 360) % 360 })
+  return (
+    <>
+      <div className="group">
+        {m.type !== 'Weapon pickup' && (
+          <Field label="What it is" hint={MARKER_HINTS[m.type]}>
+            <select value={m.type} onChange={(e) => set('Marker type', (d) => { d.type = e.target.value })}>
+              {types.map((t) => <option key={t} value={t}>{markerLabel(t)}</option>)}
+            </select>
+          </Field>
+        )}
+        {m.type === 'Weapon pickup' && (
+          <Field label="Weapon">
+            <select value={m.weapon} onChange={(e) => set('Weapon', (d) => { d.weapon = e.target.value })}>
+              {!catalogs.weapons.some(([, id]) => id === m.weapon) && <option value={m.weapon}>{m.weapon}</option>}
+              {catalogs.weapons.map(([n, id]) => <option key={id} value={id}>{n}</option>)}
+            </select>
+          </Field>
+        )}
+        {m.type === 'Vehicle spawn' && (
+          <Field label="Vehicle">
+            <select value={m.vehicle} onChange={(e) => set('Vehicle', (d) => { d.vehicle = e.target.value })}>
+              {!catalogs.vehicles.some(([, id]) => id === m.vehicle) && <option value={m.vehicle}>{vehicleName(m.vehicle)}</option>}
+              {catalogs.vehicles.map(([n, id]) => <option key={id} value={id}>{n}</option>)}
+            </select>
+          </Field>
+        )}
+        <div className="row">
+          <span className="small muted">Faces</span>
+          <svg viewBox="-10 -10 20 20" width="26" height="26" style={{ transform: `rotate(${m.yaw}deg)` }} aria-hidden>
+            <circle r="9" fill="none" stroke="var(--line-strong)" /><path d="M0 -7 L4 2 L0 0 L-4 2Z" fill="var(--accent)" />
+          </svg>
+          <span className="small mono">{((Math.round(m.yaw) % 360) + 360) % 360}°</span>
+          <button className="sm" onClick={() => turn(-45)}>↺</button>
+          <button className="sm" onClick={() => turn(45)}>↻</button>
+        </div>
+        <div className="row wrap">
+          <button className="sm" onClick={() => {
+            const y = getViewer()?.surfaceBelow(m.position[0], m.position[1] + 1, m.position[2])
+            if (y == null) { toastError(new Error('There is nothing under it to stand on.')); return }
+            set('Drop to ground', (d) => { d.position = [m.position[0], y + 0.12, m.position[2]] })
+          }}>Drop to the ground</button>
+          <span className="spacer" />
+          <button className="sm danger" onClick={act.removeSelected}>Delete</button>
+        </div>
+        <span className="faint small">Drag the arrows in the view to move it.</span>
+      </div>
+      <MoreOptions tab="spawns">More options: exact position, triggers, NPCs</MoreOptions>
+    </>
+  )
+}
+
+// ---------------- a light ----------------
+
+const toHex = (c: Vec3) => '#' + c.map((v) => Math.round(Math.min(1, Math.max(0, v)) * 255).toString(16).padStart(2, '0')).join('')
+const fromHex = (h: string): Vec3 => [1, 3, 5].map((i) => +(parseInt(h.slice(i, i + 2), 16) / 255).toFixed(4)) as Vec3
+const LIGHT_PRESETS: [string, Vec3][] = [['Warm', [1, 0.85, 0.65]], ['White', [1, 1, 1]], ['Cool', [0.7, 0.85, 1]], ['Red', [1, 0.25, 0.2]], ['Purple', [0.8, 0.3, 1]], ['Green', [0.3, 1, 0.45]]]
+
+function LightInspector({ l, index }: { l: Light; index: number }) {
+  const update = useEditor((s) => s.update)
+  const set = (label: string, fn: (d: Light) => void, merge?: string) => update(label, (d) => { fn(d.lights[index]) }, merge ? { merge: merge + index } : undefined)
+  return (
+    <>
+      <div className="group">
+        <Check checked={l.enabled} onChange={(v) => set('Toggle light', (d) => { d.enabled = v })}>On</Check>
+        <Field label="Color">
+          <div className="row wrap">
+            {LIGHT_PRESETS.map(([name, c]) => (
+              <button key={name} className={'sm' + (toHex(c) === toHex(l.color) ? ' on' : '')} onClick={() => set('Light color', (d) => { d.color = c })}>
+                <span className="swatch" style={{ background: toHex(c) }} />{name}
+              </button>
+            ))}
+            <input type="color" value={toHex(l.color)} title="Any color" onChange={(e) => set('Light color', (d) => { d.color = fromHex(e.target.value) }, 'color')} style={{ width: 40, padding: 2 }} />
+          </div>
+        </Field>
+        <Field label={`Brightness: ${l.intensity.toFixed(1)}`}>
+          <input type="range" min={0} max={10} step={0.1} value={l.intensity} onChange={(e) => set('Brightness', (d) => { d.intensity = +e.target.value }, 'intensity')} />
+        </Field>
+        <Field label={`Reach: ${l.range.toFixed(0)}`} hint="How far the light spreads">
+          <input type="range" min={1} max={60} step={1} value={l.range} onChange={(e) => set('Reach', (d) => {
+            d.range = +e.target.value
+            if (d.inner_range >= d.range) d.inner_range = +(d.range * 0.4).toFixed(2)
+          }, 'range')} />
+        </Field>
+        <div className="row"><span className="spacer" /><button className="sm danger" onClick={act.removeSelected}>Delete</button></div>
+      </div>
+      <MoreOptions tab="lights">More options: name, exact position, falloff</MoreOptions>
+    </>
+  )
+}

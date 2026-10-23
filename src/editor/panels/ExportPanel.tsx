@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { useEditor, saveNow } from '../store'
+import { useEditor } from '../store'
+import { useExport } from '../useExport'
 import * as act from '../actions'
-import { Check, Field, FileButton, NumberInput, confirmDialog, toastError } from '../../ui'
+import { Check, Field, FileButton, NumberInput, toastError } from '../../ui'
 import { dataPackStatus, hasGroup, type DataPackStatus } from '../../lib/datapack'
-import { downloadBlob, runExport, type ExportResult } from '../../lib/exporter'
+import { downloadBlob } from '../../lib/exporter'
 import { GAME_MODES, SPAWN_TYPES, baseName, type ProjectSettings } from '../../lib/project'
 import { checkModes, levelEntries } from '../../lib/levels'
-import { installSupported, mapFolderExists, mapsFolder, rememberedMapsFolder, writeMap } from '../../lib/install'
+import { installSupported } from '../../lib/install'
 
 const sanitize = (s: string) => s.trim().replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()
 
@@ -16,11 +17,9 @@ export function ExportPanel() {
   const update = useEditor((s) => s.update)
   const s = project.settings
   const [pack, setPack] = useState<DataPackStatus | null>(null)
-  const [busy, setBusy] = useState(false)
-  const [result, setResult] = useState<{ r: ExportResult; zip: Blob; folder: string; installedTo?: string } | null>(null)
-  const [error, setError] = useState('')
-  const [mapsDir, setMapsDir] = useState<string | null>(null)
-  useEffect(() => { dataPackStatus().then(setPack); rememberedMapsFolder().then(setMapsDir) }, [])
+  const exp = useExport()
+  const { busy, result, error, mapsDir } = exp
+  useEffect(() => { dataPackStatus().then(setPack) }, [])
   const set = <K extends keyof ProjectSettings>(k: K, v: ProjectSettings[K], merge = false) =>
     update('Export setting', (d) => { d.settings[k] = v }, merge ? { merge: 'set-' + k } : undefined)
 
@@ -37,36 +36,7 @@ export function ExportPanel() {
   problems.push(...modeCheck.errors)
   const entries = levelEntries(name || 'map', s.modes, project.markers)
 
-  const exportNow = async (target: 'install' | 'download', chooseFolder = false) => {
-    setError(''); setResult(null)
-    const log = useEditor.getState().log
-    try {
-      // Ask for the folder first: browsers only show folder pickers right after a click.
-      const maps = target === 'install' ? await mapsFolder(chooseFolder) : null
-      if (maps) setMapsDir(maps.name)
-      setBusy(true)
-      await saveNow()
-      const out = await runExport(project, log)
-      log(`Export complete: ${out.result.files.length} map files.`)
-      if (maps) {
-        if (await mapFolderExists(maps, out.folder) && !(await confirmDialog('Replace installed map?', `maps/${out.folder} already exists. Its files will be replaced with this export.`, { confirm: 'Replace' }))) {
-          setResult({ r: out.result, zip: out.zip, folder: out.folder })
-          return
-        }
-        const n = await writeMap(maps, out.entries)
-        log(`Installed ${n} files to maps/${out.folder}.`)
-        setResult({ r: out.result, zip: out.zip, folder: out.folder, installedTo: `${maps.name}/${out.folder}` })
-      } else {
-        setResult({ r: out.result, zip: out.zip, folder: out.folder })
-        downloadBlob(out.zip, `${out.folder}.zip`)
-      }
-    } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return // folder picker cancelled
-      const msg = err instanceof Error ? err.message : String(err)
-      setError(msg)
-      log('Export failed: ' + msg)
-    } finally { setBusy(false) }
-  }
+  const exportNow = (target: 'install' | 'download', chooseFolder = false) => exp.run(target, chooseFolder)
 
   return (
     <>

@@ -5,6 +5,7 @@ import { useEditor, type Swatch, type Tool, type GizmoMode } from './store'
 import { generatedSwatches, librarySwatches, mapSwatches, swatchThumb } from './paint'
 import { SHAPE_PRESETS } from '../lib/shapes'
 import { catalogs } from '../lib/catalogs'
+import { MARKER_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/labels'
 
 const I = (d: ReactNode) => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
 const ICONS = {
@@ -20,18 +21,18 @@ const ICONS = {
   erase: I(<><path d="M20 20H9L4 15l9-9 7 7-6 6" /><path d="M9 11l6 6" /></>),
 }
 
-type Entry = { id: string; label: string; key: string; tool: Tool; gizmo?: GizmoMode; help: string }
+type Entry = { id: string; label: string; short: string; key: string; tool: Tool; gizmo?: GizmoMode; help: string }
 const ENTRIES: Entry[] = [
-  { id: 'select', label: 'Select and move', key: 'V', tool: 'select', gizmo: 'translate', help: 'Click to select; drag the arrows to move.' },
-  { id: 'rotate', label: 'Rotate', key: '2', tool: 'select', gizmo: 'rotate', help: 'Drag the rings to turn the selection.' },
-  { id: 'scale', label: 'Scale', key: '3', tool: 'select', gizmo: 'scale', help: 'Drag to resize the selection.' },
-  { id: 'shape', label: 'Shape', key: 'H', tool: 'shape', help: 'Click the map to place a shape.' },
-  { id: 'paint', label: 'Paint bucket', key: 'B', tool: 'paint', help: 'Click a surface to paint it with the chosen texture.' },
-  { id: 'pick', label: 'Eyedropper', key: 'I', tool: 'pick', help: 'Click a surface to pick up its texture.' },
-  { id: 'spawn', label: 'Spawns & markers', key: 'P', tool: 'spawn', help: 'Click the map to place a spawn or marker.' },
-  { id: 'weapon', label: 'Weapon', key: 'K', tool: 'weapon', help: 'Click the map to place a weapon pickup.' },
-  { id: 'light', label: 'Light', key: 'L', tool: 'light', help: 'Click the map to place a light.' },
-  { id: 'erase', label: 'Eraser', key: 'X', tool: 'erase', help: 'Click anything to delete it.' },
+  { id: 'select', label: 'Select and move', short: 'Move', key: 'V', tool: 'select', gizmo: 'translate', help: 'Click to select; drag the arrows to move.' },
+  { id: 'rotate', label: 'Rotate', short: 'Turn', key: '2', tool: 'select', gizmo: 'rotate', help: 'Drag the rings to turn the selection.' },
+  { id: 'scale', label: 'Scale', short: 'Size', key: '3', tool: 'select', gizmo: 'scale', help: 'Drag to resize the selection.' },
+  { id: 'shape', label: 'Shape', short: 'Shape', key: 'H', tool: 'shape', help: 'Click the map to place a shape.' },
+  { id: 'paint', label: 'Paint bucket', short: 'Paint', key: 'B', tool: 'paint', help: 'Click a surface to paint it with the chosen texture.' },
+  { id: 'pick', label: 'Eyedropper', short: 'Pick', key: 'I', tool: 'pick', help: 'Click a surface to pick up its texture.' },
+  { id: 'spawn', label: 'Spawns & markers', short: 'Spawn', key: 'P', tool: 'spawn', help: 'Click the map to place a spawn or marker.' },
+  { id: 'weapon', label: 'Weapon', short: 'Weapon', key: 'K', tool: 'weapon', help: 'Click the map to place a weapon pickup.' },
+  { id: 'light', label: 'Light', short: 'Light', key: 'L', tool: 'light', help: 'Click the map to place a light.' },
+  { id: 'erase', label: 'Eraser', short: 'Erase', key: 'X', tool: 'erase', help: 'Click anything to delete it.' },
 ]
 
 export function chooseTool(id: string) {
@@ -49,11 +50,12 @@ export function ToolStrip() {
   const gizmo = useEditor((s) => s.gizmo)
   const active = (e: Entry) => (e.tool === 'select' ? tool === 'select' && e.gizmo === gizmo : tool === e.tool)
   return (
-    <div className="toolstrip" role="toolbar" aria-label="Tools">
+    <div className="toolstrip" role="toolbar" aria-label="Tools" data-tour="tools">
       {ENTRIES.map((e, i) => (
         <button key={e.id} className={'tool' + (active(e) ? ' on' : '') + (i === 3 || i === 9 ? ' gap' : '')}
-          title={`${e.label} (${e.key}) · ${e.help}`} aria-label={e.label} onClick={() => chooseTool(e.id)}>
+          title={`${e.label} (${e.key}) · ${e.help}`} aria-label={e.label} onClick={() => chooseTool(e.id)} data-tour={e.id === 'paint' ? 'paint' : undefined}>
           {ICONS[e.id as keyof typeof ICONS]}
+          <span className="tool-label">{e.short}</span>
         </button>
       ))}
     </div>
@@ -66,18 +68,20 @@ function SwatchImg({ s, size = 28 }: { s: Swatch; size?: number }) {
   return url ? <img src={url} alt="" width={size} height={size} style={{ borderRadius: 4, display: 'block' }} /> : <span className="tex-thumb" style={{ width: size, height: size }} />
 }
 
-function Palette({ onClose }: { onClose: () => void }) {
+/** Texture choices: in this map, generated and the starter library. */
+export function Palette({ onClose, onPick, current }: { onClose: () => void; onPick?: (s: Swatch) => void; current?: string }) {
   const [lib, setLib] = useState<Swatch[]>([])
   useEffect(() => { librarySwatches().then(setLib).catch(() => setLib([])) }, [])
-  const current = useEditor((s) => s.swatch)
-  const pick = (s: Swatch) => { useEditor.getState().set({ swatch: s }); onClose() }
+  const chosen = useEditor((s) => s.swatch)?.key
+  const active = onPick ? current : chosen
+  const pick = (s: Swatch) => { if (onPick) onPick(s); else useEditor.getState().set({ swatch: s }); onClose() }
   const group = (title: string, items: Swatch[], note?: string) => (
     <div className="col" style={{ gap: 4 }}>
       <span className="section-title">{title}</span>
       {note && <span className="faint small">{note}</span>}
       <div className="palette-grid">
         {items.map((s) => (
-          <button key={s.key} className={'swatch-btn' + (current?.key === s.key ? ' on' : '')} title={`${s.label} · ${catalogs.surface_types[s.surface]}`} onClick={() => pick(s)}>
+          <button key={s.key} className={'swatch-btn' + (active === s.key ? ' on' : '')} title={`${s.label} · ${catalogs.surface_types[s.surface]}`} onClick={() => pick(s)}>
             <SwatchImg s={s} size={44} /><span>{s.label}</span>
           </button>
         ))}
@@ -90,7 +94,7 @@ function Palette({ onClose }: { onClose: () => void }) {
       {inMap.length > 0 && group('In this map', inMap)}
       {group('Generated', generatedSwatches(), 'Made in your browser. Free to share.')}
       {group('Starter library', lib, 'From Poly Haven, CC0. Free to share.')}
-      <span className="faint small">For a photo or custom colors, use Materials → Create… on a material.</span>
+      {!onPick && <span className="faint small">For a photo or your own colors, select the object and use <b>Photo or custom…</b> in its panel.</span>}
     </div>
   )
 }
@@ -102,6 +106,7 @@ export function ToolOptions() {
   const toolShape = useEditor((s) => s.toolShape)
   const toolSpawn = useEditor((s) => s.toolSpawn)
   const toolWeapon = useEditor((s) => s.toolWeapon)
+  const advanced = useEditor((s) => s.advanced)
   const [open, setOpen] = useState(false)
   useEffect(() => { if (tool !== 'paint' && tool !== 'pick') setOpen(false) }, [tool])
   useEffect(() => {
@@ -134,8 +139,8 @@ export function ToolOptions() {
         </div>
       )}
       {tool === 'spawn' && (
-        <select value={toolSpawn} onChange={(e) => set({ toolSpawn: e.target.value })}>
-          {catalogs.marker_types.filter((t) => t !== 'Weapon pickup').map((t) => <option key={t}>{t}</option>)}
+        <select value={toolSpawn} onChange={(e) => set({ toolSpawn: e.target.value })} title={MARKER_HINTS[toolSpawn]}>
+          {(advanced ? catalogs.marker_types.filter((t) => t !== 'Weapon pickup') : SIMPLE_MARKERS).map((t) => <option key={t} value={t}>{markerLabel(t)}</option>)}
         </select>
       )}
       {tool === 'weapon' && (
@@ -143,7 +148,7 @@ export function ToolOptions() {
           {catalogs.weapons.map(([n, id]) => <option key={id} value={id}>{n}</option>)}
         </select>
       )}
-      <span className="small muted">{help}</span>
+      <span className="small muted">{tool === 'spawn' ? MARKER_HINTS[toolSpawn] ?? help : help}</span>
       <button className="sm quiet" onClick={() => chooseTool('select')} title="Back to Select (Esc)">Done</button>
     </div>
   )
