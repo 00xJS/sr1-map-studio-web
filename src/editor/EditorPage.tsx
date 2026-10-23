@@ -18,6 +18,9 @@ import { normalizeProject, type Project } from '../lib/project'
 import { py } from '../lib/py'
 import { accountsEnabled, hubEnabled } from '../lib/backend'
 import { confirmDialog, toast, toastError } from '../ui'
+import { onQueued, queueEdits, takeEdits, type PendingEdits } from '../lib/pendingEdits'
+import { runAiActions } from './aiActions'
+import { useChat } from './aiSession'
 
 const CloudButton = lazy(() => import('./CloudButton').then((m) => ({ default: m.CloudButton })))
 const AiChat = lazy(() => import('./AiChat').then((m) => ({ default: m.AiChat })))
@@ -114,6 +117,34 @@ function useShortcuts() {
   }, [])
 }
 
+/** Runs edits the AI queued for this map (the extras for a map it made) once the 3D view has loaded it. */
+function usePendingEdits(openChat: () => void) {
+  const id = useEditor((s) => s.project?.id)
+  useEffect(() => {
+    if (!id) return
+    let live = true
+    const run = async () => {
+      const job = takeEdits(id)
+      if (!job) return
+      // Edits land on surfaces, so wait (up to 20 s) for the objects to load.
+      for (let k = 0; k < 100 && live; k++) {
+        const v = getViewer(), p = useEditor.getState().project
+        if (v && p && p.scene_items.every((_, i) => v.itemBounds(i))) break
+        await new Promise((r) => setTimeout(r, 200))
+      }
+      if (!live) { queueEdits(id, job); return }
+      const { done, skipped } = await runAiActions(job.actions, job.label)
+      const chat = useChat.getState()
+      if (chat.turns.length || job.openChat) chat.add({ role: 'assistant', text: done ? `Added the extras: ${done} change${done === 1 ? '' : 's'}.` : 'The extras made no changes.', note: skipped.length ? `Skipped: ${skipped.join('; ')}.` : undefined, undoLabel: done ? job.label : undefined })
+      else if (done) toast(`AI extras: ${done} change${done === 1 ? '' : 's'} (undo to remove them).`)
+      if (job.openChat) openChat()
+    }
+    void run()
+    const off = onQueued(() => void run())
+    return () => { live = false; off() }
+  }, [id])
+}
+
 function Editor() {
   const project = useEditor((s) => s.project)!
   const tab = useEditor((s) => s.tab)
@@ -123,6 +154,7 @@ function Editor() {
   const [chatting, setChatting] = useState(false)
   const [playing, setPlaying] = useState(false)
   const [touring, setTouring] = useState(false)
+  usePendingEdits(() => setChatting(true))
   const hasItems = project.scene_items.length > 0
   // First visit: show the tour once there's something to look at.
   useEffect(() => { if (hasItems && !readFlag('sr1-tour-done')) setTouring(true) }, [hasItems])
@@ -135,7 +167,8 @@ function Editor() {
     } catch (err) { toastError(err) }
   }
   // The map is empty when the picker is offered, so the sample replaces it (one undo step).
-  const useSample = (p: Project) => {
+  const useSample = (p: Project, edits?: PendingEdits) => {
+    if (edits) queueEdits(project.id, edits)
     useEditor.getState().update('Start from ' + p.name, (d) => {
       d.scene_items = p.scene_items
       d.markers = p.markers

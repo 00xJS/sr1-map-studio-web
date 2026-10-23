@@ -8,7 +8,7 @@ import type { Sample } from '../lib/sampleKit'
 const PLAYERS = [4, 6, 8, 10, 12]
 
 /** Top-down sketch of a generated map, laid out like its minimap (+X right, +Z down). */
-function Sketch({ s }: { s: Sample }) {
+export function Sketch({ s }: { s: Sample }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const c = ref.current
@@ -53,9 +53,9 @@ function Sketch({ s }: { s: Sample }) {
   return <canvas ref={ref} width={420} height={420} style={{ width: '100%', maxWidth: 420, aspectRatio: '1', borderRadius: 8, display: 'block' }} />
 }
 
-export function MapWizard({ busy, onCreate, onBlank }: { busy: boolean; onCreate: (s: Sample) => void; onBlank?: () => void }) {
-  const [o, setO] = useState<WizardOptions>(() => ({ setting: 'downtown', layout: 'blocks', players: 10, density: 'normal', seed: newSeed() }))
-  const [name, setName] = useState('')
+export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean; onCreate: (s: Sample) => void; onBlank?: () => void; initial?: WizardOptions }) {
+  const [o, setO] = useState<WizardOptions>(() => initial ?? { setting: 'downtown', layout: 'blocks', players: 10, density: 'normal', seed: newSeed() })
+  const [name, setName] = useState(initial?.name ?? '')
   const set = (patch: Partial<WizardOptions>) => setO((x) => ({ ...x, ...patch }))
   const sample = useMemo(() => wizardSample(o), [o])
   const size = mapSize(sample)

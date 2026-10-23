@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { db, requestPersistence, type ProjectRecord } from '../lib/db'
 import { newProject, normalizeProject, uid, type Project } from '../lib/project'
 import { SamplePicker } from './SamplePicker'
+import { queueEdits, type PendingEdits } from '../lib/pendingEdits'
 import { dataPackStatus, type DataPackStatus } from '../lib/datapack'
 import { downloadBlob } from '../lib/exporter'
 import { accountsEnabled, hubEnabled } from '../lib/backend'
@@ -32,8 +33,9 @@ export default function Home() {
   const refresh = () => db.listProjects().then(setProjects)
   useEffect(() => { refresh(); dataPackStatus().then(setPack) }, [])
 
-  const open = async (p: Project) => {
+  const open = async (p: Project, edits?: PendingEdits) => {
     await db.putProject({ id: p.id, name: p.name, updated_at: p.updated_at, project: p })
+    if (edits) queueEdits(p.id, edits)
     void requestPersistence()
     nav('/editor/' + p.id)
   }

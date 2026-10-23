@@ -1,87 +1,156 @@
 // "Ask AI": a chat beside the 3D view. Say what you want ("more cover in the
 // middle", "four snipers on the rooftops") and the model's edits are applied
-// as one undo step. Uses the person's own free NVIDIA API key.
+// as one undo step; ask "is this map fair?" for a review with one-click fixes;
+// ask for a new map and it is built and opened. Uses the person's own free
+// NVIDIA API key, streamed so the answer shows as it arrives.
 import { useEffect, useRef, useState } from 'react'
-import { useEditor } from './store'
+import { useNavigate } from 'react-router-dom'
+import { useEditor, saveNow } from './store'
 import { getViewer } from './Viewport'
 import { runAiActions } from './aiActions'
-import { DEFAULT_MODEL, KEY_STORE, MODEL_STORE, SUGGESTED_MODELS, askModel, describeMap, parseReply, systemPrompt, type ChatMessage } from '../lib/aiChat'
+import { useChat, type Turn } from './aiSession'
+import { KeySetup, readKey, readModel } from './AiKey'
+import { loadLibrary } from './paint'
+import {
+  askWithRepair, critiquePrompt, describeMap, formatReminder, modelProfile, parseReply, partialReply, setLibraryTextures, stripThinking, systemPrompt,
+  type AiAction, type ChatMessage,
+} from '../lib/aiChat'
+import { buildReview, isCritiqueRequest, planFromAction } from '../lib/aiReview'
+import { factsText, gatherFacts } from '../lib/mapFacts'
+import { queueEdits } from '../lib/pendingEdits'
+import { db, requestPersistence } from '../lib/db'
 
-interface Turn { role: 'user' | 'assistant'; text: string; note?: string; undoLabel?: string; error?: boolean }
+const IDEAS = ['Add more cover in the middle', 'Put two sniper rifles up high', 'Paint the walls red brick', 'Make a new rainy rooftop map for 8 players']
 
-const read = (k: string) => { try { return localStorage.getItem(k) || '' } catch { return '' } }
-const write = (k: string, v: string) => { try { v ? localStorage.setItem(k, v) : localStorage.removeItem(k) } catch { /* private window */ } }
+const isAbort = (err: unknown) => err instanceof DOMException && err.name === 'AbortError'
+const tail = (s: string, n = 600) => (s.length > n ? '…' + s.slice(-n) : s)
+/** A <think> block that is still being written, from a model that thinks out loud in its answer. */
+const openThought = (content: string) => { const m = content.match(/<think>([\s\S]*?)(<\/think>|$)/i); return m && !m[2] ? m[1] : '' }
 
-const IDEAS = ['Add more cover in the middle', 'Put two sniper rifles up high', 'Is this map fair for both teams?', 'Add street lamps along the edges']
+const VERDICT_ICON = { good: '✅', ok: '⚠️', bad: '⛔' } as const
 
-function KeySetup({ onSaved, onCancel }: { onSaved: () => void; onCancel?: () => void }) {
-  const [key, setKey] = useState(read(KEY_STORE))
-  const [model, setModel] = useState(read(MODEL_STORE) || DEFAULT_MODEL)
-  const ok = /^nvapi-[\w-]{20,}$/.test(key.trim())
+function ReviewCard({ turn }: { turn: Turn }) {
+  const r = turn.review!
+  const patch = useChat((s) => s.patch)
+  const [busy, setBusy] = useState(false)
+  const apply = async (label: string, actions: AiAction[]) => {
+    setBusy(true)
+    patch(turn.id, { note: `${label}: applying…` })
+    try {
+      const { done, skipped } = await runAiActions(actions, 'AI fix: ' + label)
+      patch(turn.id, { applied: [...(turn.applied ?? []), label], note: `${label}: ${done ? `made ${done} change${done === 1 ? '' : 's'}` : 'nothing changed'}${skipped.length ? `; skipped ${skipped.join('; ')}` : ''}.` })
+    } finally { setBusy(false) }
+  }
   return (
-    <div className="col" style={{ gap: 10 }}>
-      <span className="small">The assistant runs on NVIDIA's free AI models. You need your own free key:</span>
-      <ol className="small muted" style={{ margin: 0, paddingLeft: 18 }}>
-        <li>Sign in at <a href="https://build.nvidia.com" target="_blank" rel="noreferrer">build.nvidia.com</a>.</li>
-        <li>Open any model and press <b>Get API Key</b>.</li>
-        <li>Paste the key (it starts with <code>nvapi-</code>) here.</li>
-      </ol>
-      <input type="password" placeholder="nvapi-…" value={key} onChange={(e) => setKey(e.target.value)} autoComplete="off" spellCheck={false} aria-label="NVIDIA API key" />
-      <label className="col small" style={{ gap: 4 }}>
-        <span className="muted">Model</span>
-        <input list="ai-models" value={model} onChange={(e) => setModel(e.target.value)} spellCheck={false} />
-        <datalist id="ai-models">{SUGGESTED_MODELS.map((m) => <option key={m} value={m} />)}</datalist>
-      </label>
-      <span className="faint small">Your key stays in this browser. Each message goes through this site's relay to NVIDIA with the key attached; the relay keeps nothing. Free keys have a rate limit, so slow down if it complains.</span>
-      <div className="row">
-        <button className="primary sm" disabled={!ok} onClick={() => { write(KEY_STORE, key.trim()); write(MODEL_STORE, model.trim() === DEFAULT_MODEL ? '' : model.trim()); onSaved() }}>Save</button>
-        {onCancel && <button className="sm quiet" onClick={onCancel}>Cancel</button>}
-        <span className="spacer" />
-        {read(KEY_STORE) && <button className="sm quiet danger" onClick={() => { write(KEY_STORE, ''); setKey('') }}>Forget key</button>}
-      </div>
+    <div className="ai-review col">
+      {r.score !== null && <div className="small"><b>Score {r.score}/10</b></div>}
+      {r.sections.map((s) => (
+        <div key={s.topic} className={'ai-review-row ' + s.verdict}>
+          <div className="row"><span aria-hidden>{VERDICT_ICON[s.verdict]}</span><b className="grow">{s.title}</b></div>
+          {s.notes.map((n, i) => <div key={i} className="small muted">{n}</div>)}
+          {!!s.fixes.length && (
+            <div className="row wrap">
+              {s.fixes.map((f) => (
+                <button key={f.label} className="sm" disabled={busy || turn.applied?.includes(f.label)} onClick={() => apply(f.label, f.actions)} title={`${f.actions.length} edit${f.actions.length === 1 ? '' : 's'}, one undo step`}>
+                  {turn.applied?.includes(f.label) ? '✓ ' : '🔧 '}{f.label}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      ))}
+      {!r.byModel && <span className="faint small">From the editor's own measurements.</span>}
     </div>
   )
 }
 
 export function AiChat({ onClose }: { onClose: () => void }) {
-  const [hasKey, setHasKey] = useState(() => !!read(KEY_STORE))
+  const nav = useNavigate()
+  const [hasKey, setHasKey] = useState(() => !!readKey())
   const [setup, setSetup] = useState(false)
-  const [turns, setTurns] = useState<Turn[]>([])
+  const { turns, add, patch } = useChat()
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
-  const history = useRef<ChatMessage[]>([])
+  /** Waiting on the model (Stop works), as opposed to applying its edits. */
+  const [asking, setAsking] = useState(false)
   const abort = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
-  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }) }, [turns, busy])
+  useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }) }, [turns])
   useEffect(() => () => abort.current?.abort(), [])
+  useEffect(() => { loadLibrary().then((l) => setLibraryTextures(l.map((t) => t.id))).catch(() => {}) }, [])
+
+  /** Builds the map a generate_map edit asks for, saves it, and opens it; its extra edits run once it's loaded. */
+  const newMap = async (a: Extract<AiAction, { do: 'generate_map' }>, reply: string, id: number) => {
+    const plan = planFromAction(a, reply)
+    patch(id, { text: `${plan.reply || 'Making a new map.'} Building “${plan.options.name}”…`, pending: true, thinking: undefined })
+    const [{ wizardSample }, { buildFrom }] = await Promise.all([import('../lib/mapWizard'), import('../lib/samples')])
+    const sample = wizardSample(plan.options)
+    const p = await buildFrom({ ...sample, name: plan.options.name || sample.name }, (t) => patch(id, { note: t }))
+    await db.putProject({ id: p.id, name: p.name, updated_at: p.updated_at, project: p })
+    void requestPersistence()
+    if (plan.then.length) queueEdits(p.id, { actions: plan.then, label: 'AI: extras for ' + p.name, openChat: true })
+    patch(id, { pending: false, text: `${plan.reply || 'Here is your new map.'} Opened “${p.name}”; your other map is saved in My maps.`, note: `${plan.options.setting}, ${plan.options.layout}, ${plan.options.players} players, ${plan.options.density}${plan.then.length ? ` · ${plan.then.length} extra edit${plan.then.length === 1 ? '' : 's'} to come` : ''}` })
+    if (useEditor.getState().saveState === 'unsaved') await saveNow()
+    nav('/editor/' + p.id)
+  }
 
   const send = async (msg: string) => {
     const project = useEditor.getState().project
     if (!msg.trim() || busy || !project) return
     setText('')
-    setTurns((t) => [...t, { role: 'user', text: msg }])
+    add({ role: 'user', text: msg })
+    const id = add({ role: 'assistant', text: '', pending: true })
     setBusy(true)
+    setAsking(true)
     abort.current = new AbortController()
+    const model = readModel()
+    const profile = modelProfile(model)
+    const critique = isCritiqueRequest(msg)
+    const viewer = getViewer()
+    const bounds = viewer ? (i: number) => viewer.itemBounds(i) : undefined
+    const facts = critique ? gatherFacts({ project, bounds }) : null
     try {
-      const viewer = getViewer()
-      const map = describeMap(project, viewer ? (i) => viewer.itemBounds(i) : undefined)
+      const map = describeMap(project, bounds)
+      const system = critique ? critiquePrompt(map, factsText(facts!), profile) : systemPrompt(map, profile)
       // The map summary is fresh every turn; the last few exchanges give context.
-      const messages: ChatMessage[] = [{ role: 'system', content: systemPrompt(map) }, ...history.current.slice(-10), { role: 'user', content: msg }]
-      const raw = await askModel(messages, read(KEY_STORE), read(MODEL_STORE) || DEFAULT_MODEL, abort.current.signal)
+      const messages: ChatMessage[] = [{ role: 'system', content: system }, ...useChat.getState().history.slice(-10), { role: 'user', content: msg + formatReminder(profile) }]
+      const { raw, repaired } = await askWithRepair(messages, readKey(), model, {
+        signal: abort.current.signal,
+        profile,
+        onProgress: ({ content, reasoning }) => {
+          const thought = reasoning || openThought(content)
+          const shown = partialReply(content)
+          patch(id, { text: shown, thinking: shown ? undefined : thought ? tail(thought) : '' })
+        },
+        onRepair: () => patch(id, { text: '', thinking: '', note: 'Tidying up the answer…' }),
+      })
+      setAsking(false)
+      useChat.setState((s) => ({ history: [...s.history, { role: 'user', content: msg }, { role: 'assistant', content: stripThinking(raw).slice(0, 6000) }] }))
+      if (critique) {
+        const review = buildReview(facts!, raw)
+        patch(id, { pending: false, thinking: undefined, text: review.summary, review, note: repaired ? 'The first answer was garbled; asked again.' : undefined })
+        return
+      }
       const { reply, actions } = parseReply(raw)
-      history.current.push({ role: 'user', content: msg }, { role: 'assistant', content: raw })
+      const gen = actions.find((a): a is Extract<AiAction, { do: 'generate_map' }> => a.do === 'generate_map')
+      if (gen) { await newMap(gen, reply, id); return }
       let note: string | undefined, undoLabel: string | undefined
       if (actions.length) {
         undoLabel = 'AI: ' + (msg.length > 40 ? msg.slice(0, 40) + '…' : msg)
+        patch(id, { pending: false, thinking: undefined, text: reply || 'Working on it.', note: 'Applying…' })
         const { done, skipped } = await runAiActions(actions, undoLabel)
         note = [done ? `Made ${done} change${done === 1 ? '' : 's'}.` : 'Nothing changed.', skipped.length ? `Skipped: ${skipped.join('; ')}.` : ''].filter(Boolean).join(' ')
         if (!done) undoLabel = undefined
       }
-      setTurns((t) => [...t, { role: 'assistant', text: reply || (actions.length ? 'Done.' : '…'), note, undoLabel }])
+      if (repaired) note = ['The first answer was garbled; asked again.', note].filter(Boolean).join(' ')
+      patch(id, { pending: false, thinking: undefined, text: reply || (actions.length ? 'Done.' : '…'), note, undoLabel })
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return
-      setTurns((t) => [...t, { role: 'assistant', text: err instanceof Error ? err.message : String(err), error: true }])
-    } finally { setBusy(false) }
+      if (isAbort(err)) { patch(id, { pending: false, thinking: undefined, text: useChat.getState().turns.find((t) => t.id === id)?.text || 'Stopped.', note: 'Stopped. Nothing was changed.' }); return }
+      const message = err instanceof Error ? err.message : String(err)
+      // A review still works without the model: the measurements and their fixes.
+      if (facts) { const review = buildReview(facts); patch(id, { pending: false, thinking: undefined, text: review.summary, review, note: `The AI couldn't answer (${message}), so this is the editor's own check.` }); return }
+      patch(id, { pending: false, thinking: undefined, text: message, error: true })
+    } finally { setBusy(false); setAsking(false); abort.current = null }
   }
 
   const undo = (label: string) => {
@@ -94,6 +163,7 @@ export function AiChat({ onClose }: { onClose: () => void }) {
     <div className="ai-chat" role="dialog" aria-label="Map assistant">
       <div className="row ai-head">
         <b className="grow">✨ Map assistant</b>
+        {hasKey && !setup && !!turns.length && <button className="sm quiet" disabled={busy} onClick={() => useChat.getState().clear()} title="Start a new conversation">New chat</button>}
         {hasKey && !setup && <button className="sm quiet" onClick={() => setSetup(true)} title="Key and model">⚙</button>}
         <button className="sm quiet" onClick={onClose} aria-label="Close">✕</button>
       </div>
@@ -101,26 +171,33 @@ export function AiChat({ onClose }: { onClose: () => void }) {
         <div className="ai-body"><KeySetup onSaved={() => { setHasKey(true); setSetup(false) }} onCancel={hasKey ? () => setSetup(false) : undefined} /></div>
       ) : (
         <>
-          <div className="ai-body ai-list" ref={listRef}>
+          <div className="ai-body ai-list" ref={listRef} aria-live="polite">
             {!turns.length && (
               <div className="col" style={{ gap: 8 }}>
                 <span className="small muted">Tell me what to change or ask about your map. Edits apply right away and undo as one step.</span>
-                <div className="row wrap">{IDEAS.map((i) => <button key={i} className="sm quiet" onClick={() => send(i)}>{i}</button>)}</div>
+                <div className="row wrap">
+                  <button className="sm" onClick={() => send('Critique my map: is it fair for both teams?')}>🩺 Review my map</button>
+                  {IDEAS.map((i) => <button key={i} className="sm quiet" onClick={() => send(i)}>{i}</button>)}
+                </div>
               </div>
             )}
-            {turns.map((t, i) => (
-              <div key={i} className={'ai-msg ' + t.role + (t.error ? ' error' : '')}>
-                <div>{t.text}</div>
+            {turns.map((t) => (
+              <div key={t.id} className={'ai-msg ' + t.role + (t.error ? ' error' : '')}>
+                {t.pending && !t.text && <div className="faint ai-thinking">{t.thinking ? 'Thinking…' : 'Working…'}</div>}
+                {t.pending && t.thinking && !t.text && <div className="faint small ai-thought">{t.thinking}</div>}
+                {t.text && <div>{t.text}</div>}
+                {t.review && <ReviewCard turn={t} />}
                 {t.note && <div className="faint small">{t.note}</div>}
                 {t.undoLabel && lastUndo === t.undoLabel && <button className="link small" onClick={() => undo(t.undoLabel!)}>Undo this</button>}
               </div>
             ))}
-            {busy && <div className="ai-msg assistant faint">Thinking…</div>}
           </div>
           <div className="ai-input row">
             <textarea rows={2} value={text} placeholder="e.g. add a bus stop on each side" onChange={(e) => setText(e.target.value)}
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(text) } }} aria-label="Message" />
-            <button className="primary sm" disabled={busy || !text.trim()} onClick={() => send(text)}>Send</button>
+            {asking
+              ? <button className="sm" onClick={() => abort.current?.abort()} title="Stop the answer">■ Stop</button>
+              : <button className="primary sm" disabled={busy || !text.trim()} onClick={() => send(text)}>{busy ? 'Working…' : 'Send'}</button>}
           </div>
         </>
       )}

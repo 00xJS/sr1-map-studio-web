@@ -5,8 +5,12 @@ import * as act from './actions'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
 import { SHAPE_PRESETS } from '../lib/shapes'
 import { catalogs } from '../lib/catalogs'
-import { GAME_MODES, newLight, type GameMode, type Vec3 } from '../lib/project'
+import { GAME_MODES, isGlass, newLight, uid, type GameMode, type Vec3 } from '../lib/project'
+import { KINDS, defaultParams, type TextureKind } from '../lib/procedural'
 import type { AiAction } from '../lib/aiChat'
+import { expandPlacement, findMarkerTwin, findTwin, resolveTarget, symmetricPlan, twinItem, twinMarker } from '../lib/aiEdits'
+import { loadLibrary, niceName, paintMaterial } from './paint'
+import type { Swatch } from './store'
 
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
 const TWIN_MARKER: Record<string, string> = { 'Red team spawn': 'Blue team spawn', 'Blue team spawn': 'Red team spawn' }
@@ -14,6 +18,25 @@ const weapons = () => new Set(catalogs.weapons.map(([, id]) => id))
 
 /** The surface height under (x, z), or the usual ground height. */
 const floorAt = (x: number, z: number) => getViewer()?.surfaceBelow(x, 1e4, z) ?? 1
+
+const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
+
+/** A texture by name: the starter library (id or name), a generated kind, or one already in the map. */
+async function swatchFor(name: string): Promise<Swatch | null> {
+  const want = squash(name)
+  if (!want) return null
+  const lib = await loadLibrary().catch(() => [])
+  const l = lib.find((t) => squash(t.id) === want) ?? lib.find((t) => squash(t.name) === want)
+  if (l) return { key: 'lib:' + l.id, label: l.name, surface: l.surface, source: { kind: 'library', id: l.id } }
+  const kind = (Object.keys(KINDS) as TextureKind[]).find((k) => squash(k) === want || squash(KINDS[k].label) === want)
+  if (kind) return { key: 'gen:' + kind, label: KINDS[kind].label, surface: KINDS[kind].surface, source: { kind: 'generated', params: defaultParams(kind, 1024) } }
+  for (const it of currentProject()?.scene_items ?? []) for (const [mat, vpath] of Object.entries(it.textures || {})) {
+    if (vpath && squash(niceName(vpath)) === want) return { key: 'file:' + vpath, label: niceName(vpath), surface: it.surface_ids?.[mat] ?? 0, source: { kind: 'file', vpath } }
+  }
+  // Last try: a library texture whose name has the word in it ("brick" finds Red brick).
+  const part = lib.find((t) => squash(t.name).includes(want) || squash(t.id).includes(want))
+  return part ? { key: 'lib:' + part.id, label: part.name, surface: part.surface, source: { kind: 'library', id: part.id } } : null
+}
 
 /** Runs the actions; returns a short note of what happened and what was skipped. */
 export async function runAiActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
@@ -30,7 +53,10 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
   const spots = (x: number, z: number, turn: number, mirror?: boolean): [number, number, number, boolean][] =>
     mirror && (Math.abs(x) > 0.5 || Math.abs(z) > 0.5) ? [[x, z, turn, false], [-x, -z, (turn + 180) % 360, true]] : [[x, z, turn, false]]
 
-  for (const a of actions) {
+  // Lines and rings expand into more edits in place.
+  const queue = [...actions]
+  for (let n = 0; n < queue.length && n < 400; n++) {
+    const a = queue[n]
     try {
       switch (a.do) {
         case 'add_prefab': {
@@ -88,9 +114,12 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
           done++
           break
         }
-        case 'delete':
-          for (const i of a.indices ?? []) { const k = item(i); if (k !== null) deletes.add(k) }
+        case 'delete': {
+          const ids = resolveTarget(currentProject()!, a)
+          if (!ids.length) { skipped.push('nothing matched to delete'); break }
+          for (const k of ids) deletes.add(k)
           break
+        }
         case 'add_marker': {
           if (!catalogs.marker_types.includes(a.type)) { skipped.push(`unknown marker "${a.type}"`); break }
           if (a.type === 'Weapon pickup' && !weapons().has(a.weapon ?? '')) { skipped.push(`unknown weapon "${a.weapon}"`); break }
@@ -102,9 +131,10 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
         }
         case 'delete_markers': {
           const [nx, nz, nr] = Array.isArray(a.near) ? a.near.map((v) => num(v)) : [0, 0, Infinity]
+          const only = Array.isArray(a.indices) ? new Set(a.indices) : null
           const before = currentProject()!.markers.length
           st.update('Remove markers', (d) => {
-            d.markers = d.markers.filter((m) => !((!a.type || m.type === a.type) && Math.hypot(m.position[0] - nx, m.position[2] - nz) <= (nr || Infinity)))
+            d.markers = d.markers.filter((m, i) => !((!only || only.has(i)) && (!a.type || m.type === a.type) && Math.hypot(m.position[0] - nx, m.position[2] - nz) <= (nr || Infinity)))
           })
           done += before - currentProject()!.markers.length
           break
@@ -128,11 +158,76 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
         case 'rename_map':
           if (typeof a.name === 'string' && a.name.trim()) { st.update('Rename map', (d) => { d.settings.display_name = a.name.trim().slice(0, 60) }); done++ }
           break
-        case 'select': {
-          const ids = (a.indices ?? []).map(item).filter((i): i is number => i !== null)
-          useEditor.getState().selectItems(ids)
+        case 'select':
+          useEditor.getState().selectItems(resolveTarget(currentProject()!, a))
+          break
+        case 'move_marker': {
+          const m = currentProject()!.markers[a.index]
+          if (!m) { skipped.push(`no marker #${a.index}`); break }
+          const x = num(a.x, m.position[0]), z = num(a.z, m.position[2])
+          st.update('Move marker', (d) => { d.markers[a.index].position = [x, floorAt(x, z) + 0.1, z] })
+          done++
           break
         }
+        case 'paint': {
+          const ids = resolveTarget(currentProject()!, a)
+          const sw = typeof a.texture === 'string' ? await swatchFor(a.texture) : null
+          if (!sw) { skipped.push(`unknown texture "${a.texture}"`); break }
+          if (!ids.length) { skipped.push('nothing matched to paint'); break }
+          // A material by its name or by its current texture's name; all of them when none is given.
+          const want = typeof a.material === 'string' ? squash(a.material) : ''
+          for (const i of ids) {
+            const it = currentProject()!.scene_items[i]
+            if (isGlass(it)) continue
+            const mats = Object.entries(it.textures || {}).filter(([m, v]) => !want || squash(m) === want || (!!v && squash(niceName(v)).includes(want))).map(([m]) => m)
+            for (const m of mats) { await paintMaterial(i, m, sw); done++ }
+          }
+          break
+        }
+        case 'place_line':
+        case 'place_ring': {
+          const more = expandPlacement(a)
+          if (!more.length) { skipped.push(`nothing to place for ${a.do}`); break }
+          queue.splice(n + 1, 0, ...more)
+          break
+        }
+        case 'mirror': {
+          const p = currentProject()!
+          const ids = resolveTarget(p, a).filter((i) => findTwin(p, i) === null)
+          const marks = (Array.isArray(a.markers) ? a.markers : []).filter((i) => p.markers[i] && findMarkerTwin(p, i) === null)
+          if (!ids.length && !marks.length) { skipped.push('those already have twins'); break }
+          const groups = new Map<string, string>()
+          st.update('Mirror', (d) => {
+            for (const i of ids) d.scene_items.push(twinItem(p.scene_items[i], uid, groups))
+            for (const i of marks) d.markers.push(twinMarker(p.markers[i], uid))
+          })
+          done += ids.length + marks.length
+          break
+        }
+        case 'make_symmetric': {
+          const p = currentProject()!
+          const plan = symmetricPlan(p, a.keep === 'blue' ? 'blue' : 'red', a.only === 'objects' || a.only === 'markers' ? a.only : undefined)
+          const groups = new Map<string, string>()
+          const dropI = new Set(plan.items.drop), dropM = new Set(plan.markers.drop), dropL = new Set(plan.lights.drop)
+          st.update('Make symmetric', (d) => {
+            d.scene_items = [...d.scene_items.filter((_, i) => !dropI.has(i)), ...plan.items.copy.map((i) => twinItem(p.scene_items[i], uid, groups))]
+            d.markers = [...d.markers.filter((_, i) => !dropM.has(i)), ...plan.markers.copy.map((i) => twinMarker(p.markers[i], uid))]
+            d.lights = [...d.lights.filter((_, i) => !dropL.has(i)), ...plan.lights.copy.map((i) => {
+              const l = p.lights[i]
+              return { ...structuredClone(l), uid: uid(), position: [-l.position[0], l.position[1], -l.position[2]] as Vec3 }
+            })]
+          })
+          useEditor.getState().select(null)
+          done += plan.items.copy.length + plan.markers.copy.length + plan.lights.copy.length
+          break
+        }
+        case 'set_weather':
+          st.update('Weather', (d) => { d.settings.always_clear_weather = a.clear !== false })
+          done++
+          break
+        case 'generate_map':
+          skipped.push('a new map is made from the chat, not as an edit')
+          break
         default:
           skipped.push(`unknown edit "${(a as { do: string }).do}"`)
       }
@@ -140,7 +235,7 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
       skipped.push(err instanceof Error ? err.message : String(err))
     }
   }
-  if (deletes.size) { act.removeItems([...deletes]); done += deletes.size }
+  if (deletes.size) { act.removeItems([...deletes]); useEditor.getState().select(null); done += deletes.size }
   // Everything this reply did is one step on the undo list.
   const now = useEditor.getState()
   if (now.past.length > start) useEditor.setState({ past: [...now.past.slice(0, start), { project: before, label }], future: [] })
