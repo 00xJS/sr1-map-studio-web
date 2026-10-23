@@ -4,11 +4,11 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useEditor, type Swatch, type Tool, type GizmoMode } from './store'
 import { generatedSwatches, librarySwatches, mapSwatches, swatchThumb } from './paint'
 import { SHAPE_PRESETS } from '../lib/shapes'
-import { ALL_PREFABS, PREFAB_CATEGORIES } from '../lib/prefabRegistry'
 import { catalogs } from '../lib/catalogs'
 import { MARKER_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/labels'
 import { retailToolMarkers } from '../lib/retailModes'
 import { deleteMyPrefab, renameMyPrefab, useMyPrefabs } from './myPrefabs'
+import { PrefabButton } from './PrefabBrowser'
 import { confirmDialog } from '../ui'
 import { GroundToolOptions } from './GroundToolOptions'
 
@@ -130,7 +130,6 @@ export function ToolOptions() {
   const tool = useEditor((s) => s.tool)
   const swatch = useEditor((s) => s.swatch)
   const toolShape = useEditor((s) => s.toolShape)
-  const mine = useMyPrefabs()
   const toolSpawn = useEditor((s) => s.toolSpawn)
   const toolWeapon = useEditor((s) => s.toolWeapon)
   const advanced = useEditor((s) => s.advanced)
@@ -153,20 +152,7 @@ export function ToolOptions() {
           {Object.entries(SHAPE_PRESETS).map(([k, p]) => (
             <button key={k} className={'sm' + (toolShape === k ? ' on' : '')} title={p.hint} onClick={() => set({ toolShape: k })}>{p.label}</button>
           ))}
-          <select value={/^(prefab|mine):/.test(toolShape) ? toolShape : ''} onChange={(e) => e.target.value && set({ toolShape: e.target.value })}
-            className={/^(prefab|mine):/.test(toolShape) ? 'on' : ''} title="Ready-made pieces: buildings, cars, trees, street furniture, and pieces you saved">
-            <option value="">Prefabs…</option>
-            {mine.length > 0 && (
-              <optgroup label="My prefabs">
-                {mine.map((p) => <option key={p.id} value={'mine:' + p.id}>{p.name}</option>)}
-              </optgroup>
-            )}
-            {PREFAB_CATEGORIES.map((c) => (
-              <optgroup key={c} label={c}>
-                {Object.entries(ALL_PREFABS).filter(([, p]) => p.category === c).map(([k, p]) => <option key={k} value={'prefab:' + k} title={p.hint}>{p.label}</option>)}
-              </optgroup>
-            ))}
-          </select>
+          <PrefabButton />
           {toolShape.startsWith('mine:') && <MineActions id={toolShape.slice(5)} onGone={() => set({ toolShape: 'box' })} />}
         </div>
       )}

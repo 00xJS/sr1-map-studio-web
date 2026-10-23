@@ -24,6 +24,7 @@ import { RoadPanel, TERRAIN_LOOK, TerrainPanel } from './GroundToolOptions'
 import { AMBIENCE_OPTIONS, ambienceHint, waterHint } from '../lib/mapFeatures'
 import { PhysicsPanel } from './PhysicsPanel'
 import { RetailMarkerFields } from './RetailMarkerFields'
+import { openPrefabBrowser } from './PrefabBrowser'
 
 const TextureStudio = lazy(() => import('./TextureStudio').then((m) => ({ default: m.TextureStudio })))
 const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
@@ -129,7 +130,7 @@ function AddThings() {
     <div className="group">
       <span className="section-title">Add to your map</span>
       <div className="row wrap">
-        {tool('shape', 'Shape')}{tool('spawn', 'Spawn')}{tool('weapon', 'Weapon')}{tool('light', 'Light')}
+        {tool('shape', 'Shape')}<button className="sm" onClick={openPrefabBrowser} title="Buildings, cars, trees, bunkers and more, ready to place">Prefabs…</button>{tool('spawn', 'Spawn')}{tool('weapon', 'Weapon')}{tool('light', 'Light')}
         {hasGroup(pack, 'glass') && <button className="sm" disabled={busy} onClick={() => run(() => act.addGlass(Object.keys(catalogs.glass_styles)[0], center()))}>Glass window</button>}
       </div>
       <div className="row wrap">

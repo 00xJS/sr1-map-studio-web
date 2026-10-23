@@ -245,6 +245,8 @@ export type Params = Record<string, number | string>
 export interface PrefabDef {
   label: string
   hint: string
+  /** Extra words the prefab browser's search should find it by. */
+  keywords?: string[]
   params?: ParamDef[]
   make: (x: number, z: number, rot: number, y: number, p?: Params) => Part[]
 }
