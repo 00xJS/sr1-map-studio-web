@@ -16,8 +16,10 @@ through [Pyodide](https://pyodide.org); the editor interface is rebuilt with Rea
   a generator of 11 tiling materials, a starter library of 29 CC0 textures) that also sets the
   physical surface; "Install to game" writes exports straight into `SaintsReborn/dist/maps`
   (Chrome/Edge).
-- **Start with nothing:** five sample maps (flat ground, arena, warehouse, rooftops, street) built
-  in the browser from shapes and free textures, with spawns, weapons and lights for their modes;
+- **Start with nothing:** 30 sample maps in three themes (5 starters, 13 urban paintball, 12 cyber)
+  built in the browser from shapes and free textures, with spawns, weapons and lights for every mode.
+  Layouts live in `src/lib/samples*.ts`; the picker's previews in `public/samples` are rendered by
+  the editor itself;
   a Paint-style tool strip (select/rotate/scale, shape, paint bucket, eyedropper, spawn, weapon,
   light, eraser) with a texture palette.
 - **Simple and Advanced modes:** Simple (the default) has one side panel that shows whatever is

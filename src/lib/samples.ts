@@ -2,42 +2,16 @@
 // textures, spawns for every mode, weapons and lights. Built in the browser
 // from these descriptions, so they need no downloads or game files.
 // Coordinates are editor units (the default world scale of 0.5 halves them in game).
-import { newLight, newMarker, newProject, uid, type FileRef, type GameMode, type Light, type Marker, type Project, type SceneItem, type Vec3 } from './project'
-import { shapeName, shapeObj, type Shape, type ShapeKind } from './shapes'
-import { KINDS, defaultParams, generate, type GenParams, type TextureKind } from './procedural'
+import { newLight, newMarker, newProject, uid, type FileRef, type Light, type Marker, type Project, type SceneItem, type Vec3 } from './project'
+import { shapeName, shapeObj, type Shape } from './shapes'
+import { KINDS, defaultParams, generate } from './procedural'
 import { pixelsToPng } from './images'
 import { storeFile } from './files'
+import { ALL_MODES, GB, box, type Part, type Sample, type Tex, type Theme } from './sampleKit'
+import { PAINTBALL } from './samplesPaintball'
+import { CYBER } from './samplesCyber'
 
-type Tex = { gen: TextureKind; tweak?: Partial<GenParams> } | { lib: string; surface: number }
-
-interface Part {
-  label: string
-  kind: ShapeKind
-  size: Vec3
-  at: Vec3
-  /** Heading in degrees. */
-  rot?: number
-  top: Tex
-  side: Tex
-  tile?: number
-  segments?: number
-}
-
-interface Sample {
-  id: string
-  name: string
-  icon: string
-  description: string
-  modes: GameMode[]
-  parts: Part[]
-  markers: [string, Vec3, Partial<Marker>?][]
-  lights?: [Vec3, Vec3?][]
-}
-
-const ALL_MODES: GameMode[] = ['Gangsta Brawl', 'Team Gangsta Brawl', 'Big Ass Chains', 'Team Big Ass Chains', 'Protect Tha Pimp']
-const GB: GameMode[] = ['Gangsta Brawl', 'Team Gangsta Brawl']
-
-const box = (label: string, size: Vec3, at: Vec3, top: Tex, side: Tex, rot = 0, tile = 4): Part => ({ label, kind: 'box', size, at, top, side, rot, tile })
+export type { Sample, Theme }
 
 // Textures used by the samples.
 const T = {
@@ -66,15 +40,15 @@ const teams = (x: number, y: number, zs: number[]): [string, Vec3, Partial<Marke
 ]
 const weapon = (id: string, at: Vec3): [string, Vec3, Partial<Marker>] => ['Weapon pickup', at, { weapon: id }]
 
-export const SAMPLES: Sample[] = [
+const STARTER: Sample[] = [
   {
-    id: 'flat', name: 'Flat ground', icon: '▭', modes: GB,
+    id: 'flat', theme: 'Starter', name: 'Flat ground', icon: '▭', modes: GB,
     description: 'One big concrete floor with four spawns. A clean canvas for building your own layout.',
     parts: [box('Floor', [80, 1, 80], [0, 0, 0], T.floorWorn, T.concrete)],
     markers: [['Shared spawn', [-25, 1, -25]], ['Shared spawn', [25, 1, -25]], ['Shared spawn', [-25, 1, 25]], ['Shared spawn', [25, 1, 25]], weapon('ak47', [0, 1, 0])],
   },
   {
-    id: 'arena', name: 'Arena', icon: '🏟', modes: ALL_MODES,
+    id: 'arena', theme: 'Starter', name: 'Arena', icon: '🏟', modes: ALL_MODES,
     description: 'Walled square with a raised center platform, four ramps, pillars and cover. Set up for every mode.',
     parts: [
       box('Floor', [100, 1, 100], [0, 0, 0], T.floorWorn, T.concrete),
@@ -101,7 +75,7 @@ export const SAMPLES: Sample[] = [
     lights: [[[0, 12, 0], [1, 0.85, 0.65]], [[-30, 12, -30]], [[30, 12, 30]]],
   },
   {
-    id: 'warehouse', name: 'Warehouse', icon: '🏭', modes: ALL_MODES,
+    id: 'warehouse', theme: 'Starter', name: 'Warehouse', icon: '🏭', modes: ALL_MODES,
     description: 'Indoor hall with corrugated walls, crate stacks, support columns and a catwalk reached by stairs.',
     parts: [
       box('Floor', [90, 1, 60], [0, 0, 0], T.darkConcrete, T.concrete),
@@ -125,7 +99,7 @@ export const SAMPLES: Sample[] = [
     lights: [[[-25, 13, 0]], [[0, 13, 0]], [[25, 13, 0]]],
   },
   {
-    id: 'rooftops', name: 'Rooftops', icon: '🏙', modes: ALL_MODES,
+    id: 'rooftops', theme: 'Starter', name: 'Rooftops', icon: '🏙', modes: ALL_MODES,
     description: 'Eight buildings around a plaza, joined by bridges. Stairs lead up from the plaza.',
     parts: [
       box('Ground', [140, 1, 140], [0, 0, 0], T.asphalt, T.concrete, 0, 6),
@@ -138,7 +112,7 @@ export const SAMPLES: Sample[] = [
     ],
     markers: [
       ...[[-35, -35], [35, -35], [-35, 35], [35, 35]].map(([x, z]): [string, Vec3] => ['Shared spawn', [x, 17, z]]),
-      ...[[-15, 0], [15, 0], [0, -6], [0, 6]].map(([x, z]): [string, Vec3] => ['Shared spawn', [x, 1, z]]),
+      ...[[-15, 0], [15, 0], [8, -8], [-8, 8]].map(([x, z]): [string, Vec3] => ['Shared spawn', [x, 1, z]]),
       ['Red team spawn', [-38, 17, -4], { yaw: 90 }], ['Red team spawn', [-38, 17, 4], { yaw: 90 }], ['Red team spawn', [-32, 17, -4], { yaw: 90 }], ['Red team spawn', [-32, 17, 4], { yaw: 90 }],
       ['Blue team spawn', [38, 17, -4], { yaw: -90 }], ['Blue team spawn', [38, 17, 4], { yaw: -90 }], ['Blue team spawn', [32, 17, -4], { yaw: -90 }], ['Blue team spawn', [32, 17, 4], { yaw: -90 }],
       weapon('sniper_rifle', [0, 17, -35]), weapon('sniper_rifle', [0, 17, 35]), weapon('rpg_launcher', [0, 1, 0]), weapon('ak47', [-35, 17, 0]), weapon('ak47', [35, 17, 0]),
@@ -148,7 +122,7 @@ export const SAMPLES: Sample[] = [
     lights: [[[0, 8, 0], [1, 0.8, 0.55]]],
   },
   {
-    id: 'street', name: 'Street', icon: '🛣', modes: ALL_MODES,
+    id: 'street', theme: 'Starter', name: 'Street', icon: '🛣', modes: ALL_MODES,
     description: 'A city block: road with a center line, curbs and sidewalks, buildings on both sides and parked cover.',
     parts: [
       // The road sits at x 0..24 so the texture's center line lands in the middle of the lane.
@@ -162,7 +136,8 @@ export const SAMPLES: Sample[] = [
       ...([[6, -30], [18, -5], [6, 22], [18, 45]] as [number, number][]).map(([x, z]) => box('Van', [4, 3, 8], [x, 1, z], T.metal, T.metal)),
     ],
     markers: [
-      ...[[-4, -50], [28, -35], [-4, -10], [28, 10], [-4, 30], [28, 55], [12, -60], [12, 60]].map(([x, z]): [string, Vec3] => ['Shared spawn', [x, 1.4, z]]),
+      ...[[-4, -50], [28, -35], [-4, -10], [28, 10], [-4, 30], [28, 55]].map(([x, z]): [string, Vec3] => ['Shared spawn', [x, 1.4, z]]),
+      ['Shared spawn', [12, 1, -60]], ['Shared spawn', [12, 1, 60]],
       // Yaw 0 faces -Z: red (south end) looks north with 180, blue (north end) looks south with 0.
       ['Red team spawn', [-4, 1.4, -64], { yaw: 180 }], ['Red team spawn', [28, 1.4, -64], { yaw: 180 }], ['Red team spawn', [8, 1, -64], { yaw: 180 }], ['Red team spawn', [16, 1, -64], { yaw: 180 }],
       ['Blue team spawn', [-4, 1.4, 64], { yaw: 0 }], ['Blue team spawn', [28, 1.4, 64], { yaw: 0 }], ['Blue team spawn', [8, 1, 64], { yaw: 0 }], ['Blue team spawn', [16, 1, 64], { yaw: 0 }],
@@ -173,6 +148,9 @@ export const SAMPLES: Sample[] = [
     lights: [[[-4, 9, -40]], [[28, 9, 0]], [[-4, 9, 40]]],
   },
 ]
+
+export const SAMPLES: Sample[] = [...STARTER, ...PAINTBALL, ...CYBER]
+export const THEMES: Theme[] = ['Starter', 'Urban paintball', 'Cyber']
 
 /** Builds a sample into a new project (geometry, textures and markers stored locally). */
 export async function buildSample(id: string, onProgress?: (t: string) => void): Promise<Project> {
@@ -203,7 +181,7 @@ export async function buildSample(id: string, onProgress?: (t: string) => void):
         const params = { ...defaultParams(t.gen, 512), ...t.tweak, size: 512 }
         const s = await storeFile(await pixelsToPng(generate(params), 512, `${t.gen}_${params.seed}.png`), `${t.gen}_${params.seed}.png`)
         files[s.vpath] = s.ref
-        return { vpath: s.vpath, surface: KINDS[t.gen].surface }
+        return { vpath: s.vpath, surface: t.surface ?? KINDS[t.gen].surface }
       })()
       texCache.set(key, p)
     }
