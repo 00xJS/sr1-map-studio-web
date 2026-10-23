@@ -59,7 +59,7 @@ describe('checkModes', () => {
 
   it('needs both teams and a pimp entrance for Protect Tha Pimp', () => {
     const r = checkModes({ modes: ['Protect Tha Pimp'] }, [at('Red team spawn')])
-    expect(r.errors.join()).toMatch(/Blue team spawns, a Pimp entrance/)
+    expect(r.errors.join()).toMatch(/Blue team spawns, the pimp's escape point/)
     expect(checkModes({ modes: ['Protect Tha Pimp'] }, ptpReady).errors).toEqual([])
   })
 

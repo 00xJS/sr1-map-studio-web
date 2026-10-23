@@ -147,7 +147,7 @@ export interface TeamMarkers {
   weapons: [string, Vec3][]
   /** Chains drop-offs; each is also placed on the opposite side. */
   drops: Vec3[]
-  /** Where the pimp starts in Protect Tha Pimp (red's end). */
+  /** The pimp's escape point in Protect Tha Pimp (the "Pimp entrance" marker), at red's end. */
   pimp: Vec3
 }
 

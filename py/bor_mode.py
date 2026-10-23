@@ -6,7 +6,9 @@ triggers and respawns play which part:
 
 - the victory garage (a box trigger, "blinged victory"),
 - one or two chop shops ("multiplayer chop shop") with their drive-in
-  entrances ("blinged chop shop entrance"),
+  entrances ("blinged chop shop entrance"), a door for players on foot
+  ("garage enter") and a small "garage interior" box in the shop's middle,
+  as the game's own maps have,
 - a garage per team ("garage interior", the team's safe zone),
 - a respawn per team where the team's ride appears (+Vehicle), and further
   team cars of chosen models,
@@ -29,18 +31,20 @@ import sr1_cts
 VICTORY = 'BOR victory zone'
 CHOP_SHOP = 'BOR chop shop'
 ENTRANCE = 'BOR chop shop entrance'
+DOOR = 'BOR chop shop door'
 GARAGE_RED = 'BOR red team garage'
 GARAGE_BLUE = 'BOR blue team garage'
 CAR_RED = 'BOR red team car'
 CAR_BLUE = 'BOR blue team car'
 CASH = 'BOR cash spawn'
-TYPES = (VICTORY, CHOP_SHOP, ENTRANCE, GARAGE_RED, GARAGE_BLUE, CAR_RED, CAR_BLUE, CASH)
+TYPES = (VICTORY, CHOP_SHOP, ENTRANCE, DOOR, GARAGE_RED, GARAGE_BLUE, CAR_RED, CAR_BLUE, CASH)
 
 # Box triggers: (trigger action, starts disabled, default size w h d in metres).
 BOXES = {
     VICTORY: ('blinged victory', True, (12.0, 6.0, 14.0)),
     CHOP_SHOP: ('multiplayer chop shop', False, (5.5, 3.25, 9.5)),
     ENTRANCE: ('blinged chop shop entrance', False, (12.0, 2.0, 6.5)),
+    DOOR: ('garage enter', True, (2.0, 2.0, 2.0)),
     GARAGE_RED: ('garage interior', True, (7.0, 5.0, 11.0)),
     GARAGE_BLUE: ('garage interior', True, (7.0, 5.0, 11.0)),
 }
@@ -50,6 +54,8 @@ EXTRA_CAR_MODELS = ('car_4dr_lowrider01', 'sp_metermaid01', 'sp_forklift01', 'SU
                     'car_2dr_sports04', 'car_2dr_standard02')
 DEFAULT_EXTRA_CAR = 'car_2dr_compact03'
 MAX_CHOP_SHOPS = 2
+# The small box written at the middle of each chop shop.
+SHOP_INTERIOR = (2.0, 2.0, 2.0)
 MAX_EXTRA_CARS = 8
 MAX_CASH_SPAWNS = 16
 MAX_SIDE = 200.0
@@ -85,7 +91,7 @@ def _size(m):
 
 def names(base, markers):
     """CTS name of each BOR marker, in marker order: {marker index: name}."""
-    short = {VICTORY: 'victory', CHOP_SHOP: 'chop', ENTRANCE: 'chopin', GARAGE_RED: 'garage1', GARAGE_BLUE: 'garage2',
+    short = {VICTORY: 'victory', CHOP_SHOP: 'chop', ENTRANCE: 'chopout', DOOR: 'chopdoor', GARAGE_RED: 'garage1', GARAGE_BLUE: 'garage2',
              CAR_RED: 'car1_', CAR_BLUE: 'car2_', CASH: 'cash'}
     seen, out = {}, {}
     for i, m in enumerate(markers):
@@ -99,6 +105,14 @@ def names(base, markers):
 
 def _vec(v):
     return ' '.join(f'{x:.6f}' for x in v)
+
+
+def _box_trigger(name, action, disabled, size):
+    w, h, d = size
+    return (f'$Trigger:\t\t\t\t"{name}"\n$Trigger type:\t\t\t"bounding box"\n'
+            f'$Trigger action:\t\t"{action}"\n$Trigger max fires:\t0\n$Trigger delay:\t\t10000\n'
+            f'$Start nav:\t\t\t\t"{name}"\n' + ('+Disabled\n' if disabled else '')
+            + f'$Box size:\t\t\t\t{_vec((-w / 2, 0, -d / 2, w / 2, h, d / 2))}\n\n')
 
 
 def records(base, markers, world_scale, mirror_x, origin, space):
@@ -115,11 +129,13 @@ def records(base, markers, world_scale, mirror_x, origin, space):
                     f'$Orient:\t\t[{yaw:.6f}]\n+Chunk:\t\t"{base}"\n\n')
         if t in BOXES:
             action, disabled, _ = BOXES[t]
-            w, h, d = _size(m)
-            triggers.append(f'$Trigger:\t\t\t\t"{name}"\n$Trigger type:\t\t\t"bounding box"\n'
-                            f'$Trigger action:\t\t"{action}"\n$Trigger max fires:\t0\n$Trigger delay:\t\t10000\n'
-                            f'$Start nav:\t\t\t\t"{name}"\n' + ('+Disabled\n' if disabled else '')
-                            + f'$Box size:\t\t\t\t{_vec((-w / 2, 0, -d / 2, w / 2, h, d / 2))}\n\n')
+            triggers.append(_box_trigger(name, action, disabled, _size(m)))
+            if t == CHOP_SHOP:
+                # The small "garage interior" box the game's own maps put in the middle of a chop shop.
+                inside = f'{base}_$bor_chopint{name[len(base) + len("_$bor_chop"):]}'
+                navs.append(f'$Navpoint:\t"{inside}"\n$Type:\t\t"ground"\n$Pos:\t\t\t<{_vec(pos)}>\n'
+                            f'$Orient:\t\t[{yaw:.6f}]\n+Chunk:\t\t"{base}"\n\n')
+                triggers.append(_box_trigger(inside, 'garage interior', True, SHOP_INTERIOR))
             if t == VICTORY and table['victory'] is None:
                 table['victory'] = name
             elif t == CHOP_SHOP and len(table['chops']) < MAX_CHOP_SHOPS:

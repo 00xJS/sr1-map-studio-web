@@ -8,7 +8,7 @@ import { packageMetadata } from '../src/lib/exporter'
 import { newMarker, newProject, type Marker } from '../src/lib/project'
 import { parseCueNames, soundLabel } from '../src/lib/gameFiles'
 import {
-  BOR, BOR_BOXES, BOR_CARS, BOR_CAR_BLUE, BOR_CAR_RED, BOR_CASH, BOR_CHOP, BOR_ENTRANCE, BOR_GARAGE_BLUE, BOR_GARAGE_RED, BOR_TYPES,
+  BOR, BOR_BOXES, BOR_CARS, BOR_CAR_BLUE, BOR_CAR_RED, BOR_CASH, BOR_CHOP, BOR_DOOR, BOR_ENTRANCE, BOR_GARAGE_BLUE, BOR_GARAGE_RED, BOR_TYPES,
   BOR_VICTORY, SOUND_ZONE, borExtraCars, borMissing, retailToolMarkers, zoneShape,
 } from '../src/lib/retailModes'
 
@@ -53,6 +53,10 @@ describe('Blinged Out Ride', () => {
     expect(item.fix).toEqual({ kind: 'tool', tool: 'spawn', spawn: BOR_CAR_RED })
     p.markers = borReady
     expect(mapChecklist(p, true).find((c) => c.id === 'bor')!.state).toBe('done')
+    // The on-foot door is suggested, not required.
+    expect(mapChecklist(p, true).find((c) => c.id === 'bor-door')).toMatchObject({ state: 'suggested', fix: { kind: 'tool', tool: 'spawn', spawn: BOR_DOOR } })
+    p.markers = [...borReady, at(BOR_DOOR)]
+    expect(mapChecklist(p, true).find((c) => c.id === 'bor-door')).toBeUndefined()
   })
 
   it('offers its markers only while the mode is chosen', () => {

@@ -49,7 +49,7 @@ BOR_MARKERS = [
     M(bor_mode.CAR_RED, (-12, 0, 2)), M(bor_mode.CAR_RED, (-12, 0, 6), vehicle='sp_forklift01'),
     M(bor_mode.CAR_BLUE, (12, 0, 2)), M(bor_mode.CAR_BLUE, (12, 0, 6), vehicle='not_a_car'),
     M(bor_mode.GARAGE_RED, (-20, 0, 0), size=[6, 4, 10]), M(bor_mode.GARAGE_BLUE, (20, 0, 0)),
-    M(bor_mode.CHOP_SHOP, (0, 0, -20), yaw=90), M(bor_mode.ENTRANCE, (0, 0, -12)),
+    M(bor_mode.CHOP_SHOP, (0, 0, -20), yaw=90), M(bor_mode.ENTRANCE, (0, 0, -12)), M(bor_mode.DOOR, (6, 0, -12)),
     M(bor_mode.VICTORY, (0, 0, 20)), M('Chains drop-off', (0, 0, 0), radius=0.7, disabled=True),
     M(bor_mode.CASH, (3, 0, 3)), M(bor_mode.CASH, (-3, 0, -3)),
 ]
@@ -66,7 +66,13 @@ def bor_text():
     check(table['extra'] == [('sp_forklift01', 'mymap_$bor_car1_1', 1), (bor_mode.DEFAULT_EXTRA_CAR, 'mymap_$bor_car2_1', 2)],
           'bor: further cars are extra cars, unknown models replaced ' + str(table['extra']))
     check(respawns.count('+Vehicle') == 4 and respawns.count('+MPTeam1') == 2 and respawns.count('+MPTeam2') == 2, 'bor: car respawns')
-    check(triggers.count('"bounding box"') == 5, 'bor: five box triggers')
+    check(triggers.count('"bounding box"') == 7, "bor: seven box triggers (with the door and the shop's inside box)")
+    door = re.search(r'"mymap_\$bor_chopdoor0".*?\n\n', triggers, re.S).group(0)
+    check('"garage enter"' in door and '+Disabled' in door and '-1.000000 0.000000 -1.000000 1.000000 2.000000 1.000000' in door,
+          'bor: on-foot door is a small disabled garage-enter box')
+    inside = re.search(r'"mymap_\$bor_chopint0".*?\n\n', triggers, re.S).group(0)
+    check('"garage interior"' in inside and '+Disabled' in inside and '$Navpoint:\t"mymap_$bor_chopint0"' in navs,
+          'bor: chop shop gets a small inside box at its middle')
     garage = re.search(r'"mymap_\$bor_garage10".*?\n\n', triggers, re.S).group(0)
     check('+Disabled' in garage and '$Box size:\t\t\t\t-3.000000 0.000000 -5.000000 3.000000 4.000000 5.000000' in garage,
           'bor: garage box from its size, starting disabled')
@@ -200,7 +206,7 @@ def full_export(pack, tmp, game):
         bor = (out / 'rftest_bor.cts').read_bytes().decode()
         ptp = (out / 'rftest_ptp.cts').read_bytes().decode()
         check('$bor_' not in main and 'blinged' not in main and '+Vehicle' not in main, 'export: main CTS has no BOR records')
-        check(bor.count('+Vehicle') == 4 and '"blinged victory"' in bor and bor.count('"garage interior"') == 2, 'export: BOR CTS has the BOR records')
+        check(bor.count('+Vehicle') == 4 and '"blinged victory"' in bor and bor.count('"garage interior"') == 3 and '"garage enter"' in bor, 'export: BOR CTS has the BOR records')
         check('$Include: "amb_rftest.cts"' in bor and '$Include: "amb_mp_arena.cts"' in bor, 'export: BOR CTS keeps both sound includes')
         for name, text in (('main', main), ('ptp', ptp)):
             check('$Include: "amb_rftest.cts"' in text, f'export: {name} CTS includes the sound zones')
@@ -215,7 +221,7 @@ def full_export(pack, tmp, game):
         check(len(named) == 10 and all(n in records or n in navs for n in named), 'export: every name in the mode table is in the BOR CTS')
         amb = (out / 'amb_rftest.cts').read_bytes().decode()
         check(amb.count('$Ambient:') == 1 and v['summary'].get('sound_zones') == 1, 'export: one sound zone (the one without a sound skipped)')
-        check(v['summary'].get('bor_records') == 11, 'export: summary counts BOR markers')
+        check(v['summary'].get('bor_records') == 12, 'export: summary counts BOR markers')
 
     # 2. A made-up crate effect: added to the effect bank, its pictures to the map's texture file.
     donor = tmp / 'donor'

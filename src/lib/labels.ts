@@ -10,7 +10,7 @@ export const MARKER_LABELS: Record<string, string> = {
   'Weapon pickup': 'Weapon',
   'Vehicle spawn': 'Vehicle',
   'Chains drop-off': 'Chains drop-off',
-  'Pimp entrance': 'Pimp entrance',
+  'Pimp entrance': "Pimp's escape point",
 }
 export const markerLabel = (type: string) => MARKER_LABELS[type] ?? type
 
@@ -20,7 +20,7 @@ export const MARKER_HINTS: Record<string, string> = {
   'Red team spawn': 'Where the red team appears in team modes and Protect Tha Pimp.',
   'Blue team spawn': 'Where the blue team appears in team modes and Protect Tha Pimp.',
   'Chains drop-off': 'Where players cash in chains in Big Ass Chains. Place 2 or more.',
-  'Pimp entrance': 'Where the pimp starts in Protect Tha Pimp.',
+  'Pimp entrance': "Where the pimp has to get to in Protect Tha Pimp. Place 1 or 2, well away from both teams' spawns.",
   'Vehicle spawn': 'A car or bike that appears on the map.',
 }
 

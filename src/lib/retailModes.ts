@@ -9,6 +9,7 @@ export const BOR: GameMode = 'Blinged Out Ride'
 export const BOR_VICTORY = 'BOR victory zone'
 export const BOR_CHOP = 'BOR chop shop'
 export const BOR_ENTRANCE = 'BOR chop shop entrance'
+export const BOR_DOOR = 'BOR chop shop door'
 export const BOR_GARAGE_RED = 'BOR red team garage'
 export const BOR_GARAGE_BLUE = 'BOR blue team garage'
 export const BOR_CAR_RED = 'BOR red team car'
@@ -16,7 +17,7 @@ export const BOR_CAR_BLUE = 'BOR blue team car'
 export const BOR_CASH = 'BOR cash spawn'
 export const SOUND_ZONE = 'Sound zone'
 
-export const BOR_TYPES = [BOR_CAR_RED, BOR_CAR_BLUE, BOR_GARAGE_RED, BOR_GARAGE_BLUE, BOR_CHOP, BOR_ENTRANCE, BOR_VICTORY, BOR_CASH]
+export const BOR_TYPES = [BOR_CAR_RED, BOR_CAR_BLUE, BOR_GARAGE_RED, BOR_GARAGE_BLUE, BOR_CHOP, BOR_ENTRANCE, BOR_DOOR, BOR_VICTORY, BOR_CASH]
 export const RETAIL_MARKER_TYPES = [...BOR_TYPES, SOUND_ZONE]
 
 /** Box triggers and their default size in metres (width, height, depth). */
@@ -24,6 +25,7 @@ export const BOR_BOXES: Record<string, Vec3> = {
   [BOR_VICTORY]: [12, 6, 14],
   [BOR_CHOP]: [5.5, 3.25, 9.5],
   [BOR_ENTRANCE]: [12, 2, 6.5],
+  [BOR_DOOR]: [2, 2, 2],
   [BOR_GARAGE_RED]: [7, 5, 11],
   [BOR_GARAGE_BLUE]: [7, 5, 11],
 }
@@ -62,6 +64,7 @@ export const RETAIL_MARKER_HINTS: Record<string, string> = {
   [BOR_GARAGE_BLUE]: "The blue team's garage in Blinged Out Ride: a safe zone around where its ride starts.",
   [BOR_CHOP]: 'A chop shop in Blinged Out Ride, where teams pay to bling their ride. Place 1 or 2.',
   [BOR_ENTRANCE]: 'The drive-in area in front of a chop shop. Place one per chop shop.',
+  [BOR_DOOR]: "A chop shop's door for players on foot, a few metres beside its drive-in entrance. One per chop shop.",
   [BOR_VICTORY]: 'The victory garage in Blinged Out Ride: drive the fully blinged ride in here to win.',
   [BOR_CASH]: 'Where cash appears in Blinged Out Ride. Place 6 or more around the map.',
   [SOUND_ZONE]: 'A sphere or box that plays a sound from your game, like birds, traffic or room tone.',
@@ -92,6 +95,7 @@ export function borWarnings(markers: Pick<Marker, 'type'>[]): string[] {
   const out: string[] = []
   if (count(BOR_CHOP) > BOR_LIMITS.chopShops) out.push(`Blinged Out Ride uses ${BOR_LIMITS.chopShops} chop shops at most; the others are left out.`)
   if (count(BOR_ENTRANCE) && count(BOR_ENTRANCE) < count(BOR_CHOP)) out.push('Blinged Out Ride: give each chop shop its own entrance.')
+  if (count(BOR_DOOR) < count(BOR_CHOP)) out.push("Blinged Out Ride: give each chop shop a door for players on foot, as the game's own maps do.")
   if (count(BOR_VICTORY) > 1) out.push('Blinged Out Ride uses one victory garage; only the first is used.')
   if (count(BOR_CASH) && count(BOR_CASH) < 6) out.push(`Blinged Out Ride: only ${count(BOR_CASH)} cash spawns; the game's own maps use 8 to 11.`)
   return out
@@ -105,6 +109,8 @@ export function retailChecklist(modes: GameMode[], markers: Marker[]): CheckItem
     items.push(need.length
       ? { id: 'bor', state: 'needed', text: `Blinged Out Ride needs ${need.map((n) => n.text).join(', ')}`, fix: { kind: 'tool', tool: 'spawn', spawn: need[0].type }, action: 'Place' }
       : { id: 'bor', state: 'done', text: 'Blinged Out Ride: cars, garages, chop shop, victory garage and cash placed' })
+    const doors = markers.filter((m) => m.type === BOR_DOOR).length, shops = markers.filter((m) => m.type === BOR_CHOP).length
+    if (!need.length && doors < shops) items.push({ id: 'bor-door', state: 'suggested', text: 'Blinged Out Ride: give each chop shop a door for players on foot', fix: { kind: 'tool', tool: 'spawn', spawn: BOR_DOOR }, action: 'Place' })
   }
   const silent = markers.filter((m) => m.type === SOUND_ZONE && !m.sound?.trim()).length
   if (silent) items.push({ id: 'sound', state: 'suggested', text: `${silent === 1 ? '1 sound zone has' : `${silent} sound zones have`} no sound chosen: left out until you pick one` })
