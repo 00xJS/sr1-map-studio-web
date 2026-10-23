@@ -217,6 +217,8 @@ def _scene_op(op, p):
             notes.append('Recommendation from mapconv: use at least four respawn points.')
         if bool(counts['Red team spawn']) != bool(counts['Blue team spawn']):
             notes.append('Warning: both team colors should have spawn points for balanced team modes.')
+        if counts['Red team spawn'] + counts['Blue team spawn'] and counts['Shared spawn']:
+            notes.append("Team spawns are written only for Protect Tha Pimp and Blinged Out Ride; Gangsta Brawl and Big Ass Chains use the shared spawns, like the game's own maps.")
         if counts.get(PIMP_EXIT, 0):
             notes.append('Pimp exit markers will block export: the game has no "pimp exit" trigger action. Remove them or change their type.')
         if counts.get('Pimp entrance', 0):
@@ -447,7 +449,8 @@ def _export(s, log):
         except Exception as exc:  # a missing picture should not stop the map export
             log('Loading screen skipped: ' + str(exc))
     extras = retail.finish(s, out, base, markers, ws, mirror, (0., 0., 0.) if space == 'game' else fixed_origin, space, log)
-    files = sorted(str(p) for p in out.rglob('*') if p.is_file())
+    features.write_brawl_spawns(out, base, log)
+    files =sorted(str(p) for p in out.rglob('*') if p.is_file())
     summary = {
         'render_triangles': result['bbchunk']['render_triangles'],
         'render_meshes': result['bbchunk']['render_meshes_used'],

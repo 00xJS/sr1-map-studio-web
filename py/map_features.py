@@ -515,3 +515,61 @@ def add_ambience(out_dir, base, include, log):
     if done:
         log(f'Background sound: {include}.cts included by ' + ', '.join(done) + ' (from your game, not shipped).')
     return done
+
+
+def _cts_section(text, header):
+    """(start, end) of the body of a #Section heading in a CTS text, or None."""
+    match = re.search(r'(?m)^' + re.escape(header) + r'\s*$', text)
+    if not match:
+        return None
+    nxt = re.search(r'(?m)^#[A-Za-z][A-Za-z0-9 ]*\s*$', text[match.end():])
+    return match.end(), match.end() + nxt.start() if nxt else len(text)
+
+
+def brawl_spawns(cts_text):
+    """(text, left_out, unteamed) for the CTS Gangsta Brawl and Big Ass Chains load.
+
+    The game's own GB and BAC maps (team versions too) spawn everyone at
+    respawns without a team, spread over the map; only PTP and BOR use team
+    respawns. So team respawns (and their navpoints) are left out when the map
+    has free-for-all ones; when it has none, they lose their team instead.
+    """
+    nl = '\r\n' if '\r\n' in cts_text else '\n'
+    text = cts_text.replace('\r\n', '\n')
+    span = _cts_section(text, '#Respawns')
+    if not span:
+        return cts_text, 0, 0
+    a, b = span
+    parts = re.split(r'(?m)(?=^\$Respawn:)', text[a:b])
+    head, blocks = parts[0], parts[1:]
+    team = [blk for blk in blocks if re.search(r'(?m)^\+MPTeam[12]\s*$', blk)]
+    if not team:
+        return cts_text, 0, 0
+    if len(team) == len(blocks):
+        body = ''.join(re.sub(r'(?m)^\+MPTeam[12]\s*\n', '', blk) for blk in blocks)
+        return (text[:a] + head + body + text[b:]).replace('\n', nl), 0, len(team)
+    gone = {m.group(1) for blk in team for m in [re.search(r'(?m)^\$Start nav:\s*"([^"]+)"', blk)] if m}
+    text = text[:a] + head + ''.join(blk for blk in blocks if blk not in team) + text[b:]
+    span = _cts_section(text, '#Navpoints')
+    if span and gone:
+        a, b = span
+        parts = re.split(r'(?m)(?=^\$Navpoint:)', text[a:b])
+        keep = [blk for blk in parts[1:] if not any(re.match(r'\$Navpoint:\s*"' + re.escape(n) + '"', blk) for n in gone)]
+        text = text[:a] + parts[0] + ''.join(keep) + text[b:]
+    return text.replace('\n', nl), len(team), 0
+
+
+def write_brawl_spawns(out_dir, base, log):
+    """Applies brawl_spawns to <base>.cts, after the BOR CTS has copied its team respawns."""
+    p = Path(out_dir) / (base + '.cts')
+    if not p.is_file():
+        return
+    text, left_out, unteamed = brawl_spawns(p.read_bytes().decode('utf-8-sig'))
+    if left_out:
+        log(f'Gangsta Brawl and Big Ass Chains use the free-for-all spawns only, like the game\'s own maps; '
+            f'the {left_out} team spawn(s) are kept for Protect Tha Pimp and Blinged Out Ride.')
+    elif unteamed:
+        log(f'No free-for-all spawns: Gangsta Brawl and Big Ass Chains will use the {unteamed} team spawn(s) for everyone. '
+            'Place Shared spawns spread over the map so players do not appear next to each other.')
+    if left_out or unteamed:
+        p.write_bytes(text.encode('utf-8'))

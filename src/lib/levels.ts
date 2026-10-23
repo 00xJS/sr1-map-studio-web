@@ -55,6 +55,22 @@ export function levelEntries(map: string, modes: GameMode[], markers: Marker[]):
 
 export interface ModeCheck { errors: string[]; warnings: string[] }
 
+/** Gangsta Brawl and Big Ass Chains, team versions too: everyone spawns at Player spawns (no team ones), as on the game's own maps. */
+export const freeForAll = (modes: GameMode[]) => modes.some((m) => m.includes('Gangsta Brawl') || m.includes('Chains'))
+/** Player spawns the game's own GB/BAC maps have (8 to 10). */
+export const FFA_SPAWNS = 8
+/** Chains drop-offs on each of the game's own BAC maps. */
+export const CHAINS_DROPS = 4
+/** Editor units (0.5 m): closer than this on the same floor counts as bunched together. */
+export const SPAWN_GAP = 16
+export const DROP_GAP = 40
+
+/** How many of these markers have another within `gap` units across and on the same floor. */
+export function bunched(markers: Pick<Marker, 'position'>[], gap: number): number {
+  const near = (a: Marker['position'], b: Marker['position']) => Math.abs(a[1] - b[1]) < 6 && Math.hypot(a[0] - b[0], a[2] - b[2]) < gap
+  return markers.filter((m, i) => markers.some((o, j) => j !== i && near(m.position, o.position))).length
+}
+
 /** Markers that only a game mode which isn't selected uses: the warning to show and the marker types a one-click fix removes. */
 export interface UnusedMarkers { text: string; types: string[]; count: number }
 
@@ -85,10 +101,19 @@ export function checkModes(settings: Pick<ProjectSettings, 'modes'>, markers: Ma
   const exits = count(PIMP_EXIT)
   if (exits) errors.push(`Remove ${exits === 1 ? 'the Pimp exit marker' : `the ${exits} Pimp exit markers`} or change ${exits === 1 ? 'its' : 'their'} type: the game has no "pimp exit" action.`)
   const spawns = markers.filter((m) => SPAWN_TYPES.includes(m.type)).length
-  const brawl = modes.filter((m) => m !== 'Protect Tha Pimp')
-  if (brawl.length && spawns > 0 && spawns < 4) warnings.push(`Only ${spawns} spawn${spawns === 1 ? '' : 's'}: at least 4 are recommended, ideally 8 or more.`)
-  if (modes.some((m) => m.includes('Chains')) && count('Chains drop-off') < 2) {
-    warnings.push('Big Ass Chains modes need Chains drop-off markers; place at least 2 (the drop-off moves between them every 2 minutes).')
+  if (freeForAll(modes) && spawns > 0) {
+    const shared = markers.filter((m) => m.type === 'Shared spawn')
+    if (!shared.length) warnings.push(`Gangsta Brawl and Big Ass Chains spawn everyone at Player spawns, team versions too. With none placed, everyone uses the team spawns and appears next to each other: place ${FFA_SPAWNS} or more spread over the map.`)
+    else if (shared.length < FFA_SPAWNS) warnings.push(`Only ${shared.length} Player spawn${shared.length === 1 ? '' : 's'}: Gangsta Brawl and Big Ass Chains spawn everyone at these (team versions too). The game's own maps have 8 to 10, spread over the map.`)
+    const close = bunched(shared, SPAWN_GAP)
+    if (close) warnings.push(`${close} Player spawns are within ${SPAWN_GAP / 2} m of another, so players can appear next to each other. The game's own maps keep them about 10 to 45 m apart.`)
+  }
+  if (modes.some((m) => m.includes('Chains'))) {
+    const drops = markers.filter((m) => m.type === 'Chains drop-off')
+    if (drops.length < 2) warnings.push(`Big Ass Chains modes need Chains drop-off markers; place at least 2, ideally ${CHAINS_DROPS} (the drop-off moves between them during the match).`)
+    else if (drops.length < CHAINS_DROPS) warnings.push(`${drops.length} Chains drop-offs: the game's own maps have ${CHAINS_DROPS}, spread over the map, and the drop-off moves between them during the match.`)
+    const close = bunched(drops, DROP_GAP)
+    if (close) warnings.push(`${close} Chains drop-offs are within ${DROP_GAP / 2} m of another. The drop-off moves between them during the match, so spread them out to move the fight around.`)
   }
   if (modes.includes('Protect Tha Pimp')) {
     const red = count('Red team spawn'), blue = count('Blue team spawn'), pimp = count('Pimp entrance')

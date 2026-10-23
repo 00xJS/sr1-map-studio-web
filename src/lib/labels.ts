@@ -16,10 +16,10 @@ export const markerLabel = (type: string) => MARKER_LABELS[type] ?? type
 
 /** What each placeable marker is for, in game terms a player knows. */
 export const MARKER_HINTS: Record<string, string> = {
-  'Shared spawn': 'Where players appear in every-player-for-themselves modes.',
-  'Red team spawn': 'Where the red team appears in team modes and Protect Tha Pimp.',
-  'Blue team spawn': 'Where the blue team appears in team modes and Protect Tha Pimp.',
-  'Chains drop-off': 'Where players cash in chains in Big Ass Chains. Place 2 or more.',
+  'Shared spawn': 'Where everyone appears in Gangsta Brawl and Big Ass Chains, team versions too. Place 8 or more, spread over the map.',
+  'Red team spawn': 'Where the red team appears in Protect Tha Pimp and Blinged Out Ride. Brawl and Chains use Player spawns, as in the game.',
+  'Blue team spawn': 'Where the blue team appears in Protect Tha Pimp and Blinged Out Ride. Brawl and Chains use Player spawns, as in the game.',
+  'Chains drop-off': 'Where players cash in chains in Big Ass Chains. The drop-off moves between them during the match: place 4, spread over the map.',
   'Pimp entrance': "Where the pimp has to get to in Protect Tha Pimp. Place 1 or 2, well away from both teams' spawns.",
   'Vehicle spawn': 'A car or bike that appears on the map.',
 }

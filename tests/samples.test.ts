@@ -27,7 +27,8 @@ describe('sample maps', () => {
     })
 
     it(`${s.name}: ready for its game modes`, () => {
-      const markers = s.markers.map(([type, at, patch]) => ({ ...newMarker(type, at), ...patch }))
+      // The map as players get it: spawns, weapons and drop-offs filled in.
+      const markers = sampleFor(s.id).markers.map(([type, at, patch]) => ({ ...newMarker(type, at), ...patch }))
       const { errors, warnings } = checkModes({ modes: s.modes }, markers)
       expect(errors).toEqual([])
       expect(warnings.filter((w) => !w.includes('Retail PTP maps use 6 per team'))).toEqual([])
@@ -60,7 +61,9 @@ describe('sample marker placement', () => {
       expect(count('Red team spawn')).toBeGreaterThanOrEqual(6)
       expect(count('Shared spawn')).toBeGreaterThanOrEqual(8)
       expect(count('Weapon pickup')).toBeGreaterThanOrEqual(10)
-      expect(count('Chains drop-off')).toBeGreaterThanOrEqual(2)
+      // The drop-off moves between 4 spots, as on the game's own maps; maps without a Chains mode get none.
+      if (s.modes.some((m) => m.includes('Chains'))) expect(count('Chains drop-off')).toBeGreaterThanOrEqual(4)
+      else expect(count('Chains drop-off')).toBe(0)
       expect(s.lights?.length ?? 0).toBeLessThanOrEqual(64)
     })
   }

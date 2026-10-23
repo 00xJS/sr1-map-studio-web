@@ -4,11 +4,12 @@
 // from their small previews, saved pieces from their own files.
 // Loaded only when a thumbnail has to be drawn (prefabThumbs.ts).
 import * as THREE from 'three'
-import { compoundObj, type Shape } from './shapes'
+import { compoundObj } from './shapes'
 import { parseObj, type ObjModel } from './geometry'
 import { defaultParams, generate } from './procedural'
 import { db } from './db'
 import type { Part, Tex } from './sampleKit'
+import { partShape, unflicker } from './zfight'
 import type { FileRef, SceneItem } from './project'
 
 export const THUMB_PX = 160
@@ -95,18 +96,13 @@ function meshOf(m: ObjModel, maps: (THREE.Texture | null)[]): THREE.Mesh {
   return new THREE.Mesh(g, mats)
 }
 
-const shapeOf = (part: Part): Shape => ({
-  kind: part.kind, size: part.size, tile: part.tile ?? 4,
-  ...(part.segments ? { segments: part.segments } : {}), ...(part.taper !== undefined ? { taper: part.taper } : {}), ...(part.bevel ? { bevel: part.bevel } : {}),
-  ...(part.lie ? { lie: true } : {}), ...(part.outline ? { outline: part.outline } : {}), ...(part.fit ? { fit: true } : {}),
-  ...(part.heights ? { cells: part.cells, heights: part.heights } : {}),
-})
+const shapeOf = partShape
 
 /** A prefab's parts (placed at the origin) as one object, as the editor builds them. */
 export async function partsObject(parts: Part[]): Promise<THREE.Object3D> {
   const texs = new Map<string, Tex>()
   const matOf = (t: Tex) => { const k = JSON.stringify(t); if (!texs.has(k)) texs.set(k, t); return 'm' + [...texs.keys()].indexOf(k) }
-  const pieces = parts.map((p) => ({ shape: shapeOf(p), at: p.at, rot: p.rot ?? 0, top: matOf(p.top), side: matOf(p.side) }))
+  const pieces = unflicker(parts).map((p) => ({ shape: shapeOf(p), at: p.at, rot: p.rot ?? 0, top: matOf(p.top), side: matOf(p.side) }))
   const model = parseObj(compoundObj(pieces))
   const byName = new Map([...texs.values()].map((t, i) => ['m' + i, t]))
   const maps = await Promise.all(model.mats.map((m) => { const t = byName.get(m); return t ? partTexture(t) : null }))

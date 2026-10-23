@@ -137,7 +137,7 @@ export const URBAN: Sample[] = [
     ],
     markers: teamMarkers({
       red: [[-12, 1, -92], [12, 1, -92]],
-      shared: [[-24, 1, -46], [0, 2.15, -4]],
+      shared: [[-24, 1, -46]],
       weapons: [['sniper_rifle', [60, 5, -50]], ['rpg_launcher', [0, 2.15, 4]]],
       drops: [[-30, 1, 8]],
       pimp: [0, 1, -95],
@@ -560,7 +560,7 @@ export const URBAN: Sample[] = [
     ],
     markers: teamMarkers({
       red: [[-10, 1, -78], [10, 1, -78]],
-      shared: [[-40, 1, -50], [-10, -2, -10], [0, 1, -6]],
+      shared: [[-40, 1, -50], [-10, -2, -10]],
       weapons: [['sniper_rifle', [-60, 1, -6]], ['rpg_launcher', [-14, -2, 0]]],
       drops: [[-80, 1, -30]],
       pimp: [0, 1, -82],
@@ -702,7 +702,7 @@ export const URBAN: Sample[] = [
     ],
     markers: teamMarkers({
       red: [[-14, 1, -82], [14, 1, -82]],
-      shared: [[-40, 1, -58], [-6, 4, -4]],
+      shared: [[-40, 1, -58]],
       weapons: [['sniper_rifle', [6, 4, 3]], ['rpg_launcher', [-30, 1, -10]]],
       drops: [[-90, 1, -10]],
       pimp: [0, 1, -86],
@@ -762,7 +762,7 @@ export const URBAN: Sample[] = [
       red: [[-8, 1, -104], [8, 1, -104]],
       shared: [[0, 1, -70], [-30, S, -46], [-58, 11, -30]],
       weapons: [['sniper_rifle', [-56, 11, -32]], ['rpg_launcher', [0, 1, -8]]],
-      drops: [[-12, 1, -6]],
+      drops: [[-12, 1, -18]],
       pimp: [0, 1, -107],
     }),
     lights: lampLights([[-25, -100], [25, -80], [-25, -50], [25, -14]]),

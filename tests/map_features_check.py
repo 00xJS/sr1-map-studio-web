@@ -139,6 +139,24 @@ def includes():
     check(mf.add_include('#Groups\n', 'amb_mp_arena').startswith('// -------\n#Includes'), 'cts: #Includes block made when missing')
 
 
+def brawl_spawns():
+    nav = lambda n: f'$Navpoint:\t"{n}"\n$Type:\t\t"ground"\n$Pos:\t\t\t<0 0 0>\n$Orient:\t\t[0]\n+Chunk:\t\t"m"\n\n'
+    spawn = lambda n, team=0: (f'$Respawn:\t\t"{n}"\n$Start nav:\t\t"{n}"\n$Box size:\t\t-2 0 -2 2 2 2\n'
+                               + (f'+MPTeam{team}\n' if team else '') + '\n')
+    cts = lambda *s: ('#Navpoints\n// -------\n\n' + ''.join(nav(n) for n, _ in s) + nav('m_$item000')
+                      + '#Respawns\n// -------\n\n' + ''.join(spawn(n, t) for n, t in s) + '#Humans\n').replace('\n', '\r\n')
+    text, out, unteamed = mf.brawl_spawns(cts(('m_$respawn000', 0), ('m_$respawn001', 1), ('m_$respawn002', 2)))
+    check((out, unteamed) == (2, 0), 'spawns: team spawns left out of the brawl CTS')
+    check('respawn000' in text and 'respawn001' not in text and 'respawn002' not in text and 'item000' in text,
+          'spawns: their navpoints go too, other navpoints stay')
+    check('\n' not in text.replace('\r\n', ''), 'spawns: line endings kept')
+    text, out, unteamed = mf.brawl_spawns(cts(('m_$respawn000', 1), ('m_$respawn001', 2)))
+    check((out, unteamed) == (0, 2) and 'MPTeam' not in text and text.count('$Respawn:') == 2,
+          'spawns: with no free-for-all spawns, team spawns lose their team instead')
+    same = cts(('m_$respawn000', 0))
+    check(mf.brawl_spawns(same) == (same, 0, 0), 'spawns: free-for-all only is left as is')
+
+
 def full_export(pack, tmp):
     """A real export through web_api with every new feature switched on."""
     import web_api
@@ -224,6 +242,7 @@ with tempfile.TemporaryDirectory() as t:
     water_bytes()
     loading_screen(tmp)
     includes()
+    brawl_spawns()
     pack = os.environ.get('SR1_DATA_PACK')
     if pack:
         full_export(Path(pack), tmp)

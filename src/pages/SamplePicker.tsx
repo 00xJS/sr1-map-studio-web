@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Modal, toastError } from '../ui'
 import { SAMPLES, THEMES, THEME_INFO, buildFrom, buildSample, hasCompact, type Sample, type Theme } from '../lib/samples'
 import { MapWizard } from './MapWizard'
@@ -6,6 +6,7 @@ import { DescribeMap } from './DescribeMap'
 import type { Project } from '../lib/project'
 import type { WizardOptions } from '../lib/mapWizard'
 import type { PendingEdits } from '../lib/pendingEdits'
+import { galleryPages, gallerySample } from '../lib/gallery'
 
 
 /** Card picture: a rendered preview when there is one, else the sample's icon. */
@@ -25,7 +26,7 @@ function Pic({ s }: { s: Sample }) {
  */
 export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project, edits?: PendingEdits) => Promise<void> | void; onBlank?: () => void }) {
   const [progress, setProgress] = useState<string | null>(null)
-  const [theme, setTheme] = useState<Theme | 'wizard' | 'describe'>('wizard')
+  const [theme, setTheme] = useState<Theme | 'wizard' | 'describe' | 'gallery'>('wizard')
   const [tuned, setTuned] = useState<WizardOptions | undefined>()
   const [small, setSmall] = useState(false)
   const choose = async (id: string | Sample, edits?: PendingEdits) => {
@@ -51,10 +52,12 @@ export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project,
             {t} <span className="faint">{SAMPLES.filter((s) => s.theme === t).length}</span>
           </button>
         ))}
+        <button className={'sm' + (theme === 'gallery' ? ' on' : '')} onClick={() => setTheme('gallery')} title="Every object, a category at a time, to check how each looks">🧪 Object gallery</button>
       </div>
+      {theme === 'gallery' && <Gallery busy={busy} onPick={(s) => choose(s)} />}
       {theme === 'describe' && <DescribeMap busy={busy} onCreate={(s, edits) => choose(s, edits)} onTune={(o) => { setTuned(o); setTheme('wizard') }} />}
       {theme === 'wizard' && <MapWizard key={tuned?.seed} initial={tuned} busy={busy} onCreate={(s) => choose(s)} onBlank={props.onBlank} />}
-      {theme !== 'wizard' && theme !== 'describe' && <>
+      {theme !== 'wizard' && theme !== 'describe' && theme !== 'gallery' && <>
       <p className="small muted">{THEME_INFO[theme]} Every sample is built from simple shapes with free textures, sized for 8–12 player matches like the retail maps, and already has plenty of spawns, weapons and lights. Change anything you like.</p>
       {shown.some(hasCompact) && (
         <label className="row small"><input type="checkbox" checked={small} onChange={(e) => setSmall(e.target.checked)} /> Small version (half the size, for 2–6 players)</label>
@@ -79,5 +82,26 @@ export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project,
       </div>
       </>}
     </Modal>
+  )
+}
+
+/** Gallery maps: every prefab of a category in rows, split into pages so no one map gets too big. */
+function Gallery({ busy, onPick }: { busy: boolean; onPick: (s: Sample) => void }) {
+  const pages = useMemo(galleryPages, [])
+  const categories = [...new Set(pages.map((g) => g.category))]
+  return (
+    <div className="col" style={{ gap: 10 }}>
+      <p className="small muted">A plain floor with every object of a category in rows and walkways in front, to walk or fly past and check each one (flicker, gaps, odd sizes) in the editor or in game. Big categories are split into parts.</p>
+      {categories.map((c) => (
+        <div key={c} className="row wrap" style={{ gap: 6 }}>
+          <span className="small" style={{ minWidth: 130 }}>{c}</span>
+          {pages.filter((g) => g.category === c).map((g) => (
+            <button key={g.page} className="sm" disabled={busy} onClick={() => onPick(gallerySample(g))} title={g.keys.map((k) => k).join(', ')}>
+              {g.pages > 1 ? `Part ${g.page}` : 'Build'} <span className="faint">{g.keys.length}</span>
+            </button>
+          ))}
+        </div>
+      ))}
+    </div>
   )
 }

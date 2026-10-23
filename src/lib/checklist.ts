@@ -2,7 +2,7 @@
 // game ('needed' blocks Play), and what would make it better ('suggested').
 import { PIMP_EXIT, SPAWN_TYPES, isCustomNative, isGlass, type Project } from './project'
 import { retailChecklist } from './retailModes'
-import { unusedModeMarkers } from './levels'
+import { CHAINS_DROPS, DROP_GAP, FFA_SPAWNS, SPAWN_GAP, bunched, freeForAll, unusedModeMarkers } from './levels'
 
 export type Fix =
   | { kind: 'tool'; tool: string; spawn?: string }
@@ -56,6 +56,12 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
   if (!spawns) add({ id: 'spawns', state: 'needed', text: 'Place spawns where players appear', fix: spawnFix, action: 'Place' })
   else if (spawns < 4) add({ id: 'spawns', state: 'suggested', text: `Only ${spawns} spawn${spawns === 1 ? '' : 's'}: add a few more (8 is good)`, fix: spawnFix, action: 'Place' })
   else add({ id: 'spawns', state: 'done', text: `${spawns} spawns` })
+  // Gangsta Brawl and Big Ass Chains spawn everyone at Player spawns, never at team ones.
+  const shared = p.markers.filter((m) => m.type === 'Shared spawn')
+  if (spawns && freeForAll(modes)) {
+    if (shared.length < FFA_SPAWNS) add({ id: 'ffa-spawns', state: 'suggested', text: `Gangsta Brawl and Big Ass Chains use Player spawns only: ${shared.length} placed, ${FFA_SPAWNS} or more spread over the map is good`, fix: spawnFix, action: 'Place' })
+    else if (bunched(shared, SPAWN_GAP)) add({ id: 'ffa-spawns', state: 'suggested', text: `${bunched(shared, SPAWN_GAP)} Player spawns are within ${SPAWN_GAP / 2} m of another: spread them out so players don't appear together` })
+  }
 
   const weapons = count('Weapon pickup')
   add(weapons
@@ -66,9 +72,13 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
 
   if (modes.some((m) => m.includes('Chains'))) {
     const drops = count('Chains drop-off')
-    add(drops >= 2
-      ? { id: 'chains', state: 'done', text: `${drops} chains drop-offs` }
-      : { id: 'chains', state: 'suggested', text: `Big Ass Chains: place ${drops ? '1 more drop-off' : '2 drop-offs'}`, fix: { kind: 'tool', tool: 'spawn', spawn: 'Chains drop-off' }, action: 'Place' })
+    const close = bunched(p.markers.filter((m) => m.type === 'Chains drop-off'), DROP_GAP)
+    const more = CHAINS_DROPS - drops
+    add(more > 0
+      ? { id: 'chains', state: 'suggested', text: `Big Ass Chains: place ${more} more drop-off${more === 1 ? '' : 's'} (the drop-off moves between ${CHAINS_DROPS} spots during the match)`, fix: { kind: 'tool', tool: 'spawn', spawn: 'Chains drop-off' }, action: 'Place' }
+      : close
+        ? { id: 'chains', state: 'suggested', text: `${close} chains drop-offs are within ${DROP_GAP / 2} m of another: spread them over the map, since the drop-off moves between them` }
+        : { id: 'chains', state: 'done', text: `${drops} chains drop-offs` })
   }
 
   if (modes.includes('Protect Tha Pimp')) {

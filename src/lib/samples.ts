@@ -18,6 +18,7 @@ import { FULL_TARGETS, populate, type PopulateTargets } from './samplePopulate'
 import { DENSE, LIGHT_DRESS, dress, type DressOptions } from './sampleDress'
 import { detailize } from './sampleDetail'
 import { cyberLife } from './prefabsCyberLife'
+import { unflicker } from './zfight'
 
 export type { Sample, Theme }
 
@@ -270,8 +271,11 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
   // Parts of a prefab (same group) become one object; the rest stay one object each.
   const units: Part[][] = []
   const byGroup = new Map<string, Part[]>()
+  // Pieces whose faces share a plane flicker as the camera moves: nudge them apart first (see zfight.ts).
+  const loose = unflicker(parts.filter((part) => !part.group))
+  let next = 0
   for (const part of parts) {
-    if (!part.group) { units.push([part]); continue }
+    if (!part.group) { units.push([loose[next++]]); continue }
     if (!byGroup.has(part.group)) { byGroup.set(part.group, []); units.push(byGroup.get(part.group)!) }
     byGroup.get(part.group)!.push(part)
   }
@@ -300,7 +304,7 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
     const turnBy = tag?.rot ?? 0
     const mats = new Map<string, Tex>()
     const matOf = (t: Tex) => { const k = JSON.stringify(t); if (!mats.has(k)) mats.set(k, t); return 'm' + [...mats.keys()].indexOf(k) }
-    const pieces = unit.map((p) => {
+    const pieces = unflicker(unit).map((p) => {
       const [dx, dz] = turn(p.at[0] - origin[0], p.at[2] - origin[2], -turnBy)
       return { shape: shapeOf(p), at: [dx, p.at[1] - origin[1], dz] as Vec3, rot: (p.rot ?? 0) - turnBy, top: matOf(p.top), side: matOf(p.side) }
     })

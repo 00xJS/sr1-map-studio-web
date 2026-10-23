@@ -49,7 +49,7 @@ export const SHAPE_PRESETS: Record<string, ShapePreset> = {
 
 type V = [number, number, number]
 /** `mat` names a material other than top/side (a terrain's rock). */
-interface Face { pts: V[]; top: boolean; mat?: string }
+export interface Face { pts: V[]; top: boolean; mat?: string }
 
 const sub = (a: V, b: V): V => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const cross = (a: V, b: V): V => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
@@ -107,7 +107,7 @@ function bevelFaces(x0: number, x1: number, h: number, z0: number, z1: number, b
   return out
 }
 
-function faces(s: Shape): Face[] {
+export function faces(s: Shape): Face[] {
   const [w, h, d] = s.size.map((v) => Math.max(0.01, v)) as V
   const x0 = -w / 2, x1 = w / 2, z0 = -d / 2, z1 = d / 2
   switch (s.kind) {

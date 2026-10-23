@@ -153,15 +153,20 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
 
   // Free-for-all spawns: everywhere, as far apart as possible.
   const sharedNeed = Math.max(0, t.shared - of('Shared spawn').length)
-  const shared = pick(pool, spawns(), Math.ceil(sharedNeed / 2), 12, (p) => p[2] < 0 || (p[2] === 0 && p[0] < 0), s.parts)
+  const shared = pick(pool, [...spawns(), ...of('Chains drop-off')], Math.ceil(sharedNeed / 2), 12, (p) => p[2] < 0 || (p[2] === 0 && p[0] < 0), s.parts)
   for (const p of shared) markers.push(['Shared spawn', p, { yaw: lookAtCenter(p) }], ['Shared spawn', flip(p), { yaw: lookAtCenter(flip(p)) }])
 
-  // Chains drop-offs: in the middle band, apart from each other.
-  const dropNeed = Math.max(0, t.drops - of('Chains drop-off').length)
-  // In the middle band if there's room there, else anywhere away from the ends.
-  let drops = pick(pool, [...of('Chains drop-off'), ...spawns()], Math.ceil(dropNeed / 2), 16, (p) => Math.abs(p[2]) < depth * 0.3 && (p[2] < 0 || p[0] < 0), s.parts)
-  if (drops.length < Math.ceil(dropNeed / 2)) {
-    drops = [...drops, ...pick(pool, [...of('Chains drop-off'), ...spawns(), ...drops, ...drops.map(flip)], Math.ceil(dropNeed / 2) - drops.length, 6, (p) => Math.abs(p[2]) < depth * 0.45 && (p[2] < 0 || p[0] < 0), s.parts)]
+  // Chains drop-offs: the drop-off moves between them during the match, so they sit well apart from each other
+  // (20 m where there's room), off the spawns, in the middle band if there's room there, else anywhere away from the ends.
+  // Only maps with a mode that uses them (Big Ass Chains, or Blinged Out Ride's cash drop-off).
+  const usesDrops = s.modes.some((m) => m.includes('Chains') || m === 'Blinged Out Ride')
+  const dropNeed = usesDrops ? Math.ceil(Math.max(0, t.drops - of('Chains drop-off').length) / 2) : 0
+  const offSpawns = (p: Vec3) => spawns().every((q) => d2(q, p) >= 16 && d2(q, flip(p)) >= 16)
+  const drops: Vec3[] = []
+  for (const [band, gap] of [[0.3, 40], [0.45, 40], [0.7, 40], [0.45, 24], [0.45, 6]]) {
+    if (drops.length >= dropNeed) break
+    drops.push(...pick(pool, [...of('Chains drop-off'), ...drops, ...drops.map(flip)], dropNeed - drops.length, gap,
+      (p) => Math.abs(p[2]) < depth * band && (p[2] < 0 || p[0] < 0) && (gap < 24 || offSpawns(p)), s.parts))
   }
   for (const p of drops) markers.push(['Chains drop-off', p], ['Chains drop-off', flip(p)])
 
