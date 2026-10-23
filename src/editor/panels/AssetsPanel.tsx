@@ -75,7 +75,9 @@ export function AssetsPanel() {
           {hasGroup(pack, 'demo') && <button className="sm" disabled={busy} onClick={() => run(importDemoCrate)}>Add demo crate to library</button>}
           <FileButton className="sm" multiple accept=".bbchunk_xbox2,.peg_xbox2" onFiles={(f) => run(() => extractGameMap(f))}>Import a map from the game…</FileButton>
         </div>
-        <p className="faint small">"Import a map from the game" converts a <code>.bbchunk_xbox2</code> (select its <code>.peg_xbox2</code> too for textures) from your own game install into an editable model. Installed maps are in <code>SaintsReborn/dist/maps/&lt;map name&gt;/levels/</code>, for example <code>Dust/levels/dust.bbchunk_xbox2</code> and <code>dust.peg_xbox2</code>. The original game's maps are packed inside <code>game/packfiles</code> and can't be picked directly. Game-derived files stay on this device and can't be shared to the hub.</p>
+        <p className="faint small"><b>Where to load from:</b> "Import a map from the game" converts a <code>.bbchunk_xbox2</code> (select its <code>.peg_xbox2</code> too for textures) from your own game install into an editable model. Installed maps live in <code>SaintsReborn/dist/maps/&lt;map name&gt;/levels/</code>, for example <code>SaintsReborn/dist/maps/Dust/levels/dust.bbchunk_xbox2</code> and <code>dust.peg_xbox2</code>. The original game's own maps are packed inside <code>SaintsReborn/dist/game/packfiles</code> and can't be picked directly.</p>
+        <p className="faint small"><b>Where your maps go:</b> exports install into <code>SaintsReborn/dist/maps/&lt;your map name&gt;/</code>. ▶ Play puts them there for you, or unzip a downloaded export into <code>SaintsReborn/dist/maps</code>.</p>
+        <p className="faint small">Files from your game stay on this device and can't be shared to the Showcase.</p>
       </div>
     </>
   )
