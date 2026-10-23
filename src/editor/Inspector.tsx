@@ -21,6 +21,7 @@ import { ALL_PREFABS } from '../lib/prefabRegistry'
 import { prefabParams } from '../lib/prefabs'
 import { AMBIENCE_OPTIONS, ambienceHint, waterHint } from '../lib/mapFeatures'
 import { PhysicsPanel } from './PhysicsPanel'
+import { RetailMarkerFields } from './RetailMarkerFields'
 
 const TextureStudio = lazy(() => import('./TextureStudio').then((m) => ({ default: m.TextureStudio })))
 const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
@@ -365,12 +366,12 @@ function ShapeSize({ it, index }: { it: SceneItem; index: number }) {
 
 function MarkerInspector({ m, index }: { m: Marker; index: number }) {
   const update = useEditor((s) => s.update)
-  const set = (label: string, fn: (d: Marker) => void) => update(label, (d) => {
+  const set = (label: string, fn: (d: Marker) => void, merge?: string) => update(label, (d) => {
     const x = d.markers[index]
     fn(x)
     if (x.type === 'Weapon pickup') x.label = x.weapon
     if (x.type === 'Vehicle spawn') x.label = x.vehicle
-  })
+  }, merge ? { merge: merge + index } : undefined)
   const types = m.type === 'Weapon pickup' ? ['Weapon pickup'] : SIMPLE_MARKERS.includes(m.type) ? SIMPLE_MARKERS : [m.type, ...SIMPLE_MARKERS]
   const turn = (deg: number) => set('Turn', (d) => { d.yaw = ((Math.round(d.yaw + deg) % 360) + 360) % 360 })
   return (
@@ -399,6 +400,7 @@ function MarkerInspector({ m, index }: { m: Marker; index: number }) {
             </select>
           </Field>
         )}
+        <RetailMarkerFields m={m} index={index} set={set} />
         <div className="row">
           <span className="small muted">Faces</span>
           <svg viewBox="-10 -10 20 20" width="26" height="26" style={{ transform: `rotate(${m.yaw}deg)` }} aria-hidden>

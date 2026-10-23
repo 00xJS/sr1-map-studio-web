@@ -12,6 +12,7 @@ import { presetOf } from '../lib/physicsProps'
 import type { ObjModel } from '../lib/geometry'
 import { loadModel, peekModel, textureUrl } from '../lib/assets'
 import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
+import { RETAIL_MARKER_COLORS, syncZone } from './zones'
 
 export interface ViewOptions {
   selection: { kind: 'item' | 'marker' | 'light'; index: number } | null
@@ -50,7 +51,7 @@ const MARKER_COLORS: Record<string, number> = {
   'Shared spawn': 0x37e3ff, 'Red team spawn': 0xff4d5e, 'Blue team spawn': 0x4d8bff,
   'Weapon pickup': 0xffc23d, 'Vehicle spawn': 0xb98cff, 'Human NPC spawn': 0x7dff8f, 'Special spawn': 0x7dff8f,
 }
-const markerColor = (t: string) => MARKER_COLORS[t] ?? (/navpoint/i.test(t) ? 0x9aa4b5 : 0xff42bf)
+const markerColor = (t: string) => MARKER_COLORS[t] ?? RETAIL_MARKER_COLORS[t] ?? (/navpoint/i.test(t) ? 0x9aa4b5 : 0xff42bf)
 
 interface GeoInfo { geometry: THREE.BufferGeometry; faceOrder: Uint32Array; mats: string[] }
 interface ItemNode {
@@ -670,7 +671,9 @@ export class Viewer {
       g.rotation.set(0, -m.yaw * RAD, 0)
       const selected = this.opts.selection?.kind === 'marker' && this.opts.selection.index === i
       // Marker meshes are ~1 game unit across; editor units are game units / world scale.
-      g.scale.setScalar((selected ? 1.25 : 1) / (this.project?.settings.world_scale || 0.5))
+      const scale = (selected ? 1.25 : 1) / (this.project?.settings.world_scale || 0.5)
+      g.scale.setScalar(scale)
+      syncZone(g, m, scale, markerColor(m.type))
     })
   }
 

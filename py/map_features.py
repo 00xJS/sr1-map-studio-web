@@ -337,6 +337,8 @@ BREAKING_PROFILES = {
     'Can': 'Breaks when shot (like a can), 7 lb',
     'SofaPillow': 'Breaks only from explosions, 4 lb',
     'Normal Glass Moveable': 'Fragile: breaks at the first hit, 1 lb',
+    # Needs its debris effect from the player's game files, else it falls back (see crate_debris).
+    'CrateFruit': 'Wooden crate: smashes into boards (explosions, cars), 20 lb',
 }
 DEFAULT_BREAKING = 'Can'
 

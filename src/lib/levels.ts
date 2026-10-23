@@ -1,8 +1,10 @@
 // Game-mode entries for multiplayer_levels_extra.xtbl and the marker checks
 // each mode needs. The game only accepts its exact mode names, level IDs must
 // be unique across every installed map pack (Saints Reborn's map check), and
-// Protect Tha Pimp loads its own <map>_ptp.cts, as the retail PTP maps do.
+// Protect Tha Pimp loads its own <map>_ptp.cts, as the retail PTP maps do;
+// Blinged Out Ride its own <map>_bor.cts plus levels/<map>_mode.xtbl.
 import { PIMP_EXIT, SPAWN_TYPES, type GameMode, type Marker, type ProjectSettings } from './project'
+import { BOR, borExtraCars, borMissing, borWarnings } from './retailModes'
 
 export interface LevelEntry {
   mode: GameMode
@@ -14,7 +16,7 @@ export interface LevelEntry {
 }
 
 const ABBREV: Record<GameMode, string> = {
-  'Gangsta Brawl': 'GB', 'Team Gangsta Brawl': 'TGB', 'Big Ass Chains': 'BAC', 'Team Big Ass Chains': 'TBAC', 'Protect Tha Pimp': 'PTP',
+  'Gangsta Brawl': 'GB', 'Team Gangsta Brawl': 'TGB', 'Big Ass Chains': 'BAC', 'Team Big Ass Chains': 'TBAC', 'Protect Tha Pimp': 'PTP', 'Blinged Out Ride': 'BOR',
 }
 
 /** Same ID for the same map name and mode, whatever else is selected. 1000-32767 marks a custom level. */
@@ -37,13 +39,17 @@ export function customizableCounts(markers: Marker[]): { weapons: number; vehicl
   return { weapons: Math.min(20, weapons || 6), vehicles: Math.min(20, vehicles) }
 }
 
+/** Blinged Out Ride is listed only when the map has everything the mode needs. */
 export function levelEntries(map: string, modes: GameMode[], markers: Marker[]): LevelEntry[] {
   const main = customizableCounts(markers)
   const ptp = customizableCounts([]) // the PTP CTS holds team spawns and pimp entrances only
-  return modes.map((mode) => {
+  // BOR cars come from <map>_mode.xtbl: the extra cars per team, as retail mp_bor_01 (3).
+  const bor = { weapons: main.weapons, vehicles: borExtraCars(markers) }
+  return modes.filter((mode) => mode !== BOR || !borMissing(markers).length).map((mode) => {
     const isPtp = mode === 'Protect Tha Pimp'
-    const counts = isPtp ? ptp : main
-    return { mode, name: `${map} ${ABBREV[mode]}`, ctsFile: isPtp ? `${map}_ptp` : map, id: levelId(map, mode), ...counts }
+    const counts = isPtp ? ptp : mode === BOR ? bor : main
+    const ctsFile = isPtp ? `${map}_ptp` : mode === BOR ? `${map}_bor` : map
+    return { mode, name: `${map} ${ABBREV[mode]}`, ctsFile, id: levelId(map, mode), ...counts }
   })
 }
 
@@ -70,6 +76,11 @@ export function checkModes(settings: Pick<ProjectSettings, 'modes'>, markers: Ma
     else if (red < 4 || blue < 4) warnings.push(`Protect Tha Pimp: ${red} red and ${blue} blue spawns. Retail PTP maps use 6 per team.`)
   } else if (count('Pimp entrance')) {
     warnings.push('Pimp entrances are only used by Protect Tha Pimp, which is not selected.')
+  }
+  if (modes.includes(BOR)) {
+    const need = borMissing(markers)
+    if (need.length) errors.push(`Blinged Out Ride needs ${need.map((n) => n.text).join(', ')}.`)
+    else warnings.push(...borWarnings(markers))
   }
   return { errors, warnings }
 }

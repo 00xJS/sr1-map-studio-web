@@ -7,7 +7,8 @@ import { isCustomNative, isGlass, isProp, type SceneItem, type Vec3 } from '../.
 import { loadModel } from '../../lib/assets'
 import { getViewer } from '../Viewport'
 import { SHAPE_PRESETS, type Shape } from '../../lib/shapes'
-import { BREAKING_PRESETS, MOVABLE_PRESETS, waterHint } from '../../lib/mapFeatures'
+import { BREAKING_PRESETS, CRATE_PROFILE, MOVABLE_PRESETS, waterHint } from '../../lib/mapFeatures'
+import { CrateDebrisNote } from '../RetailMarkerFields'
 
 const STEPS = [['Fine', 0.05], ['Normal', 0.5], ['Coarse', 5]] as const
 const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
@@ -259,6 +260,7 @@ function ProfilePreset({ it, index }: { it: SceneItem; index: number }) {
       <select value={value} onChange={(e) => update('Object preset', (d) => { d.scene_items[index].native_profile = e.target.value })}>
         {presets.map(([p, label]) => <option key={p} value={p}>{label}</option>)}
       </select>
+      {value === CRATE_PROFILE && <CrateDebrisNote />}
     </Field>
   )
 }

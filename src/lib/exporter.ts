@@ -5,6 +5,8 @@ import { py } from './py'
 import { dataPackStatus } from './datapack'
 import type { Marker, Project, ProjectSettings } from './project'
 import { checkModes, levelEntries } from './levels'
+import { BOR } from './retailModes'
+import { crateDebrisSpec } from './crateDebris'
 
 /** entries: the zip's files by path ("<folder>/levels/..."), for installing without unzipping. */
 export interface ExportOutput { result: ExportResult; zip: Blob; folder: string; entries: Record<string, Uint8Array> }
@@ -33,6 +35,7 @@ export async function runExport(project: Project, onLog: (t: string) => void): P
     sky = { native_sky_chunk: `/studio/native_sky_presets/${s.native_sky}.bbchunk_xbox2`, native_sky_peg: `/studio/native_sky_presets/${s.native_sky}.peg_xbox2` }
   }
   const job = Date.now().toString(36)
+  const crate = await crateDebrisSpec(project, onLog)
   const spec = {
     job,
     scene_items: project.scene_items.map(strip),
@@ -42,6 +45,9 @@ export async function runExport(project: Project, onLog: (t: string) => void): P
     double_sided: s.double_sided, sky_texture: s.sky_texture, minimap_texture: s.minimap_texture, minimap_rect: s.minimap_rect, sky_scale: s.sky_scale,
     bbcity_donor: s.bbcity_donor, cts_template: s.cts_template, marker_game_coords: s.marker_game_coords, ...sky,
     ptp: s.modes.includes('Protect Tha Pimp'),
+    // Blinged Out Ride: <map>_bor.cts and <map>_mode.xtbl (py/bor_mode.py).
+    bor: s.modes.includes(BOR),
+    ...crate,
     // Extras written after the main export (py/map_features.py).
     ambience: s.ambience || '', loading_image: s.loading_mode === 'none' ? '' : s.loading_image || '',
   }
