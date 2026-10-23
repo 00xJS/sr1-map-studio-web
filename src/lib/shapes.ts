@@ -5,7 +5,7 @@
 // "top" material, all others "side". Origin is the bottom center.
 import type { Vec3 } from './project'
 
-export type ShapeKind = 'box' | 'ramp' | 'stairs' | 'cylinder'
+export type ShapeKind = 'box' | 'ramp' | 'stairs' | 'cylinder' | 'roof'
 
 export interface Shape {
   kind: ShapeKind
@@ -15,6 +15,10 @@ export interface Shape {
   segments?: number
   /** Units per texture repeat. */
   tile: number
+  /** Cylinder: top width as a fraction of the bottom (0 = cone, 1 = straight, above 1 flares out). */
+  taper?: number
+  /** Box: rounds off the vertical and top edges by this many units. */
+  bevel?: number
 }
 
 export interface ShapePreset { label: string; shape: Shape; hint: string }
@@ -27,6 +31,9 @@ export const SHAPE_PRESETS: Record<string, ShapePreset> = {
   ramp: { label: 'Ramp', hint: 'Rises toward the back (−Z)', shape: { kind: 'ramp', size: [6, 3, 10], tile: 4 } },
   stairs: { label: 'Stairs', hint: 'Steps rising toward the back (−Z)', shape: { kind: 'stairs', size: [6, 3, 8], segments: 8, tile: 4 } },
   pillar: { label: 'Pillar', hint: 'A round column', shape: { kind: 'cylinder', size: [2, 8, 2], segments: 16, tile: 4 } },
+  block: { label: 'Rounded box', hint: 'Cover with softened edges', shape: { kind: 'box', size: [4, 3, 4], tile: 3, bevel: 0.4 } },
+  roof: { label: 'Roof', hint: 'A pitched roof; the ridge runs along X', shape: { kind: 'roof', size: [12, 4, 10], tile: 4 } },
+  cone: { label: 'Cone', hint: 'A cone or spire', shape: { kind: 'cylinder', size: [3, 5, 3], segments: 16, tile: 4, taper: 0 } },
 }
 
 type V = [number, number, number]
@@ -56,11 +63,54 @@ function boxFaces(x0: number, x1: number, y0: number, y1: number, z0: number, z1
   return quads.map(([pts, top]) => ({ pts: outward(pts, c), top }))
 }
 
+/** Faces whose normal points mostly up use the "top" material. */
+function upward(pts: V[], center: V): Face {
+  const o = outward(pts, center)
+  const n = cross(sub(o[1], o[0]), sub(o[2], o[0]))
+  const len = Math.hypot(n[0], n[1], n[2]) || 1
+  return { pts: o, top: n[1] / len > 0.55 }
+}
+
+/** Removes repeated neighbouring points (a chamfer that closes into a corner). */
+const dedupe = (pts: V[]) => pts.filter((p, i) => { const q = pts[(i + pts.length - 1) % pts.length]; return Math.hypot(p[0] - q[0], p[1] - q[1], p[2] - q[2]) > 1e-6 })
+
+function bevelFaces(x0: number, x1: number, h: number, z0: number, z1: number, bv: number): Face[] {
+  const b = Math.max(0.001, Math.min(bv, (x1 - x0) / 2 - 0.001, (z1 - z0) / 2 - 0.001, h / 2))
+  // Octagon with cut corners; [point, inward step] pairs, going round.
+  const ring: [number, number, number, number][] = [
+    [x0 + b, z0, 0, 1], [x1 - b, z0, 0, 1], [x1, z0 + b, -1, 0], [x1, z1 - b, -1, 0],
+    [x1 - b, z1, 0, -1], [x0 + b, z1, 0, -1], [x0, z1 - b, 1, 0], [x0, z0 + b, 1, 0],
+  ]
+  const r0 = ring.map(([x, z]): V => [x, 0, z])
+  const r1 = ring.map(([x, z]): V => [x, h - b, z])
+  const r2 = ring.map(([x, z, ix, iz]): V => [x + ix * b, h, z + iz * b])
+  const c: V = [(x0 + x1) / 2, h / 2, (z0 + z1) / 2]
+  const out: Face[] = [{ pts: outward(dedupe(r0), c), top: false }, { pts: outward(dedupe(r2), c), top: true }]
+  for (let i = 0; i < 8; i++) {
+    const j = (i + 1) % 8
+    out.push({ pts: outward([r0[i], r0[j], r1[j], r1[i]], c), top: false })
+    const slant = dedupe([r1[i], r1[j], r2[j], r2[i]])
+    if (slant.length >= 3) out.push(upward(slant, c))
+  }
+  return out
+}
+
 function faces(s: Shape): Face[] {
   const [w, h, d] = s.size.map((v) => Math.max(0.01, v)) as V
   const x0 = -w / 2, x1 = w / 2, z0 = -d / 2, z1 = d / 2
   switch (s.kind) {
-    case 'box': return boxFaces(x0, x1, 0, h, z0, z1)
+    case 'box': return s.bevel ? bevelFaces(x0, x1, h, z0, z1, s.bevel) : boxFaces(x0, x1, 0, h, z0, z1)
+    case 'roof': {
+      // Gable roof: ridge along X at the top middle.
+      const c: V = [0, h / 3, 0]
+      return [
+        { pts: outward([[x0, 0, z0], [x1, 0, z0], [x1, h, 0], [x0, h, 0]], c), top: true },
+        { pts: outward([[x0, 0, z1], [x1, 0, z1], [x1, h, 0], [x0, h, 0]], c), top: true },
+        { pts: outward([[x0, 0, z0], [x0, 0, z1], [x0, h, 0]], c), top: false },
+        { pts: outward([[x1, 0, z0], [x1, 0, z1], [x1, h, 0]], c), top: false },
+        { pts: outward([[x0, 0, z0], [x1, 0, z0], [x1, 0, z1], [x0, 0, z1]], c), top: false },
+      ]
+    }
     case 'ramp': {
       // Low edge at the front (+Z), high edge at the back (−Z).
       const c: V = [0, h / 3, -d / 6]
@@ -88,15 +138,15 @@ function faces(s: Shape): Face[] {
         const a = (i / n) * Math.PI * 2
         return [Math.cos(a) * (w / 2), y, Math.sin(a) * (d / 2)]
       })
-      const lo = ring(0), hi = ring(h)
-      const c: V = [0, h / 2, 0]
-      const out: Face[] = [
-        { pts: outward(hi, c), top: true },
-        { pts: outward(lo, c), top: false },
-      ]
+      const t = Math.max(0, Math.min(3, s.taper ?? 1))
+      const lo = ring(0), hi = ring(h).map((p): V => [p[0] * t, h, p[2] * t])
+      const c: V = [0, h / 3, 0]
+      const out: Face[] = [{ pts: outward(lo, c), top: false }]
+      if (t > 0) out.push({ pts: outward(hi, c), top: true })
       for (let i = 0; i < n; i++) {
         const j = (i + 1) % n
-        out.push({ pts: outward([lo[i], lo[j], hi[j], hi[i]], c), top: false })
+        // A cone meets in a point: triangles instead of quads.
+        out.push(t > 0 ? (t !== 1 ? upward([lo[i], lo[j], hi[j], hi[i]], c) : { pts: outward([lo[i], lo[j], hi[j], hi[i]], c), top: false }) : upward([lo[i], lo[j], [0, h, 0]], c))
       }
       return out
     }
@@ -136,6 +186,38 @@ export function shapeObj(s: Shape): string {
   for (const m of ['top', 'side'] as const) {
     if (groups[m].length) lines.push('usemtl ' + m, ...groups[m])
   }
+  return lines.join('\n') + '\n'
+}
+
+/** One piece of a compound object: a shape placed relative to the object's origin, with its own material names. */
+export interface CompoundPiece { shape: Shape; at: Vec3; rot: number; top: string; side: string }
+
+/** Several shapes as one OBJ (a prefab): each keeps its own texture scale; materials are shared by name. */
+export function compoundObj(pieces: CompoundPiece[]): string {
+  const lines = ['# SR1 Map Studio prefab']
+  const vt: string[] = []
+  const groups = new Map<string, string[]>()
+  let vi = 1
+  for (const pc of pieces) {
+    const t = (pc.rot * Math.PI) / 180, c = Math.cos(t), sn = Math.sin(t)
+    for (const f of faces(pc.shape)) {
+      const n = cross(sub(f.pts[1], f.pts[0]), sub(f.pts[2], f.pts[0]))
+      const idx: string[] = []
+      for (const p of f.pts) {
+        // Same turn as the editor's heading: x' = x cos + z sin, z' = -x sin + z cos.
+        lines.push(`v ${fmt(p[0] * c + p[2] * sn + pc.at[0])} ${fmt(p[1] + pc.at[1])} ${fmt(-p[0] * sn + p[2] * c + pc.at[2])}`)
+        const [u, v] = uv(p, n, pc.shape.tile)
+        vt.push(`vt ${fmt(u)} ${fmt(v)}`)
+        idx.push(`${vi}/${vi}`)
+        vi++
+      }
+      const m = f.top ? pc.top : pc.side
+      if (!groups.has(m)) groups.set(m, [])
+      groups.get(m)!.push('f ' + idx.join(' '))
+    }
+  }
+  lines.push(...vt)
+  for (const [m, fs] of groups) lines.push('usemtl ' + m, ...fs)
   return lines.join('\n') + '\n'
 }
 

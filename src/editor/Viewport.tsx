@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { Viewer } from './Viewer'
 import { breakMerge, setThumbnailProvider, useEditor } from './store'
-import { addLight, addMarker, addShape, placeAsset, removeTarget } from './actions'
+import { addLight, addMarker, addPrefab, addShape, placeAsset, removeTarget } from './actions'
 import { paintAt, pickAt } from './paint'
 import { ToolOptions, ToolStrip, chooseTool } from './Tools'
 import { toast, toastError } from '../ui'
@@ -26,7 +26,8 @@ function useTool(point: Vec3, item: number, face: number): boolean {
   const st = useEditor.getState()
   switch (st.tool) {
     case 'shape':
-      addShape(st.toolShape, snapped(point), point[1]).catch(toastError)
+      if (st.toolShape.startsWith('prefab:')) addPrefab(st.toolShape.slice(7), snapped(point), point[1]).catch(toastError)
+      else addShape(st.toolShape, snapped(point), point[1]).catch(toastError)
       return true
     case 'spawn':
       addMarker(st.toolSpawn, snapped(point))

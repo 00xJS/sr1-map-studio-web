@@ -3,13 +3,17 @@
 // from these descriptions, so they need no downloads or game files.
 // Coordinates are editor units (the default world scale of 0.5 halves them in game).
 import { newLight, newMarker, newProject, uid, type FileRef, type Light, type Marker, type Project, type SceneItem, type Vec3 } from './project'
-import { shapeName, shapeObj, type Shape } from './shapes'
+import { compoundObj, shapeName, shapeObj, type Shape } from './shapes'
 import { KINDS, defaultParams, generate } from './procedural'
 import { pixelsToPng } from './images'
 import { storeFile } from './files'
 import { ALL_MODES, GB, box, type Part, type Sample, type Tex, type Theme } from './sampleKit'
 import { PAINTBALL } from './samplesPaintball'
 import { CYBER } from './samplesCyber'
+import { URBAN } from './samplesUrban'
+import { mapSize, spreadSample } from './sampleScale'
+import { FULL_TARGETS, addCover, populate } from './samplePopulate'
+import { detailize } from './sampleDetail'
 
 export type { Sample, Theme }
 
@@ -39,6 +43,12 @@ const teams = (x: number, y: number, zs: number[]): [string, Vec3, Partial<Marke
   ...zs.map((z): [string, Vec3, Partial<Marker>] => ['Blue team spawn', [x, y, z], { yaw: -90 }]),
 ]
 const weapon = (id: string, at: Vec3): [string, Vec3, Partial<Marker>] => ['Weapon pickup', at, { weapon: id }]
+
+/** Moves a whole map sideways so its middle is at x 0 (maps are mirrored around the center). */
+function centerX(s: Sample, dx: number): Sample {
+  const mv = (p: Vec3): Vec3 => [p[0] + dx, p[1], p[2]]
+  return { ...s, parts: s.parts.map((p) => ({ ...p, at: mv(p.at) })), markers: s.markers.map(([t, p, m]) => [t, mv(p), m]), lights: s.lights?.map(([p, c]) => [mv(p), c]) }
+}
 
 const STARTER: Sample[] = [
   {
@@ -121,7 +131,7 @@ const STARTER: Sample[] = [
     ],
     lights: [[[0, 8, 0], [1, 0.8, 0.55]]],
   },
-  {
+  centerX({
     id: 'street', theme: 'Starter', name: 'Street', icon: '🛣', modes: ALL_MODES,
     description: 'A city block: road with a center line, curbs and sidewalks, buildings on both sides and parked cover.',
     parts: [
@@ -146,17 +156,56 @@ const STARTER: Sample[] = [
       ['Pimp entrance', [-4, 1.4, 0]],
     ],
     lights: [[[-4, 9, -40]], [[28, 9, 0]], [[-4, 9, 40]]],
-  },
+  }, -12),
+
 ]
 
-export const SAMPLES: Sample[] = [...STARTER, ...PAINTBALL, ...CYBER]
-export const THEMES: Theme[] = ['Starter', 'Urban paintball', 'Cyber']
+export const SAMPLES: Sample[] = [...STARTER, ...URBAN, ...PAINTBALL, ...CYBER]
+export const THEMES: Theme[] = ['Starter', 'Urban', 'Urban paintball', 'Cyber']
 
-/** Builds a sample into a new project (geometry, textures and markers stored locally). */
-export async function buildSample(id: string, onProgress?: (t: string) => void): Promise<Project> {
-  const sample = SAMPLES.find((s) => s.id === id)
-  if (!sample) throw new Error('Unknown sample map')
-  const project = newProject(sample.name)
+export const THEME_INFO: Record<Theme, string> = {
+  'Starter': 'Simple layouts to learn with.',
+  'Urban': 'City streets, plazas, parks, docks and rooftops, drawn at full retail size.',
+  'Urban paintball': 'Bunkers, containers, alleys and rooftops: symmetric fields made for team fights.',
+  'Cyber': 'Neon grids, glowing blocks and colored lights.',
+}
+
+const COMPACT_TARGETS = { shared: 8, perTeam: 6, weapons: 12, drops: 4, lights: 10 }
+/** Generated texture size: full detail where it shows (windows, shop fronts, doors), half elsewhere to keep maps light. */
+const DETAILED = new Set(['facade', 'storefront', 'garage_door'])
+const texSize = (kind: string) => (DETAILED.has(kind) ? 1024 : 512)
+
+/** The map as it will be built: full multiplayer size (compact designs spread ×2) with spawns, weapons and lights filled in, or compact for small groups. */
+export function sampleFor(id: string, compact = false): Sample {
+  const s = SAMPLES.find((x) => x.id === id)
+  if (!s) throw new Error('Unknown sample map')
+  const small = (s.size ?? 'compact') === 'compact'
+  if (compact && small) return populate(detailize(s), COMPACT_TARGETS)
+  // Spread-out compact maps get extra cover in the space that opened up.
+  return populate(detailize(small ? addCover(spreadSample(s, 2)) : s), FULL_TARGETS)
+}
+
+export interface SampleStats { widthM: number; depthM: number; players: number; spawns: number; weapons: number; lights: number }
+const statsCache = new Map<string, SampleStats>()
+/** Size and contents of a sample as it builds (cached; filling a map with markers takes a few milliseconds). */
+export function sampleStats(id: string, compact = false): SampleStats {
+  const key = id + (compact ? ':c' : '')
+  let st = statsCache.get(key)
+  if (!st) {
+    const s = sampleFor(id, compact)
+    const count = (...t: string[]) => s.markers.filter(([m]) => t.includes(m)).length
+    const { widthM, depthM, players } = mapSize(s)
+    st = { widthM, depthM, players, spawns: count('Shared spawn', 'Red team spawn', 'Blue team spawn'), weapons: count('Weapon pickup'), lights: s.lights?.length ?? 0 }
+    statsCache.set(key, st)
+  }
+  return st
+}
+
+/** True for maps drawn small, which can also be built compact for 2-6 players. */
+export const hasCompact = (s: Sample) => (s.size ?? 'compact') === 'compact'
+
+/** Turns parts into scene objects: shapes and prefabs as OBJ files, textures generated or loaded, all stored in this browser. */
+export async function materialize(parts: Part[], onProgress?: (t: string) => void): Promise<{ items: SceneItem[]; files: Record<string, FileRef> }> {
   const files: Record<string, FileRef> = {}
   const texCache = new Map<string, Promise<{ vpath: string; surface: number }>>()
   const library = new Map<string, Blob>()
@@ -178,8 +227,9 @@ export async function buildSample(id: string, onProgress?: (t: string) => void):
           files[s.vpath] = s.ref
           return { vpath: s.vpath, surface: t.surface }
         }
-        const params = { ...defaultParams(t.gen, 512), ...t.tweak, size: 512 }
-        const s = await storeFile(await pixelsToPng(generate(params), 512, `${t.gen}_${params.seed}.png`), `${t.gen}_${params.seed}.png`)
+        const size = texSize(t.gen)
+        const params = { ...defaultParams(t.gen, size), ...t.tweak, size }
+        const s = await storeFile(await pixelsToPng(generate(params), size, `${t.gen}_${params.seed}.png`), `${t.gen}_${params.seed}.png`)
         files[s.vpath] = s.ref
         return { vpath: s.vpath, surface: t.surface ?? KINDS[t.gen].surface }
       })()
@@ -189,19 +239,61 @@ export async function buildSample(id: string, onProgress?: (t: string) => void):
   }
 
   const items: SceneItem[] = []
-  for (const [i, part] of sample.parts.entries()) {
-    onProgress?.(`Building ${part.label.toLowerCase()} (${i + 1}/${sample.parts.length})…`)
-    const shape: Shape = { kind: part.kind, size: part.size, tile: part.tile ?? 4, ...(part.segments ? { segments: part.segments } : {}) }
-    const obj = await storeFile(new Blob([shapeObj(shape)], { type: 'model/obj' }), `${part.kind}.obj`)
-    files[obj.vpath] = obj.ref
-    const [top, side] = await Promise.all([texture(part.top), texture(part.side)])
+  const shapeOf = (part: Part): Shape => ({
+    kind: part.kind, size: part.size, tile: part.tile ?? 4,
+    ...(part.segments ? { segments: part.segments } : {}), ...(part.taper !== undefined ? { taper: part.taper } : {}), ...(part.bevel ? { bevel: part.bevel } : {}),
+  })
+  // Parts of a prefab (same group) become one object; the rest stay one object each.
+  const units: Part[][] = []
+  const byGroup = new Map<string, Part[]>()
+  for (const part of parts) {
+    if (!part.group) { units.push([part]); continue }
+    if (!byGroup.has(part.group)) { byGroup.set(part.group, []); units.push(byGroup.get(part.group)!) }
+    byGroup.get(part.group)!.push(part)
+  }
+  for (const [i, unit] of units.entries()) {
+    if (i % 20 === 0) onProgress?.(`Building ${unit[0].label.toLowerCase()} (${i + 1}/${units.length})…`)
+    if (unit.length === 1) {
+      const part = unit[0]
+      const shape = shapeOf(part)
+      const obj = await storeFile(new Blob([shapeObj(shape)], { type: 'model/obj' }), `${part.kind}.obj`)
+      files[obj.vpath] = obj.ref
+      const [top, side] = await Promise.all([texture(part.top), texture(part.side)])
+      items.push({
+        uid: uid(), name: shapeName(part.label, shape), path: obj.vpath, source_path: obj.vpath, shape,
+        position: part.at, rotation: [0, part.rot ?? 0, 0], scale: 1,
+        textures: { top: top.vpath, side: side.vpath }, alpha: { top: false, side: false },
+        surface_ids: { top: top.surface, side: side.surface }, physics_intent: 'Static',
+      })
+      continue
+    }
+    // Prefab: origin at the first part's base; one material per distinct texture.
+    const origin = unit[0].at
+    const mats = new Map<string, Tex>()
+    const matOf = (t: Tex) => { const k = JSON.stringify(t); if (!mats.has(k)) mats.set(k, t); return 'm' + [...mats.keys()].indexOf(k) }
+    const obj = compoundObj(unit.map((p) => ({ shape: shapeOf(p), at: [p.at[0] - origin[0], p.at[1] - origin[1], p.at[2] - origin[2]] as Vec3, rot: p.rot ?? 0, top: matOf(p.top), side: matOf(p.side) })))
+    const stored = await storeFile(new Blob([obj], { type: 'model/obj' }), 'prefab.obj')
+    files[stored.vpath] = stored.ref
+    const textures: Record<string, string> = {}, alpha: Record<string, boolean> = {}, surface_ids: Record<string, number> = {}
+    for (const [k, t] of mats) {
+      const name = 'm' + [...mats.keys()].indexOf(k)
+      const tx = await texture(t)
+      textures[name] = tx.vpath; alpha[name] = false; surface_ids[name] = tx.surface
+    }
     items.push({
-      uid: uid(), name: shapeName(part.label, shape), path: obj.vpath, source_path: obj.vpath, shape,
-      position: part.at, rotation: [0, part.rot ?? 0, 0], scale: 1,
-      textures: { top: top.vpath, side: side.vpath }, alpha: { top: false, side: false },
-      surface_ids: { top: top.surface, side: side.surface }, physics_intent: 'Static',
+      uid: uid(), name: unit[0].group!.split('@')[0].replace(/[~|]+$/, ''), path: stored.vpath, source_path: stored.vpath,
+      position: origin, rotation: [0, 0, 0], scale: 1, textures, alpha, surface_ids, physics_intent: 'Static',
     })
   }
+  return { items, files }
+}
+
+/** Builds a sample into a new project (geometry, textures and markers stored locally). */
+export async function buildSample(id: string, onProgress?: (t: string) => void, opts: { compact?: boolean } = {}): Promise<Project> {
+  const sample = sampleFor(id, opts.compact)
+  const lightRange = opts.compact && (sample.size ?? 'compact') === 'compact' ? 16 : 24
+  const project = newProject(sample.name)
+  const { items, files } = await materialize(sample.parts, onProgress)
   project.scene_items = items
   // A little above the surface, as the editor's "snap to surface" does.
   project.markers = sample.markers.map(([type, at, patch]) => {
@@ -209,7 +301,7 @@ export async function buildSample(id: string, onProgress?: (t: string) => void):
     if (m.type === 'Weapon pickup') m.label = m.weapon
     return m
   })
-  project.lights = (sample.lights || []).map(([at, color]): Light => ({ ...newLight(at), ...(color ? { color } : {}), range: 16 }))
+  project.lights = (sample.lights || []).map(([at, color]): Light => ({ ...newLight(at), ...(color ? { color } : {}), range: lightRange, inner_range: lightRange * 0.35 }))
   project.files = files
   project.settings.modes = sample.modes
   const base = sample.id.replace(/[^a-z0-9]/g, '').slice(0, 7)

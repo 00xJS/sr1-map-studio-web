@@ -10,6 +10,7 @@ const Editor = lazy(() => import('./editor/EditorPage'))
 const Hub = lazy(() => import('./pages/Hub'))
 const HubMap = lazy(() => import('./pages/HubMap'))
 const Account = lazy(() => import('./pages/Account'))
+const Catalog = lazy(() => import('./pages/Catalog'))
 
 export function Shell({ children }: { children: ReactNode }) {
   const user = useUser()
@@ -19,6 +20,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <Link to="/" className="brand"><b>SR1 / MAP STUDIO</b><span>SAINTS ROW 1</span></Link>
         <nav>
           <NavLink to="/" end>My maps</NavLink>
+          <NavLink to="/maps">Map catalog</NavLink>
           {hubEnabled && <NavLink to="/hub">Hub</NavLink>}
           <NavLink to="/setup">Data pack</NavLink>
           <NavLink to="/about">About</NavLink>
@@ -48,6 +50,7 @@ export default function App() {
         <Routes>
           <Route path="/editor/:id" element={<ErrorBoundary label="The editor hit an error"><Editor /></ErrorBoundary>} />
           <Route path="/" element={<Shell><Home /></Shell>} />
+          <Route path="/maps" element={<Shell><Catalog /></Shell>} />
           <Route path="/setup" element={<Shell><Setup /></Shell>} />
           <Route path="/about" element={<Shell><About /></Shell>} />
           <Route path="/hub" element={<Shell>{hubEnabled ? <Hub /> : <HubOff />}</Shell>} />

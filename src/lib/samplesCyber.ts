@@ -32,13 +32,13 @@ for (let k = -3; k <= 3; k++) for (let i = -4; i <= 4; i++) {
   const z = +(HZ * k).toFixed(2)
   const n = x === 0 && z === 0 ? 0 : (Math.round(Math.abs(x)) * 7 + Math.round(Math.abs(z)) * 3) % 4
   const h = [2.5, 4, 6, 9][n]
-  hexes.push(cyl('Hex pillar', 7, h, [x, 1, z], CY.dark, hexColors[n], 6))
+  hexes.push({ ...cyl('Hex pillar', 7, h, [x, 1, z], CY.dark, hexColors[n], 6), big: true })
 }
 const c3 = +(HZ / 3).toFixed(3)
 
 // Holo Maze: walls on cell boundaries (cells are 10 units, centered on multiples of 10).
-const H = (c: number, b: number, tex: Tex, h = 4): Part => box('Maze wall', [10, h, 1], [c, 1, b], CY.dark, tex)
-const V = (b: number, c: number, tex: Tex, h = 4): Part => box('Maze wall', [1, h, 10], [b, 1, c], CY.dark, tex)
+const H = (c: number, b: number, tex: Tex, h = 4): Part => ({ ...box('Maze wall', [10, h, 1], [c, 1, b], CY.dark, tex), big: true })
+const V = (b: number, c: number, tex: Tex, h = 4): Part => ({ ...box('Maze wall', [1, h, 10], [b, 1, c], CY.dark, tex), big: true })
 
 const tower = (x: number, z: number, h: number, side: Tex) => box('Tower', [16, h, 16], [x, 1, z], CY.dark, side)
 
@@ -67,7 +67,7 @@ export const CYBER: Sample[] = [
     description: 'A round arena around a towering data core. Ramps climb to the core ring; glowing conduits and server pillars break up the floor.',
     parts: [
       cyl('Arena floor', 84, 1, [0, 0, 0], CY.gridCyan, CY.panel, 48, 0, 6),
-      ...[...Array(24)].map((_, k) => { const a = k * 15, [x, z] = polar(41.5, a); return box('Ring wall', [11, 7, 1], [x, 0, z], CY.panelLight, CY.panel, tangent(a)) }),
+      ...[...Array(24)].map((_, k) => { const a = k * 15, [x, z] = polar(41.5, a); return { ...box('Ring wall', [11, 7, 1], [x, 0, z], CY.panelLight, CY.panel, tangent(a)), big: true } }),
       cyl('Core ring', 18, 3, [0, 1, 0], CY.dark, CY.panel, 24),
       cyl('Data core', 8, 16, [0, 4, 0], CY.cyan, CY.cyan, 24),
       ...[45, 135, 225, 315].map((a) => { const [x, z] = polar(24, a); return box('Conduit', [12, 3, 1.2], [x, 1, z], CY.pink, CY.panel, radial(a)) }),
@@ -181,7 +181,7 @@ export const CYBER: Sample[] = [
       ground(90, 90, CY.gridCyan, CY.panel),
       ...perimeter(90, 90, 4, CY.panel, CY.panelLight),
       box('Tier', [30, 3, 30], [0, 1, 0], CY.dark, CY.windows), box('Tier', [22, 3, 22], [0, 4, 0], CY.dark, CY.windowsPink),
-      box('Tier', [14, 3, 14], [0, 7, 0], CY.dark, CY.windows), box('Tier', [6, 3, 6], [0, 10, 0], CY.pink, CY.pink),
+      { ...box('Tier', [14, 3, 14], [0, 7, 0], CY.dark, CY.windows), big: true }, { ...box('Tier', [6, 3, 6], [0, 10, 0], CY.pink, CY.pink), big: true },
       ...mirror(
         ...([[17, 1], [13, 4], [9, 7], [5, 10]] as const).flatMap(([r, y]) => [
           stairs('Stairs', [4, 3, 4], [0, y, r], CY.cyan, CY.panel, 0, 4), stairs('Stairs', [4, 3, 4], [r, y, 0], CY.cyan, CY.panel, 90, 4),

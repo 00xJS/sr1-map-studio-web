@@ -1,13 +1,8 @@
 import { useState } from 'react'
 import { Modal, toastError } from '../ui'
-import { SAMPLES, THEMES, buildSample, type Sample, type Theme } from '../lib/samples'
+import { SAMPLES, THEMES, THEME_INFO, buildSample, hasCompact, type Sample, type Theme } from '../lib/samples'
 import type { Project } from '../lib/project'
 
-const THEME_HINT: Record<Theme, string> = {
-  'Starter': 'Simple layouts to learn with.',
-  'Urban paintball': 'Bunkers, containers, alleys and rooftops: symmetric fields made for team fights.',
-  'Cyber': 'Neon grids, glowing blocks and colored lights.',
-}
 
 /** Card picture: a rendered preview when there is one, else the sample's icon. */
 function Pic({ s }: { s: Sample }) {
@@ -26,10 +21,11 @@ function Pic({ s }: { s: Sample }) {
 export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project) => Promise<void> | void; onBlank?: () => void }) {
   const [progress, setProgress] = useState<string | null>(null)
   const [theme, setTheme] = useState<Theme>('Starter')
+  const [small, setSmall] = useState(false)
   const choose = async (id: string) => {
     setProgress('Starting…')
     try {
-      await props.onBuilt(await buildSample(id, setProgress))
+      await props.onBuilt(await buildSample(id, setProgress, { compact: small }))
       props.onClose()
     } catch (e) {
       toastError(e)
@@ -48,7 +44,10 @@ export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project)
           </button>
         ))}
       </div>
-      <p className="small muted">{THEME_HINT[theme]} Every sample is built from simple shapes with free textures and already has spawns, weapons and lights for its game modes. Change anything you like.</p>
+      <p className="small muted">{THEME_INFO[theme]} Every sample is built from simple shapes with free textures, sized for 8–12 player matches like the retail maps, and already has plenty of spawns, weapons and lights. Change anything you like.</p>
+      {shown.some(hasCompact) && (
+        <label className="row small"><input type="checkbox" checked={small} onChange={(e) => setSmall(e.target.checked)} /> Small version (half the size, for 2–6 players)</label>
+      )}
       <div className="template-grid">
         {props.onBlank && theme === 'Starter' && (
           <button className="template-card" disabled={busy} onClick={props.onBlank}>

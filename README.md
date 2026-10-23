@@ -16,10 +16,16 @@ through [Pyodide](https://pyodide.org); the editor interface is rebuilt with Rea
   a generator of 11 tiling materials, a starter library of 29 CC0 textures) that also sets the
   physical surface; "Install to game" writes exports straight into `SaintsReborn/dist/maps`
   (Chrome/Edge).
-- **Start with nothing:** 30 sample maps in three themes (5 starters, 13 urban paintball, 12 cyber)
-  built in the browser from shapes and free textures, with spawns, weapons and lights for every mode.
-  Layouts live in `src/lib/samples*.ts`; the picker's previews in `public/samples` are rendered by
-  the editor itself;
+- **Start with nothing:** 57 sample maps in four themes (5 starters, 27 urban, 13 urban paintball,
+  12 cyber), listed on the **Map catalog** page (`/maps`), built in the browser from shapes and free
+  textures. Every map builds at retail multiplayer size (about 70-120 m across, for 8-12 players):
+  compact designs are spread ×2 (`sampleScale.ts`) and given extra cover, then filled with 20+
+  spawns, ~22 scattered weapons, 4 drop-offs and lights (`samplePopulate.ts`). Layouts live in
+  `src/lib/samples*.ts`; the previews in `public/samples` are rendered by the editor itself.
+  A detail pass (`sampleDetail.ts`) turns building blocks into generated buildings (storefront,
+  windows by floor, ledges, cornice, parapet, water tanks, AC units, fire escapes) and plain boxes
+  into prefab cars, buses, benches and dumpsters (`prefabs.ts`). Each prefab exports as one
+  object with several materials. Prefabs are also in the editor's Shape tool;
   a Paint-style tool strip (select/rotate/scale, shape, paint bucket, eyedropper, spawn, weapon,
   light, eraser) with a texture palette.
 - **Simple and Advanced modes:** Simple (the default) has one side panel that shows whatever is

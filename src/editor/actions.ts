@@ -12,6 +12,7 @@ import { SHAPE_PRESETS, shapeLabel, shapeName, shapeObj, type Shape } from '../l
 import { storeFile } from '../lib/files'
 import { parseObj } from '../lib/geometry'
 import { confirmDialog } from '../ui'
+import { ALL_PREFABS } from '../lib/prefabRegistry'
 
 const log = (t: string) => useEditor.getState().log(t)
 const update = (...a: Parameters<ReturnType<typeof useEditor.getState>['update']>) => useEditor.getState().update(...a)
@@ -363,4 +364,18 @@ export async function updateShape(index: number, patch: Partial<Shape>) {
     d.files[stored.vpath] = stored.ref
     pruneFiles(d as Project)
   }, { merge: 'shape' + index })
+}
+
+/** Stamps a prefab (a building, car, tree, bus stop...) where the user clicked. */
+export async function addPrefab(key: string, at: Vec3, groundY: number | null) {
+  const def = ALL_PREFABS[key]
+  if (!def) return
+  const { materialize } = await import('../lib/samples')
+  const { items, files } = await materialize(def.make(at[0], at[2], 0, groundY ?? 0))
+  update('Add ' + def.label.toLowerCase(), (d) => {
+    Object.assign(d.files, files)
+    d.scene_items.push(...items)
+  })
+  useEditor.getState().select({ kind: 'item', index: currentProject()!.scene_items.length - 1 })
+  log(`Added ${def.label.toLowerCase()}. Turn it with the Turn tool; repaint its parts in its panel.`)
 }

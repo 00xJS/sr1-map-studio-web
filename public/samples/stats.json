@@ -1,0 +1,458 @@
+{
+ "flat": {
+  "widthM": 80,
+  "depthM": 80,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 24
+ },
+ "arena": {
+  "widthM": 100,
+  "depthM": 100,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 25
+ },
+ "warehouse": {
+  "widthM": 90,
+  "depthM": 60,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 25
+ },
+ "rooftops": {
+  "widthM": 140,
+  "depthM": 140,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 25
+ },
+ "street": {
+  "widthM": 88,
+  "depthM": 142,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 25
+ },
+ "u_downtown": {
+  "widthM": 101,
+  "depthM": 101,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_plaza": {
+  "widthM": 101,
+  "depthM": 111,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_park": {
+  "widthM": 101,
+  "depthM": 101,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 25
+ },
+ "u_parking": {
+  "widthM": 101,
+  "depthM": 111,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_gas": {
+  "widthM": 101,
+  "depthM": 101,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_trainyard": {
+  "widthM": 111,
+  "depthM": 101,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 24
+ },
+ "u_docks": {
+  "widthM": 101,
+  "depthM": 111,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 24
+ },
+ "u_suburb": {
+  "widthM": 101,
+  "depthM": 101,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_trailer": {
+  "widthM": 101,
+  "depthM": 101,
+  "players": 12,
+  "spawns": 37,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_chinatown": {
+  "widthM": 101,
+  "depthM": 106,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_skyscraper": {
+  "widthM": 101,
+  "depthM": 111,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_rooftops": {
+  "widthM": 101,
+  "depthM": 101,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_highway": {
+  "widthM": 111,
+  "depthM": 111,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_school": {
+  "widthM": 101,
+  "depthM": 111,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_terminal": {
+  "widthM": 101,
+  "depthM": 106,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_projects": {
+  "widthM": 101,
+  "depthM": 101,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_warehouses": {
+  "widthM": 106,
+  "depthM": 106,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 24
+ },
+ "u_canal": {
+  "widthM": 101,
+  "depthM": 111,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_junkyard": {
+  "widthM": 101,
+  "depthM": 101,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_church": {
+  "widthM": 101,
+  "depthM": 106,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_clubstrip": {
+  "widthM": 101,
+  "depthM": 106,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_river": {
+  "widthM": 101,
+  "depthM": 111,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_market": {
+  "widthM": 101,
+  "depthM": 101,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_ruins": {
+  "widthM": 101,
+  "depthM": 101,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_mainstreet": {
+  "widthM": 101,
+  "depthM": 111,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "u_office_park": {
+  "widthM": 101,
+  "depthM": 106,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 25
+ },
+ "u_stadium": {
+  "widthM": 106,
+  "depthM": 106,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "pb_speedball": {
+  "widthM": 58,
+  "depthM": 98,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "pb_rooftop": {
+  "widthM": 72,
+  "depthM": 72,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "pb_containers": {
+  "widthM": 102,
+  "depthM": 102,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "pb_garage": {
+  "widthM": 72,
+  "depthM": 102,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "pb_alley": {
+  "widthM": 94,
+  "depthM": 94,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "pb_tires": {
+  "widthM": 82,
+  "depthM": 82,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "pb_construction": {
+  "widthM": 82,
+  "depthM": 102,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "pb_court": {
+  "widthM": 92,
+  "depthM": 92,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 24
+ },
+ "pb_subway": {
+  "widthM": 58,
+  "depthM": 102,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "pb_skate": {
+  "widthM": 82,
+  "depthM": 82,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 24
+ },
+ "pb_village": {
+  "widthM": 92,
+  "depthM": 92,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "pb_market": {
+  "widthM": 92,
+  "depthM": 102,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "pb_overpass": {
+  "widthM": 102,
+  "depthM": 102,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 24
+ },
+ "cy_grid": {
+  "widthM": 82,
+  "depthM": 82,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 25
+ },
+ "cy_core": {
+  "widthM": 84,
+  "depthM": 84,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 25
+ },
+ "cy_circuit": {
+  "widthM": 92,
+  "depthM": 92,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 25
+ },
+ "cy_hex": {
+  "widthM": 82,
+  "depthM": 82,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 25
+ },
+ "cy_servers": {
+  "widthM": 82,
+  "depthM": 92,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 25
+ },
+ "cy_islands": {
+  "widthM": 92,
+  "depthM": 92,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 25
+ },
+ "cy_pyramid": {
+  "widthM": 92,
+  "depthM": 92,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 25
+ },
+ "cy_maze": {
+  "widthM": 82,
+  "depthM": 82,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 25
+ },
+ "cy_skyline": {
+  "widthM": 102,
+  "depthM": 102,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 24
+ },
+ "cy_colosseum": {
+  "widthM": 118,
+  "depthM": 118,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 24
+ },
+ "cy_lanes": {
+  "widthM": 62,
+  "depthM": 112,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 23,
+  "lights": 24
+ },
+ "cy_reactor": {
+  "widthM": 102,
+  "depthM": 102,
+  "players": 12,
+  "spawns": 36,
+  "weapons": 22,
+  "lights": 25
+ }
+}

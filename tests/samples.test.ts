@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { SAMPLES } from '../src/lib/samples'
+import { SAMPLES, sampleFor } from '../src/lib/samples'
 import { checkModes } from '../src/lib/levels'
 import { KINDS } from '../src/lib/procedural'
 import { newMarker } from '../src/lib/project'
 import { catalogs } from '../src/lib/catalogs'
-import type { Part } from '../src/lib/sampleKit'
+import { blocker, support } from '../src/lib/sampleScale'
 
 const library = new Set((JSON.parse(readFileSync('public/textures/index.json', 'utf8')).textures as { id: string }[]).map((t) => t.id))
 const weapons = new Set(catalogs.weapons.map(([, id]) => id))
@@ -35,37 +35,40 @@ describe('sample maps', () => {
   }
 })
 
-/** Inside a part's footprint (as seen from above), grown by `margin` (negative shrinks it). */
-function over(p: Part, x: number, z: number, margin: number) {
-  const t = ((p.rot ?? 0) * Math.PI) / 180
-  const dx = x - p.at[0], dz = z - p.at[2]
-  const lx = dx * Math.cos(t) - dz * Math.sin(t)
-  const lz = dx * Math.sin(t) + dz * Math.cos(t)
-  const rx = p.size[0] / 2 + margin, rz = p.size[2] / 2 + margin
-  if (rx <= 0 || rz <= 0) return false
-  if (p.kind === 'cylinder') return (lx / rx) ** 2 + (lz / rz) ** 2 <= 1
-  return Math.abs(lx) <= rx && Math.abs(lz) <= rz
-}
-
 describe('sample marker placement', () => {
-  for (const s of SAMPLES) {
-    it(`${s.name}: every marker stands on a floor with head room`, () => {
+  const builds = SAMPLES.flatMap((s) => [
+    { name: `${s.name} (full)`, s: sampleFor(s.id) },
+    ...((s.size ?? 'compact') === 'compact' ? [{ name: `${s.name} (compact)`, s: sampleFor(s.id, true) }] : []),
+  ])
+  for (const { name, s } of builds) {
+    it(`${name}: every marker stands on a floor with head room`, () => {
       const problems: string[] = []
-      for (const [type, [x, y, z]] of s.markers) {
-        const where = `${type} at ${[x, y, z].join(', ')}`
-        // Something flat (a box or a column top) right under it, at its height.
-        const floor = s.parts.some((p) => (p.kind === 'box' || p.kind === 'cylinder') && Math.abs(p.at[1] + p.size[1] - y) < 0.01 && over(p, x, z, -0.2))
-        if (!floor) problems.push(`${where}: nothing to stand on`)
-        // Nothing within half a unit of it from its feet to head height (about 3.4 units).
-        const blocked = s.parts.find((p) => p.at[1] < y + 3.4 && p.at[1] + p.size[1] > y + 0.01 && over(p, x, z, 0.5))
-        if (blocked) problems.push(`${where}: inside ${blocked.label} at ${blocked.at.join(', ')}`)
+      for (const [type, p] of s.markers) {
+        const where = `${type} at ${p.join(', ')}`
+        if (support(s.parts, p) < 0) problems.push(`${where}: nothing to stand on`)
+        const b = blocker(s.parts, p)
+        if (b) problems.push(`${where}: inside ${b.label} at ${b.at.join(', ')}`)
       }
       expect(problems).toEqual([])
     })
+
+    it(`${name}: plenty of spawns and weapons, ready for its modes`, () => {
+      const count = (t: string) => s.markers.filter(([m]) => m === t).length
+      const markers = s.markers.map(([type, at, patch]) => ({ ...newMarker(type, at), ...patch }))
+      expect(checkModes({ modes: s.modes }, markers).errors).toEqual([])
+      expect(count('Red team spawn')).toBe(count('Blue team spawn'))
+      expect(count('Red team spawn')).toBeGreaterThanOrEqual(6)
+      expect(count('Shared spawn')).toBeGreaterThanOrEqual(8)
+      expect(count('Weapon pickup')).toBeGreaterThanOrEqual(10)
+      expect(count('Chains drop-off')).toBeGreaterThanOrEqual(2)
+      expect(s.lights?.length ?? 0).toBeLessThanOrEqual(64)
+    })
   }
 
-  it('has 25 paintball and cyber maps with unique ids', () => {
-    expect(SAMPLES.filter((s) => s.theme !== 'Starter')).toHaveLength(25)
+  it('has at least 25 urban, 13 paintball and 12 cyber maps with unique ids', () => {
+    expect(SAMPLES.filter((s) => s.theme === 'Urban').length).toBeGreaterThanOrEqual(25)
+    expect(SAMPLES.filter((s) => s.theme === 'Urban paintball')).toHaveLength(13)
+    expect(SAMPLES.filter((s) => s.theme === 'Cyber')).toHaveLength(12)
     expect(new Set(SAMPLES.map((s) => s.id)).size).toBe(SAMPLES.length)
   })
 })

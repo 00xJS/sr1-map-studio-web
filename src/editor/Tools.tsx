@@ -4,6 +4,7 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { useEditor, type Swatch, type Tool, type GizmoMode } from './store'
 import { generatedSwatches, librarySwatches, mapSwatches, swatchThumb } from './paint'
 import { SHAPE_PRESETS } from '../lib/shapes'
+import { ALL_PREFABS, PREFAB_CATEGORIES } from '../lib/prefabRegistry'
 import { catalogs } from '../lib/catalogs'
 import { MARKER_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/labels'
 
@@ -125,6 +126,15 @@ export function ToolOptions() {
           {Object.entries(SHAPE_PRESETS).map(([k, p]) => (
             <button key={k} className={'sm' + (toolShape === k ? ' on' : '')} title={p.hint} onClick={() => set({ toolShape: k })}>{p.label}</button>
           ))}
+          <select value={toolShape.startsWith('prefab:') ? toolShape : ''} onChange={(e) => e.target.value && set({ toolShape: e.target.value })}
+            className={toolShape.startsWith('prefab:') ? 'on' : ''} title="Ready-made pieces: buildings, cars, trees, street furniture">
+            <option value="">Prefabs…</option>
+            {PREFAB_CATEGORIES.map((c) => (
+              <optgroup key={c} label={c}>
+                {Object.entries(ALL_PREFABS).filter(([, p]) => p.category === c).map(([k, p]) => <option key={k} value={'prefab:' + k} title={p.hint}>{p.label}</option>)}
+              </optgroup>
+            ))}
+          </select>
         </div>
       )}
       {(tool === 'paint' || tool === 'pick') && (

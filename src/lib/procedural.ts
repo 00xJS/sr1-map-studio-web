@@ -6,6 +6,7 @@
 export type TextureKind =
   | 'concrete' | 'asphalt' | 'brick' | 'tiles' | 'metal_plate' | 'diamond_plate'
   | 'wood_planks' | 'grass' | 'dirt' | 'gravel' | 'sand'
+  | 'facade' | 'storefront' | 'garage_door' | 'hazard'
 
 export interface GenParams {
   kind: TextureKind
@@ -19,6 +20,8 @@ export interface GenParams {
   seed: number
   /** Asphalt only: painted center line. */
   line?: 'none' | 'yellow' | 'white'
+  /** Windows only: brick wall between the windows. */
+  bricks?: boolean
 }
 
 interface KindInfo { label: string; surface: number; color: string; accent: string; scale: number; wear: number; accentLabel: string; scaleLabel: string }
@@ -35,6 +38,10 @@ export const KINDS: Record<TextureKind, KindInfo> = {
   dirt: { label: 'Dirt', surface: 4, color: '#6e5238', accent: '#9a8770', scale: 4, wear: 0.5, accentLabel: 'Pebbles', scaleLabel: 'Patchiness' },
   gravel: { label: 'Gravel', surface: 12, color: '#8a857c', accent: '#4d4943', scale: 16, wear: 0.4, accentLabel: 'Gaps', scaleLabel: 'Stones per side' },
   sand: { label: 'Sand', surface: 19, color: '#d2b98a', accent: '#a8915f', scale: 6, wear: 0.4, accentLabel: 'Ripple shade', scaleLabel: 'Ripples' },
+  facade: { label: 'Windows', surface: 0, color: '#b7a58a', accent: '#2e3b48', scale: 2, wear: 0.3, accentLabel: 'Glass', scaleLabel: 'Windows across' },
+  storefront: { label: 'Storefront', surface: 15, color: '#2c2c30', accent: '#41617a', scale: 2, wear: 0.15, accentLabel: 'Glass', scaleLabel: 'Panes across' },
+  garage_door: { label: 'Garage door', surface: 16, color: '#9aa0a6', accent: '#55595e', scale: 1, wear: 0.3, accentLabel: 'Grooves', scaleLabel: 'Doors across' },
+  hazard: { label: 'Hazard stripes', surface: 15, color: '#e8b81c', accent: '#1d1d1f', scale: 4, wear: 0.3, accentLabel: 'Stripe', scaleLabel: 'Stripes' },
 }
 
 export const defaultParams = (kind: TextureKind, size = 512): GenParams => {
@@ -214,6 +221,59 @@ function pattern(p: GenParams): Pixel {
       let c = shade(stone, 0.7 + 0.5 * (1 - d1) * (0.85 + 0.3 * noise(u, v, 128, 128, s + 2)))
       if (edge < 0.08 + 0.12 * wear) c = mix(accent, c, edge / (0.08 + 0.12 * wear))
       return c
+    }
+    case 'facade': {
+      // One row of windows per repeat (a storey when the repeat is a floor high), `n` across.
+      return (u, v) => {
+        const cx = Math.floor(u * n), fx = u * n - cx
+        let c = shade(base, 0.86 + 0.18 * fbm(u, v, 4, 5, s) + 0.06 * noise(u, v, 256, 256, s + 1))
+        if (p.bricks) {
+          const r = Math.floor(v * 16), off = r % 2 ? 0.5 : 0
+          const bx = (u * n * 4 + off) % 1, by = (v * 16) % 1
+          if (bx < 0.06 || by < 0.12) c = shade([196, 190, 178], 0.85 + 0.2 * noise(u, v, 128, 128, s + 2))
+          else c = shade(c, 0.85 + 0.3 * hash(Math.floor(u * n * 4 + off), r, s))
+        }
+        if (v < 0.04 || v > 0.96) c = shade(base, 0.72) // floor band
+        const inX = fx > 0.2 && fx < 0.8, inY = v > 0.24 && v < 0.74
+        const frame = (fx > 0.17 && fx < 0.83 && v > 0.21 && v < 0.77) && !(inX && inY)
+        if (frame) c = shade(base, 1.18)
+        if (v > 0.74 && v < 0.79 && fx > 0.15 && fx < 0.85) c = shade(base, 1.3) // sill
+        if (inX && inY) {
+          const lit = hash(cx, 7, s) < 0.22
+          const sky = 0.75 + 0.5 * (1 - (v - 0.24) / 0.5)
+          c = lit ? mix([255, 214, 140], accent, 0.25) : shade(accent, sky)
+          if (Math.abs(fx - 0.5) < 0.012 || Math.abs(v - 0.46) < 0.012) c = shade(base, 0.9) // mullions
+        }
+        const streak = clamp01((fbm(u, v, n * 2, 3, s + 5, 4) - 0.55) * 3) * wear * (v > 0.77 ? 1 : 0.3)
+        return shade(c, 1 - 0.35 * streak)
+      }
+    }
+    case 'storefront': return (u, v) => {
+      const fx = (u * n) % 1
+      let c = shade(base, 0.9 + 0.15 * noise(u, v, 128, 128, s))
+      if (v > 0.16 && v < 0.78 && fx > 0.04 && fx < 0.96) {
+        c = shade(accent, 0.8 + 0.45 * (1 - v) + 0.1 * noise(u, v, 64, 8, s + 2))
+        if (Math.abs(fx - 0.5) < 0.01 || Math.abs(v - 0.62) < 0.008) c = shade(base, 1.1)
+      }
+      if (v >= 0.82) c = shade(base, 1.25 + 0.1 * noise(u, v, 64, 64, s + 3)) // sign band
+      const dirt = clamp01((fbm(u, v, 4, 4, s + 4) - 0.6) * 4) * wear * (v < 0.2 ? 1 : 0.3)
+      return shade(c, 1 - 0.3 * dirt)
+    }
+    case 'garage_door': return (u, v) => {
+      const fx = (u * n) % 1
+      if (fx < 0.05 || fx > 0.95 || v < 0.03) return shade(accent, 0.8)
+      const rib = (v * 16) % 1
+      let c = shade(base, 0.9 + 0.12 * noise(u, v, 256, 16, s))
+      if (rib < 0.12) c = shade(accent, 1.1)
+      else if (rib < 0.2) c = shade(base, 1.15)
+      const rust = clamp01((fbm(u, v, 4, 5, s + 7) - 0.65 + wear * 0.2) * 4) * wear
+      return mix(c, [130, 80, 45], rust * 0.6)
+    }
+    case 'hazard': return (u, v) => {
+      const stripe = ((u + v) * n) % 1 < 0.5
+      const c = stripe ? base : accent
+      const worn = clamp01((fbm(u, v, 8, 4, s) - 0.6) * 4) * wear
+      return mix(shade(c, 0.92 + 0.1 * noise(u, v, 256, 256, s + 1)), [120, 115, 105], worn * 0.6)
     }
     case 'sand': return (u, v) => {
       const warp = fbm(u, v, 4, 4, s) * 2

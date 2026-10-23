@@ -21,9 +21,16 @@ export interface Part {
   side: Tex
   tile?: number
   segments?: number
+  /** Scale with the map when it is spread to full size (walls of a ring or maze, pyramid tiers). */
+  big?: boolean
+  /** Cylinder taper (0 = cone) and box bevel, as in Shape. */
+  taper?: number
+  bevel?: number
+  /** Parts with the same group are exported as one object (a prefab). */
+  group?: string
 }
 
-export type Theme = 'Starter' | 'Urban paintball' | 'Cyber'
+export type Theme = 'Starter' | 'Urban' | 'Urban paintball' | 'Cyber'
 export type MarkerSpec = [string, Vec3, Partial<Marker>?]
 
 export interface Sample {
@@ -36,6 +43,10 @@ export interface Sample {
   parts: Part[]
   markers: MarkerSpec[]
   lights?: [Vec3, Vec3?][]
+  /** 'compact' maps were drawn at half retail size and are spread ×2 for full matches; 'full' maps are drawn at retail size. */
+  size?: 'compact' | 'full'
+  /** Date added (YYYY-MM-DD), for the catalog's New badge. */
+  added?: string
 }
 
 export const ALL_MODES: GameMode[] = ['Gangsta Brawl', 'Team Gangsta Brawl', 'Big Ass Chains', 'Team Big Ass Chains', 'Protect Tha Pimp']
@@ -70,7 +81,7 @@ export function turn(dx: number, dz: number, deg: number): [number, number] {
 
 // ---------------- symmetry ----------------
 
-const half = (p: Part): Part => ({ ...p, at: [-p.at[0], p.at[1], -p.at[2]], rot: ((p.rot ?? 0) + 180) % 360 })
+const half = (p: Part): Part => ({ ...p, at: [-p.at[0], p.at[1], -p.at[2]], rot: ((p.rot ?? 0) + 180) % 360, ...(p.group ? { group: p.group + '~' } : {}) })
 /** The parts plus a copy turned 180° around the map's center, so both teams get the same field. */
 export const mirror = (...parts: Part[]): Part[] => parts.flatMap((p) => [p, half(p)])
 
@@ -78,7 +89,7 @@ export const mirror = (...parts: Part[]): Part[] => parts.flatMap((p) => [p, hal
 export const flipX = (...parts: Part[]): Part[] => parts.flatMap((p) => {
   const r = p.rot ?? 0
   const odd = p.kind === 'cylinder' && (p.segments ?? 16) % 2 === 1
-  return [p, { ...p, at: [-p.at[0], p.at[1], p.at[2]] as Vec3, rot: odd ? 180 - r : -r }]
+  return [p, { ...p, at: [-p.at[0], p.at[1], p.at[2]] as Vec3, rot: odd ? 180 - r : -r, ...(p.group ? { group: p.group + '|' } : {}) }]
 })
 
 // ---------------- markers ----------------
