@@ -25,6 +25,14 @@ const mine = new Map<string, { sig: string; bundle: ThumbBundle }>()
 const sigs = new Map<string, string>()
 let running = false
 
+/** Other kinds of thumbnail, by key prefix ("game:" for the From my game library): a signature and a drawing. */
+export interface ThumbSource { sig(key: string): string | null; draw(key: string): Promise<Blob | null> }
+const sources = new Map<string, ThumbSource>()
+export function registerThumbSource(prefix: string, src: ThumbSource) { sources.set(prefix, src) }
+const sourceFor = (key: string) => [...sources].find(([p]) => key.startsWith(p))?.[1]
+/** Forgets pictures known this session under a prefix, so they are asked for again (after their source becomes readable). */
+export function resetThumbs(prefix: string) { for (const k of [...ready.keys()]) if (k.startsWith(prefix) && ready.get(k) === null) ready.delete(k) }
+
 const req = <T>(r: IDBRequest<T>) => new Promise<T>((ok, no) => { r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error) })
 
 let cache: Promise<Map<string, Cached>> | null = null
@@ -47,6 +55,8 @@ async function save(key: string, value: Cached) {
 }
 
 function signature(key: string): string | null {
+  const src = sourceFor(key)
+  if (src) return src.sig(key)
   if (key.startsWith('mine:')) { const m = mine.get(key); return m ? `${VERSION}:${m.sig}` : null }
   let s = sigs.get(key)
   if (s === undefined) { s = `${VERSION}:${hashText(JSON.stringify(prefabParts(key.slice(7))))}`; sigs.set(key, s) }
@@ -55,6 +65,8 @@ function signature(key: string): string | null {
 
 let renderer: Promise<typeof import('./prefabRender')> | null = null
 async function draw(key: string): Promise<Blob | null> {
+  const src = sourceFor(key)
+  if (src) return src.draw(key)
   const r = await (renderer ??= import('./prefabRender'))
   if (key.startsWith('prefab:')) return r.drawParts(prefabParts(key.slice(7)))
   const m = mine.get(key)

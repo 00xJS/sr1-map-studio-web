@@ -269,6 +269,7 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
         </div>
         <SaveMine indices={[index]} suggest={it.name} />
         <span className="faint small">Drag the colored arrows in the view to move it. The tools on the left turn and resize it too. Shift+click other objects to pick several.</span>
+        {it.game_object && <span className="small muted">From your game files: usable in your own maps, not shareable (share links, the hub and the Showcase leave it out; backups carry only where it came from).</span>}
       </div>
 
       {it.prefab && ALL_PREFABS[it.prefab.key]?.params && <PrefabSettings it={it} index={index} />}

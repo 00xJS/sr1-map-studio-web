@@ -427,3 +427,6 @@ kbd { font: 11px/1 var(--mono); padding: 3px 6px; border-radius: 4px; background
   .toolstrip .tool { width: 50px; height: 44px; }
 }
 @media (max-width: 600px) { .version-thumb { display: none; } }
+/* The prefab browser's "From my game" tab (objects from the player's own game files). */
+.prefab-tabs .game-tab { border-style: dashed; }
+.game-notice { margin: 4px 2px 2px; }

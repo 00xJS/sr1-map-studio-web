@@ -51,6 +51,8 @@ export interface SceneItem {
   shape?: import('./shapes').Shape
   /** Prefab this item was built from, with its settings and its original textures (to keep the user's repaints on a rebuild). */
   prefab?: { key: string; params: Record<string, number | string>; defaults: Record<string, string> }
+  /** An object from the player's own game files ("From my game"): where it came from, so it can be rebuilt. Never shared. */
+  game_object?: import('./gameObjects/place').GameObjectRef
   /** Items with the same group id are selected, moved and copied together. */
   group?: string
   [key: string]: unknown
@@ -99,6 +101,8 @@ export interface Marker {
   sound_random?: boolean
   delay_min_s?: number
   delay_max_s?: number
+  /** Item props: the name of the game's item placed here (see gameObjects/items.ts). */
+  item?: string
 }
 
 export interface Light {

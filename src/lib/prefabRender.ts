@@ -187,6 +187,9 @@ async function shoot(obj: THREE.Object3D): Promise<Blob | null> {
   return blob
 }
 
+/** Any object, drawn like the prefabs (the "From my game" library uses it). */
+export const drawObject = (obj: THREE.Object3D) => shoot(obj)
+
 export async function drawParts(parts: Part[]): Promise<Blob | null> {
   return parts.length ? shoot(await partsObject(parts)) : null
 }

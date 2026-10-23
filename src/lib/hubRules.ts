@@ -348,12 +348,14 @@ export function showcasePlan(raw: Project, libraryIds: ReadonlySet<string>): Sho
   const p: Project = JSON.parse(JSON.stringify(raw))
   const blockers: string[] = []
   const own = new Map<string, Set<string>>()
+  const fromGame = new Map<string, Set<string>>()
   const broken: string[] = []
   const used = new Set<string>()
   const check = (path: unknown, owner: string) => {
     if (typeof path !== 'string' || !path || isDataPackPath(path)) return
     const ref = p.files?.[path]
     if (!ref) { broken.push(`${owner} uses ${baseName(path)}, which is missing from this project.`); return }
+    if (ref.origin === 'game') { fromGame.set(owner, (fromGame.get(owner) ?? new Set()).add(ref.name)); return }
     if (!ref.recipe) { own.set(owner, (own.get(owner) ?? new Set()).add(ref.name)); return }
     const why = recipeProblem(ref.recipe, libraryIds)
     if (why) { broken.push(`${owner}: ${ref.name} has a broken recipe (${why}).`); return }
@@ -371,6 +373,9 @@ export function showcasePlan(raw: Project, libraryIds: ReadonlySet<string>): Sho
     const list = [...names]
     const shown = list.length > 3 ? `${list.slice(0, 3).join(', ')} and ${list.length - 3} more` : list.join(', ')
     blockers.push(`${owner} uses ${list.length === 1 ? 'a file' : `${list.length} files`} you added yourself (${shown}). The Showcase only takes maps made from the site's own textures, shapes and prefabs: repaint it from the paint bucket or texture studio, or remove it.`)
+  }
+  for (const owner of fromGame.keys()) {
+    blockers.push(`${owner} comes from your Saints Row game files. Objects and pictures from the game can only be used in your own maps: remove it before sending the map to the Showcase.`)
   }
   blockers.push(...new Set(broken))
   if (!p.scene_items.length) blockers.push('The map is empty.')

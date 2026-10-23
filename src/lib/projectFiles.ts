@@ -5,6 +5,7 @@ import { db, sha256 } from './db'
 import { storeFile } from './files'
 import { importModels } from './importers'
 import { cacheModel } from './assets'
+import { gameObjectPaths } from './gameObjects/policy'
 import {
   defaultSettings, newProject, normalizeProject, referencedPaths, uid,
   type Light, type Marker, type Project, type SceneItem, type Asset, type FileRef,
@@ -12,9 +13,11 @@ import {
 
 export async function exportProjectZip(project: Project, thumbnail?: Blob): Promise<Blob> {
   const entries: Record<string, Uint8Array> = { 'project.json': strToU8(JSON.stringify(project, null, 1)) }
+  // Objects from the player's game travel as where they came from, never as files (see gameObjects/policy.ts).
+  const fromGame = gameObjectPaths(project)
   for (const path of referencedPaths(project)) {
     const ref = project.files[path]
-    if (!ref) continue
+    if (!ref || fromGame.has(path)) continue
     const blob = await db.getBlob(ref.hash)
     if (blob) entries[`files/${ref.hash}`] = new Uint8Array(await blob.arrayBuffer())
   }

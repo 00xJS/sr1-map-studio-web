@@ -10,6 +10,8 @@ import { useMyPrefabs, type MyPrefab } from './myPrefabs'
 import { MINE, normalize, prefabCategories, prefabEntries, searchPrefabs, type PrefabEntry } from '../lib/prefabIndex'
 import { PrefabThumb, ThumbWatch, makeWatcher } from './PrefabThumb'
 import type { ThumbBundle } from '../lib/prefabRender'
+import { GAME_TAB, GameObjectsTab, tileOf, type GameTile } from './GameObjectsTab'
+import { entryById } from '../lib/gameObjects/client'
 
 type Entry = PrefabEntry & { saved?: { sig: string; bundle: ThumbBundle } }
 
@@ -109,7 +111,7 @@ function Section({ title, count, children }: { title: string; count?: number; ch
 function HintLine() {
   const hover = usePrefabBrowser((s) => s.hover)
   const current = useEditor((s) => s.toolShape)
-  const label = hover ? <><b>{hover.label}</b> · {hover.hint}</> : /^(prefab|mine):/.test(current) ? <>Click the map to place it, or drag a picture onto the map.</> : <>Pick a piece, then click the map to place it.</>
+  const label = hover ? <><b>{hover.label}</b> · {hover.hint}</> : /^(prefab|mine|game):/.test(current) ? <>Click the map to place it, or drag a picture onto the map.</> : <>Pick a piece, then click the map to place it.</>
   return <div className="prefab-hint small muted">{label}</div>
 }
 
@@ -137,11 +139,11 @@ function Panel() {
   const favSet = useMemo(() => new Set(favs), [favs])
   const pick = (list: string[]) => list.map((s) => byShape.get(s)).filter((e): e is Entry => !!e)
 
-  const activeTab = tab === 'All' || counts.has(tab) ? tab : 'All'
+  const activeTab = tab === 'All' || tab === GAME_TAB || counts.has(tab) ? tab : 'All'
   const chooseTab = (t: string) => { setTab(t); try { sessionStorage.setItem('sr1ms.prefabTab', t) } catch { /* fine */ } scroller?.scrollTo({ top: 0 }) }
   const inTab = activeTab === 'All' ? all : all.filter((e) => e.category === activeTab)
   const q = query.trim()
-  const found = useMemo(() => (q ? searchPrefabs(inTab, q) : null), [q, inTab])
+  const found = useMemo(() => (q && activeTab !== GAME_TAB ? searchPrefabs(inTab, q) : null), [q, inTab, activeTab])
 
   useEffect(() => { scroller?.scrollTo({ top: 0 }) }, [q])
 
@@ -162,7 +164,10 @@ function Panel() {
 
   const grid = (list: Entry[]) => <Grid list={list} current={current} favs={favSet} />
   let body: ReactNode
-  if (found) {
+  if (activeTab === GAME_TAB) {
+    // Objects from the player's own game files (their own tab: thousands of them, never mixed into All).
+    body = <GameObjectsTab query={q} current={current} onChoose={(t: GameTile) => choose(t as unknown as Entry)} onHover={(t) => usePrefabBrowser.setState({ hover: t as unknown as Entry | null })} />
+  } else if (found) {
     body = found.length
       ? <Section title={`${found.length} found`}>{grid(found)}</Section>
       : (
@@ -196,11 +201,13 @@ function Panel() {
         <button className="sm quiet" onClick={closePrefabBrowser} title="Close (Esc)" aria-label="Close prefabs">✕</button>
       </div>
       <div className="prefab-tabs" role="tablist" onWheel={(e) => { if (!e.deltaX) e.currentTarget.scrollLeft += e.deltaY }}>
-        {['All', ...cats].map((c) => (
-          <button key={c} role="tab" aria-selected={activeTab === c} className={'sm' + (activeTab === c ? ' on' : '')} onClick={() => chooseTab(c)}>
-            {c}{c !== 'All' && <span className="faint"> {counts.get(c)}</span>}
-          </button>
-        ))}
+        {['All', GAME_TAB, ...cats].map((c) => c === GAME_TAB
+          ? <button key={c} role="tab" aria-selected={activeTab === c} className={'sm game-tab' + (activeTab === c ? ' on' : '')} title="Real objects from your own Saints Row game files: for your own maps, not shareable" onClick={() => chooseTab(c)}>{c}</button>
+          : (
+            <button key={c} role="tab" aria-selected={activeTab === c} className={'sm' + (activeTab === c ? ' on' : '')} onClick={() => chooseTab(c)}>
+              {c}{c !== 'All' && <span className="faint"> {counts.get(c)}</span>}
+            </button>
+          ))}
       </div>
       <div className="prefab-scroll" ref={setScroller}>
         {watch && <ThumbWatch.Provider value={watch}>{body}</ThumbWatch.Provider>}
@@ -215,8 +222,9 @@ export function PrefabButton() {
   const current = useEditor((s) => s.toolShape)
   const open = usePrefabBrowser((s) => s.open)
   const mine = useMyPrefabs()
-  const armed = /^(prefab|mine):/.test(current)
-  const entry: Entry | undefined = armed ? (current.startsWith('mine:') ? mine.map(mineEntry).find((e) => e.shape === current) : prefabEntries().find((e) => e.shape === current)) : undefined
+  const armed = /^(prefab|mine|game):/.test(current)
+  const game = current.startsWith('game:') ? entryById(current.slice(5)) : undefined
+  const entry: Entry | undefined = game ? tileOf(game) as unknown as Entry : armed ? (current.startsWith('mine:') ? mine.map(mineEntry).find((e) => e.shape === current) : prefabEntries().find((e) => e.shape === current)) : undefined
   return (
     <button className={'sm prefab-button' + (armed ? ' on' : '')} aria-expanded={open}
       title="Ready-made pieces: buildings, cars, trees, street furniture, and pieces you saved"

@@ -8,6 +8,7 @@ import { PrefabBrowser } from './PrefabBrowser'
 import { toast, toastError } from '../ui'
 import type { Vec3 } from '../lib/project'
 import { placeMyPrefab } from './myPrefabs'
+import { placeGameObject } from './gameObjectActions'
 import { STAND_EYE, STAND_HEIGHT, type WalkState } from './walk'
 import { chooseGameFolder, currentPlayer, folderPickerSupported, loadFromRememberedFolder, loadPlayer, pickPackfiles, rememberedGameFolder } from '../lib/sr1char/folder'
 import type { PlayerModel } from '../lib/sr1char/player'
@@ -33,11 +34,12 @@ function snapped(p: Vec3): Vec3 {
   return [r(p[0]), p[1], r(p[2])]
 }
 
-/** Places a shape preset, prefab ("prefab:<key>") or saved piece ("mine:<id>") on a surface point. */
+/** Places a shape preset, prefab ("prefab:<key>"), saved piece ("mine:<id>") or object from the game ("game:<id>") on a surface point. */
 function placeShape(shape: string, point: Vec3) {
   const rot = useEditor.getState().placeRot
   if (shape.startsWith('prefab:')) addPrefab(shape.slice(7), snapped(point), point[1], { rot }).catch(toastError)
   else if (shape.startsWith('mine:')) { try { placeMyPrefab(shape.slice(5), snapped(point), rot) } catch (err) { toastError(err) } }
+  else if (shape.startsWith('game:')) placeGameObject(shape.slice(5), snapped(point), point[1], rot).catch(toastError)
   else addShape(shape, snapped(point), point[1], { rot }).catch(toastError)
 }
 
@@ -246,8 +248,8 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
         const st = useEditor.getState()
         if (st.placeMode === 'decal' && mode === 'click') { placePendingDecal(point, normal).catch(toastError); return }
         if (mode === 'drop') {
-          // From the prefab browser: "prefab:<key>" or "mine:<id>"; otherwise an asset library index.
-          if (data && /^(prefab|mine):/.test(data)) placeShape(data, point)
+          // From the prefab browser: "prefab:<key>", "mine:<id>" or "game:<id>"; otherwise an asset library index.
+          if (data && /^(prefab|mine|game):/.test(data)) placeShape(data, point)
           else placeAsset(Number(data), point).catch(toastError)
           return
         }
