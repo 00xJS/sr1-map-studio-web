@@ -268,7 +268,7 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
           const color = Array.isArray(a.color) && a.color.length === 3 ? a.color.map((v) => Math.max(0, Math.min(1, num(v, 1)))) as Vec3 : undefined
           for (const [x, z] of spots(num(a.x), num(a.z), 0, a.mirror)) {
             if (currentProject()!.lights.length >= catalogs.limits.max_lights) { skipped.push(`light limit (${catalogs.limits.max_lights}) reached`); break }
-            st.update('Add light', (d) => { d.lights.push({ ...newLight([x, num(a.y, 8), z]), ...(color ? { color } : {}) }) })
+            st.update('Add light', (d) => { d.lights.push({ ...newLight([x, num(a.y, 8), z], 'interior', d.settings.world_scale), ...(color ? { color } : {}) }) })
             done++
           }
           break

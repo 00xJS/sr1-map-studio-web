@@ -17,6 +17,12 @@ edited) changes them on purpose:
   distance squared): 20 m for glass panes, 75 m for props. They are set on
   purpose instead: world geometry 5000 m (the far clip: never fades),
   props, breakables and glass 150 m.
+- Lights: each light's own full-bright and outer ranges are written (in
+  metres: editor units x world scale), as before; new lights start at the
+  retail interior ranges (1 / 3 m, street lamps 11 / 17 m, see
+  src/lib/project.ts LIGHT_RANGES) instead of 0.5 / 4 m, and each light's
+  fade distance (+112) follows its range like retail's (20 m for a 3 m
+  light, up to the engine's 75 m cap for lamps) instead of 20 m for all.
 
 tests/retail_records_check.py checks all of it.
 """
@@ -26,6 +32,7 @@ import contextlib
 import struct
 from pathlib import Path
 
+import sr1_lighting
 import sr_reborn_bridge as bridge
 import sr_reborn_core as rc
 
@@ -47,6 +54,9 @@ SKY = 0x8000             # drawn through the sky list only
 FADE_WORLD = 5000.0      # metres; the game's far clip, so world geometry never fades
 FADE_PROP = 150.0
 FADE_GLASS = 150.0
+# Lights: retail interior omni lights (metres; the editor's units are these / world scale).
+LIGHT_INNER, LIGHT_RANGE = 1.0, 3.0
+LIGHT_FADE_MIN, LIGHT_FADE_MAX = 20.0, 75.0   # retail +112 values; 75 m is level_lights_fade_dist_cap
 
 _original = {}
 
@@ -172,14 +182,37 @@ def finish_map(chunk_path, log=None):
     return {'unlit': unlit, 'fades': fades}
 
 
+def new_light(position=(0, 3, 0), world_scale=0.5):
+    """sr1_lighting.new_light with the retail interior ranges (in editor units)."""
+    light = _original['new_light'](position)
+    light.update(inner_range=LIGHT_INNER / world_scale, range=LIGHT_RANGE / world_scale)
+    return light
+
+
+def light_fade(outer_m):
+    """+112 for a light reaching `outer_m` metres: retail rooms (3 m) 20 m, lamps (17 m) 60-75 m."""
+    return max(LIGHT_FADE_MIN, min(LIGHT_FADE_MAX, 4.0 * float(outer_m)))
+
+
+def light_record(light, position, scale):
+    """sr1_lighting._record (ranges from the light itself, x world scale), with a fade distance to match its range."""
+    b = _original['light_record'](light, position, scale)
+    rc.WrF(b, 112, light_fade(light['range'] * scale))
+    return b
+
+
 def install():
     if _original:
         return
-    _original.update(build=bridge.build_bbchunk_multibatch)
+    _original.update(build=bridge.build_bbchunk_multibatch, new_light=sr1_lighting.new_light, light_record=sr1_lighting._record)
     bridge.build_bbchunk_multibatch = build_bbchunk_multibatch
+    sr1_lighting.new_light = new_light
+    sr1_lighting._record = light_record
 
 
 def uninstall():
     if _original:
         bridge.build_bbchunk_multibatch = _original['build']
+        sr1_lighting.new_light = _original['new_light']
+        sr1_lighting._record = _original['light_record']
         _original.clear()

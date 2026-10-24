@@ -314,7 +314,7 @@ export function addLight(position: Vec3) {
   const p = currentProject()
   if (!p) return
   if (p.lights.length >= catalogs.limits.max_lights) throw new UserError(`Use at most ${catalogs.limits.max_lights} point lights per map.`)
-  update('Add light', (d) => { d.lights.push(newLight(position)) })
+  update('Add light', (d) => { d.lights.push(newLight(position, 'interior', d.settings.world_scale)) })
   useEditor.getState().select({ kind: 'light', index: currentProject()!.lights.length - 1 })
 }
 

@@ -7,7 +7,7 @@ SR1_DATA_PACK set to an unpacked SR1 Map Studio desktop folder (the one
 holding reference_beavercreek/, native_glass/, native_props/) it runs a full
 export through web_api.py of a scene with an opaque floor, an alpha fence, a
 glass pane, a movable prop and a breakable wood crate, and re-reads the map
-it wrote: materials, fade distances. With SR1_GAME_PACKFILES set to the game's packfiles folder it also
+it wrote: materials, fade distances, lights. With SR1_GAME_PACKFILES set to the game's packfiles folder it also
 reads the retail multiplayer maps (mp_city_stream.vpp_xbox2) and checks the
 values copied here are the ones retail uses. Everything is written to a
 temporary folder; nothing from the game or the data pack is kept.
@@ -76,6 +76,16 @@ def unit_fades():
     check(rr.FADE_WORLD >= 1000 and 100 <= rr.FADE_PROP <= 200 and 100 <= rr.FADE_GLASS <= 200, 'fades: world never fades, props and glass at 150 m')
 
 
+def unit_lights():
+    check([rr.light_fade(m) for m in (1, 3, 6, 17, 100)] == [20, 20, 24, 68, 75], 'lights: fade distance follows the outer range, 20-75 m')
+    import sr1_lighting
+    rr.install()
+    light = sr1_lighting.new_light()
+    check((light['inner_range'], light['range']) == (2.0, 6.0), 'lights: the exporter\'s new light is 1 / 3 m at world scale 0.5')
+    b = sr1_lighting._record(dict(light, color=[1, 1, 1]), (0.0, 0.0, 0.0), 0.5)
+    check((rc.F32(b, 104), rc.F32(b, 108), rc.F32(b, 112)) == (1.0, 3.0, 20.0), 'lights: record ranges are the light\'s own times the world scale')
+
+
 def obj_box(path, size, mat, at=(0, 0, 0)):
     sx, sy, sz = size
     v = [(at[0] + x * sx, at[1] + y * sy, at[2] + z * sz) for x in (-.5, .5) for y in (0, 1) for z in (-.5, .5)]
@@ -125,7 +135,10 @@ def full_export(pack, tmp):
     check(wood['ok'], 'export: breakable wood made' + ('' if wood['ok'] else ': ' + wood['error']))
     items.append(wood['value'])
     markers = [dict(type='Shared spawn', position=[x, 0.1, 0], yaw=0, label='') for x in (-4, -2, 2, 4)]
-    spec = dict(job='r', scene_items=items, markers=markers, lights=[], base_name='rrtest', world_scale=0.5, mirror_x=True,
+    lights = [dict(name='Room', enabled=True, position=[0, 3, 0], color=[1, 0.9, 0.8], intensity=0.5, inner_range=2, range=6),
+              dict(name='Lamp', enabled=True, position=[10, 9, 0], color=[1, 0.89, 0.8], intensity=1, inner_range=22, range=34),
+              dict(name='Odd', enabled=True, position=[-10, 4, 0], color=[0.2, 0.4, 1], intensity=2, inner_range=0.5, range=13)]
+    spec = dict(job='r', scene_items=items, markers=markers, lights=lights, base_name='rrtest', world_scale=0.5, mirror_x=True,
                 flip_obj_v=True, double_sided=False, ptp=False)
     logs = []
     r = json.loads(web_api.export_project(json.dumps(spec), logs.append))
@@ -207,6 +220,42 @@ def export_fades(x):
     check(any(l.startswith('Fade distances: ') for l in x['logs']), 'export: logs the fade distances')
 
 
+def lights(ch):
+    n = rc.U32(ch.header, 884)
+    d = ch.get('rec136_260').data
+    names = bytes(d[136 * n:]).split(b'\0')[:n]
+    return [dict(name=names[i].decode('latin1'), flags=rc.U16(d, 136 * i), near=rc.F32(d, 136 * i + 104), far=rc.F32(d, 136 * i + 108),
+                 fade=rc.F32(d, 136 * i + 112)) for i in range(n)]
+
+
+def export_lights(x):
+    got = [(round(l['near'], 3), round(l['far'], 3), round(l['fade'], 3)) for l in lights(x['ch'])]
+    check(got == [(1.0, 3.0, 20.0), (11.0, 17.0, 68.0), (0.25, 6.5, 26.0)],
+          'export: each light\'s own ranges (units x 0.5) and a fade to match ' + str(got))
+    check(x['summary']['lights'] == 3, 'export: three lights')
+
+
+def retail_lights(packfiles):
+    """The game's interior omni lights are 1 / 3 m with a 20 m fade, its street lamps 11 / 17 m."""
+    pk = rc.Packfile(Path(packfiles) / 'mp_city_stream.vpp_xbox2')
+    kinds = collections.defaultdict(collections.Counter)
+    for m in ('mp_bac_01', 'mp_bac_03', 'mp_ptp_01', 'mp_arena', 'mp_bor_01', 'mp_crib'):
+        if not pk.has(m + '.bbchunk_xbox2'):
+            continue
+        for l in lights(rc.read_chunk(pk.read(m + '.bbchunk_xbox2'))):
+            kind = l['name'].rstrip('0123456789')
+            kinds[kind][(l['flags'], round(l['near'], 1), round(l['far'], 1), round(l['fade'], 1))] += 1
+    pk.close()
+    omni = kinds['BB Omni']
+    ours = collections.Counter({k: n for k, n in omni.items() if k[0] == 0x0390})
+    check(ours and ours.most_common(1)[0][0] == (0x0390, 1.0, 3.0, 20.0),
+          f'retail: interior omni lights with the flags we write (0x0390) are mostly 1 / 3 m, fade 20 m ({ours[(0x0390, 1.0, 3.0, 20.0)]} of {sum(ours.values())})')
+    lamp = kinds['lampPostStLightA']
+    check(lamp and all(k[1:3] == (11.0, 17.0) for k in lamp), f'retail: every street lamp (lampPostStLightA, {sum(lamp.values())}) is 11 / 17 m')
+    capped = [k[3] for c in kinds.values() for k in c if k[0] & 0x80 and k[0] & 0x10]
+    check(capped and all(f <= 75 for f in capped), f'retail: lights with their own fade under the 75 m cap (flags 0x90, as ours) fade at {min(capped):g}-{max(capped):g} m')
+
+
 def retail_materials(packfiles, tmp):
     """Retail bb-simple1: alpha (DXT5) and opaque materials alike are mostly flags 3 with Self_Illumination 0."""
     pk = rc.Packfile(Path(packfiles) / 'mp_city_stream.vpp_xbox2')
@@ -242,17 +291,20 @@ with tempfile.TemporaryDirectory() as t:
     tmp = Path(t)
     units()
     unit_fades()
+    unit_lights()
     pack = os.environ.get('SR1_DATA_PACK')
     if pack:
         x = full_export(Path(pack), tmp)
         if x:
             export_materials(x)
             export_fades(x)
+            export_lights(x)
     else:
         print('skip full export (set SR1_DATA_PACK to run it)')
     game = os.environ.get('SR1_GAME_PACKFILES')
     if game:
         retail_materials(game, tmp)
+        retail_lights(game)
     else:
         print('skip retail comparison (set SR1_GAME_PACKFILES to run it)')
 
