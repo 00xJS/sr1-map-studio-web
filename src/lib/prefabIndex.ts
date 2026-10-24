@@ -34,7 +34,7 @@ export function prefabCategories(list: { category: string }[] = prefabEntries())
 }
 
 /** "Trees" finds "tree"; short words stay as typed. */
-const stem = (w: string) => (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w)
+export const stem = (w: string) => (w.length > 3 && w.endsWith('s') && !w.endsWith('ss') ? w.slice(0, -1) : w)
 
 /** Entries holding every word of the query, best first: names before hints, word starts before middles. */
 export function searchPrefabs<T extends { label: string; text: string }>(list: T[], query: string): T[] {

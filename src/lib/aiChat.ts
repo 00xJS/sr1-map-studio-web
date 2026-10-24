@@ -5,6 +5,8 @@
 // Authorization header of that call; it is never logged or put in a message.
 import type { Project, Vec3 } from './project'
 import { ALL_PREFABS } from './prefabRegistry'
+import { PREFABS } from './prefabs'
+import { normalize, prefabEntries, stem } from './prefabIndex'
 import { SHAPE_PRESETS } from './shapes'
 import { catalogs } from './catalogs'
 import { GAME_MODES } from './project'
@@ -133,15 +135,44 @@ export const setLibraryTextures = (ids: string[]) => { libraryIds = ids }
 /** Texture names the paint edit understands: the starter library's ids and the generated kinds. */
 export const textureNames = () => [...libraryIds, ...Object.keys(KINDS)]
 
-function reference(profile: ModelProfile): string {
+const STOP = new Set(('the and for with from into onto add put place make build some more this that there here its our your you can could would like want need please map maps near next middle center centre around each side top front back left right big small new one two three lot lots any all also just very really').split(' '))
+
+/**
+ * The prefabs that fit a request, best first: a word of the request in a prefab's name counts most,
+ * in its description, category or keywords less. ("add a gas station" finds the gas stations.)
+ */
+export function relevantPrefabs(request: string, count = 40): string[] {
+  const words = [...new Set(normalize(request).trim().split(' ').filter((w) => w.length > 2 && !STOP.has(w)).map(stem))]
+  if (!words.length) return []
+  const scored: [string, number][] = []
+  for (const e of prefabEntries()) {
+    if (!e.shape.startsWith('prefab:')) continue
+    const label = normalize(e.label)
+    let score = 0
+    // Whole words (or their plural): "bus" is not "bush".
+    const has = (t: string, w: string) => t.includes(' ' + w + ' ') || t.includes(' ' + w + 's ') || t.includes(' ' + w + 'es ')
+    for (const w of words) score += has(label, w) ? 4 : has(e.text, w) ? 1.5 : 0
+    if (score) scored.push([e.shape.slice(7), score])
+  }
+  return scored.sort((a, b) => b[1] - a[1]).slice(0, count).map(([k]) => k)
+}
+
+/**
+ * What the model may name. Every prefab key is listed (so it knows what exists), but only the ones that fit
+ * the request, plus the everyday basics, come with their names and settings: the whole catalogue in full is
+ * so long that busy free models time out before they start answering.
+ */
+function reference(profile: ModelProfile, request = ''): string {
   const small = profile.tier === 'small'
-  const prefabs = Object.entries(ALL_PREFABS).map(([k, d]) => {
-    if (small) return k
-    const ps = (d.params ?? []).map((pd) => `${pd.key}${pd.options ? '=' + pd.options.map(([v]) => v).join('|') : pd.min !== undefined ? ` ${pd.min}-${pd.max}` : ''}`).join(',')
+  const full = new Set([...relevantPrefabs(request, small ? 15 : 40), ...Object.keys(PREFABS)].filter((k) => ALL_PREFABS[k]))
+  const detail = (k: string) => {
+    const d = ALL_PREFABS[k]
+    const ps = small ? '' : (d.params ?? []).map((pd) => `${pd.key}${pd.options ? '=' + pd.options.map(([v]) => v).join('|') : pd.min !== undefined ? ` ${pd.min}-${pd.max}` : ''}`).join(',')
     return `${k} (${d.label}${ps ? '; settings ' + ps : ''})`
-  })
+  }
   return [
-    `Prefab keys: ${prefabs.join(small ? ', ' : '; ')}.`,
+    `Prefabs for this request: ${[...full].map(detail).join('; ')}.`,
+    `Other prefab keys (the key says what it is): ${Object.keys(ALL_PREFABS).filter((k) => !full.has(k)).join(', ')}.`,
     `Shapes: ${Object.keys(SHAPE_PRESETS).join(', ')}.`,
     `Textures for paint: ${textureNames().join(', ')}.`,
     `Marker types: ${catalogs.marker_types.join(', ')}.`,
@@ -184,7 +215,7 @@ const RULES = `Rules:
 const EXAMPLE = `Example. User: "put a lamp on each side of the middle" ->
 {"reply":"Added a street lamp on each side of the middle.","actions":[{"do":"add_prefab","key":"lamp","x":12,"z":-6,"turn":0,"mirror":true}]}`
 
-export function systemPrompt(map: string, profile: ModelProfile = modelProfile(DEFAULT_MODEL)): string {
+export function systemPrompt(map: string, profile: ModelProfile = modelProfile(DEFAULT_MODEL), request = ''): string {
   return `You help someone build a Saints Row 1 multiplayer map in a web editor. You can talk about the map and change it.
 
 Always answer with ONE JSON object and nothing else (no code fence, no comments):
@@ -195,7 +226,7 @@ ${EDITS}
 
 ${RULES}
 ${profile.tier === 'reasoning' ? '' : '\n' + EXAMPLE + '\n'}
-${reference(profile)}
+${reference(profile, request)}
 
 The map now:
 ${map}
@@ -226,7 +257,7 @@ Remember: answer with the JSON object only.`
 }
 
 /** For "describe a map": pick the new map wizard's options and any edits to make after. */
-export function describePrompt(profile: ModelProfile = modelProfile(DEFAULT_MODEL)): string {
+export function describePrompt(profile: ModelProfile = modelProfile(DEFAULT_MODEL), request = ''): string {
   return `You turn someone's description of a Saints Row 1 multiplayer map into settings for a map generator, plus edits to make after it is built.
 
 Answer with ONE JSON object and nothing else:
@@ -243,7 +274,7 @@ Use "then" only for what the generator can't do: rain or night ({"do":"set_weath
 Edits:
 ${EDITS.split('\n').filter((l) => /"(add_prefab|add_shape|delete|place_line|place_ring|add_marker|add_light|set_weather|set_modes|paint)"/.test(l)).join('\n')}
 
-${reference(profile)}
+${reference(profile, request)}
 ${profile.tier === 'reasoning' ? '' : `
 Example. "a small neon arena for 4" ->
 {"reply":"A packed cyber ring arena for 4 players.","map":{"setting":"cyber","layout":"arena","players":4,"density":"packed","name":"Neon Ring"},"then":[]}
@@ -394,31 +425,31 @@ export async function askModel(messages: ChatMessage[], key: string, model: stri
 /** NVIDIA gave up waiting for the model to start (its gateway's "Inactivity Timeout"). */
 export class BusyError extends Error {}
 
+/** What went wrong, in plain words, from a status and whatever the service said (JSON, or a gateway's web page). */
+function failure(status: number, said: string, model: string, key: string): Error {
+  let msg: unknown = said
+  try { const d = JSON.parse(said); msg = d?.error?.message ?? d?.error ?? d?.detail ?? d?.title ?? d?.errorMessage ?? said } catch { /* not JSON */ }
+  const plain = typeof msg === 'string' ? msg.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 300) : ''
+  if (status === 401 || status === 403) return new Error('NVIDIA did not accept the key. Check it on build.nvidia.com.')
+  if (status === 404) return new Error(`Model "${model}" was not found. Pick another in the chat settings.`)
+  if (status === 429) return new Error('Too many requests for the free tier right now. Wait a minute and try again.')
+  if (status === 408 || status === 504 || /inactivity timeout|timed out|too much time/i.test(plain)) {
+    return new BusyError(`${model} didn't start answering in time: NVIDIA's free endpoint is busy or the model is slow. Try again, or pick a faster model in the AI settings (like ${SUGGESTED_MODELS[0]}).`)
+  }
+  return new Error(scrub(plain || `The AI service answered ${status}.`, key))
+}
+
 async function askOnce(messages: ChatMessage[], key: string, model: string, opts: AskOptions): Promise<string> {
   const profile = opts.profile ?? modelProfile(model)
-  const stream = !!opts.onProgress
+  // Always streamed: the relay keeps a streamed reply alive while a busy model gets started.
   const res = await fetch('/api/ai', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${key}` },
-    body: JSON.stringify({ model, messages, temperature: profile.temperature, max_tokens: profile.maxTokens, ...(stream ? { stream: true } : {}) }),
+    body: JSON.stringify({ model, messages, temperature: profile.temperature, max_tokens: profile.maxTokens, stream: true }),
     signal: opts.signal,
   })
-  if (!res.ok) {
-    const text = await res.text()
-    let data: any = null
-    try { data = JSON.parse(text) } catch { /* not JSON */ }
-    const msg = data?.error?.message ?? data?.error ?? data?.detail ?? data?.title ?? text.slice(0, 200)
-    if (res.status === 401 || res.status === 403) throw new Error('NVIDIA did not accept the key. Check it on build.nvidia.com.')
-    if (res.status === 404) throw new Error(`Model "${model}" was not found. Pick another in the chat settings.`)
-    if (res.status === 429) throw new Error('Too many requests for the free tier right now. Wait a minute and try again.')
-    if (res.status === 408 || res.status === 504 || /inactivity timeout|timed out/i.test(text)) {
-      throw new BusyError(`${model} didn't start answering in time: NVIDIA's free endpoint is busy or the model is slow. Try again, or pick a faster model in the AI settings (like ${SUGGESTED_MODELS[0]}).`)
-    }
-    // Gateways answer with web pages: keep just their words.
-    const plain = typeof msg === 'string' ? msg.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : ''
-    throw new Error(scrub(plain || `The AI service answered ${res.status}.`, key))
-  }
-  if (!stream || !(res.headers.get('content-type') || '').includes('event-stream') || !res.body) {
+  if (!res.ok) throw failure(res.status, await res.text(), model, key)
+  if (!(res.headers.get('content-type') || '').includes('event-stream') || !res.body) {
     let data: any = null
     try { data = JSON.parse(await res.text()) } catch { /* not JSON */ }
     const msg = data?.choices?.[0]?.message
@@ -443,7 +474,7 @@ async function askOnce(messages: ChatMessage[], key: string, model: string, opts
       if (d === '[DONE]') continue
       let chunk: any
       try { chunk = JSON.parse(d) } catch { continue }
-      if (chunk?.error) throw new Error(scrub(String(chunk.error.message ?? chunk.error), key))
+      if (chunk?.error) throw failure(Number(chunk.error.status) || 500, String(chunk.error.message ?? chunk.error), model, key)
       const delta = chunk?.choices?.[0]?.delta ?? {}
       if (typeof delta.content === 'string') { content += delta.content; changed = true }
       const r = delta.reasoning_content ?? delta.reasoning

@@ -111,7 +111,9 @@ export function AiChat({ onClose }: { onClose: () => void }) {
     const facts = critique ? gatherFacts({ project, bounds }) : null
     try {
       const map = describeMap(project, bounds)
-      const system = critique ? critiquePrompt(map, factsText(facts!), profile) : systemPrompt(map, profile)
+      // The request and the one before it pick which prefabs the model is told about in full.
+      const asked = [...useChat.getState().history.filter((h) => h.role === 'user').slice(-1).map((h) => h.content), msg].join(' ')
+      const system = critique ? critiquePrompt(map, factsText(facts!), profile) : systemPrompt(map, profile, asked)
       // The map summary is fresh every turn; the last few exchanges give context.
       const messages: ChatMessage[] = [{ role: 'system', content: system }, ...useChat.getState().history.slice(-10), { role: 'user', content: msg + formatReminder(profile) }]
       const { raw, repaired } = await askWithRepair(messages, readKey(), model, {

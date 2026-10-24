@@ -5,7 +5,7 @@ import {
 } from '../src/lib/aiChat'
 import { buildReview, clampToMap, describeEdit, heuristicPlan, isCritiqueRequest, planFromAction, planFromModel } from '../src/lib/aiReview'
 import { factsText, gatherFacts } from '../src/lib/mapFacts'
-import relay from '../netlify/functions/ai.mjs'
+import relay from '../netlify/edge-functions/ai'
 import { newMarker, newProject, uid } from '../src/lib/project'
 
 const KEY = 'nvapi-' + 'x'.repeat(40)
@@ -214,6 +214,26 @@ describe('the relay', () => {
     const [url, init] = upstream.mock.calls[0] as unknown as [string, RequestInit]
     expect(url).toBe('https://integrate.api.nvidia.com/v1/models')
     expect(JSON.stringify(init.headers)).not.toMatch(/authorization/i)
+  })
+
+  it('answers at once with a keep-alive line, and turns the NVIDIA timeout page into an error event', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('<HTML><TITLE>Inactivity Timeout</TITLE>Too much time has passed</HTML>', { status: 504 })))
+    const res = await relay(new Request('http://x/api/ai', { method: 'POST', headers: { Authorization: 'Bearer ' + KEY }, body: JSON.stringify({ model: 'm/x', messages: [], stream: true }) }))
+    expect(res.status).toBe(200)
+    const text = await res.text()
+    expect(text.startsWith(': waiting')).toBe(true)
+    const event = JSON.parse(text.split('\n').find((l) => l.startsWith('data:'))!.slice(5))
+    expect(event.error.status).toBe(504)
+    expect(event.error.message).not.toContain('<')
+  })
+
+  it('the chat retries after a timeout event and explains a second one', async () => {
+    const timeout = () => new Response(': waiting\n\ndata: {"error":{"status":504,"message":"Inactivity Timeout"}}\n\n', { headers: { 'Content-Type': 'text/event-stream' } })
+    const fetchMock = vi.fn(async () => timeout())
+    vi.stubGlobal('fetch', fetchMock)
+    const err = String(await askModel([], KEY, 'm/x', { onProgress: () => {} }).catch((e: Error) => e))
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    expect(err).toMatch(/didn't start answering in time/)
   })
 
   it('refuses a missing key without calling NVIDIA', async () => {

@@ -37,7 +37,7 @@ export function DescribeMap({ busy, onCreate, onTune }: { busy: boolean; onCreat
     abort.current = new AbortController()
     const model = readModel(), profile = modelProfile(model)
     try {
-      const { raw } = await askWithRepair([{ role: 'system', content: describePrompt(profile) }, { role: 'user', content: text + formatReminder(profile) }], readKey(), model, { signal: abort.current.signal, profile, onProgress: ({ content, reasoning }) => setThought(partialReply(content) || (reasoning || stripThinking(content) ? 'Thinking' : '')) })
+      const { raw } = await askWithRepair([{ role: 'system', content: describePrompt(profile, text) }, { role: 'user', content: text + formatReminder(profile) }], readKey(), model, { signal: abort.current.signal, profile, onProgress: ({ content, reasoning }) => setThought(partialReply(content) || (reasoning || stripThinking(content) ? 'Thinking' : '')) })
       setPlan(planFromModel(raw, text))
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') return
