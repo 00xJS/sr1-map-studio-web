@@ -8,7 +8,7 @@ import type { PegImage } from '../sr1char/peg'
 import { indexChunk, type Candidate } from './indexer'
 import { extractObject, type ObjectMesh } from './extract'
 import { ALWAYS_PEGS, INVISIBLE_TEXTURE, chunkPegNames, findShared, findTexture, hasAlpha, indexPeg, shrink, textureDirectory, type PegIndex, type TextureDirectory } from './textures'
-import { MAP, cutArea, isCityChunk, mapChunk, scanArea, type ChunkSummary, type Hole, type Rect } from '../city/city'
+import { MAP, cutArea, isCityChunk, mapChunk, scanArea, type ChunkSummary, type CutPiece, type Hole, type Rect } from '../city/city'
 
 /** A packfile: a File from the player's folder, or (development only) a URL the dev server serves by range. */
 export type PackSource = File | { url: string; size: number }
@@ -31,10 +31,16 @@ export type Reply =
   | { id: number; type: 'chunk'; key: string; candidates: Candidate[]; done: number; total: number; ms: number }
   | { id: number; type: 'progress'; done: number; total: number }
 
-/** The city map: highest surface per pixel (decimetres, -32768 for nothing) and which chunks cover where. */
-export interface CityMap { top: Int16Array; summaries: ChunkSummary[]; texDir?: TextureDirectory }
-/** A cut-out: what's solid and what's only drawn, sharing one list of materials and their pictures. */
-export interface CityCut { solid: ObjectResult; look: ObjectResult; ground: number; standable: [number, number, number][] }
+/** The city map: highest surface per pixel (decimetres, -32768 for nothing), what it is (see Ground), and which chunks cover where. */
+export interface CityMap { top: Int16Array; kind: Uint8Array; summaries: ChunkSummary[]; texDir?: TextureDirectory }
+/**
+ * A cut-out: what's solid and what's only drawn, sharing one list of materials and their pictures, and the game
+ * object (piece) each triangle of either belongs to.
+ */
+export interface CityCut {
+  solid: ObjectResult; look: ObjectResult; ground: number; standable: [number, number, number][]
+  pieces: CutPiece[]; solidPiece: Uint32Array; lookPiece: Uint32Array
+}
 
 /** Library packfiles: the city, the multiplayer maps, and misc2 (the always-loaded city chunks and textures). */
 export const INDEX_PACKS = ['sr_city_stream', 'mp_city_stream', 'misc2']
@@ -197,9 +203,10 @@ async function cityStems(): Promise<string[]> {
 async function cityMap(id: number): Promise<CityMap> {
   const stems = await cityStems()
   const top = new Float32Array(MAP.size * MAP.size).fill(-Infinity)
+  const kind = new Uint8Array(MAP.size * MAP.size)
   const summaries: ChunkSummary[] = []
   for (const [i, stem] of stems.entries()) {
-    try { summaries.push(mapChunk(await chunkOf('sr_city_stream', stem), stem, top)) } catch { /* an unreadable chunk leaves a gap */ }
+    try { summaries.push(mapChunk(await chunkOf('sr_city_stream', stem), stem, top, kind)) } catch { /* an unreadable chunk leaves a gap */ }
     post({ id, type: 'progress', done: i + 1, total: stems.length })
   }
   const out = new Int16Array(top.length)
@@ -210,7 +217,7 @@ async function cityMap(id: number): Promise<CityMap> {
     for (const p of INDEX_PACKS) if (vpps.has(p)) opened.push([p, await pack(p)])
     texDir = await textureDirectory(opened)
   }
-  return { top: out, summaries, texDir }
+  return { top: out, kind, summaries, texDir }
 }
 
 async function areaChunks(stems: string[]) {
@@ -229,7 +236,10 @@ async function cityCut(m: Extract<Request, { type: 'cityCut' }>): Promise<CityCu
     const found = await texturesFor('sr_city_stream', c, list.map((i) => cut.solid.materials[i]), m.texSize)
     list.forEach((i, k) => { textures[i] = found[k] })
   }
-  return { solid: { mesh: cut.solid, textures }, look: { mesh: cut.look, textures }, ground: cut.ground, standable: cut.standable }
+  return {
+    solid: { mesh: cut.solid, textures }, look: { mesh: cut.look, textures }, ground: cut.ground, standable: cut.standable,
+    pieces: cut.pieces, solidPiece: cut.solidPiece, lookPiece: cut.lookPiece,
+  }
 }
 
 self.onmessage = async (e: MessageEvent<Request>) => {
@@ -240,7 +250,7 @@ self.onmessage = async (e: MessageEvent<Request>) => {
     else if (m.type === 'index') post({ id: m.id, ok: true, value: await index(m.id, new Set(m.skip)) })
     else if (m.type === 'cityMap') {
       const v = await cityMap(m.id)
-      post({ id: m.id, ok: true, value: v }, [v.top.buffer])
+      post({ id: m.id, ok: true, value: v }, [v.top.buffer, v.kind.buffer])
     } else if (m.type === 'cityScan') post({ id: m.id, ok: true, value: scanArea(await areaChunks(m.stems), m.rect) satisfies Hole[] })
     else if (m.type === 'cityCut') {
       const v = await cityCut(m)
@@ -248,6 +258,7 @@ self.onmessage = async (e: MessageEvent<Request>) => {
       const transfer: Transferable[] = []
       for (const r of [v.solid, v.look]) transfer.push(r.mesh.positions.buffer, r.mesh.uvs.buffer, r.mesh.triangles.buffer, r.mesh.triMaterial.buffer)
       for (const t of v.solid.textures) if (t) transfer.push(t.rgba)
+      transfer.push(v.solidPiece.buffer, v.lookPiece.buffer)
       post({ id: m.id, ok: true, value: v }, transfer)
     } else if (m.type === 'object') {
       const ch = await chunkOf(m.pack, m.chunk)

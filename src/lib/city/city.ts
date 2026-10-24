@@ -37,6 +37,9 @@ export interface Tri {
   solid: boolean
   /** Diffuse texture name ('' for none). */
   tex: string
+  /** The instance (in its chunk) that draws it, and whether that instance has a physics shape of its own (a prop). */
+  inst: number
+  prop: boolean
 }
 
 const box = (ch: Chunk, mesh: number, P: number[], R: number[]) => {
@@ -57,7 +60,7 @@ export function forEachTriangle(ch: Chunk, cb: (t: Tri) => void, area?: Rect) {
   const sol = solidity(ch)
   const shaped = new Set(ch.records.filter((r) => r.shape >= 0).map((r) => r.instance))
   const dv = new DataView(ch.bytes.buffer, ch.bytes.byteOffset, ch.bytes.byteLength)
-  const t: Tri = { p: new Float64Array(9), uv: new Float64Array(6), ny: 0, area: 0, solid: false, tex: '' }
+  const t: Tri = { p: new Float64Array(9), uv: new Float64Array(6), ny: 0, area: 0, solid: false, tex: '', inst: 0, prop: false }
   const texOf = ch.materials.map((m) => m.textures.find((x) => !/\.tgn$/i.test(x)) ?? '')
   for (const [ii, inst] of ch.instances.entries()) {
     const mesh = ch.meshes[inst.mesh]
@@ -67,6 +70,8 @@ export function forEachTriangle(ch: Chunk, cb: (t: Tri) => void, area?: Rect) {
     const keys = sol ? sol.meshKeys[sol.canon[inst.mesh]] : null
     // Its own physics shape (a prop): solid as a whole. Otherwise the triangles its mesh's collision lists.
     const whole = shaped.has(ii)
+    t.inst = ii
+    t.prop = whole
     const instSolid = !(inst.flags & NO_COLLISION_FLAGS)
     for (const sub of mesh.subs) {
       const vb = ch.vbs[sub.vb]
@@ -172,7 +177,7 @@ export class Grid {
 // ---------------- the city map ----------------
 
 /** The top-down map's frame: metres per pixel, and the square of the world it covers. */
-export const MAP = { cell: 4, x0: -2400, z0: -2400, size: 1200 }
+export const MAP = { cell: 2, x0: -2400, z0: -2400, size: 2400 }
 /** Tiles that say which chunks hold geometry where (for picking the chunks an area needs). */
 export const TILE = 64
 
@@ -184,19 +189,61 @@ export interface ChunkSummary {
 }
 export const TILES = Math.ceil((MAP.size * MAP.cell) / TILE)
 
-/** Adds a chunk to the city map (`top`: highest surface per pixel, -Infinity where there's nothing) and sums it up. */
-export function mapChunk(ch: Chunk, stem: string, top: Float32Array): ChunkSummary {
+/** What the top surface of a map pixel is, for colouring the map (0: nothing there). */
+export const Ground = { None: 0, Road: 1, Walk: 2, Grass: 3, Dirt: 4, Water: 5, Rail: 6, Other: 7, Wall: 8 } as const
+export type Ground = (typeof Ground)[keyof typeof Ground]
+
+/** What a surface is, from its texture name (the game names them plainly: "ter_grass", "road_asphalt"...). */
+export function groundOf(tex: string): Ground {
+  const t = tex.toLowerCase()
+  if (!t) return Ground.Other
+  if (/water|ocean|river|lake|pool|sea_/.test(t)) return Ground.Water
+  if (/rail|track/.test(t)) return Ground.Rail
+  if (/grass|lawn|turf|park|field|hedge|bush|tree|leaf|foliage|ivy|plant/.test(t)) return Ground.Grass
+  if (/dirt|sand|gravel|mud|soil|beach|rock/.test(t)) return Ground.Dirt
+  if (/road|asphalt|street|_rd|rd_|hwy|highway|lane|tarmac|crosswalk|parking|pkg/.test(t)) return Ground.Road
+  if (/sidewalk|curb|kerb|pave|walk|plaza|conc|cement|tile|^ter_/.test(t)) return Ground.Walk
+  return Ground.Other
+}
+
+/**
+ * Adds a chunk to the city map: `top` is the highest surface per pixel (-Infinity where there's nothing) and
+ * `kind` what that surface is. Each triangle fills every pixel it covers (seen from above); walls, which cover
+ * none, mark their corners.
+ */
+export function mapChunk(ch: Chunk, stem: string, top: Float32Array, kind: Uint8Array): ChunkSummary {
   const tiles = new Set<number>()
   let triangles = 0
+  const n = MAP.size
+  const put = (i: number, j: number, y: number, k: Ground) => {
+    if (i < 0 || j < 0 || i >= n || j >= n) return
+    const at = j * n + i
+    if (y > top[at]) { top[at] = y; kind[at] = k }
+  }
   forEachTriangle(ch, (t) => {
     triangles++
+    const p = t.p
+    const xs = [0, 1, 2].map((k) => (p[3 * k] - MAP.x0) / MAP.cell), zs = [0, 1, 2].map((k) => (p[3 * k + 2] - MAP.z0) / MAP.cell)
     for (let k = 0; k < 3; k++) {
-      const x = t.p[3 * k], y = t.p[3 * k + 1], z = t.p[3 * k + 2]
-      const i = Math.floor((x - MAP.x0) / MAP.cell), j = Math.floor((z - MAP.z0) / MAP.cell)
-      if (i < 0 || j < 0 || i >= MAP.size || j >= MAP.size) continue
-      const at = j * MAP.size + i
-      if (y > top[at]) top[at] = y
-      tiles.add(Math.floor(j * MAP.cell / TILE) * TILES + Math.floor(i * MAP.cell / TILE))
+      const i = Math.floor(xs[k]), j = Math.floor(zs[k])
+      if (i >= 0 && j >= 0 && i < n && j < n) tiles.add(Math.floor(j * MAP.cell / TILE) * TILES + Math.floor(i * MAP.cell / TILE))
+    }
+    const k = Math.abs(t.ny) < 0.3 ? Ground.Wall : groundOf(t.tex)
+    const area = (xs[1] - xs[0]) * (zs[2] - zs[0]) - (xs[2] - xs[0]) * (zs[1] - zs[0])
+    if (Math.abs(area) < 0.5) {
+      for (let c = 0; c < 3; c++) put(Math.floor(xs[c]), Math.floor(zs[c]), p[3 * c + 1], k)
+      return
+    }
+    const i0 = Math.max(0, Math.floor(Math.min(...xs))), i1 = Math.min(n - 1, Math.floor(Math.max(...xs)))
+    const j0 = Math.max(0, Math.floor(Math.min(...zs))), j1 = Math.min(n - 1, Math.floor(Math.max(...zs)))
+    for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
+      // Barycentric weights of the pixel's middle.
+      const x = i + 0.5, z = j + 0.5
+      const w1 = ((x - xs[0]) * (zs[2] - zs[0]) - (xs[2] - xs[0]) * (z - zs[0])) / area
+      const w2 = ((xs[1] - xs[0]) * (z - zs[0]) - (x - xs[0]) * (zs[1] - zs[0])) / area
+      const w0 = 1 - w1 - w2
+      if (w0 < -0.02 || w1 < -0.02 || w2 < -0.02) continue
+      put(i, j, w0 * p[1] + w1 * p[4] + w2 * p[7], k)
     }
   })
   return { stem, tiles: [...tiles], triangles }
@@ -223,14 +270,45 @@ export interface CutMeshes {
   ground: number
   /** Flat solid ground near street level a player can stand on (x, y, z after the move), for spawns. */
   standable: [number, number, number][]
+  /** The game objects (instances) the triangles came from, and which one each triangle of `solid` and `look` belongs to. */
+  pieces: CutPiece[]
+  solidPiece: Uint32Array
+  lookPiece: Uint32Array
+}
+
+/** One game object in a cut: its name in the game (or what it is), and whether it has a physics shape of its own. */
+export interface CutPiece { name: string; prop: boolean }
+
+/** What common city objects are, by a part of their name in the game (first match wins). */
+const KNOWN: [RegExp, string][] = [
+  [/firehyd|hydrant/, 'Fire hydrant'], [/trashcan|trash_can|garbagecan/, 'Trash can'], [/dumpster/, 'Dumpster'], [/picnictable/, 'Picnic table'],
+  [/bench/, 'Bench'], [/planter/, 'Planter'], [/parkingblock|parkblock/, 'Parking block'], [/news/, 'Newspaper box'],
+  [/phonebooth|payphone/, 'Payphone'], [/mailbox/, 'Mailbox'], [/meter_|parkmeter|parkingmeter/, 'Parking meter'], [/gaugepower|powermeter/, 'Power meter'],
+  [/streetlight|lamp|lppost/, 'Street lamp'], [/trafficlight|stoplight|signal/, 'Traffic light'], [/sign/, 'Sign'],
+  [/fence/, 'Fence'], [/railing|rail_/, 'Railing'], [/eltrack|eltrain|el_track/, 'El track'], [/el_?support/, 'El support'],
+  [/tree|palm/, 'Tree'], [/bush|shrub|hedge/, 'Bush'], [/grass/, 'Grass'], [/statue/, 'Statue'], [/fountain/, 'Fountain'],
+  [/couch|sofa/, 'Couch'], [/chair/, 'Chair'], [/table/, 'Table'], [/tv_|television/, 'TV'], [/fridge|refrig/, 'Fridge'],
+  [/crate/, 'Crate'], [/barrel/, 'Barrel'], [/pallet/, 'Pallet'], [/acunit|acind|aircon/, 'AC unit'], [/vent/, 'Vent'],
+  [/hoswall|wall/, 'Wall'], [/winlit|window/, 'Windows'], [/roof/, 'Roof'], [/door/, 'Door'], [/stair|step/, 'Stairs'],
+  [/^ter_|_ter_|terrain/, 'Ground'], [/road|street|_rd_|sidewalk|curb|kerb/, 'Road'],
+  [/olddwnt|dwnt|bldg|building|hull/, 'Building'],
+]
+
+/** A readable name for a game object from its record or texture name: "picnictablea" → "Picnic table", "bench_park01" → "Bench". */
+export function pieceName(raw: string): string {
+  const low = raw.toLowerCase().replace(/\.[^.]+$/, '').replace(/^(sr_)?(chunk\d+\w*?_)?/, '')
+  if (!low) return ''
+  for (const [re, name] of KNOWN) if (re.test(low)) return name
+  const words = low.replace(/[_\-.]+/g, ' ').replace(/\d+/g, ' ').replace(/\s+/g, ' ').trim()
+  return words ? words[0].toUpperCase() + words.slice(1) : ''
 }
 
 class MeshBuilder {
-  pos: number[] = []; uv: number[] = []; tri: number[] = []; mat: number[] = []
-  add(poly: number[][], m: number) {
+  pos: number[] = []; uv: number[] = []; tri: number[] = []; mat: number[] = []; piece: number[] = []
+  add(poly: number[][], m: number, piece = 0) {
     const base = this.pos.length / 3
     for (const v of poly) { this.pos.push(v[0], v[1], v[2]); this.uv.push(v[3], v[4]) }
-    for (let k = 1; k + 1 < poly.length; k++) { this.tri.push(base, base + k, base + k + 1); this.mat.push(m) }
+    for (let k = 1; k + 1 < poly.length; k++) { this.tri.push(base, base + k, base + k + 1); this.mat.push(m); this.piece.push(piece) }
   }
   done(materials: string[], shift: [number, number, number]): ObjectMesh {
     const p = new Float32Array(this.pos.length)
@@ -266,6 +344,9 @@ export function cutArea(chunks: [string, Chunk][], r: Rect): CutMeshes {
   const floor = new Float32Array(grid.w * grid.h).fill(-Infinity)
   const ceiling: number[][] = Array.from({ length: grid.w * grid.h }, () => [])
   const ground = streetLevel(chunks, r)
+  const pieces: CutPiece[] = [], pieceIndex = new Map<string, number>()
+  // What each instance is called: its record's name, or failing that its first texture's.
+  const recName = chunks.map(([, ch]) => new Map(ch.records.map((rec) => [rec.instance, rec.name])))
   forEachAreaTriangle(chunks, r, (t, ci) => {
       const lookOnly = !t.solid
       if (!t.solid && t.ny > 0.7 && t.tex && Math.abs((t.p[1] + t.p[4] + t.p[7]) / 3 - ground) <= STREET_BAND) t.solid = true
@@ -287,7 +368,14 @@ export function cutArea(chunks: [string, Chunk][], r: Rect): CutMeshes {
       const key = t.tex.toLowerCase()
       let m = matIndex.get(key)
       if (m === undefined) { m = materials.length; materials.push(t.tex); matChunk.push(stem); matIndex.set(key, m) }
-      ;(t.solid ? solid : look).add(poly, m)
+      const pk = ci + ':' + t.inst
+      let pc = pieceIndex.get(pk)
+      if (pc === undefined) {
+        pc = pieces.length
+        pieces.push({ name: pieceName(recName[ci].get(t.inst) ?? '') || pieceName(t.tex) || 'Piece', prop: t.prop })
+        pieceIndex.set(pk, pc)
+      }
+      ;(t.solid ? solid : look).add(poly, m, pc)
       if (t.solid) {
         if (t.ny > 0.85) grid.cover(t.p, (i, y) => { if (y > floor[i]) floor[i] = y })
         else if (t.ny < -0.3) grid.cover(t.p, (i, y) => ceiling[i].push(y))
@@ -304,7 +392,10 @@ export function cutArea(chunks: [string, Chunk][], r: Rect): CutMeshes {
     const [x, z] = grid.centre(i)
     standable.push([x - cx, y - ground, z - cz])
   }
-  return { solid: solid.done(materials, shift), look: look.done(materials, shift), matChunk, ground, standable }
+  return {
+    solid: solid.done(materials, shift), look: look.done(materials, shift), matChunk, ground, standable,
+    pieces, solidPiece: new Uint32Array(solid.piece), lookPiece: new Uint32Array(look.piece),
+  }
 }
 
 // ---------------- looking for holes ----------------

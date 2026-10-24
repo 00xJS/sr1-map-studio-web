@@ -6,7 +6,8 @@ import { GAME_TESTS } from './testMode'
 import { existsSync, openAsBlob } from 'node:fs'
 import { join } from 'node:path'
 import { moppKeys } from '../src/lib/city/collision'
-import { Grid, clip, cutArea, isCityChunk, scanArea, triangleKey } from '../src/lib/city/city'
+import { Grid, clip, cutArea, isCityChunk, pieceName, scanArea, triangleKey } from '../src/lib/city/city'
+import { lookFaces, splitPieces } from '../src/lib/city/build'
 import { openVpp } from '../src/lib/sr1char/vpp'
 import { readChunk } from '../src/lib/gameObjects/chunk'
 
@@ -20,6 +21,28 @@ describe('collision keys', () => {
     expect(moppKeys(Uint8Array.from([0x51, 0x01, 0x02]))).toEqual([0x102])
     expect(moppKeys(new Uint8Array())).toEqual([])
     expect(() => moppKeys(Uint8Array.from([0xff]))).toThrow(/opcode/)
+  })
+})
+
+describe('one object per game object', () => {
+  const mesh = (pos: number[], tris: number[], mats: number[]) => ({ positions: new Float32Array(pos), uvs: new Float32Array(pos.length / 3 * 2), triangles: new Uint32Array(tris), triMaterial: new Uint16Array(mats), materials: ['a.tga', 'b.tga'] })
+  it('splits the cut by piece, each about its own base, solid and look-only kept apart', () => {
+    // Piece 0: a solid triangle at x 10..12 plus a look-only one; piece 1: one solid triangle at x -5.
+    const solid = mesh([10, 1, 0, 12, 1, 0, 10, 3, 0, -5, 0, 0, -4, 0, 0, -5, 1, 1], [0, 1, 2, 3, 4, 5], [1, 0])
+    const look = mesh([10, 1, 1, 12, 1, 1, 11, 2, 1], [0, 1, 2], [0])
+    const pieces = splitPieces({ solid: { mesh: solid, textures: [] }, look: { mesh: look, textures: [] }, pieces: [{ name: 'Bench', prop: true }, { name: 'Kerb', prop: false }], solidPiece: Uint32Array.from([0, 1]), lookPiece: Uint32Array.from([0]) })
+    expect(pieces.map((p) => [p.name, p.mesh.triangles.length / 3, [...p.look]])).toEqual([['Bench', 2, [0, 1]], ['Kerb', 1, [0]]])
+    expect(pieces[0].base).toEqual([11, 1, 0.5])
+    expect(Math.min(...[...pieces[0].mesh.positions].filter((_, i) => i % 3 === 1))).toBe(0)
+    // OBJ faces are grouped by material: the solid triangle (material 1) comes after the look one (material 0).
+    expect(lookFaces(pieces[0], (m) => m)).toEqual([0])
+  })
+  it('names pieces readably', () => {
+    expect(pieceName('bench_park01')).toBe('Bench')
+    expect(pieceName('Picnictablea')).toBe('Picnic table')
+    expect(pieceName('sr_chunk13_streetlamp_02.tga')).toBe('Street lamp')
+    expect(pieceName('odd_thing_07')).toBe('Odd thing')
+    expect(pieceName('')).toBe('')
   })
 })
 
@@ -72,6 +95,14 @@ describe.skipIf(!GAME_TESTS || !haveGame)('the city from a local game install', 
       expect(Math.abs(cut.solid.positions[i])).toBeLessThanOrEqual(70.05)
       expect(Math.abs(cut.solid.positions[i + 2])).toBeLessThanOrEqual(70.05)
     }
+    // One object per game object, nothing lost or doubled, most with names.
+    const pieces = splitPieces({ solid: { mesh: cut.solid, textures: [] }, look: { mesh: cut.look, textures: [] }, pieces: cut.pieces, solidPiece: cut.solidPiece, lookPiece: cut.lookPiece })
+    expect(pieces.reduce((a, p) => a + p.look.length, 0)).toBe((cut.solid.triangles.length + cut.look.triangles.length) / 3)
+    expect(pieces.length).toBeGreaterThan(20)
+    const names = new Map<string, number>()
+    for (const p of pieces) names.set(p.name, (names.get(p.name) ?? 0) + 1)
+    console.log(`${pieces.length} pieces, ${pieces.filter((p) => p.prop).length} props;`, [...names].sort((a, b) => b[1] - a[1]).slice(0, 25).map(([n, c]) => `${n} ×${c}`).join(', '))
+    expect((names.get('Piece') ?? 0) / pieces.length).toBeLessThan(0.2)
     // The scan finds the raised slab beside the street with nothing solid under it.
     const holes = scanArea(chunks, r)
     expect(holes.some((h) => h.kind === 'fall' && Math.hypot(h.x - 69, h.z - 690) < 20 && h.above < 6)).toBe(true)

@@ -229,7 +229,8 @@ export const workerCityCut = (rect: Rect, stems: string[], texSize: number) => c
 export const workerCityScan = (rect: Rect, stems: string[]) => call<Hole[]>({ type: 'cityScan', rect, stems })
 
 const CITY_KEY = 'city:map'
-const CITY_VERSION = 1
+// 2: 2 m pixels, triangles filled, and what each pixel is.
+const CITY_VERSION = 2
 interface StoredCity extends CityMap { version: number; sig: string; builtAt: string }
 
 /** The stored city map, if one was built from these game files (or any, when the files aren't open). */

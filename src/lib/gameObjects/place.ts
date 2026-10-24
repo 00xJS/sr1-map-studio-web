@@ -33,8 +33,8 @@ export const gameRefOf = (it: { game_object?: unknown }): GameObjectRef | null =
 /** Largest texture side kept for placing (the exporter packs them again). */
 const PLACE_TEX = 1024
 
-const stemOf = (tex: string) => tex.replace(/\.[^.]+$/, '')
-const safe = (s: string) => s.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'mat'
+export const stemOf = (tex: string) => tex.replace(/\.[^.]+$/, '')
+export const safe = (s: string) => s.replace(/[^A-Za-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 40) || 'mat'
 
 /** Surface type from the texture name's suffix, the way the game reads it (concrete when there is none). */
 export function surfaceOf(tex: string): number {
@@ -65,14 +65,14 @@ export function objText(r: ObjectResult, ws: number, matNames: string[], title: 
   return lines.join('\n') + '\n'
 }
 
-async function rgbaPng(t: { width: number; height: number; rgba: ArrayBuffer }, name: string): Promise<File> {
+export async function rgbaPng(t: { width: number; height: number; rgba: ArrayBuffer }, name: string): Promise<File> {
   const c = new OffscreenCanvas(t.width, t.height)
   c.getContext('2d')!.putImageData(new ImageData(new Uint8ClampedArray(t.rgba), t.width, t.height), 0, 0)
   return new File([await c.convertToBlob({ type: 'image/png' })], name, { type: 'image/png' })
 }
 
 /** A plain stand-in for a material whose picture couldn't be read (the exporter needs one per material). */
-const plain = () => ({ width: 8, height: 8, rgba: new Uint8Array(8 * 8 * 4).fill(150).buffer, alpha: false })
+export const plain = () => ({ width: 8, height: 8, rgba: new Uint8Array(8 * 8 * 4).fill(150).buffer, alpha: false })
 
 export interface StoredObject {
   path: string
