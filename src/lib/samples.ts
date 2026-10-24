@@ -304,7 +304,8 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
     const turnBy = tag?.rot ?? 0
     const mats = new Map<string, Tex>()
     const matOf = (t: Tex) => { const k = JSON.stringify(t); if (!mats.has(k)) mats.set(k, t); return 'm' + [...mats.keys()].indexOf(k) }
-    const pieces = unflicker(unit).map((p) => {
+    // A road network (thousands of pieces) is laid out flicker-free by construction (see roads.ts); checking it takes seconds.
+    const pieces = (tag?.key === 'road' ? unit : unflicker(unit)).map((p) => {
       const [dx, dz] = turn(p.at[0] - origin[0], p.at[2] - origin[2], -turnBy)
       return { shape: shapeOf(p), at: [dx, p.at[1] - origin[1], dz] as Vec3, rot: (p.rot ?? 0) - turnBy, top: matOf(p.top), side: matOf(p.side) }
     })

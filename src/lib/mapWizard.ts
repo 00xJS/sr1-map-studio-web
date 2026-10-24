@@ -87,7 +87,7 @@ export function busyness(b: number): { fill: number; dress: DressOptions } {
 }
 
 /** Repeatable random numbers from a seed (mulberry32). */
-function rng(seed: number) {
+export function rng(seed: number) {
   let a = seed >>> 0
   const next = () => {
     a = (a + 0x6d2b79f5) >>> 0
