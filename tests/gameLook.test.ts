@@ -216,7 +216,7 @@ const GAME = process.env.SR1_PACKFILES || 'C:/Games/SaintsReborn/dist/game/packf
 const haveGame = existsSync(join(GAME, 'mp_city_stream.vpp_xbox2'))
 
 describe.skipIf(!GAME_TESTS || !haveGame)('materials and vertices of a local game install', () => {
-  it('reads every material record and UV set of real chunks the way the research measured them', async () => {
+  it('reads every material record and UV set of real chunks: clamped decals, unit normals, three or more UV sets', async () => {
     const mp = await openVpp(await openAsBlob(join(GAME, 'mp_city_stream.vpp_xbox2')), 'mp_city_stream')
     const city = existsSync(join(GAME, 'sr_city_stream.vpp_xbox2')) ? await openVpp(await openAsBlob(join(GAME, 'sr_city_stream.vpp_xbox2')), 'sr_city_stream') : null
     const chunks = [readChunk(await mp.read('mp_bac_01.bbchunk_xbox2'))]

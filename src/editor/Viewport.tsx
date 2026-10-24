@@ -305,7 +305,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
       el.style.cursor = place ? (place === 'erase' ? 'not-allowed' : 'crosshair') : ''
       viewer.sync(s.project, {
         selection: s.selection, gizmo: s.gizmo, wireframe: s.wireframe, collisionView: s.collisionView, soloMaterial: s.soloMaterial,
-        faceRange: s.faceRange, snap: s.snap, step: s.step, showGizmo: !place, multi: s.multi, freeCam: s.freeCam,
+        faceRange: s.faceRange, snap: s.snap, step: s.step, showGizmo: !place, multi: s.multi, freeCam: s.freeCam, layeredLook: s.layeredLook,
       })
     }
     sync()

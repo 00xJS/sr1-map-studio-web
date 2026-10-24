@@ -5,12 +5,17 @@
 // (flags 0xB) materials. Opaque cut-outs use an alpha cut-off; decals and glass blend, with a depth offset.
 // The look comes from the object's look file (lib/gameObjects/lookFile.ts). Objects that aren't from the game,
 // and game objects without a look file, are drawn exactly as before (their material is returned untouched).
+// The same patch, opt-in ("layered surfaces"), gives the site's own shapes and prefabs retail's way of not
+// repeating: an evenly lit, low-contrast base tile plus world-space grime and a large tint mask (lib/variation.ts).
 import * as THREE from 'three'
 import type { GameLook, LookLayer } from '../lib/gameObjects/material'
 import { decodeLook, type LookData, type StoredLook } from '../lib/gameObjects/lookFile'
 import type { ObjModel } from '../lib/geometry'
 import { fileBlob, loadModel, peekModel, textureUrl } from '../lib/assets'
 import type { Project } from '../lib/project'
+import type { FileRecipe } from '../lib/recipes'
+import { SURFACE_KINDS, type GenParams } from '../lib/procedural'
+import { TILE_SIZE, VARY_GLSL, variationTile } from '../lib/variation'
 
 /** What the patch needs from the viewer. */
 export interface LookContext {
@@ -23,6 +28,11 @@ export interface LookContext {
   maxAnisotropy: number
   /** A layer picture arrived: draw again (and refresh merged copies). */
   changed(): void
+  /** How the site made a stored picture (layered surfaces), and the map's metres per editor unit. */
+  recipe?(path: string): FileRecipe | undefined
+  worldScale?(): number
+  /** An object URL for a generated picture made with these settings (never stored), or null. */
+  generated?(params: GenParams): Promise<string | null>
 }
 
 /** The context for the editor's viewer: its project's stored files, its renderer's filtering, its redraw. */
@@ -33,6 +43,12 @@ export function lookContext(project: () => Project | null, renderer: () => THREE
     model: (p) => peekModel(p) || loadModel(project(), p),
     get maxAnisotropy() { return renderer()?.capabilities.getMaxAnisotropy() ?? 4 },
     changed,
+    recipe: (p) => project()?.files[p]?.recipe,
+    worldScale: () => project()?.settings.world_scale || 0.5,
+    generated: async (params) => {
+      const { generatedPng } = await import('../lib/texgen')
+      return URL.createObjectURL(await generatedPng(params, 'layered.png'))
+    },
   }
 }
 
@@ -295,13 +311,95 @@ export function gameMaterial(base: THREE.Material, stored: StoredLook, alpha: bo
   return mat
 }
 
+// ---------------- layered surfaces (the site's own objects, opt-in) ----------------
+
+let varyTile: THREE.DataTexture | null = null
+/** The variation layers' noise picture, made once. */
+function varyTexture() {
+  if (!varyTile) {
+    varyTile = new THREE.DataTexture(variationTile(), TILE_SIZE, TILE_SIZE, THREE.RGBAFormat)
+    varyTile.wrapS = varyTile.wrapT = THREE.RepeatWrapping
+    varyTile.magFilter = THREE.LinearFilter
+    varyTile.minFilter = THREE.LinearMipmapLinearFilter
+    varyTile.generateMipmaps = true
+    varyTile.needsUpdate = true
+  }
+  return varyTile
+}
+
+const evenTiles = new Map<string, Promise<THREE.Texture | null>>()
+/** The evenly lit, low-contrast version of a generated surface picture (GenParams.layered), for the view only. */
+function evenTile(ctx: LookContext, params: GenParams): Promise<THREE.Texture | null> {
+  const key = JSON.stringify(params)
+  let p = evenTiles.get(key)
+  if (!p) {
+    p = (ctx.generated?.({ ...params, layered: true }) ?? Promise.resolve(null)).then((u) => (u ? loader.loadAsync(u) : null)).then((t) => {
+      if (t) { t.colorSpace = THREE.SRGBColorSpace; t.wrapS = t.wrapT = THREE.RepeatWrapping; t.anisotropy = ctx.maxAnisotropy }
+      return t
+    }).catch(() => null)
+    evenTiles.set(key, p)
+  }
+  return p
+}
+
+/** Which pictures get the layered look: generated surfaces (their base made even too) and starter-library ones. */
+export function layeredKind(r: FileRecipe | undefined): 'even' | 'grime' | null {
+  if (r?.kind === 'generated') return SURFACE_KINDS.has(r.params.kind) ? 'even' : null
+  return r?.kind === 'library' ? 'grime' : null
+}
+
 /**
- * The look of a scene item: null for items not from the game or without a look file. Otherwise `prepare` puts the
- * vertex data on its geometry and `material` patches the viewer's material for an OBJ material name (left as it
- * is when that material has no look, or the user painted their own picture on it).
+ * The viewer's material for one of the site's own objects with the layered look: its picture swapped for the even
+ * base tile once that is made (generated surfaces), then the world-space grime and tint mask over it. Pictures
+ * that aren't surfaces (signs, posters, the user's own) are left as they are.
  */
-export async function itemLook(ctx: LookContext, it: { path: string; game_look?: { path: string }; textures?: Record<string, string>; alpha?: Record<string, boolean> }) {
-  if (!it.game_look?.path) return null
+export function layeredMaterial(base: THREE.Material, texPath: string | undefined, ctx: LookContext): THREE.Material {
+  const r = texPath ? ctx.recipe?.(texPath) : undefined
+  const kind = layeredKind(r)
+  if (!kind) return base
+  const mat = base as Mat
+  const uni: Record<string, THREE.IUniform> = {
+    uSrVary: { value: varyTexture() }, uSrWs: { value: ctx.worldScale?.() ?? 0.5 },
+    uSrEven: { value: WHITE }, uSrEvenOn: { value: 0 },
+  }
+  if (kind === 'even' && r?.kind === 'generated') {
+    void evenTile(ctx, r.params).then((t) => { if (t) { uni.uSrEven.value = t; uni.uSrEvenOn.value = 1; ctx.changed() } })
+  }
+  const prev = mat.onBeforeCompile, prevKey = mat.customProgramCacheKey
+  mat.onBeforeCompile = (s, rr) => {
+    prev.call(mat, s, rr)
+    Object.assign(s.uniforms, uni)
+    s.vertexShader = s.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vSrWorld;\nvarying vec3 vSrWN;')
+      .replace('#include <fog_vertex>', '#include <fog_vertex>\nvSrWorld = (modelMatrix * vec4(transformed, 1.0)).xyz;\nvSrWN = normalize(mat3(modelMatrix) * objectNormal);')
+    s.fragmentShader = s.fragmentShader
+      .replace('#include <map_pars_fragment>', ['#include <map_pars_fragment>', 'varying vec3 vSrWorld;', 'varying vec3 vSrWN;',
+        'uniform sampler2D uSrVary; uniform float uSrWs; uniform sampler2D uSrEven; uniform float uSrEvenOn;', VARY_GLSL].join('\n'))
+      .replace('#include <map_fragment>', [
+        '#ifdef USE_MAP',
+        'diffuseColor *= mix(texture2D(map, vMapUv), texture2D(uSrEven, vMapUv), uSrEvenOn);',
+        '#endif',
+        // Editor units to metres: the layers repeat at retail's distances whatever the map's world scale.
+        'diffuseColor.rgb = srVary(diffuseColor.rgb, vSrWorld * uSrWs, normalize(vSrWN));',
+      ].join('\n'))
+  }
+  mat.customProgramCacheKey = () => prevKey.call(mat) + 'srlayered'
+  mat.userData.lookKey = 'layered:' + JSON.stringify(r)
+  mat.needsUpdate = true
+  return mat
+}
+
+/**
+ * The look of a scene item: null for items not from the game or without a look file (and, unless `layered`, for
+ * the site's own shapes and prefabs). Otherwise `prepare` puts the vertex data on its geometry and `material`
+ * patches the viewer's material for an OBJ material name (left as it is when that material has no look, or the
+ * user painted their own picture on it).
+ */
+export async function itemLook(ctx: LookContext, it: { path: string; game_look?: { path: string }; textures?: Record<string, string>; alpha?: Record<string, boolean>; shape?: unknown; prefab?: unknown }, opts: { layered?: boolean } = {}) {
+  if (!it.game_look?.path) {
+    if (!opts.layered || !(it.shape || it.prefab)) return null
+    return { prepare() {}, material: (m: THREE.Material, mat: string) => layeredMaterial(m, it.textures?.[mat], ctx) }
+  }
   const [d, model] = await Promise.all([loadLook(ctx, it.game_look.path), ctx.model(it.path).catch(() => null)])
   if (!d || !model) return null
   const key = it.game_look.path

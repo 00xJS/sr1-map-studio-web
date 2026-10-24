@@ -280,6 +280,7 @@ function TopBar({ onPublish, onShare, onPlay, onTour, onAi }: { onPublish: () =>
   const wireframe = useEditor((s) => s.wireframe)
   const snap = useEditor((s) => s.snap)
   const freeCam = useEditor((s) => s.freeCam)
+  const layered = useEditor((s) => s.layeredLook)
   const collision = useEditor((s) => s.collisionView)
   const doubleSided = useEditor((s) => s.project!.settings.double_sided)
   const advanced = useEditor((s) => s.advanced)
@@ -306,6 +307,7 @@ function TopBar({ onPublish, onShare, onPlay, onTour, onAi }: { onPublish: () =>
       <Menu label="View" items={[
         { label: 'Wireframe', on: wireframe, run: () => st().set({ wireframe: !wireframe }), title: 'Show the triangles' },
         { label: 'Show collision', on: collision === 'faces', run: () => st().set({ collisionView: collision === 'faces' ? 'off' : 'faces' }), title: 'Green = solid, red = players pass through' },
+        { label: 'Layered surfaces (preview)', on: layered, run: () => st().set({ layeredLook: !layered }), title: 'Draws your shapes and prefabs the way the game\'s own surfaces avoid repeating: an even base tile with soft grime every 10-15 m and a gentle colour change every 100 m. Only in this view: your textures and the exported map stay as they are.' },
         { label: 'Show both sides of walls', on: doubleSided, run: () => update('Show both sides', (d) => { d.settings.double_sided = !doubleSided }), title: 'In the game, surfaces normally show from the front only. On also shows their backs.' },
         null,
         { label: 'Free camera (like the desktop app)', on: freeCam, run: () => st().set({ freeCam: !freeCam }), title: 'Hold the right mouse button to look around, WASD to fly, Q/E down and up, Shift faster, mouse wheel sets the speed' },

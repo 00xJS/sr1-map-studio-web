@@ -35,6 +35,8 @@ export interface ViewOptions {
   multi?: number[]
   /** Desktop-style free camera: right-drag looks around in place, WASD/QE fly, wheel sets the speed. */
   freeCam?: boolean
+  /** The site's own shapes and prefabs drawn with retail-style layered surfaces (gameMaterial.ts; the view only). */
+  layeredLook?: boolean
 }
 
 export interface ViewerEvents {
@@ -686,7 +688,7 @@ export class Viewer {
   private itemKey(it: SceneItem, index: number) {
     const o = this.opts
     const s = this.project!.settings
-    return JSON.stringify([it.path, it.textures, it.alpha, it.double_sided, s.double_sided, o.wireframe, o.soloMaterial?.startsWith(index + ':') ? o.soloMaterial : o.soloMaterial ? 'other' : null, it.native_opacity, it.glass_custom_texture, it.game_look?.path])
+    return JSON.stringify([it.path, it.textures, it.alpha, it.double_sided, s.double_sided, o.wireframe, o.soloMaterial?.startsWith(index + ':') ? o.soloMaterial : o.soloMaterial ? 'other' : null, it.native_opacity, it.glass_custom_texture, it.game_look?.path, !!o.layeredLook && !!(it.shape || it.prefab)])
   }
 
   private syncItems() {
@@ -756,7 +758,7 @@ export class Viewer {
   private buildItemMesh(node: ItemNode, it: SceneItem, index: number) {
     const s = this.project!.settings
     const opts = this.opts
-    Promise.all([this.geometry(it.path), itemLook(this.looks, it)]).then(([info, look]) => {
+    Promise.all([this.geometry(it.path), itemLook(this.looks, it, { layered: opts.layeredLook })]).then(([info, look]) => {
       if (this.items.get(it.uid) !== node || node.path !== it.path) return
       look?.prepare(info.geometry)
       // Fixed glass panes are flat quads; show both faces like the game does.

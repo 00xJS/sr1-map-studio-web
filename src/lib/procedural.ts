@@ -29,6 +29,12 @@ export interface GenParams {
   /** Text signs only: the words (see signText) and the look. */
   text?: string
   style?: SignStyle
+  /**
+   * A base tile for a layered look (the editor's opt-in "layered surfaces" preview): low contrast and evenly lit,
+   * no baked stains or large blotches, which are what show the repeat; the wear comes from separate, larger
+   * layers instead. Never stored: files are always made without it.
+   */
+  layered?: boolean
 }
 
 interface KindInfo { label: string; surface: number; color: string; accent: string; scale: number; wear: number; accentLabel: string; scaleLabel: string }
@@ -719,6 +725,7 @@ function pattern(p: GenParams): Pixel {
 
 /** RGBA pixels, size × size. */
 export function generate(p: GenParams): Uint8ClampedArray {
+  if (p.layered) return evenTile(p)
   const size = Math.max(16, Math.round(p.size))
   const out = new Uint8ClampedArray(size * size * 4)
   const px = pattern(p)
@@ -730,5 +737,53 @@ export function generate(p: GenParams): Uint8ClampedArray {
       out[i] = c[0]; out[i + 1] = c[1]; out[i + 2] = c[2]; out[i + 3] = c.length > 3 ? c[3] : 255
     }
   }
+  return out
+}
+
+/** Kinds that are a surface repeated over and over (the rest are stretched once: signs, posters, screens...). */
+export const SURFACE_KINDS: ReadonlySet<TextureKind> = new Set(['concrete', 'asphalt', 'brick', 'paint', 'tiles', 'metal_plate', 'diamond_plate', 'wood_planks', 'grass', 'dirt', 'gravel', 'sand'])
+
+/** Wrapping box blur of one channel (radius r), in place over `tmp`. */
+function blurWrap(src: Float32Array, size: number, r: number): Float32Array {
+  const a = new Float32Array(src.length), b = new Float32Array(src.length), k = 2 * r + 1
+  for (let y = 0; y < size; y++) {
+    let sum = 0
+    for (let d = -r; d <= r; d++) sum += src[y * size + mod(d, size)]
+    for (let x = 0; x < size; x++) {
+      a[y * size + x] = sum / k
+      sum += src[y * size + mod(x + r + 1, size)] - src[y * size + mod(x - r, size)]
+    }
+  }
+  for (let x = 0; x < size; x++) {
+    let sum = 0
+    for (let d = -r; d <= r; d++) sum += a[mod(d, size) * size + x]
+    for (let y = 0; y < size; y++) {
+      b[y * size + x] = sum / k
+      sum += a[mod(y + r + 1, size) * size + x] - a[mod(y - r, size) * size + x]
+    }
+  }
+  return b
+}
+
+/**
+ * The layered-look base tile: the texture with its wear turned right down (no stains, rust or patches), the
+ * large-scale light and dark taken out (everything slower than an eighth of the tile, pulled to a quarter) and the
+ * fine detail kept at 80 %, around the same average colour.
+ */
+function evenTile(p: GenParams): Uint8ClampedArray {
+  const size = Math.max(16, Math.round(p.size))
+  const px = generate({ ...p, layered: false, wear: clamp01(p.wear) * 0.1 })
+  const r = Math.max(1, Math.round(size / 16))
+  const out = new Uint8ClampedArray(px.length)
+  for (let c = 0; c < 3; c++) {
+    const ch = new Float32Array(size * size)
+    let mean = 0
+    for (let i = 0; i < ch.length; i++) { ch[i] = px[i * 4 + c]; mean += ch[i] }
+    mean /= ch.length
+    // Two passes of a box blur: close to a Gaussian over an eighth of the tile.
+    const low = blurWrap(blurWrap(ch, size, r), size, r)
+    for (let i = 0; i < ch.length; i++) out[i * 4 + c] = mean + (low[i] - mean) * 0.25 + (ch[i] - low[i]) * 0.8
+  }
+  for (let i = 3; i < px.length; i += 4) out[i] = px[i]
   return out
 }
