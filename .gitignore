@@ -8,3 +8,6 @@ public/py/studio.zip
 public/py/version.json
 __pycache__/
 *.pyc
+
+# Agents' working copies
+.claude/worktrees/

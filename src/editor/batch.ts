@@ -117,6 +117,7 @@ export class StaticBatch {
       geo.setIndex(b.pos.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(b.index, 1) : new THREE.Uint16BufferAttribute(b.index, 1))
       geo.computeBoundingSphere()
       const merged = new THREE.Mesh(geo, b.material)
+      merged.castShadow = merged.receiveShadow = true
       merged.raycast = () => {}
       merged.matrixAutoUpdate = false
       this.root.add(merged)

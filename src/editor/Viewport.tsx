@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
+import { attachLook } from './look'
 import { Viewer } from './Viewer'
 import { breakMerge, setThumbnailProvider, useEditor } from './store'
 import { addLight, addMarker, addPrefab, addShape, placeAsset, removeTarget } from './actions'
@@ -324,7 +325,8 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
     syncGhost()
     const unsubGhost = useEditor.subscribe(syncGhost)
     const offHealth = attachHealthOverlay(viewer)
-    return () => { unsub(); unsubGhost(); offHealth(); ground(); setThumbnailProvider(null); active = null; viewer.dispose() }
+    const offLook = attachLook(viewer)
+    return () => { unsub(); unsubGhost(); offHealth(); offLook(); ground(); setThumbnailProvider(null); active = null; viewer.dispose() }
   }, [])
 
   const empty = !project?.scene_items.length

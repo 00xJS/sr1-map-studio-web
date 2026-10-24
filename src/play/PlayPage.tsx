@@ -4,6 +4,7 @@
 // minimap and touch controls. No game files are needed or read, except your
 // own Saints Row character if you choose to load it from your game folder.
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+import { attachLook } from '../editor/look'
 import { Link, useParams } from 'react-router-dom'
 import { Viewer, type ViewOptions } from '../editor/Viewer'
 import { MyCharacter } from '../editor/Viewport'
@@ -115,6 +116,7 @@ function PlayView({ project, mapKey, shared, back }: Source) {
     viewer.current = v
     if (import.meta.env.DEV) (window as any).__play = { viewer: v, session }
     v.sync(project, OPTS)
+    const offLook = attachLook(v)
     let live = true
     let url = ''
     ;(async () => {
@@ -145,6 +147,7 @@ function PlayView({ project, mapKey, shared, back }: Source) {
       live = false
       session.current?.dispose()
       session.current = null
+      offLook()
       v.dispose()
       viewer.current = null
       if (url) URL.revokeObjectURL(url)

@@ -16,7 +16,30 @@ import { loadModel, peekModel, textureUrl } from '../lib/assets'
 import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
 import { RETAIL_MARKER_COLORS, syncZone } from './zones'
 import { gameSkyAvailable, gameSkyWanted } from '../lib/gameSky'
-import { paintGameSky } from './skyLook'
+import { paintGameSky, type SkyTint } from './skyLook'
+import { NOON, type GameLight } from '../lib/gameLight'
+import { cappedFog, installFogCap } from './fogCap'
+
+/**
+ * How the view is lit. 'game': as the game lights a multiplayer map (a warm sun with shadows, a cool fill, a flat
+ * ambient, fog that never passes its strength; see lib/gameLight.ts). 'editor': the old even, bright light.
+ */
+export interface LookOptions {
+  mode: 'game' | 'editor'
+  light: GameLight
+  shadows: boolean
+  /** The game's fog while editing too (always on in the walk-through and Play). */
+  fogWhileEditing: boolean
+}
+
+/** Lights the map has that are drawn as real lights in the game look (the nearest ones). */
+const MAX_MAP_LIGHTS = 16
+/** Shadows reach this far round the middle of the view (editor units: 125 m, as the game's city shadows). */
+const SHADOW_REACH = 250
+/** The game's colours are the light itself: three.js's Lambert divides by pi, so lights carry it back. */
+const GAME_INTENSITY = Math.PI
+const tint = (v: Vec3) => new THREE.Color().setRGB(v[0], v[1], v[2], THREE.SRGBColorSpace)
+const hexOf = (v: Vec3) => '#' + tint(v).getHexString(THREE.SRGBColorSpace)
 
 export interface ViewOptions {
   selection: { kind: 'item' | 'marker' | 'light'; index: number } | null
@@ -96,6 +119,12 @@ export class Viewer {
   private pivot = new THREE.Object3D()
   private pivotStart: { center: THREE.Vector3; items: { index: number; pos: Vec3; rot: Vec3; scale: number }[] } | null = null
   private items = new Map<string, ItemNode>()
+  private hemi = new THREE.HemisphereLight(0xffffff, 0x3a2a38, 2.2)
+  private sunLight = new THREE.DirectionalLight(0xffffff, 1.4)
+  private fillLight = new THREE.DirectionalLight(0x000000, 0)
+  private ambientLight = new THREE.AmbientLight(0x000000, 0)
+  private mapLights = new THREE.Group()
+  private look: LookOptions = { mode: 'game', light: NOON, shadows: true, fogWhileEditing: false }
   private geos = new Map<string, Promise<GeoInfo>>()
   private textures = new Map<string, THREE.Texture | null>()
   private project: Project | null = null
@@ -115,10 +144,16 @@ export class Viewer {
     host.appendChild(this.renderer.domElement)
     this.renderer.domElement.tabIndex = 0
     this.scene.background = new THREE.Color(0x120f15)
-    this.scene.add(new THREE.HemisphereLight(0xffffff, 0x3a2a38, 2.2))
-    const sun = new THREE.DirectionalLight(0xffffff, 1.4)
-    sun.position.set(0.4, 1, 0.3)
-    this.scene.add(sun)
+    installFogCap()
+    this.renderer.shadowMap.enabled = true
+    this.renderer.shadowMap.type = THREE.PCFSoftShadowMap
+    const sh = this.sunLight.shadow
+    sh.mapSize.set(4096, 4096)
+    Object.assign(sh.camera, { left: -SHADOW_REACH, right: SHADOW_REACH, top: SHADOW_REACH, bottom: -SHADOW_REACH, near: 1, far: 3000 })
+    sh.bias = -0.0004
+    sh.normalBias = 0.6
+    this.scene.add(this.hemi, this.sunLight, this.sunLight.target, this.fillLight, this.ambientLight, this.mapLights)
+    this.applyLook()
     this.grid = new THREE.GridHelper(200, 40, 0x6b2a5a, 0x2b1c2b)
     this.scene.add(this.grid, this.root, this.markerRoot, this.lightRoot, this.box, this.pivot, this.batch.root)
     this.box.visible = false
@@ -172,6 +207,7 @@ export class Viewer {
       this.walker.step((now - this.lastFly) / 1000)
       this.physics?.step(Math.min((now - this.lastFly) / 1000, 0.1))
       this.lastFly = now
+      this.followSun(this.walker.pos)
       this.renderer.render(this.scene, this.camera)
       return
     }
@@ -179,8 +215,87 @@ export class Viewer {
     const damped = this.orbit.update()
     if (this.needsRender || moved || damped || this.dragging) {
       this.needsRender = false
+      this.followSun(this.orbit.target)
       this.renderer.render(this.scene, this.camera)
     }
+  }
+
+  // ---------------- lighting ----------------
+
+  /** Changes how the view is lit (see LookOptions). */
+  setLook(o: Partial<LookOptions>) {
+    this.look = { ...this.look, ...o }
+    this.gameSkyLook = null
+    this.applyLook()
+    if (this.walker) this.showGameSky()
+    this.requestRender()
+  }
+
+  get lookOptions(): LookOptions { return this.look }
+
+  private applyLook() {
+    const game = this.look.mode === 'game', L = this.look.light
+    this.hemi.visible = !game
+    this.ambientLight.visible = this.fillLight.visible = game
+    if (!game) {
+      this.sunLight.color.set(0xffffff)
+      this.sunLight.intensity = 1.4
+      this.sunLight.visible = true
+      this.sunLight.castShadow = false
+    } else {
+      this.ambientLight.color = tint(L.ambient)
+      this.ambientLight.intensity = GAME_INTENSITY
+      this.sunLight.color = tint(L.sun)
+      this.sunLight.intensity = GAME_INTENSITY
+      this.sunLight.visible = L.sun.some((c) => c > 0)
+      this.sunLight.castShadow = this.look.shadows && L.shadows && this.sunLight.visible
+      this.fillLight.color = tint(L.fill)
+      this.fillLight.intensity = GAME_INTENSITY
+      this.fillLight.position.set(...L.fillDir)
+    }
+    if (!this.walker) this.scene.fog = game && this.look.fogWhileEditing ? this.gameFog() : null
+    this.syncMapLights()
+  }
+
+  /** The sun over the middle of the view, its shadow box snapped to a grid so shadows don't shimmer as it moves. */
+  private followSun(at: THREE.Vector3) {
+    const dir = this.look.mode === 'game' ? this.look.light.sunDir : [0.4, 1, 0.3]
+    const snap = (v: number) => Math.round(v / 16) * 16
+    this.sunLight.target.position.set(snap(at.x), at.y, snap(at.z))
+    this.sunLight.target.updateMatrixWorld()
+    const d = new THREE.Vector3(...dir).normalize()
+    this.sunLight.position.copy(this.sunLight.target.position).addScaledVector(d, 1200)
+  }
+
+  /** The game's fog (metres in the tables, editor units here). */
+  private gameFog(): THREE.Fog {
+    const f = this.look.light.fog
+    return cappedFog(tint(f.color), f.start * 2, Math.max(f.start * 2 + 1, f.end * 2), f.strength)
+  }
+
+  /** The map's own lights, drawn as real lights in the game look: the ones nearest the view, full brightness out to
+   * their inner range and fading to nothing at their range (metres, so twice that in editor units). */
+  private syncMapLights() {
+    for (const l of [...this.mapLights.children]) { this.mapLights.remove(l); (l as THREE.PointLight).dispose() }
+    if (this.look.mode !== 'game' || !this.project) return
+    const t = this.orbit?.target ?? new THREE.Vector3()
+    const lights = this.project.lights.filter((l) => l.enabled && l.intensity > 0)
+      .sort((a, b) => t.distanceToSquared(new THREE.Vector3(...a.position)) - t.distanceToSquared(new THREE.Vector3(...b.position)))
+      .slice(0, MAX_MAP_LIGHTS)
+    for (const l of lights) {
+      const pl = new THREE.PointLight(tint(l.color as Vec3), l.intensity * GAME_INTENSITY, Math.max(1, l.range * 2), 0)
+      pl.position.set(...l.position)
+      this.mapLights.add(pl)
+    }
+  }
+
+  /** The sky picture for the current light: the clear noon one, or tinted for another time and weather. */
+  private skyTint(): SkyTint | undefined {
+    const L = this.look.light
+    if (this.look.mode !== 'game' || L === NOON) return undefined
+    const night = L.sun.every((c) => c < 0.6) && L.sky.top.every((c) => c < 0.25)
+    const bright = Math.max(...L.sun)
+    return { top: hexOf(L.sky.top), horizon: hexOf(L.sky.horizon), haze: hexOf(L.sky.haze), sun: hexOf(L.sun), night, clouds: Math.max(0.15, Math.min(1, bright * 1.2)) }
   }
 
   private resize() {
@@ -378,7 +493,7 @@ export class Viewer {
     if (this.gameSkyLook) return this.gameSkyLook
     const c = document.createElement('canvas')
     c.width = 2048; c.height = 1024
-    paintGameSky(c)
+    paintGameSky(c, 7, this.skyTint())
     this.gameSkyLook = new THREE.CanvasTexture(c)
     this.gameSkyLook.colorSpace = THREE.SRGBColorSpace
     this.gameSkyLook.mapping = THREE.EquirectangularReflectionMapping
@@ -399,7 +514,7 @@ export class Viewer {
       if (!this.walker || !this.project || !gameSkyWanted(this.project.settings)) return
       if (!ok) return this.showMapSky()
       this.scene.background = this.gameSky()
-      this.scene.fog = new THREE.Fog(0xc8d6e0, 160, 1200)
+      this.scene.fog = this.look.mode === 'game' ? this.gameFog() : new THREE.Fog(0xc8d6e0, 160, 1200)
       this.requestRender()
     })
   }
@@ -632,6 +747,7 @@ export class Viewer {
     this.syncItems()
     this.syncMarkers(project?.markers || [])
     this.syncLights(project?.lights || [])
+    this.syncMapLights()
     this.syncGizmo()
     this.requestRender()
   }
@@ -781,6 +897,7 @@ export class Viewer {
         ;(node.mesh.material as THREE.Material[]).forEach((m) => m.dispose())
       }
       const mesh = new THREE.Mesh(info.geometry, materials)
+      mesh.castShadow = mesh.receiveShadow = true
       mesh.userData.faceOrder = info.faceOrder
       mesh.position.set(...(it.pivot ? (it.pivot.map((v) => -v) as Vec3) : [0, 0, 0] as Vec3))
       node.mesh = mesh
@@ -1082,8 +1199,9 @@ export class Viewer {
     const hidden = [this.markerRoot, this.lightRoot, this.grid, this.box, this.gizmo.getHelper()]
     const was = hidden.map((h) => h.visible)
     hidden.forEach((h) => { h.visible = false })
-    const bg = this.scene.background
+    const bg = this.scene.background, fog = this.scene.fog
     this.scene.background = new THREE.Color(0x000000)
+    this.scene.fog = null
     const rt = new THREE.WebGLRenderTarget(o.size, o.size, { colorSpace: THREE.SRGBColorSpace })
     this.renderer.setRenderTarget(rt)
     this.renderer.render(this.scene, cam)
@@ -1092,6 +1210,7 @@ export class Viewer {
     this.renderer.setRenderTarget(null)
     rt.dispose()
     this.scene.background = bg
+    this.scene.fog = fog
     hidden.forEach((h, i) => { h.visible = was[i] })
     this.requestRender()
     // GL rows run bottom-up; images run top-down.

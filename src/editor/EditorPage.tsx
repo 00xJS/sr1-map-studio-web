@@ -2,6 +2,8 @@ import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import { useEditor, saveNow, readFlag, writeFlag, selectedItems } from './store'
 import { Viewport, getViewer } from './Viewport'
+import { choosePreset, setLook, useLook } from './look'
+import { PRESETS } from '../lib/gameLight'
 import { Inspector } from './Inspector'
 import { PlayDialog } from './PlayDialog'
 import { Tour } from './Tour'
@@ -285,6 +287,7 @@ function TopBar({ onPublish, onShare, onPlay, onTour, onAi }: { onPublish: () =>
   const advanced = useEditor((s) => s.advanced)
   const update = useEditor((s) => s.update)
   const historyOpen = useOverlays((s) => s.history)
+  const look = useLook()
   const [pyStatus, setPyStatus] = useState(py.status)
   useEffect(() => py.onStatus(setPyStatus), [])
   const st = useEditor.getState
@@ -311,6 +314,16 @@ function TopBar({ onPublish, onShare, onPlay, onTour, onAi }: { onPublish: () =>
         { label: 'Free camera (like the desktop app)', on: freeCam, run: () => st().set({ freeCam: !freeCam }), title: 'Hold the right mouse button to look around, WASD to fly, Q/E down and up, Shift faster, mouse wheel sets the speed' },
         { label: 'Zoom to selection (F)', run: () => getViewer()?.focusSelection() },
         { label: 'See the whole map', run: () => getViewer()?.frameAll() },
+      ]} />
+      <Menu label={look.mode === 'game' ? '☀ Lighting' : 'Lighting'} title="Light the view as the game does, at the time of day and weather you pick" items={[
+        { label: 'Game lighting (as in the game)', on: look.mode === 'game', run: () => setLook({ mode: 'game' }), title: "The game's sun, fill light, shadows and fog" },
+        { label: 'Bright editor lighting', on: look.mode === 'editor', run: () => setLook({ mode: 'editor' }), title: 'Even, bright light for building: not how the game looks' },
+        null,
+        ...PRESETS.map((p) => ({ label: p.label, on: look.mode === 'game' && look.preset === p.key, run: () => { void choosePreset(p.key) }, title: p.key === 'noon' ? 'How every map with always-clear weather looks in the game' : 'Read from your own game files' })),
+        null,
+        { label: 'Shadows', on: look.shadows, run: () => setLook({ shadows: !look.shadows }), title: 'The sun casts shadows, as in the game' },
+        { label: 'Fog while editing', on: look.fogWhileEditing, run: () => setLook({ fogWhileEditing: !look.fogWhileEditing }), title: "The game's fog in the editor too (always on when you walk or play)" },
+        { label: 'SRMaxDetail look', on: look.maxDetail, run: () => setLook({ maxDetail: !look.maxDetail }), title: 'How the game looks with the SRMaxDetail mod installed (darker shade, brighter sun)' },
       ]} />
       <span className="spacer" />
       {advanced && (
