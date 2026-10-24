@@ -7,7 +7,7 @@ SR1_DATA_PACK set to an unpacked SR1 Map Studio desktop folder (the one
 holding reference_beavercreek/, native_glass/, native_props/) it runs a full
 export through web_api.py of a scene with an opaque floor, an alpha fence, a
 glass pane, a movable prop and a breakable wood crate, and re-reads the map
-it wrote: materials, fade distances, lights. With SR1_GAME_PACKFILES set to the game's packfiles folder it also
+it wrote: materials, fade distances, lights, height map. With SR1_GAME_PACKFILES set to the game's packfiles folder it also
 reads the retail multiplayer maps (mp_city_stream.vpp_xbox2) and checks the
 values copied here are the ones retail uses. Everything is written to a
 temporary folder; nothing from the game or the data pack is kept.
@@ -74,6 +74,18 @@ def unit_fades():
     check([rr.record_kind(f) for f in (0x10000000, 0x10021400, 0x10020000, 0x10008000, 0x8000, 0)] == ['world', 'glass', 'prop', None, None, None],
           'fades: world, glass and prop records told apart; the sky and undrawn records left alone')
     check(rr.FADE_WORLD >= 1000 and 100 <= rr.FADE_PROP <= 200 and 100 <= rr.FADE_GLASS <= 200, 'fades: world never fades, props and glass at 150 m')
+
+
+def unit_hmap(tmp):
+    import sr1_sidecars
+    p = tmp / 'h.hmap_xbox2'
+    sr1_sidecars.build_hmap(p, dict(verts=[(0, 0, 0), (50, 3, 0), (0, 0, 50)], faces=[(0, 1, 2, 'g')]))
+    before = p.read_bytes()
+    check(struct.unpack_from('>I', before, 16)[0] == 0, 'hmap: upstream writes 0 after the size')
+    rr.fix_hmap(p)
+    after = p.read_bytes()
+    check(struct.unpack_from('>I', after, 16)[0] == 4 and after[:16] == before[:16] and after[20:] == before[20:],
+          'hmap: the field is 4, nothing else changes')
 
 
 def unit_lights():
@@ -235,6 +247,27 @@ def export_lights(x):
     check(x['summary']['lights'] == 3, 'export: three lights')
 
 
+def export_hmap(x):
+    d = (x['out'] / 'rrtest.hmap_xbox2').read_bytes()
+    ox, oz, w, h, field = struct.unpack_from('>iiIII', d, 0)
+    check(field == 4 and len(d) == 20 + 2 * w * h, f'export: height map {w}x{h} with +16 = {field}')
+
+
+def retail_hmaps(packfiles):
+    """Every retail height map (misc.vpp_xbox2) has 4 at +16."""
+    pk = rc.Packfile(Path(packfiles) / 'misc.vpp_xbox2')
+    fields = collections.Counter()
+    mp = 0
+    for e in pk.entries:
+        if e.name.lower().endswith('.hmap_xbox2'):
+            d = pk.read(e.name)
+            ox, oz, w, h, field = struct.unpack_from('>iiIII', d, 0)
+            fields[field] += 1
+            mp += e.name.lower().startswith('mp')
+    pk.close()
+    check(mp >= 15 and list(fields) == [4], f'retail: all {sum(fields.values())} height maps ({mp} multiplayer) have +16 = 4 ' + str(dict(fields)))
+
+
 def retail_lights(packfiles):
     """The game's interior omni lights are 1 / 3 m with a 20 m fade, its street lamps 11 / 17 m."""
     pk = rc.Packfile(Path(packfiles) / 'mp_city_stream.vpp_xbox2')
@@ -292,6 +325,7 @@ with tempfile.TemporaryDirectory() as t:
     units()
     unit_fades()
     unit_lights()
+    unit_hmap(tmp)
     pack = os.environ.get('SR1_DATA_PACK')
     if pack:
         x = full_export(Path(pack), tmp)
@@ -299,12 +333,14 @@ with tempfile.TemporaryDirectory() as t:
             export_materials(x)
             export_fades(x)
             export_lights(x)
+            export_hmap(x)
     else:
         print('skip full export (set SR1_DATA_PACK to run it)')
     game = os.environ.get('SR1_GAME_PACKFILES')
     if game:
         retail_materials(game, tmp)
         retail_lights(game)
+        retail_hmaps(game)
     else:
         print('skip retail comparison (set SR1_GAME_PACKFILES to run it)')
 

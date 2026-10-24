@@ -433,6 +433,7 @@ def _export(s, log):
     mirror = bool(s.get('mirror_x', True))
     chunk = out / (base + '.bbchunk_xbox2')
     retail_records.finish_map(chunk, log)
+    retail_records.fix_hmap(out / (base + '.hmap_xbox2'), log)
     water_count = 0
     if water:
         # Same conversion as the map geometry and the markers.

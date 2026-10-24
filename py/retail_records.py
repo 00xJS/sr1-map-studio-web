@@ -23,6 +23,8 @@ edited) changes them on purpose:
   src/lib/project.ts LIGHT_RANGES) instead of 0.5 / 4 m, and each light's
   fade distance (+112) follows its range like retail's (20 m for a 3 m
   light, up to the engine's 75 m cap for lamps) instead of 20 m for all.
+- Height map: the u32 after the .hmap_xbox2 origin and size is 4 in every
+  retail map; upstream writes 0. It is written as 4.
 
 tests/retail_records_check.py checks all of it.
 """
@@ -57,6 +59,10 @@ FADE_GLASS = 150.0
 # Lights: retail interior omni lights (metres; the editor's units are these / world scale).
 LIGHT_INNER, LIGHT_RANGE = 1.0, 3.0
 LIGHT_FADE_MIN, LIGHT_FADE_MAX = 20.0, 75.0   # retail +112 values; 75 m is level_lights_fade_dist_cap
+
+# .hmap_xbox2: origin x, z (s32), width, height (u32), then this u32 (4 in every retail height map), then u16 heights.
+HMAP_FIELD = 16
+HMAP_RETAIL = 4
 
 _original = {}
 
@@ -180,6 +186,18 @@ def finish_map(chunk_path, log=None):
         log('Fade distances: ' + ', '.join(f'{n} {k} record(s) {dict(world=FADE_WORLD, prop=FADE_PROP, glass=FADE_GLASS)[k]:g} m'
                                           for k, n in sorted(fades.items())) + '.')
     return {'unlit': unlit, 'fades': fades}
+
+
+def fix_hmap(path, log=None):
+    """The retail value in the height map's header field (upstream leaves it 0)."""
+    path = Path(path)
+    d = bytearray(path.read_bytes())
+    if len(d) < 20:
+        raise ValueError('Height map too short: ' + path.name)
+    struct.pack_into('>I', d, HMAP_FIELD, HMAP_RETAIL)
+    path.write_bytes(bytes(d))
+    if log:
+        log(f'Height map: header field +{HMAP_FIELD} = {HMAP_RETAIL}, as in every retail map.')
 
 
 def new_light(position=(0, 3, 0), world_scale=0.5):
