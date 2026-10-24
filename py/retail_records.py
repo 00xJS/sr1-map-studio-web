@@ -23,6 +23,15 @@ edited) changes them on purpose:
   src/lib/project.ts LIGHT_RANGES) instead of 0.5 / 4 m, and each light's
   fade distance (+112) follows its range like retail's (20 m for a 3 m
   light, up to the engine's 75 m cap for lamps) instead of 20 m for all.
+- Decals: look-only overlays (an item without collision that is a tag or
+  sticker stuck on a wall, or any other flat sheet without collision, such
+  as road markings) get their own record on decal layer 1 (flags | 0x402,
+  as retail's floating decals: the game biases them toward the camera and
+  leaves them out of the depth pre-pass, so they no longer z-fight with the
+  surface under them), their instance left out of collision (0x1, retail
+  0x1001), and a 150 m fade. When one of their meshes also holds other
+  look-only geometry, the decal batches move to a mesh, vertex buffer and
+  record of their own (from the template's free slots).
 - Height map: the u32 after the .hmap_xbox2 origin and size is 4 in every
   retail map; upstream writes 0. It is written as 4.
 
@@ -31,6 +40,7 @@ tests/retail_records_check.py checks all of it.
 from __future__ import annotations
 
 import contextlib
+import copy
 import struct
 from pathlib import Path
 
@@ -56,6 +66,10 @@ SKY = 0x8000             # drawn through the sky list only
 FADE_WORLD = 5000.0      # metres; the game's far clip, so world geometry never fades
 FADE_PROP = 150.0
 FADE_GLASS = 150.0
+FADE_DECAL = 150.0       # retail decals fade at 30-1000 m (75 m for floaters)
+DECAL_LAYER = 0x402      # record flags: decal layer 1 ((flags >> 1) & 3) and 0x400, as retail's 0x10000402
+NO_INSTANCE_COLLISION = 0x1   # instance +108 bit (part of 0x4c7): left out of the instance collision
+DECAL_THICKNESS = 0.13   # editor units: a look-only item this thin (or thinner) is an overlay
 # Lights: retail interior omni lights (metres; the editor's units are these / world scale).
 LIGHT_INNER, LIGHT_RANGE = 1.0, 3.0
 LIGHT_FADE_MIN, LIGHT_FADE_MAX = 20.0, 75.0   # retail +112 values; 75 m is level_lights_fade_dist_cap
@@ -149,9 +163,11 @@ def unlit_materials(g):
 
 
 def record_kind(flags):
-    """'world', 'prop', 'glass' or None (the sky, or a record that is not drawn)."""
+    """'world', 'prop', 'glass', 'decal' or None (the sky, or a record that is not drawn)."""
     if flags & SKY or not flags & RENDERS:
         return None
+    if (flags >> 1) & 3:
+        return 'decal'
     if flags & NATIVE:
         return 'glass' if flags & GLASS == GLASS else 'prop'
     return 'world'
@@ -160,7 +176,7 @@ def record_kind(flags):
 def set_fades(ch):
     """Fade distances by kind of record; returns {kind: count}."""
     recs = ch.get('static_records').data
-    want = {'world': FADE_WORLD, 'prop': FADE_PROP, 'glass': FADE_GLASS}
+    want = {'world': FADE_WORLD, 'prop': FADE_PROP, 'glass': FADE_GLASS, 'decal': FADE_DECAL}
     counts = {}
     for r in range(rc.U32(ch.header, 868)):
         kind = record_kind(rc.U32(recs, 80 * r + FLAGS))
@@ -171,21 +187,142 @@ def set_fades(ch):
     return counts
 
 
-def finish_map(chunk_path, log=None):
-    """The retail values above, on the map chunk export_map wrote (before water, physics shapes and the sky)."""
+def is_decal(item, dims):
+    """A look-only overlay: no collision, not glass, a prop or water, and a tag/sticker or a flat sheet.
+
+    `dims` is the item's size in editor units. Tags and stickers stuck on a
+    wall are made by src/lib/photoPiece.ts decalParts (group "Decal@...");
+    any other item without collision this thin lies on or against a surface.
+    """
+    if not item.get('collision_disabled') or item.get('swimmable_water') or item.get('native_prefab') or item.get('native_prop_behavior'):
+        return False
+    return str(item.get('group') or '').startswith('Decal@') or (bool(dims) and min(dims) <= DECAL_THICKNESS)
+
+
+def _strip_triangles(idx):
+    return sum(1 for i in range(2, len(idx)) if len({idx[i - 2], idx[i - 1], idx[i]}) == 3)
+
+
+def layer_decals(ch, g, decal_materials):
+    """Decal batches onto decal-layer records of their own. Returns {'records': n, 'split': n, 'left': n}."""
+    import native_sky   # the template's free slots, found the way the glass transplant and the sky find them
+    out = {'records': 0, 'split': 0, 'left': 0}
+    decal_materials = set(decal_materials)
+    if not decal_materials:
+        return out
+    recs, inst = ch.get('static_records').data, ch.get('instances').data
+    n_inst = len(inst) // 112
+    users = {}
+    for r in range(rc.U32(ch.header, 868)):
+        ii = rc.I32(recs, 80 * r + INSTANCE)
+        if 0 <= ii < n_inst and record_kind(rc.U32(recs, 80 * r + FLAGS)) == 'world':
+            users.setdefault(rc.U32(inst, 112 * ii + 104), []).append((r, ii))
+    free_records, free_meshes, free_vbs = native_sky._free_slots(ch, g)
+    blocks = rc.parse_mopp_blocks(g.coll)
+    a164 = ch.get('a164').data
+
+    def layer(r, ii, mesh):
+        rc.Wr32(recs, 80 * r + FLAGS, rc.U32(recs, 80 * r + FLAGS) | DECAL_LAYER)
+        rc.Wr32(inst, 112 * ii + 108, rc.U32(inst, 112 * ii + 108) | NO_INSTANCE_COLLISION)
+        h = g.meshes[mesh].hdr
+        lo, hi = rc.instance_aabb(inst, ii, [rc.F32(h, 4 * a) for a in range(3)], [rc.F32(h, 12 + 4 * a) for a in range(3)])
+        for a in range(3):
+            rc.WrF(recs, 80 * r + 4 * a, lo[a])
+            rc.WrF(recs, 80 * r + 16 + 4 * a, hi[a])
+        out['records'] += 1
+
+    for k in sorted(users):
+        M = g.meshes[k] if k < len(g.meshes) else None
+        if M is None or len(M.subs) != 1 or len(users[k]) != 1 or blocks[k]['code']:
+            continue   # shared, collision or unexpected meshes are left as they are
+        S = M.subs[0]
+        batches = [(rc.U32(S.b16, 8 * b), rc.U16(S.b16, 8 * b + 4), rc.U16(S.b16, 8 * b + 6)) for b in range(rc.U16(S.s16, 2))]
+        dec = [b for b in batches if b[2] in decal_materials]
+        if not dec:
+            continue
+        r, ii = users[k][0]
+        if len(dec) == len(batches):
+            layer(r, ii, k)
+            continue
+        if not free_records or not free_meshes or not free_vbs:
+            out['left'] += 1
+            continue
+        (r2, ii2), k2, v2 = free_records.pop(0), free_meshes.pop(0), free_vbs.pop(0)
+        # The decal batches' strips and vertices, in a buffer of their own.
+        V = g.vbs[rc.U32(S.s16, 8)]
+        stride = rc.U16(V.desc, 16)
+        idx = [rc.U16(V.ib, 2 * i) for i in range(len(V.ib) // 2)]
+        used = sorted({idx[i] for f, c, _ in dec for i in range(f, f + c)})
+        remap = {o: j for j, o in enumerate(used)}
+        ib, moved, tris = bytearray(), [], 0
+        for f, c, mat in dec:
+            moved.append((len(ib) // 2, c, mat))
+            strip = [remap[idx[i]] for i in range(f, f + c)]
+            tris += _strip_triangles(strip)
+            for x in strip:
+                rc.Put16(ib, x)
+        NV = copy.deepcopy(V)
+        NV.vd = bytearray(b''.join(bytes(V.vd[o * stride:(o + 1) * stride]) for o in used))
+        NV.ib = ib
+        rc.Wr16(NV.desc, 0, min(tris, 0xFFFF))
+        rc.Wr16(NV.desc, 12, len(used))
+        rc.Wr16(NV.desc, 14, len(ib) // 2)
+        g.vbs[v2] = NV
+        g.auxflag[v2] = g.auxflag[rc.U32(S.s16, 8)]
+        NM = copy.deepcopy(M)
+        sub = NM.subs[0]
+        rc.Wr16(sub.s16, 2, len(moved))
+        rc.Wr32(sub.s16, 8, v2)
+        sub.b16 = bytearray()
+        for f, c, mat in moved:
+            rc.Put32(sub.b16, f)
+            rc.Put16(sub.b16, c)
+            rc.Put16(sub.b16, mat)
+        pts = [[rc.F32(NV.vd, stride * j + 4 * a) for a in range(3)] for j in range(len(used))]
+        for a in range(3):
+            rc.WrF(NM.hdr, 4 * a, min(p[a] for p in pts))
+            rc.WrF(NM.hdr, 12 + 4 * a, max(p[a] for p in pts))
+        g.meshes[k2] = NM
+        a164[16 * k2:16 * k2 + 16] = a164[16 * k:16 * k + 16]
+        # The old mesh keeps the rest.
+        keep = [b for b in batches if b[2] not in decal_materials]
+        rc.Wr16(S.s16, 2, len(keep))
+        S.b16 = bytearray()
+        for f, c, mat in keep:
+            rc.Put32(S.b16, f)
+            rc.Put16(S.b16, c)
+            rc.Put16(S.b16, mat)
+        # The new mesh's object: the old one's instance (placement, flags) and record settings.
+        inst[112 * ii2:112 * ii2 + 112] = inst[112 * ii:112 * ii + 112]
+        rc.Wr32(inst, 112 * ii2 + 104, k2)
+        rc.Wr32(recs, 80 * r2 + FLAGS, rc.U32(recs, 80 * r + FLAGS))
+        layer(r2, ii2, k2)
+        out['split'] += 1
+    return out
+
+
+def finish_map(chunk_path, log=None, decal_materials=()):
+    """The retail values above, on the map chunk export_map wrote (before water, physics shapes and the sky).
+
+    decal_materials: the material indices of look-only overlay items (see is_decal).
+    """
     path = Path(chunk_path)
     ch = rc.read_chunk(path.read_bytes())
     g = rc.chunk_geometry(ch)
     unlit = unlit_materials(g)
-    if unlit:
-        rc.set_geometry(ch, g)
+    decals = layer_decals(ch, g, decal_materials)
+    rc.set_geometry(ch, g)
     fades = set_fades(ch)
     path.write_bytes(rc.write_chunk(ch))
     if log:
         log(f'Materials: Self_Illumination 0, as retail ({unlit} copied value(s) cleared).')
-        log('Fade distances: ' + ', '.join(f'{n} {k} record(s) {dict(world=FADE_WORLD, prop=FADE_PROP, glass=FADE_GLASS)[k]:g} m'
+        log('Fade distances: ' + ', '.join(f'{n} {k} record(s) {dict(world=FADE_WORLD, prop=FADE_PROP, glass=FADE_GLASS, decal=FADE_DECAL)[k]:g} m'
                                           for k, n in sorted(fades.items())) + '.')
-    return {'unlit': unlit, 'fades': fades}
+        if decal_materials:
+            log(f'Decals: {decals["records"]} look-only overlay record(s) on decal layer 1, no collision'
+                + (f' ({decals["split"]} moved to a mesh of their own)' if decals['split'] else '')
+                + (f'; {decals["left"]} left on the base layer: no free template slot' if decals['left'] else '') + '.')
+    return {'unlit': unlit, 'fades': fades, 'decals': decals}
 
 
 def fix_hmap(path, log=None):

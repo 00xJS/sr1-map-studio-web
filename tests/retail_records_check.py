@@ -7,7 +7,7 @@ SR1_DATA_PACK set to an unpacked SR1 Map Studio desktop folder (the one
 holding reference_beavercreek/, native_glass/, native_props/) it runs a full
 export through web_api.py of a scene with an opaque floor, an alpha fence, a
 glass pane, a movable prop and a breakable wood crate, and re-reads the map
-it wrote: materials, fade distances, lights, height map. With SR1_GAME_PACKFILES set to the game's packfiles folder it also
+it wrote: materials, fade distances, lights, height map, decals. With SR1_GAME_PACKFILES set to the game's packfiles folder it also
 reads the retail multiplayer maps (mp_city_stream.vpp_xbox2) and checks the
 values copied here are the ones retail uses. Everything is written to a
 temporary folder; nothing from the game or the data pack is kept.
@@ -76,6 +76,17 @@ def unit_fades():
     check(rr.FADE_WORLD >= 1000 and 100 <= rr.FADE_PROP <= 200 and 100 <= rr.FADE_GLASS <= 200, 'fades: world never fades, props and glass at 150 m')
 
 
+def unit_decals():
+    check([rr.record_kind(f) for f in (0x10000402, 0x10000404, 0x10000002)] == ['decal'] * 3, 'decals: decal-layer records told apart')
+    sticker = dict(collision_disabled=True, group='Decal@1,2,3#abcdef')
+    check(rr.is_decal(sticker, [8, 3, 0.04]) and rr.is_decal(dict(collision_disabled=True), [6, 0.02, 0.5]),
+          'decals: a stuck-on tag and a flat sheet without collision are overlays')
+    check(not rr.is_decal(dict(collision_disabled=True), [2, 2, 2]) and not rr.is_decal(dict(sticker, collision_disabled=False), [8, 3, 0.04])
+          and not rr.is_decal(dict(collision_disabled=True, swimmable_water=True), [6, 0.02, 6])
+          and not rr.is_decal(dict(collision_disabled=True, native_prop_behavior='movable'), [1, 0.05, 1]),
+          'decals: solid items, thick look-only items, water and props are not')
+
+
 def unit_hmap(tmp):
     import sr1_sidecars
     p = tmp / 'h.hmap_xbox2'
@@ -135,6 +146,15 @@ def full_export(pack, tmp):
         dict(base, name='Ground', path=obj_box(work / 'ground.obj', (80, 2, 80), 'g'), position=[0, -2, 0], textures={'g': tex('g.png', (90, 90, 90))}),
         dict(base, name='Fence', path=obj_box(work / 'fence.obj', (10, 4, 0.2), 'f'), position=[0, 0, 12], textures={'f': tex('f.png', (160, 160, 160), 255)},
              alpha={'f': True}),
+    ]
+    # Look-only: a bush (not an overlay), then a tag stuck on the fence and a road marking (overlays).
+    items += [
+        dict(base, name='Bush', path=obj_box(work / 'bush.obj', (2, 2, 2), 'b'), position=[-20, 0, -20], textures={'b': tex('b.png', (40, 120, 40))},
+             collision_disabled=True),
+        dict(base, name='Tag', path=obj_box(work / 'tag.obj', (4, 2, 0.04), 't'), position=[0, 1, 11.88], textures={'t': tex('t.png', (220, 40, 160), 255)},
+             alpha={'t': True}, collision_disabled=True, group='Decal@0,1,11.88#123456'),
+        dict(base, name='Line', path=obj_box(work / 'line.obj', (6, 0.02, 0.5), 'l'), position=[0, 0.01, -8], textures={'l': tex('l.png', (240, 240, 240))},
+             collision_disabled=True),
     ]
     glass = json.loads(web_api.scene_op('create_glass', json.dumps({'position': [6, 0, -6], 'world_scale': 0.5, 'style_label': 'Tinted glass', 'others': []})))
     check(glass['ok'], 'export: glass pane made' + ('' if glass['ok'] else ': ' + glass['error']))
@@ -232,6 +252,71 @@ def export_fades(x):
     check(any(l.startswith('Fade distances: ') for l in x['logs']), 'export: logs the fade distances')
 
 
+def export_decals(x):
+    ch = x['ch']
+    g = rc.chunk_geometry(ch)
+    recs = records(ch)
+    inst = ch.get('instances').data
+    strings = rc.chunk_strings(ch)
+    blocks = rc.parse_mopp_blocks(g.coll)
+
+    def batch_textures(k):
+        S = g.meshes[k].subs[0]
+        return sorted(strings[rc.U32(g.mats[rc.U16(S.b16, 8 * b + 6)].parts[0], 4)].split('_')[1] for b in range(rc.U16(S.s16, 2)))
+    decal = [(i, r) for i, r in enumerate(recs) if (r['flags'] >> 1) & 3]
+    check(len(decal) == 1, f'export: one decal-layer record ({len(decal)})')
+    if len(decal) != 1:
+        return
+    i, r = decal[0]
+    k = r['mesh']
+    ii = rc.I32(ch.get('static_records').data, 80 * i + 60)
+    S = g.meshes[k].subs[0]
+    mats = {rc.U16(S.b16, 8 * b + 6) for b in range(rc.U16(S.s16, 2))}
+    names = sorted(strings[rc.U32(g.mats[m].parts[0], 4)] for m in mats)
+    check(r['flags'] == 0x10000402 and abs(r['fade'] - rr.FADE_DECAL) < 0.01, f'export: record flags 0x{r["flags"]:08X} (retail decals 0x10000402), fade {r["fade"]:.0f} m')
+    check(rc.U32(inst, 112 * ii + 108) == 0x1001 and not blocks[k]['code'], 'export: decal instance 0x1001 (out of the instance collision, as retail), no collision mesh')
+    check(len(mats) == 2, 'export: the decal record draws the tag and the road marking only ' + str(names))
+    bush = [q for q in recs if q['mesh'] is not None and q['mesh'] < len(g.meshes) and q['flags'] == 0x10000000
+            and any(rc.U16(s.s16, 2) for s in g.meshes[q['mesh']].subs) and not blocks[q['mesh']]['code']]
+    check(len(bush) == 1 and len({rc.U16(g.meshes[bush[0]['mesh']].subs[0].b16, 8 * b + 6) for b in range(rc.U16(g.meshes[bush[0]['mesh']].subs[0].s16, 2))}) == 1,
+          'export: the bush stays on its own look-only, base-layer record')
+    # Every drawn strip still indexes inside its own vertex buffer, and nothing was lost.
+    total = 0
+    ok = True
+    static = {q['mesh'] for q in recs if rr.record_kind(q['flags']) in ('world', 'decal') and q['mesh'] is not None and q['mesh'] < len(g.meshes)}
+    for k_, M in enumerate(g.meshes):
+        for s in M.subs:
+            V = g.vbs[rc.U32(s.s16, 8)]
+            nv = rc.U16(V.desc, 12)
+            for b in range(rc.U16(s.s16, 2)):
+                f, c = rc.U32(s.b16, 8 * b), rc.U16(s.b16, 8 * b + 4)
+                idx = [rc.U16(V.ib, 2 * q) for q in range(f, f + c)]
+                ok = ok and f + c <= len(V.ib) // 2 and all(q < nv for q in idx)
+                total += rr._strip_triangles(idx) if k_ in static else 0
+    check(ok and total == x['summary']['render_triangles'], f'export: every strip indexes inside its vertex buffer; {total} map triangles drawn, as built')
+    import native_sky
+    _, _, lists = native_sky.tree_lists(ch.get('tree236').data)
+    check(any(i in l for l in lists), 'export: the decal record is in the record tree the game culls with')
+    check(any(l.startswith('Decals: 1 look-only overlay record(s) on decal layer 1, no collision (1 moved to a mesh of their own)') for l in x['logs']),
+          'export: logs the decal layer')
+
+
+def retail_decals(packfiles):
+    """Retail decal-layer records: mostly 0x10000402 without collision, like ours."""
+    pk = rc.Packfile(Path(packfiles) / 'mp_city_stream.vpp_xbox2')
+    kinds = collections.Counter()
+    for m in sorted({e.name[:-14] for e in pk.entries if e.name.endswith('.bbchunk_xbox2')}):
+        ch = rc.read_chunk(pk.read(m + '.bbchunk_xbox2'))
+        g = rc.chunk_geometry(ch)
+        blocks = rc.parse_mopp_blocks(g.coll)
+        for q in records(ch):
+            if rr.record_kind(q['flags']) == 'decal' and q['mesh'] is not None and q['mesh'] < len(blocks):
+                kinds[(q['flags'], bool(blocks[q['mesh']]['code']))] += 1
+    pk.close()
+    top = kinds.most_common(1)[0][0] if kinds else None
+    check(top == (0x10000402, False), f'retail: the commonest decal record is 0x10000402 without collision ({kinds[(0x10000402, False)]} of {sum(kinds.values())})')
+
+
 def lights(ch):
     n = rc.U32(ch.header, 884)
     d = ch.get('rec136_260').data
@@ -326,6 +411,7 @@ with tempfile.TemporaryDirectory() as t:
     unit_fades()
     unit_lights()
     unit_hmap(tmp)
+    unit_decals()
     pack = os.environ.get('SR1_DATA_PACK')
     if pack:
         x = full_export(Path(pack), tmp)
@@ -334,6 +420,7 @@ with tempfile.TemporaryDirectory() as t:
             export_fades(x)
             export_lights(x)
             export_hmap(x)
+            export_decals(x)
     else:
         print('skip full export (set SR1_DATA_PACK to run it)')
     game = os.environ.get('SR1_GAME_PACKFILES')
@@ -341,6 +428,7 @@ with tempfile.TemporaryDirectory() as t:
         retail_materials(game, tmp)
         retail_lights(game)
         retail_hmaps(game)
+        retail_decals(game)
     else:
         print('skip retail comparison (set SR1_GAME_PACKFILES to run it)')
 
