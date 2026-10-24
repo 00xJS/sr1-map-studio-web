@@ -114,6 +114,49 @@ describe('getting around', () => {
   })
 })
 
+describe('gaps, drops and walls', () => {
+  const kinds = (r: HealthReport) => r.moves.map((mv) => mv.kind)
+  /** Two 4 m high platforms `gap` units apart (along X), with spawns on the left one. */
+  const platforms = (gap: number) => check([ground(), box([16, 8, 20], [-8 - gap / 2, 0, 0]), box([16, 8, 20], [8 + gap / 2, 0, 0])],
+    [['Shared spawn', [-10 - gap / 2, 8, -4]], ['Shared spawn', [-10 - gap / 2, 8, 4]]])
+
+  it('a 2 m gap is a run jump; 4 m takes a sprint; 7 m is too wide', () => {
+    expect(kinds(platforms(4))).not.toContain('sprint-gap')
+    const sprint = platforms(8)
+    const gap = sprint.moves.find((mv) => mv.kind === 'sprint-gap')!
+    expect(gap.metres).toBe(4)
+    expect(gap.text).toBe('A 4 m gap: only a sprinting jump gets across.')
+    expect(gap.to![0]).toBeGreaterThan(0)
+    expect(sprint.findings.at(-1)).toMatch(/^Getting around: \d+ gaps? only a sprinting jump crosses/)
+    const wide = platforms(16) // 8 m (the grid measures gaps to about a metre)
+    expect(kinds(wide)).toContain('wide-gap')
+    expect(kinds(wide)).not.toContain('sprint-gap')
+  })
+
+  it('drops: 4 m is free, 6 m hurts, 11 m kills', () => {
+    const from = (h: number) => check([ground(), box([10, h, 10], [0, 0, 0])], [['Shared spawn', [0, h, 0]], ['Shared spawn', [2, h, 2]]])
+    expect(kinds(from(8)).filter((k) => k.endsWith('drop'))).toEqual([])
+    const hurt = from(12).moves.filter((mv) => mv.kind === 'hurt-drop')
+    expect(hurt.length).toBeGreaterThan(0)
+    expect(hurt[0].text).toBe('A 6 m drop: falling costs 150 of 375 health.')
+    expect(kinds(from(22))).toContain('kill-drop')
+    expect(kinds(from(22))).not.toContain('hurt-drop')
+  })
+
+  it('a 2 m wall is no way up in an exported map; with stairs it is', () => {
+    const base: MarkerSpec[] = [['Shared spawn', [-20, 0, -20]], ['Shared spawn', [20, 0, 20]], ['Weapon pickup', [0, 4, 0], { weapon: 'ak47' }]]
+    const wall = check([ground(), box([10, 4, 10], [0, 0, 0])], base)
+    expect(wall.unreachable.map((u) => u.type)).toEqual(['Weapon pickup'])
+    const climb = wall.moves.filter((mv) => mv.kind === 'climb-only')
+    expect(climb.length).toBeGreaterThan(0)
+    expect(climb[0].metres).toBe(2)
+    expect(climb[0].text).toMatch(/exported maps can't yet/)
+    const stairs = check([ground(), box([10, 4, 10], [0, 0, 0]), { ...box([6, 4, 10], [0, 0, 10], 'stairs'), segments: 16 }], base)
+    expect(stairs.unreachable).toEqual([])
+    expect(kinds(stairs)).not.toContain('climb-only')
+  })
+})
+
 describe('sight lines', () => {
   it('a waist-high wall hides a crouching player but not a standing one', () => {
     const r = check([ground(), box([60, 2.6, 1], [0, 0, 0])], [['Shared spawn', [0, 0, -20]], ['Shared spawn', [0, 0, 20]]])

@@ -108,6 +108,25 @@ export interface FairnessReport {
 
 export interface SightLane { from: Vec3; to: Vec3; metres: number }
 
+/**
+ * Getting around: 'sprint-gap' only a sprinting jump crosses, 'wide-gap' too wide to jump, 'hurt-drop' a fall that
+ * costs health, 'kill-drop' one that kills (or off the map), 'climb-only' a wall the game's own maps would let you
+ * climb but exported maps can't.
+ */
+export type MoveKind = 'sprint-gap' | 'wide-gap' | 'hurt-drop' | 'kill-drop' | 'climb-only'
+
+export interface MoveFinding {
+  kind: MoveKind
+  /** Where you stand (the edge, or the foot of the wall). */
+  at: Vec3
+  /** The other side: where you land, or the top of the wall (none when you'd fall off the map). */
+  to?: Vec3
+  /** The gap's width, the drop or the wall's height (Infinity: off the map). */
+  metres: number
+  /** The finding in plain words. */
+  text: string
+}
+
 export interface HealthReport {
   version: 1
   grid: FloorGrid
@@ -131,6 +150,8 @@ export interface HealthReport {
   unreachable: { type: string; position: Vec3 }[]
   /** The busiest spots from the bot playtest. */
   hotspots: Vec3[]
+  /** Gaps, drops and climb-only walls next to the reachable floor. */
+  moves: MoveFinding[]
   /** 0..100 overall, with the headline findings in plain language (most important first). */
   score: number
   findings: string[]

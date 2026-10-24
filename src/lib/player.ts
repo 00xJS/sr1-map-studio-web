@@ -49,6 +49,13 @@ export const LETHAL_FALL_M = FALL.freeM + 1 / FALL.perM
 /** Health lost falling `metres`. */
 export const fallDamage = (metres: number, hp = MAX_HP) => (metres <= FALL.freeM ? 0 : hp * (metres - FALL.freeM) * FALL.perM)
 
+/** Ledge climbing: an edge 0.75 to 3.15 m above the feet, only where the map lists climb ledges (exported maps have none yet). */
+export const CLIMB = { minM: 0.75, maxM: 3.15 }
+/** Jumping a gap: up to 2.5 m from a run, up to 6 m only from a sprint, wider can't be jumped (inferred: speed kept in the air). */
+export const GAP = { runM: 2.5, sprintM: 6 }
+/** A crouching player is 1.11 m tall, so cover must be at least this high to hide one, metres. */
+export const CROUCH_COVER_M = 1.15
+
 /**
  * The sprint meter. `update` each frame with whether the player is trying to sprint; it answers whether they do.
  * Once it runs dry, sprinting waits until the sprint key is let go.

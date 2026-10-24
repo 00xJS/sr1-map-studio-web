@@ -5,6 +5,7 @@ import { Bvh } from './bvh'
 import { buildFloor, dijkstra, dijkstraTo, LETHAL_DROP, nodeNear, PLAYER, type FloorGraph } from './floor'
 import { observe, pickLanes, pickObservers, sees, type SightCounts } from './sight'
 import { botPlaytest, fieldCache } from './bots'
+import { findMoves, movesSummary } from './moves'
 import type { AnalysisInput, AnalysisMarker, AnalysisOptions, FairnessReport, HealthReport, Risk, SpawnReport, Team, TeamStats } from './types'
 import type { Vec3 } from '../project'
 
@@ -143,10 +144,14 @@ export function finishMap(p: Prepared, counts: SightCounts): HealthReport {
   const blindShare = reachList.length ? blind / reachList.length : 0
   const openShare = reachList.length ? open / reachList.length : 0
 
+  const moves = findMoves(bvh, g)
+  lap('moves')
   const { score, findings } = summarize(spawns, fairness, unreachable, lanes, blindShare, openShare, reachList.length)
+  const getAround = movesSummary(moves)
+  if (getAround && reachList.length) findings.push(getAround)
   return {
     version: 1, grid: g.grid, exposure: stand, exposureCrouch: crouch, traffic: bots.traffic, territory,
-    lanes, blindShare, openShare, spawns, fairness, unreachable, hotspots: bots.hotspots, score, findings,
+    lanes, blindShare, openShare, spawns, fairness, unreachable, hotspots: bots.hotspots, moves, score, findings,
     stats: { triangles: input.flags.length, nodes: g.grid.count, reachable: reachList.length, observers: p.observers.length, rays: bvh.rays + counts.rays, ms },
   }
 }

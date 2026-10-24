@@ -76,6 +76,19 @@ describe('map facts', () => {
     expect(f.issues.find((i) => i.id === 'open-middle')).toBeTruthy()
   })
 
+  it('cover only counts when it hides a crouching player (1.15 m)', () => {
+    const withBoxes = (h: number) => {
+      const p = arena()
+      for (let x = -36; x <= 36; x += 8) for (const z of [-4, 4]) p.scene_items.push(shape('Box', [x, 1, z], [2, h, 2]))
+      return gatherFacts({ project: p }).cover.middle
+    }
+    expect(withBoxes(2)).toBe(0) // 1 m: a crouching player's head shows over it
+    expect(withBoxes(2.4)).toBeGreaterThan(0.3) // 1.2 m
+    const fix = gatherFacts({ project: arena() }).issues.find((i) => i.id === 'cover-middle')!.fix!.actions[0]
+    expect(fix).toMatchObject({ do: 'add_shape', shape: 'box' })
+    expect((fix as { size: Vec3 }).size[1] / 2).toBeGreaterThanOrEqual(1.15)
+  })
+
   it('a wall between the spawns hides them from each other', () => {
     const p = arena()
     p.scene_items.push(shape('Wall', [0, 1, 0], [80, 8, 1]))
