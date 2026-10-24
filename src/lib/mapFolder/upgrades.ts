@@ -57,7 +57,7 @@ export const MAP_UPGRADES: MapUpgrade[] = [
   },
   {
     key: 'minimap', title: 'Add a minimap',
-    hint: "Maps exported without one, and converted maps, still point their minimap at the map template's, so the game shows none. This draws the map from straight above and makes that its minimap, on the HUD and the pause map.",
+    hint: "Maps exported without one, and converted maps, still point their minimap at the map template's, so the game shows none; maps exported with one before 24 October 2026 show it black. This draws the map from straight above and makes that its minimap on the HUD and the pause map (a black one keeps its picture and is switched on).",
     prepare: minimapSource,
   },
 ]

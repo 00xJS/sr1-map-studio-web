@@ -312,10 +312,12 @@ def _write_minimap_region(out, base, rect, origin, world_scale, mirror_x, log):
             log('Minimap: region block not found in ' + path.name + '; the game falls back to the map bounds.')
             continue
         minimap_region.point(d, at, x0, x1, z0, z1, name)
-        path.write_bytes(bytes(d))
+        out_bytes, added = minimap_region.switch_on(d, name)
+        path.write_bytes(out_bytes)
         done += 1
     if done:
-        log(f'Minimap: region set to x {x0:.1f}..{x1:.1f}, z {z0:.1f}..{z1:.1f} m ({base}.tga, HUD and pause map).')
+        log(f'Minimap: region set to x {x0:.1f}..{x1:.1f}, z {z0:.1f}..{z1:.1f} m ({base}.tga, HUD and pause map)'
+            + ('; a map-wide region added so the game uses it.' if added else '.'))
     return bool(done)
 
 

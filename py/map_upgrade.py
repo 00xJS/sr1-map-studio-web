@@ -26,6 +26,7 @@ from pathlib import Path
 import sr_reborn_core as rc
 import native_sky
 import minimap_region
+import regions
 import peg_xbox2_beaver as peg
 
 LIGHT_COUNT = 884  # header offset of the light count (rec136_260 holds the records)
@@ -139,13 +140,24 @@ class Minimap:
     and this puts the picture in the texture file and points the minimap region at it. Maps made from the Beaver
     Creek template (exported without a minimap, or converted) still name the template's beavercreek.tga over Beaver
     Creek's own area, so the game shows none; the template's picture slot takes the new picture under the map's own
-    name, and the chunk's header, picture name and region name it too, as the export does (minimap_region.py)."""
+    name, and the chunk's header, picture name and region name it too, as the export does (minimap_region.py).
+    The game only uses it while the camera is in one of the map's regions, so a map-wide one goes in as well
+    (minimap_region.switch_on). Maps exported with a minimap before that (black in game) get just the region."""
     key = 'minimap'
     order = 60
 
     @staticmethod
     def _own(ch):
         return bytes(ch.header[0x10:0x50]).split(b'\0')[0].decode('latin1')
+
+    def _switched_off(self, ch, d):
+        """The name of the map's own minimap floor when the game never uses it (no region covers it), else None."""
+        own = self._own(ch)
+        at = minimap_region.find(d, own) if own and own.lower() != minimap_region.DONOR else -1
+        if at < 0:
+            return None
+        (cx, _, cz), (sx, _, sz), _ = minimap_region.floor(d, at)
+        return None if regions.covered(d, cx - sx / 2, cx + sx / 2, cz - sz / 2, cz + sz / 2) else own
 
     @staticmethod
     def picture_name(stem):
@@ -156,7 +168,7 @@ class Minimap:
 
     def status(self, ch, g, ctx):
         d = Path(ctx['chunk']).read_bytes()
-        if minimap_region.find(d) >= 0:
+        if minimap_region.find(d) >= 0 or self._switched_off(ch, d):
             return 'available', ''
         own = self._own(ch)
         if own and own.lower() != minimap_region.DONOR and d.find(own.encode('latin1') + b'\0', 0x50) >= 0:
@@ -166,11 +178,19 @@ class Minimap:
 
     def apply(self, chunk, peg_path, ctx, log):
         from sr_reborn_bridge import _replace_chunk_string
+        chunk, peg_path = Path(chunk), Path(peg_path)
+        original = chunk.read_bytes()
+        own = self._switched_off(rc.read_chunk(original), original)
+        if own:
+            # Exported with a minimap the game never used: its picture stays, the region goes in.
+            out, _ = minimap_region.switch_on(original, own)
+            chunk.write_bytes(out)
+            log(f'Minimap: the map already had one ({own}) that the game never showed; a map-wide region added so it does.')
+            return True
         png, box = ctx.get('minimap_png'), ctx.get('minimap_box')
         if not png or not box:
             raise ValueError('The minimap picture was not drawn.')
         x0, z0, x1, z1 = (float(v) for v in box)
-        chunk, peg_path = Path(chunk), Path(peg_path)
         name = self.picture_name(chunk.stem)
         _, _, entries = peg.parse_peg(peg_path)
         slot = next((e for e in entries if e.name.lower() == minimap_region.DONOR), None)
@@ -178,7 +198,6 @@ class Minimap:
             raise ValueError("The map's texture file has no minimap picture (" + minimap_region.DONOR + ') to replace.')
         if any(e.name.lower() == name for e in entries):
             raise ValueError("The map's texture file already has a picture called " + name + '.')
-        original = chunk.read_bytes()
         ch = rc.read_chunk(original)
         before = {s.name: bytes(s.data) for s in ch.secs}
         _replace_chunk_string(ch, minimap_region.DONOR, name)
@@ -196,6 +215,7 @@ class Minimap:
         moved = [s.name for s in check.secs if bytes(s.data) != before[s.name] and s.name not in ('strings', minimap_region.SECTION)]
         if moved:
             raise RuntimeError('Adding the minimap changed another part of the map: ' + ', '.join(moved))
+        d, added = minimap_region.switch_on(d, name)
         staged = peg_path.with_name(peg_path.name + '.minimap.tmp')
         try:
             peg.build_fixed_from_reference(peg_path, staged, {slot.index: {'source_path': png, 'peg_name': name, 'use_alpha': True}})
@@ -207,7 +227,8 @@ class Minimap:
             if staged.exists():
                 staged.unlink()
         chunk.write_bytes(bytes(d))
-        log(f'Minimap: drawn from above, x {x0:.1f}..{x1:.1f}, z {z0:.1f}..{z1:.1f} m ({name}, {slot.width}x{slot.height}, HUD and pause map).')
+        log(f'Minimap: drawn from above, x {x0:.1f}..{x1:.1f}, z {z0:.1f}..{z1:.1f} m ({name}, {slot.width}x{slot.height}, HUD and pause map)'
+            + ('; a map-wide region added so the game uses it.' if added else '.'))
         return True
 
 

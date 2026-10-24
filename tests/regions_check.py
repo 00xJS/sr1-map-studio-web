@@ -64,6 +64,20 @@ if pack:
     before = {s.name: bytes(s.data) for s in rc.read_chunk(original).secs}
     after = {s.name: bytes(s.data) for s in rc.read_chunk(out).secs}
     check([n for n in before if before[n] != after[n]] == [regions.SECTION], 'only the region section changed')
+    # The minimap's map-wide region goes in after the ones there, which stay byte for byte.
+    wide = regions.with_map_region(out, -80, 80, -70, 90, -20, 60)
+    got = regions.read_regions(wide)
+    old_records, old_blocks = regions._split(bytes(rc.read_chunk(out).get(regions.SECTION).data))
+    new_records, new_blocks = regions._split(bytes(rc.read_chunk(wide).get(regions.SECTION).data))
+    check(len(got) == 3 and got[-1] == ((-80.0, -20.0, -70.0), (80.0, 60.0, 90.0), regions.MAP_REGION_FLAGS)
+          and new_records[:2] == old_records and new_blocks[:2] == old_blocks, 'map region added last, the others kept')
+    check(regions.covered(wide, -50, 50, -50, 50) and not regions.covered(out, -50, 50, -50, 50), 'covered: only the map region covers the map')
+    # Its planes as retail stores a whole-map region (mp_bac_02's first): inside is n.p + d >= 0.
+    planes = struct.unpack_from('>24f', new_blocks[2], 16)
+    inside = all(planes[4 * k] * 0 + planes[4 * k + 1] * 10 + planes[4 * k + 2] * 0 + planes[4 * k + 3] >= 0 for k in range(6))
+    check(inside and struct.unpack_from('>2I', new_blocks[2], 0) == (6, 6), 'map region: six planes, a point in the middle is inside')
+    plain = regions.with_map_region(original, -80, 80, -70, 90, -20, 60)
+    check(len(regions.read_regions(plain)) == 1, 'map region on a map without regions')
 else:
     print('skip template round trip (set SR1_DATA_PACK to run it)')
 

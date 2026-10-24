@@ -99,20 +99,87 @@ def _record(vol, flags, ambient):
     return rec
 
 
+def _block(vol):
+    """A region's plane block: its planes and a chain over them (each node tests one plane and goes on to the next
+    while the point is inside), as retail stores them."""
+    planes = volume_planes(vol)
+    out = bytearray(struct.pack('>4I', len(planes), len(planes), 0, 0))
+    for p in planes:
+        out += struct.pack('>4f', *p)
+    for i in range(len(planes)):
+        out += struct.pack('>3H', i, 0, i + 1 if i + 1 < len(planes) else 0)
+    return bytes(out)
+
+
+def _join(records, blocks):
+    out = bytearray(struct.pack('>I', len(records)))
+    for r in records:
+        out += r
+    for b in blocks:
+        out += b'\0' * (-len(out) % 4)
+        out += b
+    return bytes(out)
+
+
 def section(regions):
     """The region section's bytes for [(volume, flags, ambient)]."""
-    out = bytearray(struct.pack('>I', len(regions)))
-    for vol, flags, ambient in regions:
-        out += _record(vol, flags, ambient)
-    for vol, _, _ in regions:
-        planes = volume_planes(vol)
-        out += b'\0' * (-len(out) % 4)
-        out += struct.pack('>4I', len(planes), len(planes), 0, 0)
-        for p in planes:
-            out += struct.pack('>4f', *p)
-        # A chain over the planes: each node tests one plane and goes on to the next while the point is inside.
-        for i in range(len(planes)):
-            out += struct.pack('>3H', i, 0, i + 1 if i + 1 < len(planes) else 0)
+    return _join([_record(vol, flags, ambient) for vol, flags, ambient in regions], [_block(vol) for vol, _, _ in regions])
+
+
+def _split(data):
+    """An existing region section as stored: its 88-byte records and each region's plane block."""
+    if len(data) < 4:
+        return [], []
+    n = struct.unpack_from('>I', data, 0)[0]
+    records = [bytes(data[4 + 88 * i:4 + 88 * i + 88]) for i in range(n)]
+    blocks, at = [], 4 + 88 * n
+    for _ in range(n):
+        at += -at % 4
+        planes, nodes = struct.unpack_from('>2I', data, at)
+        size = 16 + 16 * planes + 6 * nodes
+        blocks.append(bytes(data[at:at + size]))
+        at += size
+    if at > len(data) or any(data[at:]):
+        raise RuntimeError("the map's region list could not be read")
+    return records, blocks
+
+
+# ------------------------------------------------------------ the minimap's region --
+#
+# The HUD minimap and the pause map only use a map's minimap floors (minimap_region.py) while the camera is inside
+# one of these regions: the floor choice (0x822E8140) gives up when the region the camera is in (0x8370CFB4, found
+# by 0x820FC458 from this list) is none. Every retail map has one over the whole map; a custom map has none, so its
+# minimap stays black. MAP_REGION is that one: a box over the whole map with no effects of its own (flags 0: no
+# light, rain or sky change), put last so rain blockers and rooms inside it keep their own look.
+MAP_REGION_FLAGS = 0
+
+
+def covered(chunk_bytes, x0, x1, z0, z1):
+    """Whether a region of the chunk covers the whole of x0..x1, z0..z1 (game metres)."""
+    for lo, hi, _ in read_regions(chunk_bytes):
+        if lo[0] <= x0 and hi[0] >= x1 and lo[2] <= z0 and hi[2] >= z1:
+            return True
+    return False
+
+
+def with_map_region(chunk_bytes, x0, x1, z0, z1, y0, y1):
+    """Chunk bytes with a map-wide region over x0..x1, y0..y1, z0..z1 added after the regions it has (see above).
+    Checks that nothing else changed and that every region reads back."""
+    ch = rc.read_chunk(chunk_bytes)
+    records, blocks = _split(bytes(ch.get(SECTION).data))
+    if len(records) >= MAX_REGIONS + 1:
+        raise RuntimeError('the map has no room for another region')
+    vol = ([(x0, z0), (x0, z1), (x1, z1), (x1, z0)], y0, y1)
+    before = {s.name: bytes(s.data) for s in ch.secs}
+    ch.get(SECTION).data = bytearray(_join(records + [_record(vol, MAP_REGION_FLAGS, 0.0)], blocks + [_block(vol)]))
+    out = rc.write_chunk(ch)
+    check = rc.read_chunk(out)
+    for s in check.secs:
+        if s.name != SECTION and bytes(s.data) != before[s.name]:
+            raise RuntimeError('adding the map region changed another part of the map: ' + s.name)
+    got_records, got_blocks = _split(bytes(check.get(SECTION).data))
+    if got_records[:-1] != records or got_blocks[:-1] != blocks or not covered(out, x0, x1, z0, z1):
+        raise RuntimeError('the map region did not read back')
     return bytes(out)
 
 

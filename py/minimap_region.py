@@ -12,8 +12,10 @@ pause-map flag off. The block, as the game reads it:
 
 point() patches it in place (same sizes, so nothing after it moves): the floor
 covers the given game-frame box, the pause-map flag is set, and it names the
-map's own minimap picture. Used by the export (web_api.py) and by the quick
-upgrade for finished maps (map_upgrade.py).
+map's own minimap picture. switch_on() then makes sure the camera is always in
+one of the map's regions, without which the game never uses the floor and the
+minimap stays black (found in game on Dust, 2026-10-24). Used by the export
+(web_api.py) and by the quick upgrade for finished maps (map_upgrade.py).
 """
 import struct
 
@@ -51,6 +53,29 @@ def point(d, at, x0, x1, z0, z1, name):
     struct.pack_into('>6f', d, inner, *c, *size)
     d[inner + 28] = 1
     d[at:at + NAME_BYTES] = raw + b'\x00' * (NAME_BYTES - len(raw))
+
+
+REGION_MARGIN = 50.0  # metres the map region reaches past the minimap's area: the game tests the camera
+
+
+def switch_on(d, name):
+    """Chunk bytes in which the game uses the minimap floor named `name`: the floor is only used while the camera is
+    inside one of the map's regions (regions.py, tried in game on Dust), so one over the whole map is added when no
+    region covers the floor. Returns (bytes, whether one was added)."""
+    import regions
+    d = bytes(d)
+    at = find(d, name)
+    if at < 0:
+        raise ValueError('no minimap floor named ' + name)
+    (cx, cy, cz), (sx, sy, sz), _ = floor(d, at)
+    x0, x1, z0, z1 = cx - sx / 2, cx + sx / 2, cz - sz / 2, cz + sz / 2
+    if regions.covered(d, x0, x1, z0, z1):
+        return d, False
+    m = REGION_MARGIN
+    out = regions.with_map_region(d, x0 - m, x1 + m, z0 - m, z1 + m, cy - sy / 2, cy + sy / 2)
+    if find(out, name) < 0:
+        raise RuntimeError('the minimap floor was lost adding the map region')
+    return out, True
 
 
 def floor(d, at):

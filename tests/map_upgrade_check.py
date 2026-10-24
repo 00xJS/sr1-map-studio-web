@@ -28,6 +28,7 @@ import fast_dxt  # noqa: E402
 import native_sky  # noqa: E402
 import map_upgrade  # noqa: E402
 import minimap_region  # noqa: E402
+import regions  # noqa: E402
 from PIL import Image  # noqa: E402
 
 fast_dxt.install()
@@ -156,6 +157,21 @@ def installed_maps(game, maps, tmp):
                       f'{d.name}: the minimap region names {name} over the drawn area, pause map on')
                 check(slot == old_slot and name in rc.chunk_strings(ch) and minimap_region.DONOR not in rc.chunk_strings(ch)
                       and bytes(ch.header[0x10:0x50]).split(b'\0')[0] == name.encode(), f'{d.name}: the picture takes the template slot ({slot}), named in the chunk and its header')
+                # The game only uses the floor while the camera is in a region: one over the whole map, with no effects, last.
+                rs = regions.read_regions(d2)
+                check(regions.covered(d2, -30, 30, -20, 40) and rs and rs[-1][2] == regions.MAP_REGION_FLAGS,
+                      f'{d.name}: a map-wide region switches the minimap on ({len(rs)} region(s), the map one last)')
+                # A map exported with a minimap but no region (black in game, as before this fix) gets just the region.
+                rch = rc.read_chunk(d2)
+                rch.get(regions.SECTION).data = bytearray(4)
+                chunk.write_bytes(rc.write_chunk(rch))
+                peg_before = texfile.read_bytes()
+                st = map_upgrade.inspect({'chunk': str(chunk)}, logs.append)['upgrades']['minimap']['state']
+                fix = map_upgrade.upgrade({'chunk': str(chunk), 'peg': str(texfile), 'upgrades': ['minimap']}, logs.append)
+                d3 = chunk.read_bytes()
+                check(st == 'available' and fix['applied'] == ['minimap'] and texfile.read_bytes() == peg_before
+                      and regions.covered(d3, -30, 30, -20, 40) and minimap_region.find(d3, name) >= 0,
+                      f'{d.name}: a minimap the game never showed is switched on, its picture kept')
                 if state == 'available' and not later_done:
                     # A map someone already gave the game's sky gets its minimap later, in a second go.
                     later_done.append(d.name)

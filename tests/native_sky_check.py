@@ -28,6 +28,7 @@ import peg_xbox2_beaver as peg  # noqa: E402
 import fast_dxt  # noqa: E402
 import native_sky  # noqa: E402
 import minimap_region  # noqa: E402
+import regions  # noqa: E402
 
 fast_dxt.install()
 failures = []
@@ -181,6 +182,9 @@ def full_export(pack, tmp, source):
         centre, size, pause = minimap_region.floor(plain, at) if at >= 0 else ((0, 0, 0), (0, 0, 0), 0)
         check(at >= 0 and pause and abs(size[0] - 40) < 1e-3 and abs(size[2] - 40) < 1e-3 and minimap_region.find(plain) < 0,
               f'export: the minimap region names skytest.tga over the rendered area, pause map on ({size[0]:.1f} x {size[2]:.1f} m)')
+        x0, z0 = centre[0] - size[0] / 2, centre[2] - size[2] / 2
+        check(regions.covered(plain, x0, x0 + size[0], z0, z0 + size[2]) and regions.read_regions(plain)[-1][2] == regions.MAP_REGION_FLAGS,
+              'export: a map-wide region switches the minimap on')
 
     # 2. A sky that does not fit: the map is left as it was, with the fake sky.
     big = tmp / 'big_sky'
