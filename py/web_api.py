@@ -38,6 +38,7 @@ from vehicle_catalog_v041 import VEHICLE_CATALOG
 import fast_dxt
 import map_features as features
 import regions
+import minimap_region
 import retail_features as retail
 import native_sky
 import retail_records
@@ -289,19 +290,15 @@ def _check_ptp(markers):
         raise ValueError('Protect Tha Pimp needs ' + ', '.join(missing) + '.')
 
 
-_DONOR_MINIMAP = b'beavercreek.tga\x00'
-
-
 def _write_minimap_region(out, base, rect, origin, world_scale, mirror_x, log):
     """Point the map's minimap region (copied from the Beaver Creek template) at the rendered area.
 
-    The template carries one region with one floor naming beavercreek.tga over
-    Beaver Creek's own rectangle. Patched in place (same sizes, so nothing after
-    it moves): the floor covers `rect` (editor units, converted like markers),
-    its pause-map flag is set, and it names this map's minimap texture.
+    `rect` is in editor units, converted like the markers; minimap_region.py
+    patches the template's floor in place to cover it, with the pause-map flag
+    set and this map's minimap texture named.
     """
-    name = (base + '.tga').encode('ascii')
-    if len(name) > 15:
+    name = base + '.tga'
+    if len(name) >= minimap_region.NAME_BYTES:
         log('Minimap: map id too long for the minimap region name; the game falls back to the map bounds.')
         return False
     corners = [sr1_cts.convert_xyz((x, 0.0, z), world_scale, mirror_x, origin) for x, z in ((rect[0], rect[1]), (rect[2], rect[3]))]
@@ -310,19 +307,11 @@ def _write_minimap_region(out, base, rect, origin, world_scale, mirror_x, log):
     done = 0
     for path in out.rglob(base + '.bbchunk_xbox2'):
         d = bytearray(path.read_bytes())
-        y0, y1 = struct.unpack_from('>f', d, 0x3AC + 4)[0], struct.unpack_from('>f', d, 0x3AC + 16)[0]
-        y0, y1 = y0 - 50.0, y1 + 100.0
-        at = d.find(_DONOR_MINIMAP)
-        inner, outer = at - 4 - 36, at - 4 - 36 - 4 - 36
-        if at < 0 or struct.unpack_from('>I', d, at - 4)[0] != 16 or struct.unpack_from('>I', d, inner - 4)[0] != 1 or struct.unpack_from('>I', d, outer - 4)[0] != 1:
+        at = minimap_region.find(d)
+        if at < 0:
             log('Minimap: region block not found in ' + path.name + '; the game falls back to the map bounds.')
             continue
-        c = ((x0 + x1) / 2, (y0 + y1) / 2, (z0 + z1) / 2)
-        size = (x1 - x0, y1 - y0, z1 - z0)
-        struct.pack_into('>6f', d, outer, *c, *(v / 2 + 50.0 for v in size))
-        struct.pack_into('>6f', d, inner, *c, *size)
-        d[inner + 28] = 1
-        d[at:at + 16] = name + b'\x00' * (16 - len(name))
+        minimap_region.point(d, at, x0, x1, z0, z1, name)
         path.write_bytes(bytes(d))
         done += 1
     if done:

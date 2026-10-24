@@ -25,6 +25,8 @@ from pathlib import Path
 
 import sr_reborn_core as rc
 import native_sky
+import minimap_region
+import peg_xbox2_beaver as peg
 
 LIGHT_COUNT = 884  # header offset of the light count (rec136_260 holds the records)
 
@@ -132,7 +134,84 @@ class RetailMaterials:
         return True
 
 
-UPGRADES = [RetailMaterials(), GameSky()]
+class Minimap:
+    """A minimap on a map that has none: the editor draws the map from straight above (src/lib/mapFolder/minimap.ts)
+    and this puts the picture in the texture file and points the minimap region at it. Maps made from the Beaver
+    Creek template (exported without a minimap, or converted) still name the template's beavercreek.tga over Beaver
+    Creek's own area, so the game shows none; the template's picture slot takes the new picture under the map's own
+    name, and the chunk's header, picture name and region name it too, as the export does (minimap_region.py)."""
+    key = 'minimap'
+    order = 60
+
+    @staticmethod
+    def _own(ch):
+        return bytes(ch.header[0x10:0x50]).split(b'\0')[0].decode('latin1')
+
+    @staticmethod
+    def picture_name(stem):
+        """The map's own name for its minimap ("bordello_mi.tga"): as long as the template's beavercreek.tga, so the
+        chunk's list of picture names keeps its size and nothing after it moves (a shorter name shifts the rest of
+        the chunk, which some maps' layouts don't survive)."""
+        return (stem.lower() + '_minimap')[:len(minimap_region.DONOR) - 4] + '.tga'
+
+    def status(self, ch, g, ctx):
+        d = Path(ctx['chunk']).read_bytes()
+        if minimap_region.find(d) >= 0:
+            return 'available', ''
+        own = self._own(ch)
+        if own and own.lower() != minimap_region.DONOR and d.find(own.encode('latin1') + b'\0', 0x50) >= 0:
+            return 'done', 'The map already has its own minimap (' + own + ').'
+        return 'unavailable', ("The map has no minimap area to point at a picture (the converter that made it leaves it out). "
+                               'Open it in the editor and export it again instead: the export adds one.')
+
+    def apply(self, chunk, peg_path, ctx, log):
+        from sr_reborn_bridge import _replace_chunk_string
+        png, box = ctx.get('minimap_png'), ctx.get('minimap_box')
+        if not png or not box:
+            raise ValueError('The minimap picture was not drawn.')
+        x0, z0, x1, z1 = (float(v) for v in box)
+        chunk, peg_path = Path(chunk), Path(peg_path)
+        name = self.picture_name(chunk.stem)
+        _, _, entries = peg.parse_peg(peg_path)
+        slot = next((e for e in entries if e.name.lower() == minimap_region.DONOR), None)
+        if slot is None:
+            raise ValueError("The map's texture file has no minimap picture (" + minimap_region.DONOR + ') to replace.')
+        if any(e.name.lower() == name for e in entries):
+            raise ValueError("The map's texture file already has a picture called " + name + '.')
+        original = chunk.read_bytes()
+        ch = rc.read_chunk(original)
+        before = {s.name: bytes(s.data) for s in ch.secs}
+        _replace_chunk_string(ch, minimap_region.DONOR, name)
+        raw = name.encode('ascii')
+        ch.header[0x10:0x50] = raw + b'\0' * (0x40 - len(raw))
+        d = bytearray(rc.write_chunk(ch))
+        at = minimap_region.find(d)
+        if at < 0 or len(d) != len(original):
+            raise RuntimeError('The minimap region was lost writing the map.')
+        minimap_region.point(d, at, x0, x1, z0, z1, name)
+        check = rc.read_chunk(bytes(d))
+        if name not in rc.chunk_strings(check) or minimap_region.find(d, name) < 0 or self._own(check) != name:
+            raise RuntimeError('The minimap did not read back.')
+        # Only the picture names and the part holding the region block may change.
+        moved = [s.name for s in check.secs if bytes(s.data) != before[s.name] and s.name not in ('strings', minimap_region.SECTION)]
+        if moved:
+            raise RuntimeError('Adding the minimap changed another part of the map: ' + ', '.join(moved))
+        staged = peg_path.with_name(peg_path.name + '.minimap.tmp')
+        try:
+            peg.build_fixed_from_reference(peg_path, staged, {slot.index: {'source_path': png, 'peg_name': name, 'use_alpha': True}})
+            _, _, after = peg.parse_peg(staged)
+            if [e.name for e in after] != [name if i == slot.index else e.name for i, e in enumerate(entries)]:
+                raise RuntimeError('The minimap picture did not link up.')
+            staged.replace(peg_path)
+        finally:
+            if staged.exists():
+                staged.unlink()
+        chunk.write_bytes(bytes(d))
+        log(f'Minimap: drawn from above, x {x0:.1f}..{x1:.1f}, z {z0:.1f}..{z1:.1f} m ({name}, {slot.width}x{slot.height}, HUD and pause map).')
+        return True
+
+
+UPGRADES = [RetailMaterials(), Minimap(), GameSky()]
 ORDER = sorted(UPGRADES, key=lambda u: u.order)
 
 

@@ -18,6 +18,7 @@ import { chunkStems, findMaps, folderEntries, type MapSource } from '../src/lib/
 import { baseNameFor, readMapInfo } from '../src/lib/mapFolder/info'
 import { readMapScene } from '../src/lib/mapFolder/read'
 import { MAP_UPGRADES } from '../src/lib/mapFolder/upgrades'
+import { minimapBox } from '../src/lib/mapFolder/minimap'
 
 const blob = (s: string | Uint8Array) => new Blob([s])
 const source = (name: string, files: Record<string, string | Uint8Array>): MapSource => ({ name, files: new Map(Object.entries(files).map(([p, v]) => [p, blob(v)])) })
@@ -411,8 +412,8 @@ describe('finding the maps in what was picked', () => {
     expect(info.cts.ptp?.records.some((r) => r.flags.includes('MPTeam1'))).toBe(true)
     expect(info.cts.ambience?.records.filter((r) => r.kind === 'Ambient')).toHaveLength(2)
   })
-  it('lists the quick upgrades py/map_upgrade.py has, in the order they run', () => {
-    expect(MAP_UPGRADES.map((u) => u.key)).toEqual(['retail_materials', 'game_sky'])
+  it('lists the quick upgrades py/map_upgrade.py has, the one that asks for the game folder before the one that draws', () => {
+    expect(MAP_UPGRADES.map((u) => u.key)).toEqual(['retail_materials', 'game_sky', 'minimap'])
     const py = readFileSync(resolve(__dirname, '../py/map_upgrade.py'), 'utf8')
     for (const u of MAP_UPGRADES) expect(py).toContain(`key = '${u.key}'`)
   })
@@ -467,6 +468,13 @@ describe.runIf(haveMaps)('the maps in the local game install', () => {
         if (scene.pieces.some((p) => floorBelow(p, g, 3))) grounded++
       }
       expect(grounded / spawns.length).toBeGreaterThan(0.9)
+      // The minimap the quick upgrade draws: a square over the whole map, every spawn on it.
+      const [x0, z0, x1, z1] = minimapBox(scene)!
+      expect(x1 - x0).toBeCloseTo(z1 - z0, 2)
+      for (const s of spawns) {
+        const gx = -s.position[0] * 0.5 + scene.origin[0], gz = s.position[2] * 0.5 + scene.origin[2]
+        expect(gx > x0 && gx < x1 && gz > z0 && gz < z1).toBe(true)
+      }
       if (scene.loading) expect(scene.loading.width).toBeGreaterThan(0)
     }, 60000)
   }

@@ -2,7 +2,7 @@
 // without opening it in the editor and exporting again. The rest of the folder is handed back as it was, as a
 // zip or straight into the game's maps folder. Each upgrade here matches one in map_upgrade.UPGRADES by key: the
 // page lists them with these words, Python says whether the map has it already or has room for it. To add one,
-// add it there and here (with `prepare` when it needs files from the player's game).
+// add it there and here (with `prepare` when it needs files from the player's game, or something drawn here).
 import { py } from '../py'
 import { gameSkyFiles, skyDonorFiles } from '../gameSky'
 import { folderEntries, type MapSource } from './files'
@@ -12,8 +12,11 @@ export interface MapUpgrade {
   key: string
   title: string
   hint: string
-  /** Files it needs from the player's game, handed to Python before it runs; `ask` lets the browser ask for the folder. */
-  prepare?: (ask: boolean) => Promise<Record<string, unknown>>
+  /**
+   * What it hands Python before it runs: files from the player's game (`ask` lets the browser ask for the folder)
+   * or a picture drawn here. They run in this list's order, so one that asks for a folder comes first.
+   */
+  prepare?: (ask: boolean, info: MapInfo) => Promise<Record<string, unknown>>
 }
 
 const GAME_DIR = '/work/game', SKY_DONOR = GAME_DIR + '/native_sky'
@@ -29,6 +32,19 @@ async function skySource(ask: boolean): Promise<Record<string, unknown>> {
   return { game_sky: { dir: SKY_DONOR, chunk: `${GAME_DIR}/mp_bac_01.bbchunk_xbox2` } }
 }
 
+/** The map drawn from above (minimap.ts), and the square it covers in the game frame. */
+async function minimapSource(_ask: boolean, info: MapInfo): Promise<Record<string, unknown>> {
+  const { sceneInWorker } = await import('./open')
+  const { drawMinimap, minimapBox, minimapCeiling } = await import('./minimap')
+  const scene = await sceneInWorker(info, 256)
+  const box = minimapBox(scene)
+  if (!box) throw new Error('The map has nothing to draw a minimap of.')
+  const png = await drawMinimap(scene, box, 1024, minimapCeiling(info))
+  const path = jobDir() + '/minimap.png'
+  await py.writeFiles([{ path, data: await png.arrayBuffer() }])
+  return { minimap_png: path, minimap_box: box }
+}
+
 export const MAP_UPGRADES: MapUpgrade[] = [
   {
     key: 'retail_materials', title: 'Light it like the game’s own maps',
@@ -38,6 +54,11 @@ export const MAP_UPGRADES: MapUpgrade[] = [
     key: 'game_sky', title: "Add the game's sky",
     hint: "The sun, moon, stars and moving clouds of the game's own outdoor maps (from mp_bac_01 in your game files), in place of the flat sky picture.",
     prepare: skySource,
+  },
+  {
+    key: 'minimap', title: 'Add a minimap',
+    hint: "Maps exported without one, and converted maps, still point their minimap at the map template's, so the game shows none. This draws the map from straight above and makes that its minimap, on the HUD and the pause map.",
+    prepare: minimapSource,
   },
 ]
 
@@ -79,13 +100,13 @@ export async function runUpgrades(info: MapInfo, keys: string[], ask = true): Pr
   if (!info.peg) throw new Error(`${info.src.name} has no texture file (levels/${info.stem}.peg_xbox2).`)
   const chosen = MAP_UPGRADES.filter((u) => keys.includes(u.key))
   const spec: Record<string, unknown> = {}
-  for (const u of chosen) if (u.prepare) Object.assign(spec, await u.prepare(ask))
+  for (const u of chosen) if (u.prepare) Object.assign(spec, await u.prepare(ask, info))
   const job = jobDir()
   const chunk = `${job}/${info.stem}.bbchunk_xbox2`, peg = `${job}/${info.stem}.peg_xbox2`
   await py.writeFiles([{ path: chunk, data: await info.chunk.arrayBuffer() }, { path: peg, data: await info.peg.arrayBuffer() }])
   const r = await py.call<{ applied: string[]; skipped: Record<string, string>; log: string[] }>('map_tool', 'upgrade', JSON.stringify({ ...spec, chunk, peg, upgrades: chosen.map((u) => u.key) }))
   const [c, p] = await py.readFiles([chunk, peg])
-  await py.remove([chunk, peg])
+  await py.remove([chunk, peg, ...(typeof spec.minimap_png === 'string' ? [spec.minimap_png] : [])])
   const replace: Record<string, Uint8Array> = {}
   if (r.applied.length) {
     replace[`levels/${info.stem}.bbchunk_xbox2`] = new Uint8Array(c.data)

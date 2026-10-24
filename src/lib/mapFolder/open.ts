@@ -20,14 +20,15 @@ const TEX = 1024
 
 // ---------------- the worker ----------------
 
-function sceneInWorker(info: MapInfo): Promise<MapScene> {
+/** The map's pieces and pictures, read off the page's thread; pictures kept up to `texSize` on a side. */
+export function sceneInWorker(info: MapInfo, texSize = TEX): Promise<MapScene> {
   const w = new Worker(new URL('./worker.ts', import.meta.url), { type: 'module' })
   const pegs = [info.peg, ...[...info.src.files].filter(([p]) => /\.peg_xbox2$/i.test(p) && !/^levels\/ld-/i.test(p) && info.src.files.get(p) !== info.peg).map(([, f]) => f)].filter((x): x is Blob => !!x)
   const loading = fileAt(info.src, `levels/ld-${info.stem}.peg_xbox2`) ?? null
   return new Promise<MapScene>((ok, no) => {
     w.onmessage = (e) => { w.terminate(); e.data.ok ? ok(e.data.value) : no(new Error(e.data.error)) }
     w.onerror = (e) => { w.terminate(); no(new Error(e.message || 'The map could not be read.')) }
-    w.postMessage({ id: 1, chunk: info.chunk, pegs, loading, texSize: TEX })
+    w.postMessage({ id: 1, chunk: info.chunk, pegs, loading, texSize })
   })
 }
 

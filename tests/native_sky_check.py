@@ -27,6 +27,7 @@ import sr_reborn_core as rc  # noqa: E402
 import peg_xbox2_beaver as peg  # noqa: E402
 import fast_dxt  # noqa: E402
 import native_sky  # noqa: E402
+import minimap_region  # noqa: E402
 
 fast_dxt.install()
 failures = []
@@ -148,11 +149,13 @@ def full_export(pack, tmp, source):
                   alpha={}, physics_intent='Static', textures={'g': tex('g.png', (90, 90, 90))})
     sky_picture = tex('sky.png', (120, 160, 220))
     markers = [dict(type='Shared spawn', position=[x, 0.1, 0], yaw=0, label='') for x in (-6, -2, 2, 6)]
+    minimap = tex('minimap.png', (200, 180, 60))
 
     def export(job, sky_source, sky_texture):
         logs = []
         spec = dict(job=job, scene_items=[ground], markers=markers, lights=[], base_name='skytest', world_scale=0.5, mirror_x=True,
-                    flip_obj_v=True, double_sided=False, sky_texture=sky_texture, native_sky_source=sky_source)
+                    flip_obj_v=True, double_sided=False, sky_texture=sky_texture, native_sky_source=sky_source,
+                    minimap_texture=minimap, minimap_rect=[-40, -30, 40, 50])
         r = json.loads(web_api.export_project(json.dumps(spec), logs.append))
         check(r['ok'], f'export {job}: runs' + ('' if r['ok'] else ': ' + r['error'] + '\n' + r.get('trace', '')))
         return r.get('value'), logs
@@ -173,6 +176,11 @@ def full_export(pack, tmp, source):
         _, ch, _ = read(v)
         check(v['summary']['game_sky'] == 0 and not native_sky.sky_list(ch) and fake_sky_draws(ch), 'export: without game files the fake sky stays')
         plain = (Path(v['out_dir']) / 'skytest.bbchunk_xbox2').read_bytes()
+        # The minimap region (minimap_region.py): the rect, in editor units, becomes 40 x 40 game metres.
+        at = minimap_region.find(plain, 'skytest.tga')
+        centre, size, pause = minimap_region.floor(plain, at) if at >= 0 else ((0, 0, 0), (0, 0, 0), 0)
+        check(at >= 0 and pause and abs(size[0] - 40) < 1e-3 and abs(size[2] - 40) < 1e-3 and minimap_region.find(plain) < 0,
+              f'export: the minimap region names skytest.tga over the rendered area, pause map on ({size[0]:.1f} x {size[2]:.1f} m)')
 
     # 2. A sky that does not fit: the map is left as it was, with the fake sky.
     big = tmp / 'big_sky'
@@ -196,6 +204,7 @@ def full_export(pack, tmp, source):
     if v:
         out, ch, pe = read(v)
         ids = native_sky.sky_list(ch)
+        check(minimap_region.find((out / 'skytest.bbchunk_xbox2').read_bytes(), 'skytest.tga') >= 0, 'export: the minimap region kept with the sky added')
         names = native_sky.record_names(ch)
         check(v['summary']['game_sky'] == 1 and len(ids) == 5 and rc.U32(ch.header, native_sky.LIST_COUNT) == 5, 'export: five sky objects listed')
         check(sorted(names[r] for r in ids) == sorted(native_sky.NAMES), 'export: they are named like the game\'s ' + str([names[r] for r in ids]))
