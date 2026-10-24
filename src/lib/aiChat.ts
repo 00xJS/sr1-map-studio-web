@@ -239,7 +239,7 @@ const EDITS = `{"do":"add_prefab","key":"bench","x":10,"z":-20,"turn":90,"settin
 {"do":"edit_light","indices":[2],"color":[0.2,0.9,1],"intensity":2,"range":30,"enabled":true,"x":4,"y":9,"z":-10}   (or "near":[x,z,radius], or "all":true; any of the fields)
 {"do":"delete_lights","near":[0,0,20]}   (or "indices", or "all":true)
 {"do":"set_object","name":"crate","solid":false,"physics":"light_crate","water":false,"double_sided":true,"rename":"Supply crate"}   (any target; solid false = players and shots pass through; "physics": a physics preset, or "none" to make it static again; water true = swimmable)
-{"do":"edit_marker","type":"Vehicle spawn","vehicle":"car_4dr_police01"}   (pick by "indices", "type" and/or "near"; fields: yaw (0 faces -Z) or "face":"middle", weapon, vehicle, char_type, special_type, radius, size [w,h,d], delay_ms, label, sound, volume, disabled)
+{"do":"edit_marker","type":"Vehicle spawn","vehicle":"car_4dr_police01"}   (pick by "indices", "type" and/or "near"; fields: yaw (0 faces -Z) or "face":"middle", weapon, vehicle, char_type, special_type, radius, size [w,h,d], delay_ms, respawn_s (weapon pickups: seconds until it comes back, 0 = the game's default), label, sound, volume, disabled)
 {"do":"set_map","name":"Rust Belt","ambience":"amb_mp_bac_01","game_sky":true,"sky_picture":true,"loading":"auto"}   (any of: map name, background sound ("" for none), the game's own sky at export, a fallback sky picture, the loading picture "auto" or "none")
 {"do":"mirror","name":"crate"}   (adds missing twins across the middle; any target; markers: {"do":"mirror","markers":[12,13]})
 {"do":"make_symmetric","keep":"red"}   (blue's half becomes a copy of red's; add "only":"objects" or "markers")

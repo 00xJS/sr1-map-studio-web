@@ -1,6 +1,6 @@
 // Full map export: runs sr1_export.export_map in the worker and packages the
 // result as a folder you can drop into SaintsReborn/dist/maps.
-import { zip as zipAsync, strToU8, type AsyncZippable } from 'fflate'
+import { zip as zipAsync, strFromU8, strToU8, type AsyncZippable } from 'fflate'
 import { py } from './py'
 import { dataPackStatus } from './datapack'
 import type { Marker, Project, ProjectSettings } from './project'
@@ -8,6 +8,7 @@ import { checkModes, levelEntries } from './levels'
 import { BOR } from './retailModes'
 import { crateDebrisSpec } from './crateDebris'
 import { gameSkySpec } from './gameSky'
+import { PICKUP_RESPAWN_MS, pickupRespawnMs } from './player'
 
 /**
  * entries: the zip's files by path ("<folder>/levels/..."), for installing without unzipping.
@@ -70,9 +71,27 @@ export async function runExport(project: Project, onLog: (t: string) => void, on
     // Map files go in levels/; the exporter's audit reports sit beside it.
     entries[/\.(json|txt)$/i.test(name) ? `${folder}/${name}` : `${folder}/levels/${name}`] = new Uint8Array(f.data)
   }
+  // Every weapon pickup comes back after its own time (the marker's, or the game's default for the weapon).
+  for (const [k, v] of Object.entries(entries)) if (/\.cts$/i.test(k)) entries[k] = strToU8(withPickupRespawns(strFromU8(v), project.markers))
   Object.assign(entries, packageMetadata(folder, result.map_name, s.display_name || result.map_name, s, project.markers, project.description))
   entries[`${folder}/MAP_STUDIO_EXPORT.txt`] = strToU8(exportNotes(project, result))
   return { result, zip: lazyZip(entries), folder, entries }
+}
+
+/** The exporter's own weapon pickup items in a CTS: name, type and start nav, one block each, in marker order. */
+const STUDIO_ITEM = /^\$Item:[ \t]*"([^"\r\n]*__studio_\$item\d+)"(\r?\n)\$Item type:[^\r\n]*\r?\n\$Start nav:[ \t]*"\1"\r?\n(?!\$Respawn Delay:)/gm
+
+/**
+ * A CTS with `$Respawn Delay:` on each weapon pickup the exporter wrote, in the order of the map's Weapon pickup
+ * markers: the marker's own time, or the game's default for the weapon (15 s, sniper 20 s, RPG 30 s).
+ */
+export function withPickupRespawns(cts: string, markers: Pick<Marker, 'type' | 'weapon' | 'label' | 'respawn_ms'>[]): string {
+  const weapons = markers.filter((m) => m.type === 'Weapon pickup')
+  let k = 0
+  return cts.replace(STUDIO_ITEM, (block: string, _name: string, nl: string) => {
+    const m = weapons[k++]
+    return m ? `${block}$Respawn Delay:\t${pickupRespawnMs(m.weapon || m.label, m.respawn_ms)}${nl}` : block
+  })
 }
 
 /**
@@ -167,6 +186,8 @@ function exportNotes(p: Project, r: ExportResult) {
     ...(s.water_volumes ? [`Swimmable water: ${s.water_volumes} volume(s) (new, not yet tried in game)`] : []),
     `Sky: ${s.game_sky ? "the game's own sky from mp_bac_01 in your game files (new, not yet tried in game)"
       : p.settings.native_sky ? `native sky preset ${p.settings.native_sky}` : p.settings.sky_texture ? 'fake sky image' : 'none (black in game)'}`,
+    '',
+    `Weapon pickups come back after ${PICKUP_RESPAWN_MS.normal / 1000} s (sniper rifle ${PICKUP_RESPAWN_MS.sniper / 1000} s, RPG ${PICKUP_RESPAWN_MS.launcher / 1000} s) unless a marker sets its own time.`,
     '',
     'Install: copy this whole folder into SaintsReborn/dist/maps, then start the game.',
     'Back up any map with the same name first. Test new native props, glass and lights in a private match.',

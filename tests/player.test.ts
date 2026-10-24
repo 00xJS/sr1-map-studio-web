@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
   CAMERA_FOV, FALL, FOG, GRAVITY, JUMP_HEIGHT, JUMP_SPEED, LETHAL_FALL_M, MANTLE, MAX_HP, RUN_SPEED, SPRINT, SPRINT_SPEED, STEP,
-  SprintMeter, fallDamage,
+  PICKUP_RESPAWN_MS, SprintMeter, fallDamage, pickupRespawnMs,
 } from '../src/lib/player'
 import { Bvh } from '../src/lib/analysis/bvh'
 import { buildFloor, dijkstra, FREE_DROP, LETHAL_DROP, nodeNear, PLAYER, type FloorGraph } from '../src/lib/analysis/floor'
 import { sampleInput } from '../src/lib/analysis'
+import { withPickupRespawns } from '../src/lib/exporter'
 import type { Part } from '../src/lib/sampleKit'
 import type { Vec3 } from '../src/lib/project'
 
@@ -69,6 +70,34 @@ describe("the game's player numbers", () => {
     r.jump()
     expect(r.level).toBeCloseTo(0.8)
     expect(r.update(0.1, true)).toBe(true)
+  })
+})
+
+describe('weapon pickup respawn in exported maps', () => {
+  const cts = [
+    '#Items', '',
+    '$Item:\t\t"keep_me"', '$Item type:\t"ak47"', '$Start nav:\t"keep_me"', '',
+    '$Item:\t\t"map__studio_$item000"', '$Item type:\t"ak47"', '$Start nav:\t"map__studio_$item000"', '',
+    '$Item:\t\t"map__studio_$item001"', '$Item type:\t"sniper_rifle"', '$Start nav:\t"map__studio_$item001"', '',
+    '$Item:\t\t"map__studio_$item002"', '$Item type:\t"rpg_launcher"', '$Start nav:\t"map__studio_$item002"', '',
+    '#Triggers', '',
+  ].join('\r\n')
+  const ms = [
+    { type: 'Shared spawn', weapon: '', label: '' },
+    { type: 'Weapon pickup', weapon: 'ak47', label: 'ak47' },
+    { type: 'Weapon pickup', weapon: 'sniper_rifle', label: 'sniper_rifle' },
+    { type: 'Weapon pickup', weapon: 'rpg_launcher', label: 'rpg_launcher', respawn_ms: 45000 },
+  ]
+
+  it("writes each pickup's time: the game's default, or the marker's own", () => {
+    const out = withPickupRespawns(cts, ms)
+    expect(out.match(/\$Respawn Delay:\t\d+/g)).toEqual(['$Respawn Delay:\t15000', '$Respawn Delay:\t20000', '$Respawn Delay:\t45000'])
+    expect(out).toContain('$Start nav:\t"map__studio_$item001"\r\n$Respawn Delay:\t20000\r\n\r\n')
+    // The template's own items are left alone, and running it twice adds nothing.
+    expect(out).toContain('$Start nav:\t"keep_me"\r\n\r\n')
+    expect(withPickupRespawns(out, ms)).toBe(out)
+    expect(pickupRespawnMs('rpg_laser')).toBe(PICKUP_RESPAWN_MS.launcher)
+    expect(pickupRespawnMs('tec9', 0)).toBe(PICKUP_RESPAWN_MS.normal)
   })
 })
 

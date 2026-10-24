@@ -65,6 +65,18 @@ export const SPAWN_RULES = { enemyM: 5, enemyDyM: 5, reuseMs: 5000, boxM: 2 }
 /** After dying you wait 5 s to respawn. */
 export const RESPAWN_DELAY_MS = 5000
 
+/** Weapon pickups come back after 15 s, a sniper rifle after 20 s, an RPG or other launcher after 30 s (the game's defaults). */
+export const PICKUP_RESPAWN_MS = { normal: 15000, sniper: 20000, launcher: 30000 }
+
+/** How long a weapon pickup stays away once taken: the time set on the marker (`own`, ms), or the game's default for that weapon. */
+export function pickupRespawnMs(weapon: string | undefined, own?: number | null): number {
+  if (typeof own === 'number' && Number.isFinite(own) && own > 0) return Math.round(own)
+  const w = (weapon ?? '').toLowerCase()
+  if (/rpg|launcher/.test(w)) return PICKUP_RESPAWN_MS.launcher
+  if (/sniper/.test(w)) return PICKUP_RESPAWN_MS.sniper
+  return PICKUP_RESPAWN_MS.normal
+}
+
 /**
  * The sprint meter. `update` each frame with whether the player is trying to sprint; it answers whether they do.
  * Once it runs dry, sprinting waits until the sprint key is let go.

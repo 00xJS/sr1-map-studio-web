@@ -71,6 +71,8 @@ describe('everything the assistant can change', () => {
     const ok = markerPatch({ weapon: 'spas12', yaw: 270, radius: 999, volume: 3 }, lists)
     expect(ok.patch).toMatchObject({ weapon: 'spas12', label: 'spas12', yaw: -90, radius: 200, volume: 1 })
     expect(markerPatch({ vehicle: 'flying_carpet' }, lists).bad).toEqual(['unknown vehicle "flying_carpet"'])
+    expect(markerPatch({ respawn_s: 25 }, lists).patch).toEqual({ respawn_ms: 25000 })
+    expect(markerPatch({ respawn_s: 0 }, lists).patch).toEqual({ respawn_ms: 0 })
   })
 
   it('picks and changes lights', () => {

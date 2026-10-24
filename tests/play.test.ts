@@ -92,12 +92,31 @@ describe('free roam', () => {
     expect(stepRun(s, [10, 0, 0], 0).map((e) => e.type)).toEqual(['weapon'])
     expect(s.started).toBeNull()
     const gun = s.pickups[0]
+    // The game's 15 s for an AK (was 10 s here before).
     expect(visible(gun, 5000)).toBe(false)
-    expect(stepRun(s, [10, 0, 0], 5000, 10000)).toEqual([])
-    expect(visible(gun, 10000)).toBe(true)
-    expect(stepRun(s, [10, 0, 0], 10000, 10000).map((e) => e.type)).toEqual(['weapon'])
+    expect(stepRun(s, [10, 0, 0], 5000)).toEqual([])
+    expect(visible(gun, 10000)).toBe(false)
+    expect(visible(gun, 15000)).toBe(true)
+    expect(stepRun(s, [10, 0, 0], 15000, 10000).map((e) => e.type)).toEqual(['weapon'])
+    // An override still works: back 10 s after this pickup.
+    expect(gun.back).toBe(25000)
     expect(inDropoff(s, [0, 0, 21])?.kind).toBe('dropoff')
     expect(inDropoff(s, [50, 0, 50])).toBeNull()
+  })
+})
+
+describe("weapons come back on the game's clock", () => {
+  it('15 s, a sniper rifle 20 s, an RPG 30 s, or the time set on the marker', () => {
+    const ms = [
+      at('Weapon pickup', [10, 0, 0], { weapon: 'ak47' }), at('Weapon pickup', [20, 0, 0], { weapon: 'sniper_rifle' }),
+      at('Weapon pickup', [30, 0, 0], { weapon: 'rpg_launcher' }), at('Weapon pickup', [40, 0, 0], { weapon: 'ak47', respawn_ms: 4000 }),
+    ]
+    expect(pickupsOf(ms).map((p) => p.respawnMs)).toEqual([15000, 20000, 30000, 4000])
+    const s = newRun(ms, 'roam', [0, 0, 0])
+    for (const x of [10, 20, 30, 40]) stepRun(s, [x, 0, 0], 0)
+    expect(s.pickups.map((p) => p.back)).toEqual([15000, 20000, 30000, 4000])
+    expect(visible(s.pickups[0], 14999)).toBe(false)
+    expect(visible(s.pickups[0], 15000)).toBe(true)
   })
 })
 

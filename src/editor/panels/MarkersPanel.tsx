@@ -8,6 +8,7 @@ import { py } from '../../lib/py'
 import { db } from '../../lib/db'
 import { PIMP_EXIT, SPAWN_TYPES, baseName, type Marker, type Vec3 } from '../../lib/project'
 import { RETAIL_MARKER_TYPES } from '../../lib/retailModes'
+import { pickupRespawnMs } from '../../lib/player'
 import { RetailMarkerFields } from '../RetailMarkerFields'
 
 const TRIGGERS = new Set(catalogs.trigger_kinds)
@@ -87,6 +88,17 @@ function MarkerEditor({ m, index }: { m: Marker; index: number }) {
           <input list="weapons" value={m.weapon} onChange={(e) => set('Weapon', (d) => { d.weapon = e.target.value.split(' — ').pop()!.trim() || 'ak47' }, 'weapon')} />
           <datalist id="weapons">{catalogs.weapons.map(([n, id]) => <option key={id} value={id}>{n}</option>)}</datalist>
         </Field>
+      )}
+      {m.type === 'Weapon pickup' && (
+        <div className="form-grid">
+          <Check checked={!!m.respawn_ms} title="Off: the game's own time for this weapon (15 s; a sniper rifle 20 s; an RPG 30 s)"
+            onChange={(v) => set('Respawn time', (d) => { if (v) d.respawn_ms = pickupRespawnMs(d.weapon); else delete d.respawn_ms })}>
+            Own time to come back
+          </Check>
+          {m.respawn_ms
+            ? <Field label="Comes back after (s)"><NumberInput value={m.respawn_ms / 1000} step={5} digits={1} min={1} max={600} onChange={(v) => set('Respawn time', (d) => { d.respawn_ms = Math.round(v * 1000) }, 'respawn')} /></Field>
+            : <span className="small faint">Comes back {pickupRespawnMs(m.weapon) / 1000} s after it's taken, as in the game.</span>}
+        </div>
       )}
       {m.type === 'Vehicle spawn' && (
         <Field label="Vehicle" hint="Choose a vehicle or type a custom game ID.">
