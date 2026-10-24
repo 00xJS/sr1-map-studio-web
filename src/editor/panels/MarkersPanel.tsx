@@ -10,6 +10,7 @@ import { PIMP_EXIT, SPAWN_TYPES, baseName, type Marker, type Vec3 } from '../../
 import { RETAIL_MARKER_TYPES } from '../../lib/retailModes'
 import { pickupRespawnMs } from '../../lib/player'
 import { RetailMarkerFields } from '../RetailMarkerFields'
+import { VehiclePicker } from '../VehiclePicker'
 
 const TRIGGERS = new Set(catalogs.trigger_kinds)
 const MARKER_TYPES = [...catalogs.marker_types, ...RETAIL_MARKER_TYPES]
@@ -102,8 +103,7 @@ function MarkerEditor({ m, index }: { m: Marker; index: number }) {
       )}
       {m.type === 'Vehicle spawn' && (
         <Field label="Vehicle" hint="Choose a vehicle or type a custom game ID.">
-          <input list="vehicles" value={m.vehicle} onChange={(e) => set('Vehicle', (d) => { d.vehicle = e.target.value.split(' — ').pop()!.trim() || 'car_2dr_sports03' }, 'vehicle')} />
-          <datalist id="vehicles">{catalogs.vehicles.map(([n, id]) => <option key={id} value={id}>{n}</option>)}</datalist>
+          <VehiclePicker value={m.vehicle} onChange={(id) => set('Vehicle', (d) => { d.vehicle = id.trim() || 'car_2dr_sports03' })} />
         </Field>
       )}
       {m.type !== 'Weapon pickup' && m.type !== 'Vehicle spawn' && (

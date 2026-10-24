@@ -6,7 +6,8 @@ import { createReadStream, existsSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import type { Plugin } from 'vite'
 
-const NAMES = ['sr_city_stream.vpp_xbox2', 'mp_city_stream.vpp_xbox2', 'misc2.vpp_xbox2', 'misc.vpp_xbox2']
+// cmesh_stream, variants and pegfiles: the vehicle models drawn at Vehicle spawn markers (src/lib/vehicles).
+const NAMES = ['sr_city_stream.vpp_xbox2', 'mp_city_stream.vpp_xbox2', 'misc2.vpp_xbox2', 'misc.vpp_xbox2', 'cmesh_stream.vpp_xbox2', 'variants.vpp_xbox2', 'pegfiles.vpp_xbox2']
 
 export function devGameFiles(): Plugin {
   return {

@@ -19,13 +19,15 @@ const nameOf = (h: number) => KNOWN[h] || hex8(h)
 
 export interface CmeshMaterial { shader: string; name: string; slots: { slot: string; texture: string }[]; consts: Record<string, number[]> }
 export interface Draw { start: number; count: number; mat: number }
-interface MeshRecord { flags: number; subs: Draw[]; nverts: number; nidx: number; stride: number; ibOffset: number; vbOffset: number }
+export interface MeshRecord { flags: number; subs: Draw[]; nverts: number; nidx: number; stride: number; ibOffset: number; vbOffset: number }
 export interface CmeshGeometry {
   nverts: number
   pos: Float32Array; nrm: Float32Array; uv0: Float32Array; uv1: Float32Array; uv2: Float32Array
   strip: Uint16Array
   boneWeights: Uint8Array; boneIndices: Uint8Array
 }
+/** A named point on the mesh (96-byte record: a 68-byte name, position at +68, quaternion x, y, z, w at +80). */
+export interface CmeshTag { name: string; pos: number[]; quat: number[] }
 export interface Cmesh {
   bsphere: number[]
   bbox: number[]
@@ -33,13 +35,25 @@ export interface Cmesh {
   materials: CmeshMaterial[]
   records: MeshRecord[]
   vids: { record: number; vid: number; draws: Draw[] }[]
+  tags: CmeshTag[]
+  /** Record 0's vertices (the character layout) and strip; empty with `noGeometry`. */
   geometry: CmeshGeometry
 }
 
-class Cursor {
-  cur = 0
-  constructor(private dv: DataView) {}
-  align(a: number) { const r = this.cur % a; if (r) this.cur += a - r }
+/** Options for a cmesh embedded in another file (the parts of a vehicle, .car_xbox2). */
+export interface CmeshOptions {
+  /** Where the mesh starts in the bytes (alignment is counted from there). */
+  at?: number
+  /** The container's shared material table: the mesh then carries none of its own (the game's sub_82238510 skips it). */
+  materials?: CmeshMaterial[]
+  /** Leave the vertices alone (a mesh whose vertex layout isn't the character one: read them with the records). */
+  noGeometry?: boolean
+}
+
+export class Cursor {
+  cur: number
+  constructor(private dv: DataView, public base = 0) { this.cur = base }
+  align(a: number) { const r = (this.cur - this.base) % a; if (r) this.cur += a - r }
   take(n: number, a = 1) { this.align(a); const o = this.cur; this.cur += n; return o }
   u16(o: number) { return this.dv.getUint16(o) }
   s16(o: number) { return this.dv.getInt16(o) }
@@ -47,19 +61,9 @@ class Cursor {
   f32(o: number) { return this.dv.getFloat32(o) }
 }
 
-export function parseCmesh(u8: Uint8Array): Cmesh {
-  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength)
-  const p = new Cursor(dv)
-  if (p.u32(0) !== 0x424bd00d || p.u16(4) !== 28) throw new Error('not a version-28 cmesh')
-  const ntex = p.s16(12), n14 = p.s16(14), n36 = p.s16(36), mtype = p.u32(44)
-  const textures: string[] = [], materials: CmeshMaterial[] = [], records: MeshRecord[] = []
-  const vids: Cmesh['vids'] = []
-  const bsphere = [0, 1, 2, 3].map((i) => p.f32(0x14 + 4 * i))
-  p.cur = 0x40; p.take(ntex * 4, 16); p.align(16); p.cur += 1
-  for (let i = 0; i < ntex; i++) { let s = ''; while (u8[p.cur]) s += String.fromCharCode(u8[p.cur++]); p.cur++; textures.push(s) }
-  if (n14) p.take(n14 * 96, 16)
-  if (n36) p.take(n36 * 4, 16)
-  // material table
+/** The material table (sub_8223D768): a 12-byte count record, 56-byte materials and their slot and constant lists. */
+export function readMaterialTable(p: Cursor, textures: string[]): CmeshMaterial[] {
+  const materials: CmeshMaterial[] = []
   const T = p.take(12, 16), na = p.u16(T), nb = p.u16(T + 2)
   if (na) {
     const ma = p.take(na * 56, 16); p.align(16)
@@ -80,6 +84,31 @@ export function parseCmesh(u8: Uint8Array): Cmesh {
     }
   }
   if (nb) { const tb = p.take(nb * 16, 4); for (let i = 0; i < nb; i++) { p.align(4); p.cur += p.u16(tb + 16 * i + 8) * 4 } }
+  return materials
+}
+
+export function parseCmesh(u8: Uint8Array, opts: CmeshOptions = {}): Cmesh {
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength)
+  const at = opts.at ?? 0
+  const p = new Cursor(dv, at)
+  if (p.u32(at) !== 0x424bd00d || p.u16(at + 4) !== 28) throw new Error('not a version-28 cmesh')
+  const ntex = p.s16(at + 12), n14 = p.s16(at + 14), n36 = p.s16(at + 36), mtype = p.u32(at + 44)
+  const textures: string[] = [], records: MeshRecord[] = [], tags: CmeshTag[] = []
+  const vids: Cmesh['vids'] = []
+  const bsphere = [0, 1, 2, 3].map((i) => p.f32(at + 0x14 + 4 * i))
+  p.cur = at + 0x40; p.take(ntex * 4, 16); p.align(16); p.cur += 1
+  for (let i = 0; i < ntex; i++) { let s = ''; while (u8[p.cur]) s += String.fromCharCode(u8[p.cur++]); p.cur++; textures.push(s) }
+  if (n14) {
+    const o = p.take(n14 * 96, 16)
+    for (let i = 0; i < n14; i++) {
+      const r = o + 96 * i
+      let name = ''
+      for (let k = 0; k < 68 && u8[r + k]; k++) name += String.fromCharCode(u8[r + k])
+      tags.push({ name, pos: [0, 1, 2].map((k) => p.f32(r + 68 + 4 * k)), quat: [0, 1, 2, 3].map((k) => p.f32(r + 80 + 4 * k)) })
+    }
+  }
+  if (n36) p.take(n36 * 4, 16)
+  const materials = opts.materials ?? readMaterialTable(p, textures)
   // render mesh header
   const hsz = ({ 0: 40, 1: 56, 2: 60 } as Record<number, number>)[mtype]
   if (!hsz) throw new Error('unknown cmesh mesh type ' + mtype)
@@ -125,8 +154,23 @@ export function parseCmesh(u8: Uint8Array): Cmesh {
     rec.ibOffset = p.take(rec.nidx * 2, 32)
     if (!(rec.flags & 0x20)) rec.vbOffset = p.take(rec.nverts * rec.stride, 32)
   }
-  // decode record 0 geometry
-  const rec = records[0]
+  const geometry = opts.noGeometry ? emptyGeometry() : decodeSkinned(u8, records[0])
+  return { bsphere, bbox, textures, materials, records, vids, tags, geometry }
+}
+
+const emptyGeometry = (): CmeshGeometry => ({ nverts: 0, pos: new Float32Array(0), nrm: new Float32Array(0), uv0: new Float32Array(0), uv1: new Float32Array(0), uv2: new Float32Array(0), strip: new Uint16Array(0), boneWeights: new Uint8Array(0), boneIndices: new Uint8Array(0) })
+
+/** A record's strip (16-bit indices). */
+export function readStrip(u8: Uint8Array, rec: MeshRecord): Uint16Array {
+  if (rec.ibOffset + rec.nidx * 2 > u8.byteLength) throw new Error('cmesh index data runs past the end of the file')
+  const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength), strip = new Uint16Array(rec.nidx)
+  for (let i = 0; i < rec.nidx; i++) strip[i] = dv.getUint16(rec.ibOffset + 2 * i)
+  return strip
+}
+
+/** A character record's vertices (the skinned layout: position, weights, bones, normal, UVs). */
+function decodeSkinned(u8: Uint8Array, rec: MeshRecord): CmeshGeometry {
+  const p = new Cursor(new DataView(u8.buffer, u8.byteOffset, u8.byteLength))
   const n = rec.nverts, S = rec.stride, V = rec.vbOffset
   if (V + n * S > u8.byteLength) throw new Error('cmesh vertex data runs past the end of the file')
   const pos = new Float32Array(n * 3), nrm = new Float32Array(n * 3), uv0 = new Float32Array(n * 2), uv1 = new Float32Array(n * 2), uv2 = new Float32Array(n * 2)
@@ -146,9 +190,7 @@ export function parseCmesh(u8: Uint8Array): Cmesh {
   // skinning: 4 weight bytes at +12 and 4 bone indices (into the character rig) at +16
   const bw = new Uint8Array(n * 4), bi = new Uint8Array(n * 4)
   for (let i = 0; i < n; i++) for (let k = 0; k < 4; k++) { bw[4 * i + k] = u8[V + S * i + 12 + k]; bi[4 * i + k] = u8[V + S * i + 16 + k] }
-  const strip = new Uint16Array(rec.nidx)
-  for (let i = 0; i < rec.nidx; i++) strip[i] = p.u16(rec.ibOffset + 2 * i)
-  return { bsphere, bbox, textures, materials, records, vids, geometry: { nverts: n, pos, nrm, uv0, uv1, uv2, strip, boneWeights: bw, boneIndices: bi } }
+  return { nverts: n, pos, nrm, uv0, uv1, uv2, strip: readStrip(u8, rec), boneWeights: bw, boneIndices: bi }
 }
 
 /** Triangle strip (with degenerates) to triangle list for a draw range. */
