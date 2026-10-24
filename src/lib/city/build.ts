@@ -14,6 +14,7 @@ import type { SceneItem } from '../project'
 import { workerCityCut } from '../gameObjects/client'
 import type { CityCut, CityMap } from '../gameObjects/worker'
 import { chunksIn, type Rect } from './city'
+import { splitParts } from './parts'
 
 /** Biggest side of an area (metres): the game's own multiplayer maps are 45 to 120 m across. */
 export const MAX_SIDE = 300
@@ -31,47 +32,60 @@ export interface PieceMesh {
   base: [number, number, number]
 }
 
-/** Splits a cut into its game objects, each with only its own vertices, centred on its base. */
+/**
+ * Splits a cut into its game objects, each with only its own vertices, centred on its base. A building object's
+ * windows, doors, posters, signs and trim become objects of their own (parts.ts); props stay whole.
+ */
 export function splitPieces(cut: Pick<CityCut, 'solid' | 'look' | 'pieces' | 'solidPiece' | 'lookPiece'>): PieceMesh[] {
   const tris: [ObjectMesh, number, boolean][][] = cut.pieces.map(() => [])
   for (const [m, of, look] of [[cut.solid.mesh, cut.solidPiece, false], [cut.look.mesh, cut.lookPiece, true]] as const) {
     for (let t = 0; t < m.triangles.length / 3; t++) tris[of[t]]?.push([m, t, look])
   }
+  const materials = cut.solid.mesh.materials
   const out: PieceMesh[] = []
   tris.forEach((list, pi) => {
     if (!list.length) return
-    const pos: number[] = [], uv: number[] = [], idx: number[] = [], mat: number[] = [], look: number[] = []
-    const remap = new Map<ObjectMesh, Map<number, number>>()
-    for (const [m, t, isLook] of list) {
-      let vm = remap.get(m)
-      if (!vm) remap.set(m, (vm = new Map()))
-      for (let k = 0; k < 3; k++) {
-        const v = m.triangles[3 * t + k]
-        let n = vm.get(v)
-        if (n === undefined) {
-          n = pos.length / 3
-          vm.set(v, n)
-          pos.push(m.positions[3 * v], m.positions[3 * v + 1], m.positions[3 * v + 2])
-          uv.push(m.uvs[2 * v], m.uvs[2 * v + 1])
-        }
-        idx.push(n)
-      }
-      mat.push(m.triMaterial[t])
-      look.push(isLook ? 1 : 0)
-    }
-    let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
-    for (let i = 0; i < pos.length; i += 3) {
-      x0 = Math.min(x0, pos[i]); x1 = Math.max(x1, pos[i]); y0 = Math.min(y0, pos[i + 1]); z0 = Math.min(z0, pos[i + 2]); z1 = Math.max(z1, pos[i + 2])
-    }
-    const base: [number, number, number] = [(x0 + x1) / 2, y0, (z0 + z1) / 2]
-    const p = new Float32Array(pos.length)
-    for (let i = 0; i < pos.length; i++) p[i] = pos[i] - base[i % 3]
-    out.push({
-      name: cut.pieces[pi].name, prop: cut.pieces[pi].prop, base, look: new Uint8Array(look),
-      mesh: { positions: p, uvs: new Float32Array(uv), triangles: new Uint32Array(idx), triMaterial: new Uint16Array(mat), materials: cut.solid.mesh.materials },
-    })
+    const { name, prop } = cut.pieces[pi]
+    const parts = prop ? [{ tris: list.map((_, i) => i), name }] : splitParts(
+      Float32Array.from(list.flatMap(([m, t]) => [0, 1, 2].flatMap((k) => { const v = m.triangles[3 * t + k]; return [m.positions[3 * v], m.positions[3 * v + 1], m.positions[3 * v + 2]] }))),
+      list.map(([m, t]) => m.triMaterial[t]), (mi) => materials[mi] ?? '', list.map(([, , look]) => (look ? 1 : 0)), name)
+    for (const part of parts) out.push(pieceMesh(part.tris.map((i) => list[i]), part.name, prop, materials))
   })
   return out
+}
+
+/** One object from its triangles: only the vertices it uses, centred on its base. */
+function pieceMesh(list: [ObjectMesh, number, boolean][], name: string, prop: boolean, materials: string[]): PieceMesh {
+  const pos: number[] = [], uv: number[] = [], idx: number[] = [], mat: number[] = [], look: number[] = []
+  const remap = new Map<ObjectMesh, Map<number, number>>()
+  for (const [m, t, isLook] of list) {
+    let vm = remap.get(m)
+    if (!vm) remap.set(m, (vm = new Map()))
+    for (let k = 0; k < 3; k++) {
+      const v = m.triangles[3 * t + k]
+      let n = vm.get(v)
+      if (n === undefined) {
+        n = pos.length / 3
+        vm.set(v, n)
+        pos.push(m.positions[3 * v], m.positions[3 * v + 1], m.positions[3 * v + 2])
+        uv.push(m.uvs[2 * v], m.uvs[2 * v + 1])
+      }
+      idx.push(n)
+    }
+    mat.push(m.triMaterial[t])
+    look.push(isLook ? 1 : 0)
+  }
+  let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
+  for (let i = 0; i < pos.length; i += 3) {
+    x0 = Math.min(x0, pos[i]); x1 = Math.max(x1, pos[i]); y0 = Math.min(y0, pos[i + 1]); z0 = Math.min(z0, pos[i + 2]); z1 = Math.max(z1, pos[i + 2])
+  }
+  const base: [number, number, number] = [(x0 + x1) / 2, y0, (z0 + z1) / 2]
+  const p = new Float32Array(pos.length)
+  for (let i = 0; i < pos.length; i++) p[i] = pos[i] - base[i % 3]
+  return {
+    name, prop, base, look: new Uint8Array(look),
+    mesh: { positions: p, uvs: new Float32Array(uv), triangles: new Uint32Array(idx), triMaterial: new Uint16Array(mat), materials },
+  }
 }
 
 /** The OBJ face numbers of the look-only triangles: objText writes them grouped by material, in order. */

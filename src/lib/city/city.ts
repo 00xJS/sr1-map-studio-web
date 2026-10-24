@@ -4,6 +4,7 @@
 // through, a building seen from above with no roof. Pure functions over parsed chunks: the game-objects worker
 // runs them on the player's own packfiles, the tests on a local install. Game coordinates throughout (metres).
 import type { Chunk } from '../gameObjects/chunk'
+import { objectName } from './names'
 import type { ObjectMesh } from '../gameObjects/extract'
 import { NO_COLLISION_FLAGS, solidity } from './collision'
 
@@ -279,29 +280,8 @@ export interface CutMeshes {
 /** One game object in a cut: its name in the game (or what it is), and whether it has a physics shape of its own. */
 export interface CutPiece { name: string; prop: boolean }
 
-/** What common city objects are, by a part of their name in the game (first match wins). */
-const KNOWN: [RegExp, string][] = [
-  [/firehyd|hydrant/, 'Fire hydrant'], [/trashcan|trash_can|garbagecan/, 'Trash can'], [/dumpster/, 'Dumpster'], [/picnictable/, 'Picnic table'],
-  [/bench/, 'Bench'], [/planter/, 'Planter'], [/parkingblock|parkblock/, 'Parking block'], [/news/, 'Newspaper box'],
-  [/phonebooth|payphone/, 'Payphone'], [/mailbox/, 'Mailbox'], [/meter_|parkmeter|parkingmeter/, 'Parking meter'], [/gaugepower|powermeter/, 'Power meter'],
-  [/streetlight|lamp|lppost/, 'Street lamp'], [/trafficlight|stoplight|signal/, 'Traffic light'], [/sign/, 'Sign'],
-  [/fence/, 'Fence'], [/railing|rail_/, 'Railing'], [/eltrack|eltrain|el_track/, 'El track'], [/el_?support/, 'El support'],
-  [/tree|palm/, 'Tree'], [/bush|shrub|hedge/, 'Bush'], [/grass/, 'Grass'], [/statue/, 'Statue'], [/fountain/, 'Fountain'],
-  [/couch|sofa/, 'Couch'], [/chair/, 'Chair'], [/table/, 'Table'], [/tv_|television/, 'TV'], [/fridge|refrig/, 'Fridge'],
-  [/crate/, 'Crate'], [/barrel/, 'Barrel'], [/pallet/, 'Pallet'], [/acunit|acind|aircon/, 'AC unit'], [/vent/, 'Vent'],
-  [/hoswall|wall/, 'Wall'], [/winlit|window/, 'Windows'], [/roof/, 'Roof'], [/door/, 'Door'], [/stair|step/, 'Stairs'],
-  [/^ter_|_ter_|terrain/, 'Ground'], [/road|street|_rd_|sidewalk|curb|kerb/, 'Road'],
-  [/olddwnt|dwnt|bldg|building|hull/, 'Building'],
-]
-
 /** A readable name for a game object from its record or texture name: "picnictablea" → "Picnic table", "bench_park01" → "Bench". */
-export function pieceName(raw: string): string {
-  const low = raw.toLowerCase().replace(/\.[^.]+$/, '').replace(/^(sr_)?(chunk\d+\w*?_)?/, '')
-  if (!low) return ''
-  for (const [re, name] of KNOWN) if (re.test(low)) return name
-  const words = low.replace(/[_\-.]+/g, ' ').replace(/\d+/g, ' ').replace(/\s+/g, ' ').trim()
-  return words ? words[0].toUpperCase() + words.slice(1) : ''
-}
+export const pieceName = (raw: string): string => objectName(raw)
 
 class MeshBuilder {
   pos: number[] = []; uv: number[] = []; tri: number[] = []; mat: number[] = []; piece: number[] = []
@@ -372,7 +352,7 @@ export function cutArea(chunks: [string, Chunk][], r: Rect): CutMeshes {
       let pc = pieceIndex.get(pk)
       if (pc === undefined) {
         pc = pieces.length
-        pieces.push({ name: pieceName(recName[ci].get(t.inst) ?? '') || pieceName(t.tex) || 'Piece', prop: t.prop })
+        pieces.push({ name: objectName(recName[ci].get(t.inst) ?? '', t.tex) || 'Piece', prop: t.prop })
         pieceIndex.set(pk, pc)
       }
       ;(t.solid ? solid : look).add(poly, m, pc)

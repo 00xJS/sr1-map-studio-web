@@ -1111,10 +1111,15 @@ export class Viewer {
     this.camera.far = Math.max(1000, size * 20)
     this.camera.updateProjectionMatrix()
     const span = Math.max(20, Math.ceil(size / 10) * 10)
+    const shown = this.grid.visible
     this.scene.remove(this.grid)
     this.grid = new THREE.GridHelper(span * 2, 40, 0x6b2a5a, 0x2b1c2b)
-    // A hair under the bottom, so a floor lying there hides it instead of flickering with it.
-    this.grid.position.y = box.min.y - Math.max(0.05, size * 0.002)
+    this.grid.visible = shown
+    // At the map's lowest ground, a hair under it, so floors hide it instead of flickering with it; never up at
+    // the bottom of a wall or balcony that was zoomed to, where it would cut through the buildings.
+    const all = new THREE.Box3().setFromObject(this.root).union(new THREE.Box3().setFromObject(this.batch.root))
+    const floor = all.isEmpty() ? box.min.y : Math.min(all.min.y, box.min.y)
+    this.grid.position.y = floor - Math.max(0.05, size * 0.002)
     this.scene.add(this.grid)
     this.requestRender()
   }
@@ -1133,6 +1138,10 @@ export class Viewer {
 
   /** Fit the whole map in view. */
   frameAll() { this.frame(this.root) }
+
+  /** The guide grid on or off. */
+  showGrid(on: boolean) { this.grid.visible = on; this.requestRender() }
+  get gridShown() { return this.grid.visible }
 
   private tour = 0
   private tourAt = 0

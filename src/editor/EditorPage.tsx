@@ -314,6 +314,7 @@ function TopBar({ onPublish, onShare, onPlay, onTour, onAi }: { onPublish: () =>
         { label: 'Free camera (like the desktop app)', on: freeCam, run: () => st().set({ freeCam: !freeCam }), title: 'Hold the right mouse button to look around, WASD to fly, Q/E down and up, Shift faster, mouse wheel sets the speed' },
         { label: 'Zoom to selection (F)', run: () => getViewer()?.focusSelection() },
         { label: 'See the whole map', run: () => getViewer()?.frameAll() },
+        { label: 'Show guide grid', on: getViewer()?.gridShown ?? true, run: () => { const v = getViewer(); v?.showGrid(!v.gridShown) }, title: 'The guide lines under the map: only a guide, not part of the map' },
       ]} />
       <Menu label={look.mode === 'game' ? '☀ Lighting' : 'Lighting'} title="Light the view as the game does, at the time of day and weather you pick" items={[
         { label: 'Game lighting (as in the game)', on: look.mode === 'game', run: () => setLook({ mode: 'game' }), title: "The game's sun, fill light, shadows and fog" },
