@@ -21,6 +21,7 @@ import { paintGameSky, type SkyTint } from './skyLook'
 import { itemLook, lookContext } from './gameMaterial'
 import { NOON, type GameLight } from '../lib/gameLight'
 import { cappedFog, installFogCap } from './fogCap'
+import { syncVehicle } from './vehicleModels'
 
 /**
  * How the view is lit. 'game': as the game lights a multiplayer map (a warm sun with shadows, a cool fill, a flat
@@ -954,6 +955,9 @@ export class Viewer {
     })
   }
 
+  /** Once a vehicle model arrives (vehicleModels.ts). */
+  private redrawMarkers = () => { this.syncMarkers(this.project?.markers || []); this.requestRender() }
+
   private syncMarkers(markers: Marker[]) {
     const root = this.markerRoot
     while (root.children.length > markers.length) root.remove(root.children[root.children.length - 1])
@@ -973,6 +977,7 @@ export class Viewer {
       const scale = (selected ? 1.25 : 1) / (this.project?.settings.world_scale || 0.5)
       g.scale.setScalar(scale)
       syncZone(g, m, scale, markerColor(m.type))
+      syncVehicle(g, m, selected ? 1.25 : 1, this.redrawMarkers)
     })
   }
 

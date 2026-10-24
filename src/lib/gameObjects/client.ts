@@ -219,6 +219,8 @@ if (import.meta.env.DEV && typeof window !== 'undefined') {
       const sources: Record<string, PackSource> = {}
       for (const [k, file] of Object.entries(PACK_FILES)) if (sizes[file]) sources[k] = { url: `${location.origin}/__sr1dev/packfiles/${file}`, size: sizes[file] }
       useDevPackfiles(sources)
+      // The vehicle models for Vehicle spawn markers.
+      ;(await import('../vehicles/client')).useDevVehicleSources(sizes)
       // The item table's packfile is small: handed over whole, as if picked by hand.
       if (sizes['misc.vpp_xbox2']) {
         const blob = await (await fetch('/__sr1dev/packfiles/misc.vpp_xbox2')).blob()

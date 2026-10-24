@@ -26,6 +26,7 @@ import { AMBIENCE_OPTIONS, ambienceHint, waterHint } from '../lib/mapFeatures'
 import { LoadingSetting } from './panels/ExportPanel'
 import { PhysicsPanel } from './PhysicsPanel'
 import { RetailMarkerFields } from './RetailMarkerFields'
+import { VehiclePicker } from './VehiclePicker'
 import { openPrefabBrowser } from './PrefabBrowser'
 
 const TextureStudio = lazy(() => import('./TextureStudio').then((m) => ({ default: m.TextureStudio })))
@@ -62,7 +63,6 @@ export function Inspector({ onSamples, onPlay }: { onSamples: () => void; onPlay
 }
 
 const weaponName = (id: string) => catalogs.weapons.find(([, w]) => w === id)?.[0] ?? id
-const vehicleName = (id: string) => catalogs.vehicles.find(([, v]) => v === id)?.[0] ?? id
 
 // ---------------- nothing selected: the map ----------------
 
@@ -409,10 +409,7 @@ function MarkerInspector({ m, index }: { m: Marker; index: number }) {
         )}
         {m.type === 'Vehicle spawn' && (
           <Field label="Vehicle">
-            <select value={m.vehicle} onChange={(e) => set('Vehicle', (d) => { d.vehicle = e.target.value })}>
-              {!catalogs.vehicles.some(([, id]) => id === m.vehicle) && <option value={m.vehicle}>{vehicleName(m.vehicle)}</option>}
-              {catalogs.vehicles.map(([n, id]) => <option key={id} value={id}>{n}</option>)}
-            </select>
+            <VehiclePicker value={m.vehicle} onChange={(id) => set('Vehicle', (d) => { d.vehicle = id })} />
           </Field>
         )}
         <RetailMarkerFields m={m} index={index} set={set} />
