@@ -965,7 +965,8 @@ export class Viewer {
     const span = Math.max(20, Math.ceil(size / 10) * 10)
     this.scene.remove(this.grid)
     this.grid = new THREE.GridHelper(span * 2, 40, 0x6b2a5a, 0x2b1c2b)
-    this.grid.position.y = box.min.y
+    // A hair under the bottom, so a floor lying there hides it instead of flickering with it.
+    this.grid.position.y = box.min.y - Math.max(0.05, size * 0.002)
     this.scene.add(this.grid)
     this.requestRender()
   }

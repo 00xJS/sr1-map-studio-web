@@ -19,32 +19,72 @@ const NEAR_STREET = 6
 const PRESETS: [number, string][] = [[60, '60 m'], [90, '90 m'], [120, '120 m'], [200, '200 m'], [MAX_SIDE, `${MAX_SIDE} m (largest)`]]
 const SCAN_TILE = 250
 
+/** Map colours per kind of surface (see Ground), like a printed city map. */
+const PALETTE: [number, number, number][] = [
+  [30, 72, 99], // nothing: the sea round Stilwater
+  [62, 65, 71], // road
+  [168, 163, 154], // pavement
+  [92, 138, 68], // grass
+  [161, 143, 104], // dirt
+  [47, 111, 150], // water
+  [107, 90, 75], // rails
+  [143, 139, 132], // other
+  [120, 116, 110], // wall
+]
+/** The sea's surface in the game (m): lower surfaces are under water. */
+const SEA = -5.6
+const ROOF_LOW: [number, number, number] = [176, 168, 156], ROOF_HIGH: [number, number, number] = [236, 230, 220]
+
 function picture(map: CityMap): ImageBitmap | HTMLCanvasElement {
   const n = MAP.size
   const c = document.createElement('canvas')
   c.width = n; c.height = n
   const g = c.getContext('2d')!
   const img = g.createImageData(n, n)
-  // The map is sampled at triangle corners: fill a pixel left empty between filled neighbours.
-  const h = Int16Array.from(map.top)
-  for (let j = 1; j < n - 1; j++) for (let i = 1; i < n - 1; i++) {
-    if (map.top[j * n + i] !== -32768) continue
-    let best = -32768, count = 0
-    for (const q of [map.top[j * n + i - 1], map.top[j * n + i + 1], map.top[(j - 1) * n + i], map.top[(j + 1) * n + i]]) if (q !== -32768) { count++; best = Math.max(best, q) }
-    if (count >= 2) h[j * n + i] = best
+  const NONE = -32768
+  const h = map.top, kind = map.kind
+  const at = (i: number, j: number) => (i < 0 || j < 0 || i >= n || j >= n ? NONE : h[j * n + i])
+  // Ground level round each pixel (lowest surface within ~12 m): what stands well above it is a building.
+  const R = Math.round(12 / MAP.cell)
+  const rowMin = new Int16Array(n * n), low = new Int16Array(n * n)
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    let m = 32767
+    for (let d = -R; d <= R; d++) { const v = at(i + d, j); if (v !== NONE && v < m) m = v }
+    rowMin[j * n + i] = m
+  }
+  for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
+    let m = 32767
+    for (let d = -R; d <= R; d++) { const jj = j + d; if (jj >= 0 && jj < n && rowMin[jj * n + i] < m) m = rowMin[jj * n + i] }
+    low[j * n + i] = m
   }
   for (let j = 0; j < n; j++) for (let i = 0; i < n; i++) {
     const v = h[j * n + i]
     const o = 4 * (j * n + (n - 1 - i))
-    if (v === -32768) { img.data[o + 3] = 0; continue }
-    const m = v / 10
-    // Lit from the top left: brighter where the ground rises toward the light.
-    const left = i + 1 < n && h[j * n + i + 1] !== -32768 ? h[j * n + i + 1] / 10 : m
-    const up = j > 0 && h[(j - 1) * n + i] !== -32768 ? h[(j - 1) * n + i] / 10 : m
-    const shade = Math.max(-40, Math.min(40, (m - left + m - up) * 6))
-    const lift = Math.max(0, Math.min(1, (m + 5) / 60))
-    const base = 78 + lift * 150 + shade
-    img.data[o] = base * 0.92; img.data[o + 1] = base * 0.95; img.data[o + 2] = base * 1.05; img.data[o + 3] = 255
+    if (v === NONE) { const [r, gg, b] = PALETTE[0]; img.data[o] = r; img.data[o + 1] = gg; img.data[o + 2] = b; img.data[o + 3] = 255; continue }
+    const m = v / 10, above = (v - low[j * n + i]) / 10
+    let col = PALETTE[kind?.[j * n + i] ?? 7] ?? PALETTE[7]
+    // Below sea level (about −6 m) is the sea floor: draw the water over it, darker where it's deeper.
+    if (m < SEA) {
+      const deep = Math.max(0, Math.min(1, (SEA - m) / 10))
+      const [r, gg, b] = PALETTE[5].map((x, k) => x + (PALETTE[0][k] - x) * deep)
+      img.data[o] = r; img.data[o + 1] = gg; img.data[o + 2] = b; img.data[o + 3] = 255
+      continue
+    }
+    // Rooftops: light, a little lighter the taller the building.
+    if (above > 3.5) { const t = Math.max(0, Math.min(1, above / 60)); col = [0, 1, 2].map((k) => ROOF_LOW[k] + (ROOF_HIGH[k] - ROOF_LOW[k]) * t) as [number, number, number] }
+    // Lit from the top left (the map shows the game's −X to the left): slopes toward the light brighter.
+    const left = at(i + 1, j), up = at(i, j - 1)
+    const dl = left === NONE ? 0 : m - left / 10, du = up === NONE ? 0 : m - up / 10
+    let shade = 1 + Math.max(-0.35, Math.min(0.35, (dl + du) * 0.08))
+    // Outlines where the height jumps (building edges, kerbs of raised ground).
+    const right = at(i - 1, j), down = at(i, j + 1)
+    if ([left, up, right, down].some((q) => q !== NONE && Math.abs(q - v) > 25)) shade *= 0.72
+    // Shadows from a sun 45° up in the top left: cast by anything up there taller than its distance away.
+    for (let s = 1; s <= 12; s++) {
+      const q = at(i + s, j - s)
+      if (q !== NONE && (q - v) / 10 > s * MAP.cell * Math.SQRT2) { shade *= 0.78; break }
+    }
+    img.data[o] = col[0] * shade; img.data[o + 1] = col[1] * shade; img.data[o + 2] = col[2] * shade; img.data[o + 3] = 255
   }
   g.putImageData(img, 0, 0)
   return c
