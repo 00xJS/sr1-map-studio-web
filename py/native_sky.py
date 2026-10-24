@@ -42,7 +42,6 @@ from collections import Counter
 from pathlib import Path
 
 import sr_reborn_core as rc
-import sr_reborn_bridge as bridge
 import peg_xbox2_beaver as peg
 
 DONOR = Path('/work/game/native_sky')
@@ -204,6 +203,24 @@ def _free_slots(ch, g):
     return records, meshes, vbs
 
 
+def link_materials(g, first):
+    """Sorts the texture-link records the way the game looks them up and checks that materials from `first` on
+    have theirs, as the upstream exporter's check does for every material. Maps made by older converters lack
+    links for some of their own materials and load all the same, so only the added ones are checked."""
+    g.ents.sort(key=lambda e: (rc.U32(e.e, 4), rc.U32(e.e, 0)))
+    if len(g.ents) > 0xFFFF:
+        raise RuntimeError('material secondary record table exceeds uint16 count')
+    rc.Wr16(g.mathdr, 2, len(g.ents))
+    pairs = {(rc.U32(e.e, 0), rc.U32(e.e, 4)) for e in g.ents}
+    for slot in range(first, len(g.mats)):
+        material = g.mats[slot]
+        key = rc.U32(material.m, 4)
+        for i in range(rc.U16(material.m, 0x0A)):
+            tag = rc.U32(material.parts[0], i * 12)
+            if (tag, key) not in pairs:
+                raise RuntimeError('material %d missing descriptor resource-link 0x%08X / 0x%08X' % (slot, tag, key))
+
+
 def _fake_sky_meshes(g, strings):
     """Meshes drawn with the template's fake sky picture."""
     if FAKE_SKY not in strings:
@@ -272,7 +289,7 @@ def add(chunk_path, peg_path, donor_dir, log):
             ent = rc.MaterialEntry(unh(e), bytearray(4 * rc.U16(unh(e), 8)))
             g.ents.append(ent)
     rc.Wr16(g.mathdr, 0, len(g.mats))
-    bridge._sort_and_validate_material_resource_links(g)
+    link_materials(g, first_mat)
 
     # Vertex buffers and meshes, into free slots.
     vbs = vb_slots[:need[2]]

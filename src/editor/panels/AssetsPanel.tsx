@@ -9,6 +9,7 @@ import { dataPackStatus, hasGroup, dataPackBlob, type DataPackStatus } from '../
 import { isGlass, type Asset } from '../../lib/project'
 import { py } from '../../lib/py'
 import { Link } from 'react-router-dom'
+import { openMapFiles } from '../../lib/mapFolder/store'
 
 function Thumb({ asset }: { asset: Asset }) {
   const project = useEditor((s) => s.project)
@@ -75,6 +76,11 @@ export function AssetsPanel() {
           {hasGroup(pack, 'demo') && <button className="sm" disabled={busy} onClick={() => run(importDemoCrate)}>Add demo crate to library</button>}
           <FileButton className="sm" multiple accept=".bbchunk_xbox2,.peg_xbox2" onFiles={(f) => run(() => extractGameMap(f))}>Import a map from the game…</FileButton>
         </div>
+        <div className="row wrap">
+          <FileButton className="sm" directory onFiles={(f) => run(() => openMapFiles(f))} title="A map folder from SaintsReborn/dist/maps: opens it as a map of its own, to edit and export again, or to upgrade">Open a map folder…</FileButton>
+          <FileButton className="sm" accept=".zip" onFiles={(f) => run(() => openMapFiles(f))} title="A zip of a map folder">Open a map zip…</FileButton>
+        </div>
+        <p className="faint small"><b>Open a map folder</b> opens a finished map (yours from a while ago, or one from <code>SaintsReborn/dist/maps</code>) as a new map with every object, spawn and trigger, to change and export again; it can also add the game's sky to it without rebuilding. You can drop a map folder or zip on the 3D view too.</p>
         <p className="faint small"><b>Where to load from:</b> "Import a map from the game" converts a <code>.bbchunk_xbox2</code> (select its <code>.peg_xbox2</code> too for textures) from your own game install into an editable model. Installed maps live in <code>SaintsReborn/dist/maps/&lt;map name&gt;/levels/</code>, for example <code>SaintsReborn/dist/maps/Dust/levels/dust.bbchunk_xbox2</code> and <code>dust.peg_xbox2</code>. The original game's own maps are packed inside <code>SaintsReborn/dist/game/packfiles</code> and can't be picked directly.</p>
         <p className="faint small"><b>Where your maps go:</b> exports install into <code>SaintsReborn/dist/maps/&lt;your map name&gt;/</code>. ▶ Play puts them there for you, or unzip a downloaded export into <code>SaintsReborn/dist/maps</code>.</p>
         <p className="faint small">Files from your game stay on this device and can't be shared to the Showcase.</p>

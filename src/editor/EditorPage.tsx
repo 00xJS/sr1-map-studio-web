@@ -26,7 +26,8 @@ import { db } from '../lib/db'
 import { normalizeProject, type Project } from '../lib/project'
 import { py } from '../lib/py'
 import { accountsEnabled, hubEnabled } from '../lib/backend'
-import { toast, toastError } from '../ui'
+import { FileButton, toast, toastError } from '../ui'
+import { openMapFiles } from '../lib/mapFolder/store'
 import { onQueued, queueEdits, takeEdits, type PendingEdits } from '../lib/pendingEdits'
 import { runAiActions } from './aiActions'
 import { useChat } from './aiSession'
@@ -294,6 +295,8 @@ function TopBar({ onPublish, onShare, onPlay, onTour, onAi }: { onPublish: () =>
   return (
     <div className="editor-bar">
       <Link to="/" className="btn quiet" title="My maps">←</Link>
+      <FileButton className="sm quiet" directory onFiles={(f) => openMapFiles(f).catch(toastError)}
+        title="Open another finished map folder (from SaintsReborn/dist/maps) to edit it or add the game's sky; this map stays as it is. You can also drop a map folder or zip on the 3D view.">Open map…</FileButton>
       <input className="name" value={name} onChange={(e) => update('Rename map', (d) => { d.name = e.target.value }, { merge: 'project-name' })} aria-label="Map name" />
       <span className="save-state">{({ saved: 'Saved', saving: 'Saving…', unsaved: 'Edited', error: 'Save failed' } as const)[saveState]}</span>
       {remix && <span className="chip" title={`Remix of ${remix.title} by ${remix.author}`}>remix</span>}

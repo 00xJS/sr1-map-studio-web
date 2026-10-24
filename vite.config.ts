@@ -1,9 +1,10 @@
 import { defineConfig } from 'vite'
 import react from '@vitejs/plugin-react'
 import { devGameFiles } from './scripts/devGameFiles'
+import { devMaps } from './scripts/devMaps'
 
 export default defineConfig(({ mode }) => ({
-  plugins: [react(), devGameFiles()],
+  plugins: [react(), devGameFiles(), devMaps()],
   worker: { format: 'es' },
   // The AI chat's relay (netlify/functions/ai.mts) during development: straight through to NVIDIA.
   // The model list comes back as NVIDIA's own {data: [{id}]}; listModels reads both shapes.

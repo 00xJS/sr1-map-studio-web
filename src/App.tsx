@@ -1,7 +1,8 @@
 import { lazy, Suspense, type ReactNode } from 'react'
 import { NavLink, Link, Navigate, Route, Routes, useParams } from 'react-router-dom'
-import { Dialogs, ErrorBoundary, Toasts, Avatar } from './ui'
+import { Dialogs, ErrorBoundary, FileButton, Toasts, Avatar, toastError } from './ui'
 import { accountsEnabled, hubEnabled, useUser } from './lib/backend'
+import { openMapFiles, useOpenMap } from './lib/mapFolder/store'
 import Home from './pages/Home'
 import Setup from './pages/Setup'
 import About from './pages/About'
@@ -13,6 +14,13 @@ const Account = lazy(() => import('./pages/Account'))
 const Catalog = lazy(() => import('./pages/Catalog'))
 const Play = lazy(() => import('./play/PlayPage'))
 const City = lazy(() => import('./pages/City'))
+const OpenMapHost = lazy(() => import('./pages/OpenMapDialog'))
+
+/** The "Open a game map" dialog, loaded when a map folder is first opened. */
+function OpenMap() {
+  const open = useOpenMap((s) => !!s.sources)
+  return open ? <Suspense fallback={null}><OpenMapHost /></Suspense> : null
+}
 
 export function Shell({ children }: { children: ReactNode }) {
   const user = useUser()
@@ -28,6 +36,8 @@ export function Shell({ children }: { children: ReactNode }) {
           <NavLink to="/setup">Data pack</NavLink>
           <NavLink to="/about">About</NavLink>
         </nav>
+        <FileButton className="sm" directory onFiles={(f) => openMapFiles(f).catch(toastError)}
+          title="Open a finished Saints Row map folder (from SaintsReborn/dist/maps) to edit it, or to add the game's sky to it. You can also drop a map folder or zip on My maps.">Open a game map…</FileButton>
         {accountsEnabled && (user
           ? <Link to="/account" className="row" title="Account"><Avatar name={user.name} url={user.avatar_url} /><span className="muted">{user.name}</span></Link>
           : <Link to="/account" className="btn">Sign in</Link>)}
@@ -75,6 +85,7 @@ export default function App() {
           <Route path="*" element={<Shell><div className="page"><h1>Page not found</h1><Link to="/">Back to my maps</Link></div></Shell>} />
         </Routes>
       </Suspense>
+      <OpenMap />
       <Dialogs />
       <Toasts />
     </>
