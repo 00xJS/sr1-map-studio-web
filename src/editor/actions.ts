@@ -13,7 +13,7 @@ import { storeFile } from '../lib/files'
 import { parseObj } from '../lib/geometry'
 import { confirmDialog } from '../ui'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
-import { tagRecipe } from '../lib/recipes'
+import { pictureSlot, tagRecipe } from '../lib/recipes'
 
 const log = (t: string) => useEditor.getState().log(t)
 const update = (...a: Parameters<ReturnType<typeof useEditor.getState>['update']>) => useEditor.getState().update(...a)
@@ -391,12 +391,26 @@ async function prefabItem(key: string, params: Record<string, number | string>, 
   return { item: { ...items[0], name: def.label }, files }
 }
 
-/** Stamps a prefab (a building, car, tree, bus stop...) where the user clicked. */
-export async function addPrefab(key: string, at: Vec3, groundY: number | null, o: { rot?: number; params?: Record<string, number | string> } = {}) {
+/**
+ * Stamps a prefab (a building, car, tree, bus stop...) where the user clicked.
+ * With `wall` (the clicked surface's outward direction), one that can go on a
+ * wall (a sign, a photo frame) is stuck flat on it, centred on the click.
+ */
+export async function addPrefab(key: string, at: Vec3, groundY: number | null, o: { rot?: number; params?: Record<string, number | string>; wall?: Vec3 } = {}) {
   const def = ALL_PREFABS[key]
   if (!def) return
   if ((def as { physicsSet?: boolean }).physicsSet) return (await import('./physicsActions')).addPhysicsSet(key, at, groundY, o.rot ?? 0)
-  const { item, files } = await prefabItem(key, o.params ?? {}, [at[0], groundY ?? 0, at[2]], o.rot ?? 0)
+  let params = o.params ?? {}, base: Vec3 = [at[0], groundY ?? 0, at[2]], rot = o.rot ?? 0
+  const n = o.wall
+  if (def.onWall && n && Math.abs(n[1]) < 0.6) {
+    const { prefabParams } = await import('../lib/prefabs')
+    params = { ...prefabParams(def, params), ...def.onWall }
+    const top = Math.max(...def.make(0, 0, 0, 0, params).map((p) => p.at[1] + p.size[1]))
+    const len = Math.hypot(n[0], n[2]) || 1
+    rot = +((Math.atan2(n[0] / len, n[2] / len) * 180) / Math.PI).toFixed(2)
+    base = [at[0] + (n[0] / len) * 0.03, at[1] - top / 2, at[2] + (n[2] / len) * 0.03]
+  }
+  const { item, files } = await prefabItem(key, params, base, rot)
   update('Add ' + def.label.toLowerCase(), (d) => {
     Object.assign(d.files, files)
     d.scene_items.push(item)
@@ -423,6 +437,29 @@ export async function updatePrefab(index: number, params: Record<string, number 
     else delete x.water_materials
     pruneFiles(d)
   }, { merge: 'prefab-' + index })
+}
+
+/** The material of a placed photo frame that shows its picture (null for anything else). */
+export const photoMaterial = (it: SceneItem, files: Project['files']): string | null =>
+  it.prefab && ALL_PREFABS[it.prefab.key]?.photo ? pictureSlot(it, files) : null
+
+/** Puts a photo in a placed frame, cropped to the frame's shape; null takes it out again. */
+export async function setFramePhoto(index: number, file: Blob | null, aspect = 1) {
+  const it = currentProject()?.scene_items[index]
+  const mat = it && photoMaterial(it, currentProject()!.files)
+  if (!it || !mat) return
+  if (!file) {
+    update('Remove photo', (d) => { d.scene_items[index].textures[mat] = it.prefab!.defaults[mat]; pruneFiles(d) })
+    return
+  }
+  const { cropPhoto } = await import('../lib/photoPiece')
+  const stored = await storeFile(await cropPhoto(file, aspect), 'photo.jpg')
+  update('Choose photo', (d) => {
+    d.files[stored.vpath] = stored.ref
+    const x = d.scene_items[index]
+    x.textures[mat] = stored.vpath; x.alpha[mat] = false
+    pruneFiles(d)
+  })
 }
 
 // ---- Several objects at once: duplicate, delete, copy and paste, group ----

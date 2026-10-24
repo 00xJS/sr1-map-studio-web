@@ -4,6 +4,7 @@
 // and never the file: no picture or model a user uploaded can go out this way.
 // Pure module (used by the share and publish functions).
 import { KINDS, type GenParams } from './procedural'
+import { SIGN_STYLES, signTextProblem } from './signFont'
 import type { CompoundPiece, Shape, ShapeKind } from './shapes'
 
 export type FileRecipe =
@@ -40,6 +41,27 @@ export function fromLegacy(r: unknown): unknown {
   return r
 }
 
+// ---------------- photo frames ----------------
+
+interface PrefabUser { textures: Record<string, string>; prefab?: { defaults: Record<string, string> } }
+
+/** The material of a placed prefab that shows a picture (a photo frame's stand-in, or the photo chosen for it); null if it has none. */
+export function pictureSlot(it: PrefabUser, files: Record<string, { recipe?: FileRecipe }>): string | null {
+  const d = it.prefab?.defaults
+  if (!d) return null
+  return Object.keys(d).find((m) => { const r = files[d[m]]?.recipe; return r?.kind === 'generated' && r.params?.kind === 'picture' }) ?? null
+}
+
+/**
+ * The object as share links and the Showcase see it: a photo frame shows its
+ * stand-in picture, never the photo chosen for it (that stays the user's own).
+ */
+export function withoutPhoto<T extends PrefabUser>(it: T, files: Record<string, { recipe?: FileRecipe }>): T {
+  const m = pictureSlot(it, files)
+  if (!m || !it.textures || it.textures[m] === it.prefab!.defaults[m]) return it
+  return { ...it, textures: { ...it.textures, [m]: it.prefab!.defaults[m] } }
+}
+
 // ---------------- checks (the share and publish functions run these on untrusted JSON) ----------------
 
 export const LIBRARY_ID = /^[a-z0-9_]{1,64}$/
@@ -49,7 +71,7 @@ const MAX_PIECES = 400
 const MAX_OUTLINE = 256
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i
 const MAT = /^[A-Za-z0-9_.-]{1,40}$/
-const PARAM_KEYS = new Set(['kind', 'size', 'color', 'accent', 'scale', 'wear', 'seed', 'line', 'bricks'])
+const PARAM_KEYS = new Set(['kind', 'size', 'color', 'accent', 'scale', 'wear', 'seed', 'line', 'bricks', 'text', 'style'])
 const num = (v: unknown, lo: number, hi: number) => typeof v === 'number' && Number.isFinite(v) && v >= lo && v <= hi
 const int = (v: unknown, lo: number, hi: number) => Number.isInteger(v) && (v as number) >= lo && (v as number) <= hi
 const vec3 = (v: unknown, lo: number, hi: number) => Array.isArray(v) && v.length === 3 && v.every((x) => num(x, lo, hi))
@@ -78,6 +100,8 @@ export function paramsProblem(p: any): string | null {
   if (!num(p.scale, 0, 256) || !num(p.wear, 0, 1) || !int(p.seed, 0, 2 ** 31 - 1)) return 'has settings out of range'
   if (p.line !== undefined && !['none', 'yellow', 'white'].includes(p.line)) return 'has a bad road line'
   if (p.bricks !== undefined && typeof p.bricks !== 'boolean') return 'has a bad brick setting'
+  if (p.text !== undefined) { const why = signTextProblem(p.text); if (why) return why }
+  if (p.style !== undefined && (typeof p.style !== 'string' || !Object.hasOwn(SIGN_STYLES, p.style))) return 'has an unknown sign style'
   if (Object.keys(p).some((k) => !PARAM_KEYS.has(k))) return 'has unknown settings'
   return null
 }
@@ -126,6 +150,8 @@ export function cleanRecipe(r: FileRecipe): FileRecipe {
       const params: GenParams = { kind: p.kind, size: p.size, color: p.color, accent: p.accent, scale: p.scale, wear: p.wear, seed: p.seed }
       if (p.line !== undefined) params.line = p.line
       if (p.bricks !== undefined) params.bricks = p.bricks
+      if (p.text !== undefined) params.text = p.text
+      if (p.style !== undefined) params.style = p.style
       return { kind: 'generated', params }
     }
     case 'shape': return { kind: 'shape', shape: shape(r.shape) }

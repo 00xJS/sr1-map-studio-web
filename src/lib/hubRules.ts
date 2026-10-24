@@ -2,7 +2,7 @@
 // Pure module: no DOM, IndexedDB or Node APIs. The client runs these checks
 // for good UX; the server runs them again on the stored bytes.
 import { baseName, isDataPackPath, normalizeProject, referencedPaths, type FileRef, type Project } from './project'
-import { cleanRecipe, recipeProblem } from './recipes'
+import { cleanRecipe, recipeProblem, withoutPhoto } from './recipes'
 
 // ---------------- Saints Row game data ----------------
 
@@ -346,6 +346,7 @@ export interface ShowcasePlan {
 
 export function showcasePlan(raw: Project, libraryIds: ReadonlySet<string>): ShowcasePlan {
   const p: Project = JSON.parse(JSON.stringify(raw))
+  p.scene_items = p.scene_items.map((it) => withoutPhoto(it, p.files ?? {}))
   const blockers: string[] = []
   const own = new Map<string, Set<string>>()
   const fromGame = new Map<string, Set<string>>()

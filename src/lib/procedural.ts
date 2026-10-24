@@ -2,6 +2,7 @@
 // Every pattern repeats exactly across the image (integer grids, noise that
 // wraps around), so the result always tiles. Each kind suggests the matching
 // physical surface (index into the 22 SR1 surface types).
+import { SIGN_STYLES, layoutLine, lineDistance, signText, type SignStyle } from './signFont'
 
 export type TextureKind =
   | 'concrete' | 'asphalt' | 'brick' | 'tiles' | 'metal_plate' | 'diamond_plate'
@@ -9,6 +10,7 @@ export type TextureKind =
   | 'facade' | 'storefront' | 'garage_door' | 'hazard' | 'matrix' | 'water'
   | 'chevrons' | 'emblem' | 'screen' | 'scoreboard' | 'banner'
   | 'poster' | 'graffiti' | 'sign'
+  | 'lettering' | 'picture'
 
 export interface GenParams {
   kind: TextureKind
@@ -24,6 +26,9 @@ export interface GenParams {
   line?: 'none' | 'yellow' | 'white'
   /** Windows only: brick wall between the windows. */
   bricks?: boolean
+  /** Text signs only: the words (see signText) and the look. */
+  text?: string
+  style?: SignStyle
 }
 
 interface KindInfo { label: string; surface: number; color: string; accent: string; scale: number; wear: number; accentLabel: string; scaleLabel: string }
@@ -55,11 +60,20 @@ export const KINDS: Record<TextureKind, KindInfo> = {
   poster: { label: 'Poster', surface: 5, color: '#c8322b', accent: '#f2c218', scale: 3, wear: 0.25, accentLabel: 'Print', scaleLabel: 'Text lines' },
   graffiti: { label: 'Graffiti tag', surface: 0, color: '#ff3dd8', accent: '#1d1d20', scale: 5, wear: 0.4, accentLabel: 'Outline', scaleLabel: 'Letters' },
   sign: { label: 'Shop sign', surface: 15, color: '#1d1d20', accent: '#f2c218', scale: 6, wear: 0.15, accentLabel: 'Letters', scaleLabel: 'Letters' },
+  // Your own words on a board, stretched once over it (scale = its width over its height).
+  lettering: { label: 'Text sign', surface: 15, color: '#1f6b3a', accent: '#ffffff', scale: 4, wear: 0, accentLabel: 'Letters', scaleLabel: 'Width ÷ height' },
+  // What an empty photo frame shows until you choose a photo.
+  picture: { label: 'Picture', surface: 5, color: '#8fb8de', accent: '#4f7a3f', scale: 1, wear: 0, accentLabel: 'Hills', scaleLabel: 'Unused' },
 }
+
+/** Kinds made only for one prefab (a photo frame's stand-in), left out of the texture pickers. */
+export const PREFAB_ONLY: ReadonlySet<TextureKind> = new Set(['picture'])
 
 export const defaultParams = (kind: TextureKind, size = 512): GenParams => {
   const k = KINDS[kind]
-  return { kind, size, color: k.color, accent: k.accent, scale: k.scale, wear: k.wear, seed: 1, line: kind === 'asphalt' ? 'yellow' : 'none' }
+  const p: GenParams = { kind, size, color: k.color, accent: k.accent, scale: k.scale, wear: k.wear, seed: 1, line: kind === 'asphalt' ? 'yellow' : 'none' }
+  if (kind === 'lettering') { p.text = 'YOUR TEXT'; p.style = 'street' }
+  return p
 }
 
 // ---------------- noise that wraps ----------------
@@ -234,6 +248,84 @@ function bannerPattern(p: GenParams, base: number[], accent: number[], s: number
   }
 }
 
+
+/** Rounded rectangle inset into a board `aspect` wide and 1 high: negative inside. */
+function roundRect(x: number, y: number, aspect: number, inset: number, r: number): number {
+  const qx = Math.abs(x - aspect / 2) - (aspect / 2 - inset - r), qy = Math.abs(y - 0.5) - (0.5 - inset - r)
+  return Math.hypot(Math.max(qx, 0), Math.max(qy, 0)) + Math.min(Math.max(qx, qy), 0) - r
+}
+
+/** A text sign: the board (scale = width over height), its border and the words, centred and as big as they fit. */
+function letteringPattern(p: GenParams, base: number[], accent: number[], s: number, wear: number): Pixel {
+  const style: SignStyle = p.style && Object.hasOwn(SIGN_STYLES, p.style) ? p.style : 'plain'
+  const aspect = Math.max(0.25, Math.min(16, p.scale || 4))
+  const pen = SIGN_STYLES[style].pen
+  const lines = signText(p.text ?? '').split('\n').filter(Boolean).map((l) => layoutLine(l, pen))
+  // Room for the words inside the border (board units: the height is 1).
+  const margin = style === 'plain' ? 0.1 : style === 'plaque' || style === 'neon' ? 0.17 : 0.15
+  const gapY = 2.2
+  const textH = lines.length * 6 + (lines.length - 1) * gapY + 2 * pen
+  const widest = Math.max(1, ...lines.map((l) => l.width + 2 * pen))
+  const k = lines.length ? Math.min((aspect - 2 * margin) / widest, ((1 - 2 * margin) * (lines.length > 1 ? 1 : 0.8)) / textH) : 1
+  const top = (1 - (textH - 2 * pen) * k) / 2
+  const lx = lines.map((l) => (aspect - l.width * k) / 2), ly = lines.map((_, i) => top + i * (6 + gapY) * k)
+  const size = Math.max(16, p.size)
+  const aa = Math.max(aspect, 1) / size / k
+  const reach = style === 'neon' ? pen + 4 : pen + 1
+  /** Distance to the nearest letter stroke, in glyph units. */
+  const dist = (x: number, y: number) => {
+    let d = Infinity
+    lines.forEach((l, i) => {
+      const gx = (x - lx[i]) / k, gy = (y - ly[i]) / k
+      if (gy < -reach || gy > 6 + reach || gx < -reach || gx > l.width + reach) return
+      d = Math.min(d, lineDistance(l, gx, gy, reach))
+    })
+    return d
+  }
+  const ink = (d: number, r: number) => clamp01((r - d) / aa + 0.5)
+  const white = [255, 255, 255], dark = [20, 18, 16]
+  return (u, v) => {
+    const x = u * aspect, y = v
+    const edge = Math.min(x, aspect - x, y, 1 - y)
+    const d = dist(x, y)
+    let c: number[]
+    if (style === 'street') {
+      // Reflective sheet with a rounded border line in the letter color.
+      c = shade(base, 0.96 + 0.06 * noise(u, v, 64, 64, s))
+      c = mix(c, accent, clamp01((0.022 - Math.abs(roundRect(x, y, aspect, 0.055, 0.12))) / 0.006 + 0.5))
+      c = mix(c, accent, ink(d, pen))
+    } else if (style === 'shop') {
+      // A painted board in a darker frame, letters with a dark edge and a drop shadow.
+      c = shade(base, 0.9 + 0.1 * fbm(u, v, 3, 3, s) + 0.05 * noise(u, v, 48, 2, s + 1))
+      if (edge < 0.075) c = shade(base, 0.5 + 0.08 * noise(u, v, 2, 64, s + 2))
+      else if (edge < 0.09) c = shade(base, 1.25)
+      c = mix(c, shade(base, 0.45), ink(dist(x - 0.35 * k, y - 0.45 * k), pen) * 0.8)
+      c = mix(c, dark, ink(d, pen + 0.2))
+      c = mix(c, accent, ink(d, pen))
+    } else if (style === 'plaque') {
+      // Brushed metal with a bevelled edge, a fine border, four screws and engraved letters.
+      c = shade(base, 1.08 - 0.22 * y + 0.08 * noise(u, v, 2, 256, s))
+      if (edge < 0.045) c = shade(base, x < 0.045 || y < 0.045 ? 1.3 : 0.7)
+      c = mix(c, shade(base, 0.6), clamp01((0.008 - Math.abs(roundRect(x, y, aspect, 0.085, 0.03))) / 0.004 + 0.5))
+      for (const [sx, sy] of [[0.13, 0.15], [aspect - 0.13, 0.15], [0.13, 0.85], [aspect - 0.13, 0.85]]) {
+        const r = Math.hypot(x - sx, y - sy)
+        if (r < 0.032) c = Math.abs(x - sx) < 0.005 && r < 0.026 ? shade(base, 0.45) : shade(base, 1.2 - 4 * (y - sy))
+      }
+      c = mix(c, shade(base, 1.4), ink(dist(x, y - 0.25 * k), pen))
+      c = mix(c, accent, ink(d, pen))
+    } else if (style === 'neon') {
+      // Glass tubes on a dark backing: a soft glow, the tube, a hot white core.
+      c = shade(base, 0.9 + 0.15 * fbm(u, v, 4, 3, s))
+      c = mix(c, accent, 0.6 * Math.exp(-Math.max(0, d - pen) / 1.3))
+      c = mix(c, accent, ink(d, pen))
+      c = mix(c, mix(accent, white, 0.7), ink(d, pen * 0.4))
+    } else {
+      c = mix(shade(base, 0.98 + 0.04 * noise(u, v, 32, 32, s)), accent, ink(d, pen))
+    }
+    const grime = clamp01((fbm(u, v, 4, 4, s + 3) - 0.6) * 4) * wear
+    return shade(c, 1 - 0.35 * grime)
+  }
+}
 
 type Pixel = (u: number, v: number) => number[]
 
@@ -589,6 +681,16 @@ function pattern(p: GenParams): Pixel {
       return shade(c, 1 - 0.3 * grime)
     }
     case 'banner': return bannerPattern(p, base, accent, s, wear)
+    case 'lettering': return letteringPattern(p, base, accent, s, wear)
+    case 'picture': return (u, v) => {
+      // A sunny sky over two rows of hills, on a pale card mount (the same all round, so it tiles): "a photo goes here".
+      if (u < 0.04 || u > 0.96 || v < 0.04 || v > 0.96) return shade([236, 232, 222], 0.97 + 0.03 * noise(u, v, 64, 64, s))
+      let c = mix(shade(base, 0.85), mix(base, [255, 255, 255], 0.55), v)
+      if (Math.hypot(u - 0.7, v - 0.3) < 0.09) c = [255, 238, 176]
+      if (v > 0.6 + 0.07 * Math.sin(u * Math.PI * 2 + 0.6)) c = mix(accent, base, 0.35)
+      if (v > 0.72 + 0.05 * Math.sin(u * Math.PI * 4 + 2)) c = shade(accent, 0.95 + 0.1 * noise(u, v, 32, 32, s))
+      return c
+    }
     case 'sand': return (u, v) => {
       const warp = fbm(u, v, 4, 4, s) * 2
       const ripple = 0.5 + 0.5 * Math.sin((v * n + warp) * Math.PI * 2)
