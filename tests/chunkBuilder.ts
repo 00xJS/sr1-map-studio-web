@@ -14,10 +14,30 @@ export class W {
   set32(o: number, v: number) { this.b[o] = (v >>> 24) & 255; this.b[o + 1] = (v >>> 16) & 255; this.b[o + 2] = (v >>> 8) & 255; this.b[o + 3] = v & 255 }
 }
 
+/** A full material record: shader and slot names are hashed the way the game hashes them. */
+export interface MatSpec {
+  shader?: string
+  flags?: number
+  /** Slot name and the string index of its picture. */
+  slots: [string, number][]
+  tiling?: [string, number[]][]
+  consts?: [string, number[]][]
+  /** Texture parameter index, axis (1 U, 2 V), mode (3 clamp). */
+  address?: [number, number, number][]
+}
+
+/** Vertices: x, y, z, then u, v for each UV set; `normals` (x, y, z) and `tangents` (x, y, z, sign) per vertex. */
+export interface VbSpec { verts: number[][]; indices: number[]; uvSets?: number; normals?: number[][]; tangents?: number[][]; unlit?: boolean }
+
+const crc = new Uint32Array(256).map((_, i) => { let c = i; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0 })
+export const vhash = (s: string) => { let h = 0; for (const ch of s.toLowerCase()) h = crc[(h ^ ch.charCodeAt(0)) & 0xff] ^ (h >>> 8); return h >>> 0 }
+const s10 = (v: number) => Math.round(Math.max(-1, Math.min(1, v)) * 511) & 1023
+export const dec3nWord = (x: number, y: number, z: number, w = 0) => ((s10(x) | (s10(y) << 10) | (s10(z) << 20) | ((w & 3) << 30)) >>> 0)
+
 export interface Spec {
   strings: string[]
-  vbs: { verts: number[][]; indices: number[] }[]
-  materials: number[][]
+  vbs: VbSpec[]
+  materials: (number[] | MatSpec)[]
   meshes: { subs: { vb: number; batches: [number, number, number][] }[] }[]
   instances: { pos: number[]; rot?: number[]; mesh: number }[]
   records: { name: string; instance: number; profile?: string; shape?: number }[]
@@ -46,19 +66,43 @@ export function buildChunk(s: Spec): Uint8Array {
   w.u32(0); w.zeros(24); w.align(4)
   w.zeros(4 * s.vbs.length); w.zeros(4 * s.vbs.length)
   w.align(64)
-  for (const v of s.vbs) { w.align(16); const d = w.at; w.zeros(88); w.set32(d + 4, 1); w.set32(d + 8, 1); w.b[d + 12] = v.verts.length >> 8; w.b[d + 13] = v.verts.length & 255; w.b[d + 14] = v.indices.length >> 8; w.b[d + 15] = v.indices.length & 255; w.b[d + 17] = 24 }
+  const stride = (v: VbSpec) => (v.unlit ? 12 : 20) + 4 * (v.uvSets ?? 1)
+  for (const v of s.vbs) { w.align(16); const d = w.at; w.zeros(88); w.set32(d + 4, 1); w.set32(d + 8, 1); w.b[d + 12] = v.verts.length >> 8; w.b[d + 13] = v.verts.length & 255; w.b[d + 14] = v.indices.length >> 8; w.b[d + 15] = v.indices.length & 255; w.b[d + 17] = stride(v) }
   w.align(4096)
   for (const v of s.vbs) {
     w.align(32); v.indices.forEach((i) => w.u16(i))
-    w.align(32); for (const [x, y, z, u = 0, vv = 0] of v.verts) { w.f32(x); w.f32(y); w.f32(z); w.zeros(8); w.u16(Math.round(u * 1024) & 0xffff); w.u16(Math.round(vv * 1024) & 0xffff) }
+    w.align(32)
+    v.verts.forEach(([x, y, z, ...uv], i) => {
+      w.f32(x); w.f32(y); w.f32(z)
+      // Lit world geometry: a DEC3N normal (straight up unless given) and tangent.
+      const n = v.normals?.[i] ?? [0, 1, 0], t = v.tangents?.[i] ?? [1, 0, 0, 1]
+      if (!v.unlit) { w.u32(dec3nWord(n[0], n[1], n[2])); w.u32(dec3nWord(t[0], t[1], t[2], t[3] < 0 ? 3 : 1)) }
+      for (let k = 0; k < 2 * (v.uvSets ?? 1); k++) w.u16(Math.round((uv[k] ?? 0) * 1024) & 0xffff)
+    })
   }
   w.align(4096); w.align(16)
   w.u16(s.materials.length); w.u16(0); w.zeros(8)
-  if (s.materials.length) {
+  const full = s.materials.map((m): MatSpec => (Array.isArray(m) ? { slots: m.map((ix) => ['', ix]) } : m))
+  if (full.length) {
     w.align(16)
-    for (const m of s.materials) { const a = w.at; w.zeros(56); w.b[a + 11] = m.length }
+    for (const m of full) {
+      const a = w.at; w.zeros(56)
+      w.set32(a, m.shader ? vhash(m.shader) : 0)
+      w.b[a + 8] = 0; w.b[a + 9] = m.address?.length ?? 0
+      w.b[a + 11] = m.slots.length
+      w.b[a + 19] = m.flags ?? 3
+      w.b[a + 29] = m.tiling?.length ?? 0
+      w.b[a + 41] = m.consts?.length ?? 0
+    }
     w.align(16)
-    for (const m of s.materials) { w.align(4); for (const ix of m) { w.u32(0); w.u32(ix); w.u32(0) } w.align(4); w.align(16); w.align(16); w.align(16); w.align(16); w.align(4) }
+    const consts = (list: [string, number[]][] = []) => { for (const [n, vals] of list) { w.u32(vhash(n)); w.u32(0); for (let k = 0; k < 4; k++) w.f32(vals[k] ?? 0) } }
+    for (const m of full) {
+      w.align(4); for (const [slot, ix] of m.slots) { w.u32(slot ? vhash(slot) : 0); w.u32(ix); w.u32(0) }
+      w.align(4)
+      w.align(16); consts(m.tiling); w.align(16)
+      w.align(16); consts(m.consts); w.align(16)
+      w.align(4); for (const [p, axis, mode] of m.address ?? []) { w.u16(p); w.u16(axis); w.u16(mode) }
+    }
   }
   for (const m of s.meshes) {
     w.align(4)

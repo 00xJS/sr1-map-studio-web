@@ -10,6 +10,8 @@ export interface ObjModel {
   /** Authored normals per native vertex (0,0,0 where the corner has none); absent when the file has none. */
   normals?: Float32Array
   faces: Uint32Array // 3 native vertex ids per triangle, in source order
+  /** The OBJ position ("v" line, 0-based) each native vertex came from (data kept per OBJ vertex, like a game object's look, maps through it). */
+  vIndex?: Uint32Array
   faceMat: Uint16Array // index into mats
   mats: string[]
   mtllibs: string[]
@@ -33,6 +35,7 @@ export function parseObj(text: string): ObjModel {
   const outUv: number[] = []
   const outHasUv: number[] = []
   const outN: number[] = []
+  const outV: number[] = []
   const faces: number[] = []
   const faceMat: number[] = []
   const mtllibs: string[] = []
@@ -45,6 +48,7 @@ export function parseObj(text: string): ObjModel {
     id = corner.size
     corner.set(key, id)
     outPos.push(pos[vi * 3], pos[vi * 3 + 1], pos[vi * 3 + 2])
+    outV.push(vi)
     if (ti !== null && ti >= 0 && ti < tex.length / 2) { outUv.push(tex[ti * 2], tex[ti * 2 + 1]); outHasUv.push(1) }
     else { outUv.push(0, 0); outHasUv.push(0) }
     if (ni !== null && ni >= 0 && ni < nrm.length / 3) outN.push(nrm[ni * 3], nrm[ni * 3 + 1], nrm[ni * 3 + 2])
@@ -87,7 +91,7 @@ export function parseObj(text: string): ObjModel {
   return {
     positions: new Float32Array(outPos), uvs: new Float32Array(outUv), hasUv: new Uint8Array(outHasUv),
     ...(nrm.length ? { normals: new Float32Array(outN) } : {}),
-    faces: new Uint32Array(faces), faceMat: new Uint16Array(faceMat), mats, mtllibs,
+    faces: new Uint32Array(faces), faceMat: new Uint16Array(faceMat), mats, mtllibs, vIndex: new Uint32Array(outV),
   }
 }
 

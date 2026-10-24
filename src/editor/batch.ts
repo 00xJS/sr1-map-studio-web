@@ -11,8 +11,19 @@ export interface BatchSource { uid: string; mesh: THREE.Mesh; sig: string }
 export const MIN_BATCH = 40
 const REBUILD_MS = 400
 
+// A patched material (an object from the game, see gameMaterial.ts) keys on its look as well.
 const matKey = (m: THREE.MeshLambertMaterial) =>
-  [m.map?.uuid ?? '-', m.color.getHex(), m.side, m.opacity, m.alphaTest].join('|')
+  [m.map?.uuid ?? '-', m.color.getHex(), m.side, m.opacity, m.alphaTest, m.type, m.userData.lookKey ?? ''].join('|')
+
+/** A copy for the merged mesh, keeping a shader patch (clone() leaves onBeforeCompile behind). */
+export function copyMaterial(m: THREE.MeshLambertMaterial): THREE.MeshLambertMaterial {
+  const c = m.clone()
+  if (m.onBeforeCompile !== THREE.Material.prototype.onBeforeCompile) {
+    c.onBeforeCompile = m.onBeforeCompile
+    c.customProgramCacheKey = m.customProgramCacheKey
+  }
+  return c
+}
 
 /** True if the mesh can be drawn by a merged copy (opaque and fully visible). */
 export const batchable = (mesh: THREE.Mesh) =>
@@ -70,7 +81,7 @@ export class StaticBatch {
     const sources = this.collect()
     this.clear()
     if (!sources || sources.length < MIN_BATCH) return
-    type Bucket = { material: THREE.MeshLambertMaterial; pos: number[]; nor: number[]; uv: number[]; index: number[] }
+    type Bucket = { material: THREE.MeshLambertMaterial; pos: number[]; nor: number[]; uv: number[]; index: number[]; extra: Map<string, number[]> }
     const buckets = new Map<string, Bucket>()
     const v = new THREE.Vector3()
     const normalMatrix = new THREE.Matrix3()
@@ -88,7 +99,8 @@ export class StaticBatch {
         const key = matKey(mat)
         let b = buckets.get(key)
         if (!b) {
-          b = { material: mat.clone(), pos: [], nor: [], uv: [], index: [] }
+          // Extra UV sets a patched material reads (srUv1-3), carried along.
+          b = { material: copyMaterial(mat), pos: [], nor: [], uv: [], index: [], extra: new Map(((mat.userData.srAttrs as string[] | undefined) ?? []).map((n) => [n, []])) }
           buckets.set(key, b)
         }
         const remap = new Map<number, number>()
@@ -103,6 +115,7 @@ export class StaticBatch {
             v.fromBufferAttribute(nor, vi).applyMatrix3(normalMatrix).normalize()
             b.nor.push(v.x, v.y, v.z)
             b.uv.push(uv.getX(vi), uv.getY(vi))
+            for (const [n, list] of b.extra) { const a = g.getAttribute(n); list.push(a ? a.getX(vi) : 0, a ? a.getY(vi) : 0) }
           }
           b.index.push(ni)
         }
@@ -114,6 +127,7 @@ export class StaticBatch {
       geo.setAttribute('position', new THREE.Float32BufferAttribute(b.pos, 3))
       geo.setAttribute('normal', new THREE.Float32BufferAttribute(b.nor, 3))
       geo.setAttribute('uv', new THREE.Float32BufferAttribute(b.uv, 2))
+      for (const [n, list] of b.extra) geo.setAttribute(n, new THREE.Float32BufferAttribute(list, 2))
       geo.setIndex(b.pos.length / 3 > 65535 ? new THREE.Uint32BufferAttribute(b.index, 1) : new THREE.Uint16BufferAttribute(b.index, 1))
       geo.computeBoundingSphere()
       const merged = new THREE.Mesh(geo, b.material)

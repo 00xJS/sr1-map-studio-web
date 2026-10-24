@@ -7,6 +7,7 @@ import { readChunk, type Chunk } from './chunk'
 import type { PegImage } from '../sr1char/peg'
 import { indexChunk, type Candidate, isMpChunk, summarizeChunk, type MapSummary } from './indexer'
 import { extractObject, type ObjectMesh } from './extract'
+import { lookTextures } from './material'
 import { ALWAYS_PEGS, INVISIBLE_TEXTURE, chunkPegNames, findShared, findTexture, hasAlpha, indexPeg, shrink, textureDirectory, type PegIndex, type TextureDirectory } from './textures'
 import { MAP, cutArea, isCityChunk, mapChunk, scanArea, type ChunkSummary, type CutPiece, type Hole, type Rect } from '../city/city'
 
@@ -14,13 +15,17 @@ import { MAP, cutArea, isCityChunk, mapChunk, scanArea, type ChunkSummary, type 
 export type PackSource = File | { url: string; size: number }
 
 export interface ObjectTexture { width: number; height: number; rgba: ArrayBuffer; alpha: boolean }
-export interface ObjectResult { mesh: ObjectMesh; textures: (ObjectTexture | null)[] }
+/**
+ * A cut-out object: its mesh, the diffuse picture per material, and the pictures its materials' other layers use
+ * (decals, masks, normal and specular maps), by lower-cased texture name.
+ */
+export interface ObjectResult { mesh: ObjectMesh; textures: (ObjectTexture | null)[]; layers?: Record<string, ObjectTexture | null> }
 
 export type Request =
   | { id: number; type: 'open'; packs: Record<string, PackSource> }
   | { id: number; type: 'index'; skip: string[] }
   | { id: number; type: 'texdir'; dir: TextureDirectory }
-  | { id: number; type: 'object'; pack: string; chunk: string; record: number; parts?: number[]; texSize: number }
+  | { id: number; type: 'object'; pack: string; chunk: string; record: number; parts?: number[]; texSize: number; layers?: boolean }
   | { id: number; type: 'cityMap' }
   | { id: number; type: 'cityCut'; rect: Rect; stems: string[]; texSize: number }
   | { id: number; type: 'cityScan'; rect: Rect; stems: string[] }
@@ -151,6 +156,17 @@ async function texturesFor(p: string, chunk: string, names: string[], max: numbe
   return out
 }
 
+/** The layer pictures of the given materials' looks, decoded once each into `out`. */
+async function layersFor(p: string, chunk: string, mesh: ObjectMesh, mats: number[], max: number, out: Record<string, ObjectTexture | null>) {
+  const names = [...new Set(mats.flatMap((i) => lookTextures(mesh.looks?.[i] ?? null)))].filter((n) => !(n.toLowerCase() in out))
+  if (!names.length) return
+  const found = await texturesFor(p, chunk, names, max)
+  names.forEach((n, k) => { out[n.toLowerCase()] = found[k] })
+}
+
+const meshBuffers = (m: ObjectMesh): Transferable[] =>
+  [m.positions.buffer, m.uvs.buffer, m.triangles.buffer, m.triMaterial.buffer, ...(m.extraUvs ?? []).map((u) => u.buffer), ...(m.normals ? [m.normals.buffer] : [])]
+
 function small(img: PegImage, max: number): ObjectTexture {
   const s = shrink(img, max)
   return { width: s.width, height: s.height, rgba: s.rgba.slice().buffer, alpha: hasAlpha(s) }
@@ -235,12 +251,14 @@ async function cityCut(m: Extract<Request, { type: 'cityCut' }>): Promise<CityCu
   const byChunk = new Map<string, number[]>()
   cut.matChunk.forEach((c, i) => { const l = byChunk.get(c); if (l) l.push(i); else byChunk.set(c, [i]) })
   const textures: (ObjectTexture | null)[] = cut.solid.materials.map(() => null)
+  const layers: Record<string, ObjectTexture | null> = {}
   for (const [c, list] of byChunk) {
     const found = await texturesFor('sr_city_stream', c, list.map((i) => cut.solid.materials[i]), m.texSize)
     list.forEach((i, k) => { textures[i] = found[k] })
+    await layersFor('sr_city_stream', c, cut.solid, list, m.texSize, layers)
   }
   return {
-    solid: { mesh: cut.solid, textures }, look: { mesh: cut.look, textures }, ground: cut.ground, standable: cut.standable,
+    solid: { mesh: cut.solid, textures, layers }, look: { mesh: cut.look, textures, layers }, ground: cut.ground, standable: cut.standable,
     pieces: cut.pieces, solidPiece: cut.solidPiece, lookPiece: cut.lookPiece,
   }
 }
@@ -259,17 +277,21 @@ self.onmessage = async (e: MessageEvent<Request>) => {
       const v = await cityCut(m)
       // Both meshes share the pictures: send them once (the look mesh's list is the same objects).
       const transfer: Transferable[] = []
-      for (const r of [v.solid, v.look]) transfer.push(r.mesh.positions.buffer, r.mesh.uvs.buffer, r.mesh.triangles.buffer, r.mesh.triMaterial.buffer)
+      for (const r of [v.solid, v.look]) transfer.push(...meshBuffers(r.mesh))
       for (const t of v.solid.textures) if (t) transfer.push(t.rgba)
+      for (const t of Object.values(v.solid.layers ?? {})) if (t && !transfer.includes(t.rgba)) transfer.push(t.rgba)
       transfer.push(v.solidPiece.buffer, v.lookPiece.buffer)
       post({ id: m.id, ok: true, value: v }, transfer)
     } else if (m.type === 'object') {
       const ch = await chunkOf(m.pack, m.chunk)
       const mesh = extractObject(ch, m)
       const textures = await texturesFor(m.pack, m.chunk, mesh.materials, m.texSize)
-      const transfer: Transferable[] = [mesh.positions.buffer, mesh.uvs.buffer, mesh.triangles.buffer, mesh.triMaterial.buffer]
+      const layers: Record<string, ObjectTexture | null> = {}
+      if (m.layers) await layersFor(m.pack, m.chunk, mesh, mesh.materials.map((_, i) => i), m.texSize, layers)
+      const transfer: Transferable[] = meshBuffers(mesh)
       for (const t of textures) if (t) transfer.push(t.rgba)
-      post({ id: m.id, ok: true, value: { mesh, textures } satisfies ObjectResult }, transfer)
+      for (const t of Object.values(layers)) if (t) transfer.push(t.rgba)
+      post({ id: m.id, ok: true, value: { mesh, textures, layers } satisfies ObjectResult }, transfer)
     }
   } catch (err) {
     post({ id: m.id, ok: false, error: (err as Error).message || String(err) })

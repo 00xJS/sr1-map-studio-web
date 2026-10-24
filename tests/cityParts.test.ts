@@ -48,6 +48,10 @@ describe('plain names', () => {
     // A code with no words: the texture names it.
     expect(objectName('bstvk_a_medsa', 'B38_window02_gl.tga')).toBe('Window')
     expect(objectName('glassbar', 'missing-alpha.tga')).toBe('Invisible blocker')
+    expect(objectName('barriowall03')).toBe('Wall')
+    expect(objectName('vk4a_hull')).toBe('Building')
+    expect(objectName('bstvk_a_larges')).toBe('Building')
+    expect(objectName('sidewalk02')).toBe('Sidewalk')
   })
 
   it('names building parts from their textures, and falls back to the surface they are', () => {

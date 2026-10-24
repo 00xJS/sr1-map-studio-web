@@ -10,7 +10,7 @@
     "build": "npm run bundle:py && tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:game": "vitest run --mode game tests/gameObjects.test.ts tests/city.test.ts tests/sr1char.test.ts tests/gameSky.test.ts",
+    "test:game": "vitest run --mode game tests/gameObjects.test.ts tests/gameLook.test.ts tests/city.test.ts tests/sr1char.test.ts tests/gameSky.test.ts",
     "test:full": "vitest run --mode full",
     "typecheck": "tsc -b"
   },

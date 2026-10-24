@@ -10,7 +10,10 @@ import { parseObj } from '../geometry'
 import type { FileRef, Project, SceneItem } from '../project'
 import { getObject } from './client'
 import type { GameObjectEntry } from './indexer'
-import type { ObjectResult } from './worker'
+import type { ObjectResult, ObjectTexture } from './worker'
+import type { ObjectMesh } from './extract'
+import { lookTextures, lookUvSets } from './material'
+import { encodeLook, mapLookTextures, type GameLookRef, type StoredLook } from './lookFile'
 
 /** Where a placed game object came from. */
 export interface GameObjectRef {
@@ -81,6 +84,63 @@ export interface StoredObject {
   alpha: Record<string, boolean>
   surface_ids: Record<string, number>
   triangles: number
+  /** How the game draws its materials (absent: every material is one picture). */
+  look?: GameLookRef
+}
+
+/**
+ * Stores the layer pictures (decals, masks, normal and specular maps) the given materials' looks use, each once
+ * (`have` remembers lower-cased texture name -> stored path across calls), as game files.
+ */
+export async function storeLayers(mesh: ObjectMesh, mats: number[], layers: Record<string, ObjectTexture | null> | undefined, tag: string, files: Record<string, FileRef>, have: Map<string, string | null>) {
+  // A material's own picture is its OBJ texture already; only the others are stored here.
+  const own = (i: number, t: string) => t.toLowerCase() === mesh.materials[i].toLowerCase()
+  for (const tex of new Set(mats.flatMap((i) => lookTextures(mesh.looks?.[i] ?? null).filter((t) => !own(i, t))))) {
+    const k = tex.toLowerCase()
+    if (have.has(k)) continue
+    const t = layers?.[k]
+    if (!t) { have.set(k, null); continue }
+    const name = safe(stemOf(tex)) + (/\.tgn$/i.test(tex) ? '_nm' : '') + tag + '.png'
+    const s = await storeFile(await rgbaPng(t, name), name, 'game')
+    s.ref.origin = 'game'
+    files[s.vpath] = s.ref
+    have.set(k, s.vpath)
+  }
+}
+
+/**
+ * The look file of a mesh written as an OBJ with `matNames` (objText): per material its look with stored paths,
+ * and the vertex data the OBJ can't hold (UV sets 1-3, stored normals mirrored into editor space). Null when no
+ * material has more than one picture to draw.
+ */
+export async function storeLook(mesh: ObjectMesh, matNames: string[], diffuse: string[], layerPath: (tex: string) => string | null, name: string, files: Record<string, FileRef>): Promise<GameLookRef | null> {
+  const mats: Record<string, StoredLook> = {}
+  const used = new Set<string>()
+  let sets = 0
+  mesh.materials.forEach((_, i) => {
+    const l = mesh.looks?.[i]
+    if (!l) return
+    const own = mesh.materials[i].toLowerCase()
+    // The material's own picture (the OBJ material's texture) is the diffuse path; other pictures are layer files.
+    const look = mapLookTextures(l, (t) => (own && t.toLowerCase() === own ? diffuse[i] : layerPath(t)))
+    mats[matNames[i]] = { diffuse: diffuse[i], look }
+    for (const t of lookTextures(look)) if (t !== diffuse[i]) used.add(t)
+    sets = Math.max(sets, lookUvSets(look))
+  })
+  if (!Object.keys(mats).length) return null
+  const n = mesh.positions.length / 3
+  const uvs = Array.from({ length: sets }, (_, k) => mesh.extraUvs?.[k] ?? new Float32Array(2 * n))
+  let normals: Float32Array | undefined
+  if (mesh.normals) {
+    normals = new Float32Array(mesh.normals.length)
+    // The OBJ mirrors X (editor space); so do the normals.
+    for (let i = 0; i < n; i++) { normals[3 * i] = -mesh.normals[3 * i]; normals[3 * i + 1] = mesh.normals[3 * i + 1]; normals[3 * i + 2] = mesh.normals[3 * i + 2] }
+  }
+  const bytes = encodeLook({ mats, vertices: n, uvs, normals })
+  const f = await storeFile(new Blob([bytes], { type: 'application/octet-stream' }), safe(name) + '.look', 'game')
+  f.ref.origin = 'game'
+  files[f.vpath] = f.ref
+  return { path: f.vpath, layers: [...used] }
 }
 
 /**
@@ -110,11 +170,15 @@ export async function storeObject(r: ObjectResult, name: string, ws: number, tag
   const text = objText(r, ws, matNames, name)
   const obj = await storeFile(new Blob([text], { type: 'model/obj' }), safe(name) + tag + '.obj', 'game')
   files[obj.vpath] = obj.ref
+  // The game's layers (decals, masks, normal and specular maps) and the vertex data they need, beside the OBJ.
+  const have = new Map<string, string | null>()
+  await storeLayers(r.mesh, r.mesh.materials.map((_, i) => i), r.layers, tag, files, have)
+  const look = await storeLook(r.mesh, matNames, matNames.map((m) => textures[m]), (t) => have.get(t.toLowerCase()) ?? null, name + tag, files)
   // Every file here is game data, whatever storeFile guessed from its bytes.
   for (const ref of Object.values(files)) ref.origin = 'game'
   const { cacheModel } = await import('../assets')
   cacheModel(obj.vpath, parseObj(text))
-  return { path: obj.vpath, files, textures, alpha, surface_ids, triangles: r.mesh.triangles.length / 3 }
+  return { path: obj.vpath, files, textures, alpha, surface_ids, triangles: r.mesh.triangles.length / 3, ...(look ? { look } : {}) }
 }
 
 const made = new Map<string, Promise<StoredObject>>()
@@ -124,7 +188,7 @@ export function objectFiles(e: Pick<GameObjectEntry, 'id' | 'name' | 'pack' | 'c
   const k = e.id + '@' + ws
   let p = made.get(k)
   if (!p) {
-    p = getObject(e, PLACE_TEX).then((r) => storeObject(r, e.name, ws))
+    p = getObject(e, PLACE_TEX, false, true).then((r) => storeObject(r, e.name, ws))
     made.set(k, p)
     p.catch(() => made.delete(k))
   }
@@ -139,7 +203,7 @@ export async function gameObjectItem(e: GameObjectEntry, at: [number, number, nu
     uid: crypto.randomUUID(), name: e.name, path: s.path, source_path: s.path,
     position: at, rotation: [0, rot, 0], scale: 1,
     textures: { ...s.textures }, alpha: { ...s.alpha }, surface_ids: { ...s.surface_ids }, physics_intent: 'Static',
-    triangles: s.triangles, game_object,
+    triangles: s.triangles, game_object, ...(s.look ? { game_look: s.look } : {}),
   }
   return { item, files: s.files }
 }
@@ -162,11 +226,11 @@ export async function missingGameObjects(p: Project, has: (hash: string) => Prom
 export async function rebuildItem(it: SceneItem, have: Record<string, FileRef>): Promise<{ patch: Partial<SceneItem>; files: Record<string, FileRef> }> {
   const g = gameRefOf(it)
   if (!g) throw new Error(it.name + ' is not from the game')
-  const s = await getObject(g, PLACE_TEX).then((r) => storeObject(r, it.name, g.ws, '_' + Date.now().toString(36)))
+  const s = await getObject(g, PLACE_TEX, false, true).then((r) => storeObject(r, it.name, g.ws, '_' + Date.now().toString(36)))
   const textures = { ...s.textures }
   const alpha = { ...s.alpha }
   for (const [m, v] of Object.entries(it.textures || {})) {
     if (m in textures && have[v]?.origin === 'user') { textures[m] = v; alpha[m] = !!it.alpha?.[m] }
   }
-  return { patch: { path: s.path, source_path: s.path, textures, alpha }, files: s.files }
+  return { patch: { path: s.path, source_path: s.path, textures, alpha, game_look: s.look }, files: s.files }
 }

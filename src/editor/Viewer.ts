@@ -17,6 +17,7 @@ import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project,
 import { RETAIL_MARKER_COLORS, syncZone } from './zones'
 import { gameSkyAvailable, gameSkyWanted } from '../lib/gameSky'
 import { paintGameSky, type SkyTint } from './skyLook'
+import { itemLook, lookContext } from './gameMaterial'
 import { NOON, type GameLight } from '../lib/gameLight'
 import { cappedFog, installFogCap } from './fogCap'
 
@@ -57,6 +58,8 @@ export interface ViewOptions {
   multi?: number[]
   /** Desktop-style free camera: right-drag looks around in place, WASD/QE fly, wheel sets the speed. */
   freeCam?: boolean
+  /** The site's own shapes and prefabs drawn with retail-style layered surfaces (gameMaterial.ts; the view only). */
+  layeredLook?: boolean
 }
 
 export interface ViewerEvents {
@@ -801,7 +804,7 @@ export class Viewer {
   private itemKey(it: SceneItem, index: number) {
     const o = this.opts
     const s = this.project!.settings
-    return JSON.stringify([it.path, it.textures, it.alpha, it.double_sided, s.double_sided, o.wireframe, o.soloMaterial?.startsWith(index + ':') ? o.soloMaterial : o.soloMaterial ? 'other' : null, it.native_opacity, it.glass_custom_texture])
+    return JSON.stringify([it.path, it.textures, it.alpha, it.double_sided, s.double_sided, o.wireframe, o.soloMaterial?.startsWith(index + ':') ? o.soloMaterial : o.soloMaterial ? 'other' : null, it.native_opacity, it.glass_custom_texture, it.game_look?.path, !!o.layeredLook && !!(it.shape || it.prefab)])
   }
 
   private syncItems() {
@@ -865,11 +868,15 @@ export class Viewer {
     return out
   }
 
+  /** Objects from the game: drawn with their own layers (gameMaterial.ts). */
+  private looks = lookContext(() => this.project, () => this.renderer, () => { this.batch.invalidate(); this.requestRender() })
+
   private buildItemMesh(node: ItemNode, it: SceneItem, index: number) {
     const s = this.project!.settings
     const opts = this.opts
-    this.geometry(it.path).then((info) => {
+    Promise.all([this.geometry(it.path), itemLook(this.looks, it, { layered: opts.layeredLook })]).then(([info, look]) => {
       if (this.items.get(it.uid) !== node || node.path !== it.path) return
+      look?.prepare(info.geometry)
       // Fixed glass panes are flat quads; show both faces like the game does.
       const side = s.double_sided || it.double_sided || (isGlass(it) && !isCustomNative(it)) ? THREE.DoubleSide : THREE.FrontSide
       const custom = isCustomNative(it)
@@ -890,7 +897,7 @@ export class Viewer {
         m.visible = !solo || solo === `${index}:${mat}`
         m.userData.mat = mat
         m.userData.tex = texPath
-        return m
+        return look ? look.material(m, mat) : m
       })
       if (node.mesh) {
         node.group.remove(node.mesh)

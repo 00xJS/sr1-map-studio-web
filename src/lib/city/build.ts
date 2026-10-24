@@ -6,7 +6,7 @@ import { newMarker, newProject, type Marker, type Project, type Vec3 } from '../
 import { box, PB, type Part } from '../sampleKit'
 import { materialize, skyFile } from '../samples'
 import { catalogs } from '../catalogs'
-import { objText, plain, rgbaPng, safe, stemOf, surfaceOf } from '../gameObjects/place'
+import { objText, plain, rgbaPng, safe, stemOf, storeLayers, storeLook, surfaceOf } from '../gameObjects/place'
 import { storeFile } from '../files'
 import { parseObj } from '../geometry'
 import type { ObjectMesh } from '../gameObjects/extract'
@@ -49,14 +49,16 @@ export function splitPieces(cut: Pick<CityCut, 'solid' | 'look' | 'pieces' | 'so
     const parts = prop ? [{ tris: list.map((_, i) => i), name }] : splitParts(
       Float32Array.from(list.flatMap(([m, t]) => [0, 1, 2].flatMap((k) => { const v = m.triangles[3 * t + k]; return [m.positions[3 * v], m.positions[3 * v + 1], m.positions[3 * v + 2]] }))),
       list.map(([m, t]) => m.triMaterial[t]), (mi) => materials[mi] ?? '', list.map(([, , look]) => (look ? 1 : 0)), name)
-    for (const part of parts) out.push(pieceMesh(part.tris.map((i) => list[i]), part.name, prop, materials))
+    for (const part of parts) out.push(pieceMesh(part.tris.map((i) => list[i]), part.name, prop, materials, cut.solid.mesh))
   })
   return out
 }
 
-/** One object from its triangles: only the vertices it uses, centred on its base. */
-function pieceMesh(list: [ObjectMesh, number, boolean][], name: string, prop: boolean, materials: string[]): PieceMesh {
+/** One object from its triangles: only the vertices it uses (with their extra UV sets and normals), centred on its base. */
+function pieceMesh(list: [ObjectMesh, number, boolean][], name: string, prop: boolean, materials: string[], shared: ObjectMesh): PieceMesh {
   const pos: number[] = [], uv: number[] = [], idx: number[] = [], mat: number[] = [], look: number[] = []
+  const uvx: number[][] = [[], [], []], nrm: number[] = []
+  const sets = shared.extraUvs?.length ?? 0, normals = !!shared.normals
   const remap = new Map<ObjectMesh, Map<number, number>>()
   for (const [m, t, isLook] of list) {
     let vm = remap.get(m)
@@ -69,6 +71,8 @@ function pieceMesh(list: [ObjectMesh, number, boolean][], name: string, prop: bo
         vm.set(v, n)
         pos.push(m.positions[3 * v], m.positions[3 * v + 1], m.positions[3 * v + 2])
         uv.push(m.uvs[2 * v], m.uvs[2 * v + 1])
+        for (let s = 0; s < sets; s++) uvx[s].push(m.extraUvs?.[s][2 * v] ?? 0, m.extraUvs?.[s][2 * v + 1] ?? 0)
+        if (normals) nrm.push(m.normals?.[3 * v] ?? 0, m.normals?.[3 * v + 1] ?? 0, m.normals?.[3 * v + 2] ?? 0)
       }
       idx.push(n)
     }
@@ -84,7 +88,12 @@ function pieceMesh(list: [ObjectMesh, number, boolean][], name: string, prop: bo
   for (let i = 0; i < pos.length; i++) p[i] = pos[i] - base[i % 3]
   return {
     name, prop, base, look: new Uint8Array(look),
-    mesh: { positions: p, uvs: new Float32Array(uv), triangles: new Uint32Array(idx), triMaterial: new Uint16Array(mat), materials },
+    mesh: {
+      positions: p, uvs: new Float32Array(uv), triangles: new Uint32Array(idx), triMaterial: new Uint16Array(mat), materials,
+      ...(sets ? { extraUvs: uvx.slice(0, sets).map((u) => new Float32Array(u)) } : {}),
+      ...(normals ? { normals: new Float32Array(nrm) } : {}),
+      ...(shared.looks ? { looks: shared.looks } : {}),
+    },
   }
 }
 
@@ -138,7 +147,11 @@ export async function cityProject(r: Rect, map: CityMap, onProgress: (t: string)
     matName.push(n)
   }
   const texPath: string[] = []
-  for (const m of new Set(pieces.flatMap((pc) => [...pc.mesh.triMaterial]))) {
+  const usedMats = [...new Set(pieces.flatMap((pc) => [...pc.mesh.triMaterial]))]
+  // The game's layer pictures (decals, masks, normal and specular maps), each once for the whole cut.
+  const layerPath = new Map<string, string | null>()
+  await storeLayers(cut.solid.mesh, usedMats, cut.solid.layers, '', p.files, layerPath)
+  for (const m of usedMats) {
     const f = await storeFile(await rgbaPng(cut.solid.textures[m] ?? plain(), matName[m] + '.png'), matName[m] + '.png', 'game')
     f.ref.origin = 'game'
     p.files[f.vpath] = f.ref
@@ -152,7 +165,8 @@ export async function cityProject(r: Rect, map: CityMap, onProgress: (t: string)
     // Its own short list of materials, in the shared list's order.
     const own = [...new Set(pc.mesh.triMaterial)].sort((a, b) => a - b)
     const local = new Map(own.map((m, k) => [m, k]))
-    const mesh: ObjectMesh = { ...pc.mesh, triMaterial: pc.mesh.triMaterial.map((m) => local.get(m)!), materials: own.map((m) => mats[m]) }
+    const looks = pc.mesh.looks
+    const mesh: ObjectMesh = { ...pc.mesh, triMaterial: pc.mesh.triMaterial.map((m) => local.get(m)!), materials: own.map((m) => mats[m]), ...(looks ? { looks: own.map((m) => looks[m]) } : {}) }
     const k = (counts.get(pc.name) ?? 0) + 1
     counts.set(pc.name, k)
     const label = k > 1 ? `${pc.name} ${k}` : pc.name
@@ -162,6 +176,7 @@ export async function cityProject(r: Rect, map: CityMap, onProgress: (t: string)
     p.files[obj.vpath] = obj.ref
     cacheModel(obj.vpath, parseObj(text))
     const faces = lookFaces(pc, (m) => local.get(m)!)
+    const gameLook = await storeLook(mesh, own.map((m) => matName[m]), own.map((m) => texPath[m]), (t) => layerPath.get(t.toLowerCase()) ?? null, label, p.files)
     items.push({
       uid: crypto.randomUUID(), name: label, path: obj.vpath, source_path: obj.vpath,
       // Editor space mirrors X (the exporter mirrors it back); one unit is world_scale metres.
@@ -169,7 +184,7 @@ export async function cityProject(r: Rect, map: CityMap, onProgress: (t: string)
       textures: Object.fromEntries(own.map((m) => [matName[m], texPath[m]])),
       alpha: Object.fromEntries(own.map((m) => [matName[m], !!cut.solid.textures[m]?.alpha])),
       surface_ids: Object.fromEntries(own.map((m) => [matName[m], surfaceOf(mats[m])])),
-      physics_intent: 'Static', triangles: pc.look.length,
+      physics_intent: 'Static', triangles: pc.look.length, ...(gameLook ? { game_look: gameLook } : {}),
       // Decals, grass and far detail: drawn, not solid, as the game has them.
       ...(faces.length === pc.look.length ? { collision_disabled: true } : faces.length ? { collision_excluded_faces: faces } : {}),
     })

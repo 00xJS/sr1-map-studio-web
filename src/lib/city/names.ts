@@ -26,8 +26,8 @@ const OBJECTS: [RegExp, string][] = [
   [/couch|sofa/, 'Couch'], [/chair/, 'Chair'], [/(^|_)table/, 'Table'], [/(^|_)tv_|television/, 'TV'], [/fridge|refrig/, 'Fridge'],
   [/acunit|acind|aircon/, 'AC unit'], [/(^|_)vent/, 'Vent'], [/patio/, 'Patio'], [/billboard/, 'Billboard'], [/poster|flyer/, 'Poster'],
   [/hwy|freeway|highway/, 'Highway'], [/sidewlk|sidewalk|sidewk/, 'Sidewalk'], [/curb|kerb/, 'Kerb'],
-  [/(^|_)road|(^|_)street|asphalt|(^|_)rd_/, 'Road'], [/(^|_)ter_|terrain/, 'Ground'], [/hoswall|(^|_)wall/, 'Wall'], [/winlit|window/, 'Window'], [/roof/, 'Roof'],
-  [/door/, 'Door'], [/stair|(^|_)steps?(_|$)/, 'Stairs'], [/olddwnt|dwnt|bldg|building|_hull$/, 'Building'],
+  [/(^|_)road|(^|_)street|asphalt|(^|_)rd_/, 'Road'], [/(^|_)ter_|terrain/, 'Ground'], [/wall/, 'Wall'], [/winlit|window/, 'Window'], [/roof/, 'Roof'],
+  [/door/, 'Door'], [/stair|(^|_)steps?(_|$)/, 'Stairs'], [/olddwnt|dwnt|bldg|building|hull$|_(larges?|meds?|smalls?)[a-z]?$/, 'Building'],
 ]
 
 /** Building parts, by their texture's name (first match wins). */

@@ -56,6 +56,8 @@ interface EditorState {
   advanced: boolean
   /** Desktop-style free camera instead of orbiting. */
   freeCam: boolean
+  /** The view only: the site's own surfaces drawn layered like retail's (even base tile, grime, tint mask). */
+  layeredLook: boolean
   open(project: Project): void
   close(): void
   update(label: string, recipe: (d: Draft<Project>) => void, opts?: { merge?: string }): void
@@ -107,6 +109,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   tab: 'scene',
   advanced: readFlag('sr1-advanced'),
   freeCam: readFlag('sr1-freecam'),
+  layeredLook: readFlag('sr1-layered'),
   open(project) {
     set({ project, selection: null, multi: [], lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [] })
   },
@@ -239,6 +242,7 @@ export function selectedItems(): number[] {
 useEditor.subscribe((s, prev) => {
   if (s.advanced !== prev.advanced) writeFlag('sr1-advanced', s.advanced)
   if (s.freeCam !== prev.freeCam) writeFlag('sr1-freecam', s.freeCam)
+  if (s.layeredLook !== prev.layeredLook) writeFlag('sr1-layered', s.layeredLook)
 })
 
 if (import.meta.env.DEV) (globalThis as any).__editor = useEditor

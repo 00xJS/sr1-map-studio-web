@@ -201,10 +201,13 @@ export const entryById = (id: string) => useGameObjects.getState().entries?.find
 
 // ---------------- single objects ----------------
 
-/** One object's mesh and textures (pictures at most `texSize` pixels across). Needs the game files open. */
-export async function getObject(ref: Pick<GameObjectEntry, 'pack' | 'chunk' | 'record' | 'parts'>, texSize: number, ask = false): Promise<ObjectResult> {
+/**
+ * One object's mesh and textures (pictures at most `texSize` pixels across), with its layers' pictures when
+ * `layers` (decals, masks, normal and specular maps). Needs the game files open.
+ */
+export async function getObject(ref: Pick<GameObjectEntry, 'pack' | 'chunk' | 'record' | 'parts'>, texSize: number, ask = false, layers = false): Promise<ObjectResult> {
   await connect(ask)
-  return call<ObjectResult>({ type: 'object', pack: ref.pack, chunk: ref.chunk, record: ref.record, parts: ref.parts, texSize })
+  return call<ObjectResult>({ type: 'object', pack: ref.pack, chunk: ref.chunk, record: ref.record, parts: ref.parts, texSize, layers })
 }
 
 // Development only: `SR1_PACKFILES=<packfiles folder> npx vite`, then in the console
