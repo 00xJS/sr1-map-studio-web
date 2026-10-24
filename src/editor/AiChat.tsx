@@ -15,7 +15,7 @@ import {
   askWithRepair, critiquePrompt, describeMap, formatReminder, modelProfile, parseReply, partialReply, setLibraryTextures, stripThinking, systemPrompt,
   type AiAction, type ChatMessage,
 } from '../lib/aiChat'
-import { buildReview, isCritiqueRequest, planFromAction } from '../lib/aiReview'
+import { buildReview, isCritiqueRequest, planFromAction, planSample } from '../lib/aiReview'
 import { factsText, gatherFacts } from '../lib/mapFacts'
 import { queueEdits } from '../lib/pendingEdits'
 import { db, requestPersistence } from '../lib/db'
@@ -83,13 +83,13 @@ export function AiChat({ onClose }: { onClose: () => void }) {
   const newMap = async (a: Extract<AiAction, { do: 'generate_map' }>, reply: string, id: number) => {
     const plan = planFromAction(a, reply)
     patch(id, { text: `${plan.reply || 'Making a new map.'} Building “${plan.options.name}”…`, pending: true, thinking: undefined })
-    const [{ wizardSample }, { buildFrom }] = await Promise.all([import('../lib/mapWizard'), import('../lib/samples')])
-    const sample = wizardSample(plan.options)
+    const { buildFrom } = await import('../lib/samples')
+    const sample = planSample(plan)
     const p = await buildFrom({ ...sample, name: plan.options.name || sample.name }, (t) => patch(id, { note: t }))
     await db.putProject({ id: p.id, name: p.name, updated_at: p.updated_at, project: p })
     void requestPersistence()
     if (plan.then.length) queueEdits(p.id, { actions: plan.then, label: 'AI: extras for ' + p.name, openChat: true })
-    patch(id, { pending: false, text: `${plan.reply || 'Here is your new map.'} Opened “${p.name}”; your other map is saved in My maps.`, note: `${plan.options.setting}, ${plan.options.layout}, ${plan.options.players} players, ${plan.options.density}${plan.then.length ? ` · ${plan.then.length} extra edit${plan.then.length === 1 ? '' : 's'} to come` : ''}` })
+    patch(id, { pending: false, text: `${plan.reply || 'Here is your new map.'} Opened “${p.name}”; your other map is saved in My maps.`, note: `${plan.city ? `whole ${plan.city}` : `${plan.options.setting}, ${plan.options.layout}, ${plan.options.players} players, ${plan.options.density}`}${plan.then.length ? ` · ${plan.then.length} extra edit${plan.then.length === 1 ? '' : 's'} to come` : ''}` })
     if (useEditor.getState().saveState === 'unsaved') await saveNow()
     nav('/editor/' + p.id)
   }

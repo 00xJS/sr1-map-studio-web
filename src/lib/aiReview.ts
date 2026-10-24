@@ -3,7 +3,9 @@
 // says little or can't be read), and a new map from a sentence (wizard
 // options plus edits, with a keyword reading of the sentence as fallback).
 import { ALL_PREFABS } from './prefabRegistry'
-import { DENSITY, LAYOUTS, SETTINGS, newSeed, wizardSize, type WizardDensity, type WizardLayout, type WizardOptions, type WizardSetting } from './mapWizard'
+import { DENSITY, LAYOUTS, SETTINGS, newSeed, wizardSample, wizardSize, type WizardDensity, type WizardLayout, type WizardOptions, type WizardSetting } from './mapWizard'
+import { CITY_SIZES, citySample, citySide, type CitySize } from './cityGen'
+import type { Sample } from './sampleKit'
 import { TOPICS, type FactFix, type MapFacts, type Topic } from './mapFacts'
 import { KNOWN_EDITS, actionsOf, readJsonObject, type AiAction } from './aiChat'
 
@@ -47,7 +49,19 @@ export const isCritiqueRequest = (msg: string) =>
 
 // ---------------- a map from a sentence ----------------
 
-export interface MapPlan { options: WizardOptions; then: AiAction[]; reply: string; byModel: boolean }
+export interface MapPlan {
+  options: WizardOptions; then: AiAction[]; reply: string; byModel: boolean
+  /** Build a whole city (the city generator, at this size) instead of the wizard's arena. */
+  city?: CitySize
+}
+
+/** The map a plan builds: the wizard's arena, or the whole city. */
+export const planSample = (plan: MapPlan): Sample =>
+  plan.city ? citySample({ size: plan.city, seed: plan.options.seed, name: plan.options.name }) : wizardSample(plan.options)
+
+/** Words that ask for a whole town or city rather than an arena. */
+const CITY_WORDS = /\b(city|cities|town|metropolis|megacity|districts?|neighbou?rhoods)\b/
+const ARENA_WORDS = /\b(arena|1v1|duel|small|tiny|tight|city block|rooftop|park)\b/
 
 const WORDS: Record<string, number> = { two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12 }
 
@@ -74,6 +88,10 @@ export function heuristicPlan(text: string, seed = newSeed()): MapPlan {
     notes.push('a tower in the middle')
   }
   const options: WizardOptions = { setting, layout, players, density, seed, name: `${SETTINGS[setting].label} ${LAYOUTS[layout].label}` }
+  if (CITY_WORDS.test(t) && !ARENA_WORDS.test(t)) {
+    const city: CitySize = /\b(huge|massive|sprawling|enormous|giant|megacity|metropolis)\b/.test(t) ? 'big' : /\b(town|village)\b/.test(t) ? 'town' : 'city'
+    return { options: { ...options, name: 'New ' + CITY_SIZES[city].label }, then: clampToMap(then, options, city), city, byModel: false, reply: `A whole ${CITY_SIZES[city].label.toLowerCase()}: districts, a river, a freeway and streets to fight through${notes.length ? ', with ' + notes.join(' and ') : ''}.` }
+  }
   return { options, then, byModel: false, reply: `${LAYOUTS[layout].label} in a ${SETTINGS[setting].label.toLowerCase()} setting for ${players} players${notes.length ? ', with ' + notes.join(' and ') : ''}.` }
 }
 
@@ -83,6 +101,9 @@ const pickKey = <T extends string>(v: unknown, keys: T[], fallback: T): T => {
 }
 
 /** Wizard options from the model's answer, with gaps filled from the words; edits kept inside the new map. */
+/** The most extra edits a plan may carry (a rich description can ask for a lot). */
+const MAX_THEN = 60
+
 export function planFromModel(raw: string, text: string, seed = newSeed()): MapPlan {
   const base = heuristicPlan(text, seed)
   const o = readJsonObject(raw)
@@ -96,8 +117,10 @@ export function planFromModel(raw: string, text: string, seed = newSeed()): MapP
     seed,
     name: typeof m.name === 'string' && m.name.trim() ? m.name.trim().slice(0, 40) : base.options.name,
   }
-  const then = clampToMap(actionsOf(o.then ?? o.actions).filter((a) => KNOWN_EDITS.has(a.do) && a.do !== 'generate_map'), options)
-  return { options, then, byModel: true, reply: typeof o.reply === 'string' && o.reply.trim() ? o.reply.trim() : base.reply }
+  const sizes = Object.keys(CITY_SIZES) as CitySize[]
+  const city = m.generator === 'city' ? pickKey(m.size, sizes, 'city') : undefined
+  const then = clampToMap(actionsOf(o.then ?? o.actions).filter((a) => KNOWN_EDITS.has(a.do) && a.do !== 'generate_map').slice(0, MAX_THEN), options, city)
+  return { options, then, byModel: true, reply: typeof o.reply === 'string' && o.reply.trim() ? o.reply.trim() : base.reply, ...(city ? { city } : {}) }
 }
 
 /** The plan a chat's generate_map edit asks for. */
@@ -127,8 +150,8 @@ export function describeEdit(a: AiAction): string {
 }
 
 /** Keeps placed things inside the generated map's walls. */
-export function clampToMap(actions: AiAction[], o: Pick<WizardOptions, 'players' | 'layout'>): AiAction[] {
-  const [W, D] = wizardSize(o.players, o.layout)
+export function clampToMap(actions: AiAction[], o: Pick<WizardOptions, 'players' | 'layout'>, city?: CitySize): AiAction[] {
+  const [W, D] = city ? [citySide(city), citySide(city)] : wizardSize(o.players, o.layout)
   const cx = (v: unknown) => (typeof v === 'number' ? Math.max(-W / 2 + 6, Math.min(W / 2 - 6, v)) : v)
   const cz = (v: unknown) => (typeof v === 'number' ? Math.max(-D / 2 + 6, Math.min(D / 2 - 6, v)) : v)
   return actions.map((a) => {

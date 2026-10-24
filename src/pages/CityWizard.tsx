@@ -8,7 +8,7 @@ import type { Sample } from '../lib/sampleKit'
 const LOT_COLOURS = Object.fromEntries(Object.values(DISTRICTS).map((d) => [`${d.label} lot`, d.sketch]))
 
 /** Top-down: district lots in their colours, streets dark, the river blue, buildings lighter the taller they are. */
-function CitySketch({ s }: { s: Sample }) {
+export function CitySketch({ s }: { s: Sample }) {
   const ref = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const c = ref.current

@@ -3,7 +3,8 @@ import {
   chatModels, listModels, resolveModelId, DEFAULT_MODEL, FREE_MODELS,
   askModel, askWithRepair, critiquePrompt, describeMap, describePrompt, modelProfile, needsRepair, parseReply, partialReply, readJsonObject, repairJson, systemPrompt,
 } from '../src/lib/aiChat'
-import { buildReview, clampToMap, describeEdit, heuristicPlan, isCritiqueRequest, planFromAction, planFromModel } from '../src/lib/aiReview'
+import { buildReview, clampToMap, describeEdit, heuristicPlan, isCritiqueRequest, planFromAction, planFromModel, planSample } from '../src/lib/aiReview'
+import { citySide } from '../src/lib/cityGen'
 import { factsText, gatherFacts } from '../src/lib/mapFacts'
 import relay from '../netlify/edge-functions/ai'
 import { newMarker, newProject, uid } from '../src/lib/project'
@@ -308,6 +309,38 @@ describe('a map from a sentence', () => {
     expect(Math.abs(lamp.x)).toBeLessThan(100)
     expect(Math.abs(lamp.z)).toBeLessThan(100)
     expect(planFromModel('I cannot do that.', SENTENCE, 3).byModel).toBe(false)
+  })
+
+  it('builds a whole city when the model picks the city generator, with edits kept inside it', () => {
+    const raw = JSON.stringify({ reply: 'The Aetherline Concordance.', map: { generator: 'city', size: 'big', name: 'Aetherline' }, then: [
+      { do: 'add_prefab', key: 'textsign', x: 9999, z: 0, settings: { text: 'THE AETHERLINE', style: 'neon' } },
+      { do: 'paint', prefab: 'office', texture: 'concrete', color: '#2b2238' },
+    ] })
+    const plan = planFromModel(raw, 'a city', 5)
+    expect(plan.city).toBe('big')
+    expect(plan.options.name).toBe('Aetherline')
+    const sign = plan.then[0] as { x: number; settings: Record<string, string> }
+    expect(sign.x).toBeLessThanOrEqual(citySide('big') / 2)
+    expect(sign.x).toBeGreaterThan(300)
+    expect(sign.settings.text).toBe('THE AETHERLINE')
+    expect(plan.then[1]).toMatchObject({ do: 'paint', color: '#2b2238' })
+    expect(planSample(plan).parts.length).toBeGreaterThan(100)
+    expect(planFromModel(JSON.stringify({ map: { setting: 'cyber', layout: 'arena' } }), 'x', 5).city).toBeUndefined()
+  })
+
+  it('without the model, a described city is a city and an arena stays an arena', () => {
+    const wild = 'Build a vertical, layered city called The Aetherline Concordance. Wizards became sysadmins and dragons are power plants.'
+    expect(heuristicPlan(wild).city).toBe('city')
+    expect(heuristicPlan('a sprawling metropolis at night').city).toBe('big')
+    expect(heuristicPlan('Tight neon arena for 1v1').city).toBeUndefined()
+    expect(heuristicPlan('a rooftop fight above the city').city).toBeUndefined()
+  })
+
+  it('tells the planner about the city generator, signs and colours', () => {
+    const p = describePrompt(modelProfile('google/gemma-4-31b-it'), 'a magic city with guild halls')
+    expect(p).toMatch(/"generator": "wizard\|city"/)
+    expect(p).toMatch(/textsign \(/)
+    expect(p).toMatch(/"color":"#/)
   })
 
   it("reads the chat's generate_map edit", () => {

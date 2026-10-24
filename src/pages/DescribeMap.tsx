@@ -2,9 +2,11 @@
 // sentence; the AI picks the map wizard's options plus a few extra edits,
 // you see it from above, and create it (or fine-tune it in the wizard).
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { LAYOUTS, SETTINGS, busyLabel, busyOf, newSeed, wizardSample, type WizardOptions } from '../lib/mapWizard'
+import { LAYOUTS, SETTINGS, busyLabel, busyOf, newSeed, type WizardOptions } from '../lib/mapWizard'
 import { askWithRepair, describePrompt, formatReminder, modelProfile, partialReply, setLibraryTextures, stripThinking } from '../lib/aiChat'
-import { describeEdit, heuristicPlan, planFromModel, type MapPlan } from '../lib/aiReview'
+import { describeEdit, heuristicPlan, planFromModel, planSample, type MapPlan } from '../lib/aiReview'
+import { CITY_SIZES } from '../lib/cityGen'
+import { CitySketch } from './CityWizard'
 import type { PendingEdits } from '../lib/pendingEdits'
 import type { Sample } from '../lib/sampleKit'
 import { KeySetup, readKey, readModel } from '../editor/AiKey'
@@ -26,7 +28,7 @@ export function DescribeMap({ busy, onCreate, onTune }: { busy: boolean; onCreat
   const abort = useRef<AbortController | null>(null)
   useEffect(() => () => abort.current?.abort(), [])
   useEffect(() => { loadLibrary().then((l) => setLibraryTextures(l.map((t) => t.id))).catch(() => {}) }, [])
-  const sample = useMemo(() => (plan ? wizardSample(plan.options) : null), [plan])
+  const sample = useMemo(() => (plan ? planSample(plan) : null), [plan])
 
   const ask = async () => {
     if (!text.trim() || asking) return
@@ -71,7 +73,9 @@ export function DescribeMap({ busy, onCreate, onTune }: { busy: boolean; onCreat
           <div className="col describe-plan card">
             <span>{plan.reply}</span>
             <span className="small muted">
-              {SETTINGS[plan.options.setting].icon} {SETTINGS[plan.options.setting].label} · {LAYOUTS[plan.options.layout].label} · {plan.options.players} players · {busyLabel(busyOf(plan.options))}
+              {plan.city
+                ? <>🌆 Whole {CITY_SIZES[plan.city].label.toLowerCase()} · {CITY_SIZES[plan.city].hint}</>
+                : <>{SETTINGS[plan.options.setting].icon} {SETTINGS[plan.options.setting].label} · {LAYOUTS[plan.options.layout].label} · {plan.options.players} players · {busyLabel(busyOf(plan.options))}</>}
             </span>
             {!!plan.then.length && (
               <div className="small">
@@ -82,14 +86,14 @@ export function DescribeMap({ busy, onCreate, onTune }: { busy: boolean; onCreat
             <div className="row wrap">
               <button className="primary" disabled={busy} onClick={() => sample && onCreate({ ...sample, name: plan.options.name || sample.name }, plan.then.length ? { actions: plan.then, label: 'AI: extras for ' + (plan.options.name || sample.name) } : undefined)}>Create this map</button>
               <button disabled={busy} onClick={() => setPlan({ ...plan, options: { ...plan.options, seed: newSeed() } })} title="Same choices, a different map">🎲 Reroll</button>
-              <button className="link small" disabled={busy} onClick={() => onTune(plan.options)}>Fine-tune in the wizard</button>
+              {!plan.city && <button className="link small" disabled={busy} onClick={() => onTune(plan.options)}>Fine-tune in the wizard</button>}
             </div>
           </div>
         )}
       </div>
       <div className="col" style={{ gap: 6, flex: '1 1 300px', alignItems: 'stretch', minWidth: 0 }}>
-        {sample ? <Sketch s={sample} /> : <div className="card muted small" style={{ aspectRatio: '1', maxWidth: 420, display: 'grid', placeItems: 'center', textAlign: 'center' }}>Your map's layout shows here, seen from above.</div>}
-        {plan && <span className="faint small">Fair by design: both halves match, red starts at the top, blue at the bottom.{plan.then.length ? ' Extras are added in the editor and undo as one step.' : ''}</span>}
+        {sample ? (plan?.city ? <CitySketch s={sample} /> : <Sketch s={sample} />) : <div className="card muted small" style={{ aspectRatio: '1', maxWidth: 420, display: 'grid', placeItems: 'center', textAlign: 'center' }}>Your map's layout shows here, seen from above.</div>}
+        {plan && <span className="faint small">{plan.city ? 'Spawns and weapons are spread along the streets.' : 'Fair by design: both halves match, red starts at the top, blue at the bottom.'}{plan.then.length ? ' Extras are added in the editor and undo as one step.' : ''}</span>}
       </div>
     </div>
   )

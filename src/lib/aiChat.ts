@@ -13,6 +13,7 @@ import { GAME_MODES } from './project'
 import { KINDS } from './procedural'
 import { DENSITY, LAYOUTS, SETTINGS } from './mapWizard'
 import { TOPICS } from './mapFacts'
+import { CITY_SIZES, citySide, type CitySize } from './cityGen'
 
 /**
  * The chat models marked "Free Endpoint" on build.nvidia.com (its models page, filtered to Free Endpoint),
@@ -60,13 +61,13 @@ export type AiAction =
   | { do: 'set_modes'; modes: string[] }
   | { do: 'rename_map'; name: string }
   | ({ do: 'select' } & AiTarget)
-  | ({ do: 'paint'; texture: string; material?: string } & AiTarget)
+  | ({ do: 'paint'; texture: string; material?: string; color?: string; accent?: string } & AiTarget)
   | { do: 'place_line'; item: AiPlaceable; from: [number, number]; to: [number, number]; count: number; face?: 'along' | 'across'; mirror?: boolean }
   | { do: 'place_ring'; item: AiPlaceable; center?: [number, number]; radius: number; count: number; start?: number; face?: 'in' | 'out'; mirror?: boolean }
   | ({ do: 'mirror'; markers?: number[] } & AiTarget)
   | { do: 'make_symmetric'; keep: 'red' | 'blue'; only?: 'objects' | 'markers' }
   | { do: 'set_weather'; clear: boolean }
-  | { do: 'generate_map'; setting: string; layout: string; players: number; density?: string; seed?: number; name?: string; then?: AiAction[] }
+  | { do: 'generate_map'; setting: string; layout: string; players: number; density?: string; seed?: number; name?: string; then?: AiAction[]; generator?: 'wizard' | 'city'; size?: string }
 
 export const KNOWN_EDITS = new Set(['add_prefab', 'add_shape', 'move', 'turn', 'scale', 'delete', 'duplicate', 'prefab_settings', 'add_marker', 'delete_markers', 'move_marker', 'add_light', 'set_modes', 'rename_map', 'select', 'paint', 'place_line', 'place_ring', 'mirror', 'make_symmetric', 'set_weather', 'generate_map'])
 
@@ -164,7 +165,7 @@ export function relevantPrefabs(request: string, count = 40): string[] {
  */
 function reference(profile: ModelProfile, request = ''): string {
   const small = profile.tier === 'small'
-  const full = new Set([...relevantPrefabs(request, small ? 15 : 40), ...Object.keys(PREFABS)].filter((k) => ALL_PREFABS[k]))
+  const full = new Set([...relevantPrefabs(request, small ? 15 : 40), ...Object.keys(PREFABS), 'textsign'].filter((k) => ALL_PREFABS[k]))
   const detail = (k: string) => {
     const d = ALL_PREFABS[k]
     const ps = small ? '' : (d.params ?? []).map((pd) => `${pd.key}${pd.options ? '=' + pd.options.map(([v]) => v).join('|') : pd.min !== undefined ? ` ${pd.min}-${pd.max}` : ''}`).join(',')
@@ -192,6 +193,7 @@ const EDITS = `{"do":"add_prefab","key":"bench","x":10,"z":-20,"turn":90,"settin
 {"do":"delete","indices":[3,4]}   or by name, kind or area: {"do":"delete","name":"crate"}  {"do":"delete","near":[0,0,16]}
 {"do":"select","name":"wall"}   (or "indices", "prefab":"lamp", "shape":"box"; to point things out)
 {"do":"paint","name":"building","texture":"red_brick","material":"side"}   (any target; "material" is optional: a material name or its current texture)
+{"do":"paint","prefab":"office","texture":"concrete","color":"#3b2d4f","accent":"#c9a227"}   (a generated texture in your colours, for a mood or theme)
 {"do":"place_line","item":{"do":"add_prefab","key":"lamp"},"from":[-40,-60],"to":[40,-60],"count":5,"face":"along","mirror":true}
 {"do":"place_ring","item":{"do":"add_shape","shape":"pillar"},"center":[0,0],"radius":25,"count":8,"face":"out"}
 {"do":"add_marker","type":"Shared spawn","x":0,"z":-20,"mirror":true}   (weapons: "type":"Weapon pickup","weapon":"<id>")
@@ -203,7 +205,7 @@ const EDITS = `{"do":"add_prefab","key":"bench","x":10,"z":-20,"turn":90,"settin
 {"do":"set_weather","clear":false}   (false: time of day and weather such as rain change each match)
 {"do":"set_modes","modes":["Gangsta Brawl"]}
 {"do":"rename_map","name":"Harbor Rumble"}
-{"do":"generate_map","setting":"downtown","layout":"heights","players":8,"density":"normal","name":"Rain Roofs","then":[...edits for the new map...]}   (a brand-new map; only when asked for a new map)`
+{"do":"generate_map","setting":"downtown","layout":"heights","players":8,"density":"normal","name":"Rain Roofs","then":[...edits for the new map...]}   (a brand-new map; only when asked for a new map; add "generator":"city","size":"town|city|big" for a whole city)`
 
 const RULES = `Rules:
 - "mirror": true also places the twin at (-x,-z) turned 180°, and a red team spawn's twin is a blue team spawn. Use it for anything off-centre so both teams get the same map.
@@ -258,21 +260,34 @@ Remember: answer with the JSON object only.`
 
 /** For "describe a map": pick the new map wizard's options and any edits to make after. */
 export function describePrompt(profile: ModelProfile = modelProfile(DEFAULT_MODEL), request = ''): string {
+  const sizes = (Object.keys(CITY_SIZES) as CitySize[]).map((k) => `${k} ${citySide(k)}×${citySide(k)}`).join(', ')
   return `You turn someone's description of a Saints Row 1 multiplayer map into settings for a map generator, plus edits to make after it is built.
+Descriptions can be short ("docks at night for 6") or long and wild (a magic city on an ancient network, with guilds and dragons). Either way, build the closest thing the game can be and make it theirs.
 
 Answer with ONE JSON object and nothing else:
-{"reply": "one or two sentences: what you chose, and anything you couldn't do",
- "map": {"setting": "${Object.keys(SETTINGS).join('|')}", "layout": "${Object.keys(LAYOUTS).join('|')}", "players": 2-12, "density": "${Object.keys(DENSITY).join('|')}", "name": "a short map name"},
+{"reply": "two or three sentences: what you built, how it matches their idea, and what the game can't do",
+ "map": {"generator": "wizard|city", "size": "${Object.keys(CITY_SIZES).join('|')}", "setting": "${Object.keys(SETTINGS).join('|')}", "layout": "${Object.keys(LAYOUTS).join('|')}", "players": 2-12, "density": "${Object.keys(DENSITY).join('|')}", "name": "a short map name"},
  "then": [ ...edits... ]}
+
+Generators:
+- wizard: a compact, fair arena for a match (any setting and layout). The default.
+- city: a whole Stilwater-style city to fight through: downtown towers, chinatown, red light, projects, barrio, suburbs, high end, docks, industrial, a park, a river with bridges, an elevated freeway, cars and street signs. Choose it when they describe a city, a town, districts or a big world; "size" is ${sizes} editor units (keep city edits inside ±(side/2 - 8)). Setting, layout and density don't apply to it.
+
+Big or imaginative ideas:
+- Names (the city, guilds, factions, shops, slogans, street names) go on signs: {"do":"add_prefab","key":"textsign","x":0,"z":-20,"settings":{"text":"THE AETHERLINE","style":"neon","mount":"post","w":10,"h":2}}. Styles: street, shop, plaque, neon, plain; mount: post, stand, wall, hanging; two lines of up to 24 letters.
+- A mood or colour scheme: paint with your own colours, e.g. {"do":"paint","prefab":"office","texture":"concrete","color":"#2b2238","accent":"#c9a227"}.
+- Landmarks and set pieces: prefabs whose names fit (a tower for a spire, statues, fountains, neon signs, wrecks...), lines and rings of them for scale. Never invent keys.
+- Fantasy and sci-fi things the game has no model for (dragons, spells, robots): say so in "reply" and stand in for them with what fits (a glowing sign, a sculpture, a wrecked machine).
+- Up to ${60} edits in "then". Weather, night and rain: {"do":"set_weather","clear":false}.
 
 Settings: ${Object.entries(SETTINGS).map(([k, s]) => `${k}: ${s.hint}`).join(' ')}
 Layouts: ${Object.entries(LAYOUTS).map(([k, l]) => `${k}: ${l.hint}`).join(' ')}
 Density: open, normal or packed (how much clutter).
 The generator makes a fair, point-symmetric map with spawns, weapons and lights already placed. Red's end is -Z, blue's +Z. The map is about W×W editor units with W = 2×sqrt(players×450) (8 players: 120; lanes is 1.2× longer and 1.2× narrower); keep edits within ±(W/2 - 8). The ground top is y 1. The middle (0,0) already has a centrepiece; to replace it, first {"do":"delete","near":[0,0,16]}.
-Use "then" only for what the generator can't do: rain or night ({"do":"set_weather","clear":false}), a particular centrepiece, more of something, textures. Use "mirror": true for anything off-centre.
+Use "then" for what the generator can't do: rain or night, a particular centrepiece, landmarks, signs, colours, more of something. Use "mirror": true for anything off-centre on a wizard map.
 
 Edits:
-${EDITS.split('\n').filter((l) => /"(add_prefab|add_shape|delete|place_line|place_ring|add_marker|add_light|set_weather|set_modes|paint)"/.test(l)).join('\n')}
+${EDITS.split('\n').filter((l) => /"(add_prefab|add_shape|delete|place_line|place_ring|add_marker|add_light|set_weather|set_modes|paint|rename_map)"/.test(l)).join('\n')}
 
 ${reference(profile, request)}
 ${profile.tier === 'reasoning' ? '' : `

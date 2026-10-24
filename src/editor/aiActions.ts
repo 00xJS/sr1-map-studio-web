@@ -22,9 +22,19 @@ const floorAt = (x: number, z: number) => getViewer()?.surfaceBelow(x, 1e4, z) ?
 const squash = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, '')
 
 /** A texture by name: the starter library (id or name), a generated kind, or one already in the map. */
-async function swatchFor(name: string): Promise<Swatch | null> {
+const HEX = /^#[0-9a-f]{6}$/i
+
+/** A texture by name; with colours, a generated one in those colours (a library photo can't be recoloured). */
+async function swatchFor(name: string, tint: { color?: unknown; accent?: unknown } = {}): Promise<Swatch | null> {
   const want = squash(name)
   if (!want) return null
+  const color = HEX.test(String(tint.color)) ? String(tint.color) : '', accent = HEX.test(String(tint.accent)) ? String(tint.accent) : ''
+  if (color || accent) {
+    const kind = (Object.keys(KINDS) as TextureKind[]).find((k) => squash(k) === want || squash(KINDS[k].label) === want || want.includes(squash(k)))
+      ?? 'concrete'
+    const params = { ...defaultParams(kind, 1024), ...(color ? { color } : {}), ...(accent ? { accent } : {}) }
+    return { key: `gen:${kind}:${color}:${accent}`, label: KINDS[kind].label, surface: KINDS[kind].surface, source: { kind: 'generated', params } }
+  }
   const lib = await loadLibrary().catch(() => [])
   const l = lib.find((t) => squash(t.id) === want) ?? lib.find((t) => squash(t.name) === want)
   if (l) return { key: 'lib:' + l.id, label: l.name, surface: l.surface, source: { kind: 'library', id: l.id } }
@@ -171,7 +181,7 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
         }
         case 'paint': {
           const ids = resolveTarget(currentProject()!, a)
-          const sw = typeof a.texture === 'string' ? await swatchFor(a.texture) : null
+          const sw = typeof a.texture === 'string' ? await swatchFor(a.texture, a) : null
           if (!sw) { skipped.push(`unknown texture "${a.texture}"`); break }
           if (!ids.length) { skipped.push('nothing matched to paint'); break }
           // A material by its name or by its current texture's name; all of them when none is given.

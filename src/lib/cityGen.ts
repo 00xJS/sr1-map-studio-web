@@ -776,6 +776,9 @@ const NAMES_A = ['Iron', 'Silver', 'Stone', 'Copper', 'Harbor', 'Crown', 'Saint'
 const NAMES_B = ['water', 'haven', 'port', 'field', 'bay', 'mouth', 'ford', 'brook']
 
 /** The finished city as a sample map. */
+/** The city's side, wall to wall, in editor units. */
+export const citySide = (size: CitySize) => CITY_SIZES[size].blocks * PITCH + C + 2 * EDGE
+
 export function citySample(o: CityOptions): Sample {
   const r = rng(o.seed)
   const n = CITY_SIZES[o.size].blocks
