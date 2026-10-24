@@ -1,12 +1,15 @@
 // Things read from the player's own Saints Row files, in the browser, when they are needed: the names of the
-// game's ambience sounds (for sound zones) and the wooden crate's debris effect (for smashing crates). Packfiles
-// are read by byte range (File.slice); nothing read here is uploaded, published or stored: the sound names live
-// in memory for this tab, and the crate files only go to the exporter's in-memory file system.
+// game's ambience sounds (for sound zones), the wooden crate's debris effect (for smashing crates) and the game's
+// sky (gameSky.ts). Packfiles are read by byte range (File.slice); nothing read here is uploaded, published or
+// stored: the sound names live in memory for this tab, and the crate and sky files only go to the exporter's
+// in-memory file system.
 import { gameFolderFiles, folderPickerSupported } from './sr1char/folder'
 import { openVpp } from './sr1char/vpp'
 
 export const FOLEY_PACK = 'real_foley_streaming.vpp_xbox2'
 export const CITY_PACK = 'sr_city_stream.vpp_xbox2'
+/** The retail multiplayer maps; mp_bac_01 in it carries the game's sky (see gameSky.ts). */
+export const MP_PACK = 'mp_city_stream.vpp_xbox2'
 const AMBIENTS = 'Ambients.xsb'
 /** City chunks holding the crate effect, the first with every picture it names. */
 const CRATE_CHUNKS = ['sr_chunk12', 'sr_chunk14_lopez']

@@ -14,6 +14,8 @@ import type { ObjModel } from '../lib/geometry'
 import { loadModel, peekModel, textureUrl } from '../lib/assets'
 import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
 import { RETAIL_MARKER_COLORS, syncZone } from './zones'
+import { gameSkyAvailable, gameSkyWanted } from '../lib/gameSky'
+import { paintGameSky } from './skyLook'
 
 export interface ViewOptions {
   selection: { kind: 'item' | 'marker' | 'light'; index: number } | null
@@ -368,13 +370,42 @@ export class Viewer {
     return this.daySky
   }
 
+  private gameSkyLook: THREE.Texture | null = null
+
+  /** A stand-in for the game's own sky (skyLook.ts), painted once. */
+  private gameSky(): THREE.Texture {
+    if (this.gameSkyLook) return this.gameSkyLook
+    const c = document.createElement('canvas')
+    c.width = 2048; c.height = 1024
+    paintGameSky(c)
+    this.gameSkyLook = new THREE.CanvasTexture(c)
+    this.gameSkyLook.colorSpace = THREE.SRGBColorSpace
+    this.gameSkyLook.mapping = THREE.EquirectangularReflectionMapping
+    return this.gameSkyLook
+  }
+
   /**
-   * What the game will show overhead: the map's sky picture, the game's own sky (a native sky preset), or black
-   * (a map with neither has no sky in game). The picture arrives a moment later; black until then.
+   * What the game will show overhead: the game's own sky when the export can read it from the player's game files,
+   * else the map's sky picture, a native sky preset, or black (a map with none has no sky in game). Pictures and the
+   * game-files check arrive a moment later; black until then.
    */
   private showGameSky() {
     const s = this.project?.settings
     this.scene.fog = null
+    this.scene.background = new THREE.Color(0x000000)
+    if (!s || !gameSkyWanted(s)) return this.showMapSky()
+    gameSkyAvailable().then((ok) => {
+      if (!this.walker || !this.project || !gameSkyWanted(this.project.settings)) return
+      if (!ok) return this.showMapSky()
+      this.scene.background = this.gameSky()
+      this.scene.fog = new THREE.Fog(0xc8d6e0, 160, 1200)
+      this.requestRender()
+    })
+  }
+
+  /** The sky without the game's own: the map's sky picture, the native sky preset, or black. */
+  private showMapSky() {
+    const s = this.project?.settings
     if (s?.sky_texture) {
       this.scene.background = new THREE.Color(0x000000)
       const path = s.sky_texture

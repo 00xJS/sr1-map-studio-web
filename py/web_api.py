@@ -38,6 +38,7 @@ from vehicle_catalog_v041 import VEHICLE_CATALOG
 import fast_dxt
 import map_features as features
 import retail_features as retail
+import native_sky
 
 # Same output as the original compressor, about 20x faster (see fast_dxt.py).
 fast_dxt.install()
@@ -353,6 +354,7 @@ def _export(s, log):
     # "Breakable wood" and weight presets become stock profiles (see map_features).
     wanted_profiles = features.prepare_breakables(items)
     crate_donor = retail.choose_crates(s, items, wanted_profiles, log)
+    sky_donor = native_sky.prepare(s, log) if s.get('native_sky_source') else None
     preflight = breakable_tools.check_scene(items, ws, _parse)
     if preflight['errors']:
         raise ValueError('\n'.join(preflight['errors']))
@@ -434,6 +436,8 @@ def _export(s, log):
     physics.apply_shapes(chunk, glass_items, result.get('native_glass', {}).get('placements', []), _parse, ws, mirror, log)
     if crate_donor:
         retail.crate_debris.add_debris(chunk, out / (base + '.peg_xbox2'), crate_donor, log)
+    # Last change to the chunk: the game's own sky, when the editor passed in the player's game files.
+    game_sky = native_sky.add(chunk, out / (base + '.peg_xbox2'), sky_donor, log) if sky_donor else False
     rect = s.get('minimap_rect')
     if rect and opt('minimap_texture'):
         _write_minimap_region(out, base, [float(v) for v in rect], fixed_origin, ws, bool(s.get('mirror_x', True)), log)
@@ -461,6 +465,7 @@ def _export(s, log):
         'native_props': result.get('native_props', {}).get('created', 0),
         'lights': result.get('lighting', {}).get('exported', 0),
         'water_volumes': water_count,
+        'game_sky': int(game_sky),
         **extras,
     }
     return {'map_name': base, 'out_dir': str(out), 'files': files, 'summary': summary}

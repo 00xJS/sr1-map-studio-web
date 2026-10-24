@@ -7,6 +7,7 @@ import type { Marker, Project, ProjectSettings } from './project'
 import { checkModes, levelEntries } from './levels'
 import { BOR } from './retailModes'
 import { crateDebrisSpec } from './crateDebris'
+import { gameSkySpec } from './gameSky'
 
 /**
  * entries: the zip's files by path ("<folder>/levels/..."), for installing without unzipping.
@@ -40,6 +41,7 @@ export async function runExport(project: Project, onLog: (t: string) => void, on
   }
   const job = Date.now().toString(36)
   const crate = await crateDebrisSpec(project, onLog)
+  const gameSky = await gameSkySpec(project, onLog)
   const spec = {
     job,
     scene_items: project.scene_items.map(strip),
@@ -52,6 +54,8 @@ export async function runExport(project: Project, onLog: (t: string) => void, on
     // Blinged Out Ride: <map>_bor.cts and <map>_mode.xtbl (py/bor_mode.py).
     bor: s.modes.includes(BOR),
     ...crate,
+    // The game's own sky from the player's game files (py/native_sky.py); the fake sky image stays as the fallback.
+    ...gameSky,
     // Extras written after the main export (py/map_features.py).
     ambience: s.ambience || '', loading_image: s.loading_mode === 'none' ? '' : s.loading_image || '',
   }
@@ -161,6 +165,8 @@ function exportNotes(p: Project, r: ExportResult) {
     `Native objects: ${s.native_objects} (including ${s.native_props} movable/explosive props)`,
     `Native point lights: ${s.lights} (first gameplay test pending)`,
     ...(s.water_volumes ? [`Swimmable water: ${s.water_volumes} volume(s) (new, not yet tried in game)`] : []),
+    `Sky: ${s.game_sky ? "the game's own sky from mp_bac_01 in your game files (new, not yet tried in game)"
+      : p.settings.native_sky ? `native sky preset ${p.settings.native_sky}` : p.settings.sky_texture ? 'fake sky image' : 'none (black in game)'}`,
     '',
     'Install: copy this whole folder into SaintsReborn/dist/maps, then start the game.',
     'Back up any map with the same name first. Test new native props, glass and lights in a private match.',
