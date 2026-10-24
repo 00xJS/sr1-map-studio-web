@@ -114,6 +114,13 @@ class PyClient {
     return this.send({ type: 'read', paths })
   }
 
+  /** Deletes files from the worker FS (gone already is fine). */
+  async remove(paths: string[]): Promise<void> {
+    await this.init()
+    await this.send({ type: 'remove', paths })
+    paths.forEach((x) => this.written.delete(x))
+  }
+
   async exists(paths: string[]): Promise<boolean[]> {
     await this.init()
     return this.send({ type: 'exists', paths })

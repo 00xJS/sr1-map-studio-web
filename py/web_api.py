@@ -500,6 +500,20 @@ def extract_bbchunk(chunk_path, peg_path, out_obj):
         return _fail(exc)
 
 
+def map_tool(op, spec_json):
+    """Finished maps opened from their folder (py/map_upgrade.py): 'inspect' reads what the editor needs,
+    'upgrade' changes the chunk and texture file in place. Returns the result and the log lines."""
+    try:
+        import map_upgrade
+        if op not in ('inspect', 'upgrade'):
+            raise ValueError('Unknown map tool ' + str(op))
+        lines = []
+        value = getattr(map_upgrade, op)(json.loads(spec_json), lines.append)
+        return _ok({**value, 'log': lines})
+    except Exception as exc:
+        return _fail(exc)
+
+
 def texture_preview(path, max_size=1024):
     """PNG bytes for formats a browser cannot show (TGA, DDS, TIFF)."""
     from PIL import Image

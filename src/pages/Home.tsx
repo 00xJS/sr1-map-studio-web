@@ -8,6 +8,8 @@ import { downloadBlob } from '../lib/exporter'
 import { accountsEnabled, hubEnabled, useBackend, type HubMapMeta } from '../lib/backend'
 import { SAMPLE_CARDS as SAMPLES, type SampleCard as Sample } from '../lib/sampleCatalog'
 import { FileButton, Modal, confirmDialog, infoDialog, timeAgo, toastError, useBusy } from '../ui'
+import { dropHasMap } from '../lib/mapFolder/files'
+import { openMapDrop, openMapFiles } from '../lib/mapFolder/store'
 import './home.css'
 
 const CloudSection = lazy(() => import('./CloudSection').then((m) => ({ default: m.CloudSection })))
@@ -189,7 +191,9 @@ export default function Home() {
         </div>
       )}
 
-      <section className="col">
+      <section className="col"
+        onDragOver={(e) => { if (e.dataTransfer.types.includes('Files')) e.preventDefault() }}
+        onDrop={(e) => { if (!dropHasMap(e.dataTransfer)) return; e.preventDefault(); openMapDrop(e.dataTransfer).catch(toastError) }}>
         <div className="row between wrap">
           <h2>My maps</h2>
           <div className="row wrap">
@@ -197,8 +201,12 @@ export default function Home() {
             <FileButton className="sm" multiple accept=".zip,.json,.obj,.mtl,.glb,.gltf,.fbx,.png,.jpg,.jpeg,.tga,.bmp,.dds" onFiles={importFiles} disabled={busy}
               title="A .sr1map.zip backup, or a desktop .sr1map.json selected together with its models and textures">Import project…</FileButton>
             <FileButton className="sm" directory onFiles={importFiles} disabled={busy} title="Pick the folder that holds a desktop .sr1map.json and its files">Import desktop folder…</FileButton>
+            <FileButton className="sm" directory onFiles={(f) => run(() => openMapFiles(f))} disabled={busy}
+              title="A finished map from SaintsReborn/dist/maps (the folder with bundle_info.xtbl and levels/): edit it and export it again, or add the game's sky to it">Open a game map…</FileButton>
+            <FileButton className="sm" accept=".zip" onFiles={(f) => run(() => openMapFiles(f))} disabled={busy} title="A zip of a finished map folder">Open a map zip…</FileButton>
           </div>
         </div>
+        <p className="small faint">Made a map a while ago? <b>Open a game map</b> picks its folder in <code>SaintsReborn/dist/maps</code> (or drop the folder or its zip here) to edit it, or to add the game's own sky without rebuilding it.</p>
         {projects === null ? <p className="muted">Loading…</p> : projects.length === 0 ? (
           <div className="card"><p className="muted">No maps yet. Make one above, or import a desktop SR1 Map Studio project. Maps are saved in this browser; to pass one to someone, use <b>Backup</b> and they open it with <b>Import project…</b>.</p></div>
         ) : (

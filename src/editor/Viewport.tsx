@@ -19,6 +19,8 @@ import { ghostFor } from './ghost'
 import { PhysicsHud } from './PhysicsHud'
 import { attachHealthOverlay } from './health'
 import { attachGroundTools } from './groundTools'
+import { dropHasMap } from '../lib/mapFolder/files'
+import { openMapDrop } from '../lib/mapFolder/store'
 
 let active: Viewer | null = null
 /** The editor's viewer (for camera center, snapping and thumbnails). */
@@ -339,6 +341,8 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
         setDropping(false)
         if (!e.dataTransfer.files.length) return
         e.preventDefault()
+        // A map folder or zip from the game opens as a map of its own.
+        if (dropHasMap(e.dataTransfer)) { openMapDrop(e.dataTransfer).catch(toastError); return }
         onEmptyImport([...e.dataTransfer.files])
       }}
     >
