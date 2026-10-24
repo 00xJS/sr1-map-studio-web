@@ -29,23 +29,32 @@ const RULES: [string, RegExp][] = [
   ['Nature', /tree|bush|shrub|plant|grass|rock|stone|log\b|timber|flower|hedge|palm|leaf|leaves/],
   ['Doors and windows', /door|window|shutter|garage/],
   ['Wrecks and vehicles', /car|husk|wreck|truck|boat|plane|bike|cart|trailer/],
+  ['Water and sky', /water|pool|ocean|\bsea\b|river|fountain|sky|cloud|\bsun\b|moon|stars|atmosphere/],
+  ['Ground and roads', /^ter_|terrain|ground|road|street|sidewalk|curb|kerb|asphalt|pavement|hwy|hway|highway|freeway|ramp|bridge|dirt|sand|gravel|grass|lawn|parking|crosswalk/],
+  ['Building pieces', /wall|roof|floor|stair|step|beam|column|pillar|awning|ledge|trim|facade|duct|chimney|balcony|scaffold|girder|brick|concrete|plaster|tile|panel|frame|pipe|rail|arch|dome|tower|hull|base/],
 ]
 
 export const CATEGORIES = [BUILDINGS, ...RULES.map(([c]) => c), OTHER]
 
-/** The category for an object from its profile name and base name. */
-export function categoryOf(profile: string, base: string): string {
+/**
+ * The category for an object from its profile name and base name, then (for pieces the name doesn't place) its
+ * texture names; anything over 60 m across is ground or a road.
+ */
+export function categoryOf(profile: string, base: string, textures: string[] = [], size?: number[]): string {
   const p = profile.toLowerCase()
   const text = (p === 'default' ? '' : p + ' ') + base
   for (const [cat, re] of RULES) if (re.test(text)) return cat
+  const tex = textures.map((t) => t.toLowerCase().replace(/\.\w+$/, '')).join(' ')
+  for (const [cat, re] of RULES) if (re.test(tex)) return cat
+  if (size && Math.max(size[0], size[1]) > 60 && size[2] < Math.max(size[0], size[1]) / 4) return 'Ground and roads'
   return OTHER
 }
 
 /** Profile names the editor shows as a hint ("Default" means none). */
 export const profileLabel = (p: string) => (!p || p.toLowerCase() === 'default' ? '' : p)
 
-/** Names that are terrain, shadows or the like: not useful as objects to place. */
-export const skipName = (lname: string) => /^ter_|_sdw|sdw$|shd$|_shd|shadow|blocker|^hwy|^hway|occluder|_lod\d*$|lod$/.test(lname)
+/** Names of things that are never seen: shadow volumes, blockers, occluders and lower-detail copies. */
+export const skipName = (lname: string) => /_sdw|sdw$|shd$|_shd|shadow|blocker|occluder|_lod\d*$|lod$/.test(lname)
 
 /**
  * The building a part belongs to, from its name: building parts share a code of letters and one digit and

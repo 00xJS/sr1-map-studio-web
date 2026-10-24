@@ -11,6 +11,7 @@ import { MINE, normalize, prefabCategories, prefabEntries, searchPrefabs, type P
 import { PrefabThumb, ThumbWatch, makeWatcher } from './PrefabThumb'
 import type { ThumbBundle } from '../lib/prefabRender'
 import { GAME_TAB, GameObjectsTab, tileOf, type GameTile } from './GameObjectsTab'
+import { loadIndex, useGameObjects } from '../lib/gameObjects/client'
 import { entryById } from '../lib/gameObjects/client'
 
 type Entry = PrefabEntry & { saved?: { sig: string; bundle: ThumbBundle } }
@@ -127,7 +128,10 @@ function Panel() {
   const mine = useMyPrefabs()
   const { favs, recent } = usePrefabLists()
   const [query, setQuery] = useState('')
-  const [tab, setTab] = useState(() => sessionStorage.getItem('sr1ms.prefabTab') || 'All')
+  // With a library of the player's own game objects, it opens on those first.
+  const gameEntries = useGameObjects((s) => s.entries)
+  const [tab, setTab] = useState(() => { try { return sessionStorage.getItem('sr1ms.prefabTab') || '' } catch { return '' } })
+  useEffect(() => { void loadIndex() }, [])
   const [scroller, setScroller] = useState<HTMLDivElement | null>(null)
   const watch = useMemo(() => (scroller && typeof IntersectionObserver === 'function' ? makeWatcher(scroller, '240px 0px') : null), [scroller])
 
@@ -139,7 +143,12 @@ function Panel() {
   const favSet = useMemo(() => new Set(favs), [favs])
   const pick = (list: string[]) => list.map((s) => byShape.get(s)).filter((e): e is Entry => !!e)
 
-  const activeTab = tab === 'All' || tab === GAME_TAB || counts.has(tab) ? tab : 'All'
+  const activeTab = tab === 'All' || tab === GAME_TAB || counts.has(tab) ? tab : gameEntries?.length ? GAME_TAB : 'All'
+  const gameHits = useMemo(() => {
+    const words = normalize(query).split(' ').filter(Boolean)
+    if (!words.length || !gameEntries || activeTab === GAME_TAB) return 0
+    return gameEntries.filter((e) => { const t = normalize([e.name, ...(e.names ?? []), ...(e.raw ?? []), ...e.tex.map((x) => x.replace(/\.\w+$/, ''))].join(' ')); return words.every((w) => t.includes(w)) }).length
+  }, [query, gameEntries, activeTab])
   const chooseTab = (t: string) => { setTab(t); try { sessionStorage.setItem('sr1ms.prefabTab', t) } catch { /* fine */ } scroller?.scrollTo({ top: 0 }) }
   const inTab = activeTab === 'All' ? all : all.filter((e) => e.category === activeTab)
   const q = query.trim()
@@ -168,11 +177,13 @@ function Panel() {
     // Objects from the player's own game files (their own tab: thousands of them, never mixed into All).
     body = <GameObjectsTab query={q} current={current} onChoose={(t: GameTile) => choose(t as unknown as Entry)} onHover={(t) => usePrefabBrowser.setState({ hover: t as unknown as Entry | null })} />
   } else if (found) {
+    const fromGame = gameHits > 0 && <button className="sm game-tab" onClick={() => chooseTab(GAME_TAB)}>{gameHits.toLocaleString()} from your game →</button>
     body = found.length
-      ? <Section title={`${found.length} found`}>{grid(found)}</Section>
+      ? <>{fromGame}<Section title={`${found.length} found`}>{grid(found)}</Section></>
       : (
         <div className="prefab-empty col">
           <span className="muted">Nothing called “{q}”{activeTab !== 'All' ? ` in ${activeTab}` : ''}.</span>
+          {fromGame}
           {activeTab !== 'All' && <button className="sm" onClick={() => chooseTab('All')}>Search everything</button>}
         </div>
       )
@@ -201,7 +212,7 @@ function Panel() {
         <button className="sm quiet" onClick={closePrefabBrowser} title="Close (Esc)" aria-label="Close prefabs">✕</button>
       </div>
       <div className="prefab-tabs" role="tablist" onWheel={(e) => { if (!e.deltaX) e.currentTarget.scrollLeft += e.deltaY }}>
-        {['All', GAME_TAB, ...cats].map((c) => c === GAME_TAB
+        {[GAME_TAB, 'All', ...cats].map((c) => c === GAME_TAB
           ? <button key={c} role="tab" aria-selected={activeTab === c} className={'sm game-tab' + (activeTab === c ? ' on' : '')} title="Real objects from your own Saints Row game files: for your own maps, not shareable" onClick={() => chooseTab(c)}>{c}</button>
           : (
             <button key={c} role="tab" aria-selected={activeTab === c} className={'sm' + (activeTab === c ? ' on' : '')} onClick={() => chooseTab(c)}>

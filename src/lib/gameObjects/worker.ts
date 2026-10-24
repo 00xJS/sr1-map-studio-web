@@ -5,7 +5,7 @@
 import { openVpp, type Vpp } from '../sr1char/vpp'
 import { readChunk, type Chunk } from './chunk'
 import type { PegImage } from '../sr1char/peg'
-import { indexChunk, type Candidate } from './indexer'
+import { indexChunk, type Candidate, isMpChunk, summarizeChunk, type MapSummary } from './indexer'
 import { extractObject, type ObjectMesh } from './extract'
 import { ALWAYS_PEGS, INVISIBLE_TEXTURE, chunkPegNames, findShared, findTexture, hasAlpha, indexPeg, shrink, textureDirectory, type PegIndex, type TextureDirectory } from './textures'
 import { MAP, cutArea, isCityChunk, mapChunk, scanArea, type ChunkSummary, type CutPiece, type Hole, type Rect } from '../city/city'
@@ -28,7 +28,7 @@ export type Request =
 export type Reply =
   | { id: number; ok: true; value: unknown }
   | { id: number; ok: false; error: string }
-  | { id: number; type: 'chunk'; key: string; candidates: Candidate[]; done: number; total: number; ms: number }
+  | { id: number; type: 'chunk'; key: string; candidates: Candidate[]; summary?: MapSummary; done: number; total: number; ms: number }
   | { id: number; type: 'progress'; done: number; total: number }
 
 /** The city map: highest surface per pixel (decimetres, -32768 for nothing), what it is (see Ground), and which chunks cover where. */
@@ -179,13 +179,16 @@ async function index(id: number, skip: Set<string>) {
     if (skip.has(key)) continue
     const t = performance.now()
     let candidates: Candidate[] = []
+    let summary: MapSummary | undefined
     try {
       const vpp = await pack(p)
-      candidates = indexChunk(readChunk(await vpp.read(c + '.bbchunk_xbox2')), p, c)
+      const ch = readChunk(await vpp.read(c + '.bbchunk_xbox2'))
+      candidates = indexChunk(ch, p, c)
+      if (isMpChunk(p, c)) summary = summarizeChunk(ch, c)
     } catch (e) {
       failed.push(`${c}: ${(e as Error).message}`)
     }
-    post({ id, type: 'chunk', key, candidates, done, total: jobs.length, ms: performance.now() - t })
+    post({ id, type: 'chunk', key, candidates, summary, done, total: jobs.length, ms: performance.now() - t })
   }
   const opened: [string, Vpp][] = []
   for (const p of INDEX_PACKS) if (vpps.has(p)) opened.push([p, await pack(p)])

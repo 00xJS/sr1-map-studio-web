@@ -152,6 +152,7 @@ export function describeEdit(a: AiAction): string {
     case 'edit_light': return `Change ${a.all ? 'all lights' : 'lights'}`
     case 'delete_lights': return a.all ? 'Remove every light' : 'Remove some lights'
     case 'set_map': return `Map settings: ${[a.name && `name "${a.name}"`, a.ambience !== undefined && `sound ${a.ambience || 'none'}`, a.game_sky !== undefined && (a.game_sky ? "the game's sky" : "no game sky"), a.sky_picture && 'a sky picture', a.loading && `loading picture ${a.loading}`].filter(Boolean).join(', ')}`
+    case 'add_game_object': return `Add ${a.name ?? 'an object'} from your game${at(a)}${both(a)}`
     case 'add_weapons': return `Add weapons: ${(a.weapons ?? []).join(', ')}${a.where && a.where !== 'spread' ? ` (${a.where})` : ''}`
     default: return a.do.replace(/_/g, ' ')
   }

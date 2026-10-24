@@ -12,6 +12,24 @@ import type { GameObjectEntry } from '../lib/gameObjects/indexer'
 import { canPickFolder } from '../lib/gameFiles'
 import { missingInProject, rebuildMissing } from './gameObjectActions'
 import { normalize } from '../lib/prefabIndex'
+import { AMBIENCE_OPTIONS } from '../lib/mapFeatures'
+import type { MapSummary } from '../lib/gameObjects/indexer'
+
+/** A retail map's name as players know it: "The Corner (mp_bac_01)". */
+export function mapLabel(stem: string): string {
+  // The copies the game renders its minimaps from carry the map's name plus _mm or _minimap.
+  const mm = stem.match(/^(.+?)_(mm|minimap)$/)
+  if (mm) return mapLabel(mm[1]).replace(/ \((.+)\)$/, `, minimap version (${stem})`)
+  return AMBIENCE_OPTIONS.find((o) => o.file === 'amb_' + stem)?.label ?? stem
+}
+const CITY = 'city'
+
+/** One line about what a retail map holds. */
+function mapLine(m: MapSummary | undefined, objects: number): string {
+  if (!m) return `${objects.toLocaleString()} objects`
+  const w = Math.round(m.extent[2] - m.extent[0]), d = Math.round(m.extent[3] - m.extent[1])
+  return `${objects.toLocaleString()} different objects · ${m.records.toLocaleString()} placed (${m.instances.toLocaleString()} pieces) · ${m.lights} lights · ${m.sky ? "the game's sky" : 'no sky of its own'} · about ${w} × ${d} m · ${m.textures} textures`
+}
 
 const PAGE = 120
 export const GAME_TAB = 'From my game'
@@ -25,7 +43,8 @@ export const tileOf = (e: GameObjectEntry): GameTile => ({
   hint: `${e.profile ? e.profile + ' · ' : ''}${e.size.map((v) => v.toFixed(v < 10 ? 2 : 1)).join(' × ')} m · ${e.tris.toLocaleString()} triangles · in the game ${e.seen.toLocaleString()}× · ${NOTICE}`,
 })
 
-const searchText = (e: GameObjectEntry) => normalize([e.name, ...(e.names ?? []), e.profile, e.cat, e.chunk].join(' '))
+/** Its names, the game's own record names and its texture names (so "USPSMailBox" finds the mailbox that wears it). */
+const searchText = (e: GameObjectEntry) => normalize([e.name, ...(e.names ?? []), ...(e.raw ?? []), ...(e.tex ?? []).map((t) => t.replace(/\.\w+$/, '')), e.profile, e.cat, e.chunk].join(' ')) + ' ' + [...(e.raw ?? []), ...(e.tex ?? [])].join(' ').toLowerCase()
 
 const Tile = memo(function Tile({ e, on, onChoose, onHover }: { e: GameObjectEntry; on: boolean; onChoose: (t: GameTile) => void; onHover: (t: GameTile | null) => void }) {
   const t = tileOf(e)
@@ -67,18 +86,26 @@ function Missing() {
 export function GameObjectsTab({ query, current, onChoose, onHover }: { query: string; current: string; onChoose: (t: GameTile) => void; onHover: (t: GameTile | null) => void }) {
   const { status, entries, progress, error, connected, info } = useGameObjects()
   const [cat, setCat] = useState('All')
+  const [where, setWhere] = useState('All')
   const [shown, setShown] = useState(PAGE)
   useEffect(() => { void loadIndex() }, [])
   // With the index stored and the folder still allowed, open the game files quietly for the pictures.
   useEffect(() => { if (entries && !connected) connect(false).catch(() => {}) }, [entries, connected])
-  useEffect(() => setShown(PAGE), [query, cat])
+  useEffect(() => setShown(PAGE), [query, cat, where])
 
-  const counts = useMemo(() => (entries ?? []).reduce((m, e) => m.set(e.cat, (m.get(e.cat) ?? 0) + 1), new Map<string, number>()), [entries])
+  const here = useMemo(() => (entries ?? []).filter((e) => where === 'All' || (e.where ?? [CITY]).includes(where)), [entries, where])
+  const counts = useMemo(() => here.reduce((m, e) => m.set(e.cat, (m.get(e.cat) ?? 0) + 1), new Map<string, number>()), [here])
+  // Every place the library has objects from: the city, then each retail multiplayer map.
+  const places = useMemo(() => {
+    const n = new Map<string, number>()
+    for (const e of entries ?? []) for (const w of e.where ?? [CITY]) n.set(w, (n.get(w) ?? 0) + 1)
+    return [...n.entries()].sort((a, b) => (a[0] === CITY ? -1 : b[0] === CITY ? 1 : mapLabel(a[0]).localeCompare(mapLabel(b[0]))))
+  }, [entries])
   const texts = useMemo(() => new Map((entries ?? []).map((e) => [e.id, searchText(e)])), [entries])
   const list = useMemo(() => {
     const words = normalize(query).split(' ').filter(Boolean)
-    return (entries ?? []).filter((e) => (cat === 'All' || e.cat === cat) && words.every((w) => texts.get(e.id)!.includes(w)))
-  }, [entries, cat, query, texts])
+    return here.filter((e) => (cat === 'All' || e.cat === cat) && words.every((w) => texts.get(e.id)!.includes(w)))
+  }, [here, cat, query, texts])
 
   const head = <p className="faint small game-notice">{NOTICE} Read from your own Saints Reborn install in this browser; nothing is uploaded, and maps that use them can't go on the hub, the Showcase or a share link.</p>
 
@@ -117,10 +144,20 @@ export function GameObjectsTab({ query, current, onChoose, onHover }: { query: s
         </div>
       )}
       <Missing />
+      <div className="row wrap small" style={{ gap: 6 }}>
+        <label className="row" style={{ gap: 6 }}>
+          <span className="muted">Where</span>
+          <select value={where} onChange={(e) => setWhere(e.target.value)} aria-label="Which map the objects come from">
+            <option value="All">Everywhere ({entries.length.toLocaleString()})</option>
+            {places.map(([w, n]) => <option key={w} value={w}>{w === CITY ? 'Stilwater (the city)' : mapLabel(w)} ({n.toLocaleString()})</option>)}
+          </select>
+        </label>
+        {where !== 'All' && where !== CITY && <span className="faint">{mapLine(info?.maps?.find((m) => m.chunk.toLowerCase() === where), here.length)}</span>}
+      </div>
       <div className="prefab-tabs" style={{ padding: '0 0 6px', borderBottom: 'none' }} onWheel={(e) => { if (!e.deltaX) e.currentTarget.scrollLeft += e.deltaY }}>
         {['All', ...CATEGORIES.filter((c) => counts.has(c))].map((c) => (
           <button key={c} className={'sm' + (cat === c ? ' on' : '')} aria-pressed={cat === c} onClick={() => setCat(c)}>
-            {c}<span className="faint"> {c === 'All' ? entries.length : counts.get(c)}</span>
+            {c}<span className="faint"> {c === 'All' ? here.length : counts.get(c)}</span>
           </button>
         ))}
       </div>

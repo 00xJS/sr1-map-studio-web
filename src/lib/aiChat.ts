@@ -71,6 +71,7 @@ export type AiAction =
   | ({ do: 'edit_light'; indices?: number[]; near?: [number, number, number]; all?: boolean; x?: number; y?: number; z?: number } & Record<string, unknown>)
   | { do: 'delete_lights'; indices?: number[]; near?: [number, number, number]; all?: boolean }
   | { do: 'set_map'; name?: string; ambience?: string; game_sky?: boolean; sky_picture?: boolean; loading?: 'auto' | 'none' }
+  | { do: 'add_game_object'; id?: string; name?: string; x?: number; z?: number; turn?: number; mirror?: boolean }
   | { do: 'place_line'; item: AiPlaceable; from: [number, number]; to: [number, number]; count: number; face?: 'along' | 'across'; mirror?: boolean }
   | { do: 'place_ring'; item: AiPlaceable; center?: [number, number]; radius: number; count: number; start?: number; face?: 'in' | 'out'; mirror?: boolean }
   | ({ do: 'mirror'; markers?: number[] } & AiTarget)
@@ -78,7 +79,7 @@ export type AiAction =
   | { do: 'set_weather'; clear: boolean }
   | { do: 'generate_map'; setting: string; layout: string; players: number; density?: string; seed?: number; name?: string; then?: AiAction[]; generator?: 'wizard' | 'city'; size?: string }
 
-export const KNOWN_EDITS = new Set(['add_prefab', 'add_shape', 'move', 'turn', 'scale', 'delete', 'duplicate', 'prefab_settings', 'add_marker', 'delete_markers', 'move_marker', 'add_light', 'set_modes', 'rename_map', 'select', 'paint', 'place_line', 'place_ring', 'mirror', 'make_symmetric', 'set_weather', 'generate_map', 'spread_spawns', 'add_weapons', 'set_object', 'edit_marker', 'edit_light', 'delete_lights', 'set_map'])
+export const KNOWN_EDITS = new Set(['add_prefab', 'add_shape', 'move', 'turn', 'scale', 'delete', 'duplicate', 'prefab_settings', 'add_marker', 'delete_markers', 'move_marker', 'add_light', 'set_modes', 'rename_map', 'select', 'paint', 'place_line', 'place_ring', 'mirror', 'make_symmetric', 'set_weather', 'generate_map', 'spread_spawns', 'add_weapons', 'set_object', 'edit_marker', 'edit_light', 'delete_lights', 'set_map', 'add_game_object'])
 
 export interface AiReply { reply: string; actions: AiAction[] }
 
@@ -216,6 +217,7 @@ function reference(profile: ModelProfile, request = ''): string {
 }
 
 const EDITS = `{"do":"add_prefab","key":"bench","x":10,"z":-20,"turn":90,"settings":{},"mirror":true}
+{"do":"add_game_object","id":"<id from the game object list>","x":4,"z":-12,"turn":90,"mirror":true}   (a real Saints Row object from the player's own game files, when the list below has one; prefer these when the player asks for the game's own objects)
 {"do":"add_shape","shape":"wall","x":0,"z":-30,"turn":0,"size":[12,6,1],"mirror":true}
 {"do":"move","index":3,"x":10,"z":-4}   or relative: {"do":"move","index":3,"dx":2,"dy":0,"dz":0}
 {"do":"turn","index":3,"degrees":90}
@@ -256,7 +258,32 @@ const RULES = `Rules:
 const EXAMPLE = `Example. User: "put a lamp on each side of the middle" ->
 {"reply":"Added a street lamp on each side of the middle.","actions":[{"do":"add_prefab","key":"lamp","x":12,"z":-6,"turn":0,"mirror":true}]}`
 
-export function systemPrompt(map: string, profile: ModelProfile = modelProfile(DEFAULT_MODEL), request = ''): string {
+/** A library entry as the prompt needs it (see gameObjects/indexer.ts). */
+export interface GameObjectLike { id: string; name: string; names?: string[]; raw?: string[]; tex: string[]; cat: string; size: number[]; where?: string[]; seen: number }
+
+/**
+ * The player's game objects that fit a request, best first: a word in the name or the game's own names counts
+ * most, in its texture names or category less; the game's most used copies first among equals.
+ */
+export function relevantGameObjects<T extends GameObjectLike>(entries: T[] | null | undefined, request: string, count = 24): T[] {
+  const words = [...new Set(normalize(request).trim().split(' ').filter((w) => w.length > 2 && !STOP.has(w)).map(stem))]
+  if (!entries?.length || !words.length) return []
+  const scored: [T, number][] = []
+  for (const e of entries) {
+    const names = ' ' + [e.name, ...(e.names ?? []), ...(e.raw ?? [])].join(' ').toLowerCase() + ' '
+    const other = ' ' + [...e.tex, e.cat].join(' ').toLowerCase() + ' '
+    let score = 0
+    for (const w of words) score += names.includes(w) ? 4 : other.includes(w) ? 1.5 : 0
+    if (score) scored.push([e, score + Math.min(1, Math.log10(1 + e.seen) / 4)])
+  }
+  return scored.sort((a, b) => b[1] - a[1]).slice(0, count).map(([e]) => e)
+}
+
+const gameList = (list: GameObjectLike[]) => list.length
+  ? `\nObjects from the player's own game files (add_game_object; for their own maps only): ${list.map((e) => `${e.id} ${e.name} (${e.cat}, ${e.size.map((v) => +v.toFixed(1)).join('×')} m${e.where?.length ? ', in ' + e.where.slice(0, 3).join('/') : ''})`).join('; ')}.\n`
+  : ''
+
+export function systemPrompt(map: string, profile: ModelProfile = modelProfile(DEFAULT_MODEL), request = '', game: GameObjectLike[] = []): string {
   return `You help someone build a Saints Row 1 multiplayer map in a web editor. You can talk about the map and change it.
 
 Always answer with ONE JSON object and nothing else (no code fence, no comments):
@@ -268,7 +295,7 @@ ${EDITS}
 ${RULES}
 ${profile.tier === 'reasoning' ? '' : '\n' + EXAMPLE + '\n'}
 ${reference(profile, request)}
-
+${gameList(game)}
 The map now:
 ${map}
 

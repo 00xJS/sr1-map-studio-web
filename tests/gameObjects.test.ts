@@ -6,7 +6,7 @@ import { GAME_TESTS } from './testMode'
 import { existsSync, mkdirSync, openAsBlob, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readChunk, meshTriangles, meshTriangleCount, meshTextures } from '../src/lib/gameObjects/chunk'
-import { indexChunk, mergeCandidates, meshBounds, keyId, type Candidate } from '../src/lib/gameObjects/indexer'
+import { indexChunk, mergeCandidates, meshBounds, keyId, textureName, type Candidate } from '../src/lib/gameObjects/indexer'
 import { extractObject } from '../src/lib/gameObjects/extract'
 import { baseName, buildingCode, categoryOf, BUILDINGS, OTHER, skipName } from '../src/lib/gameObjects/classify'
 import { chunkPegNames, pegHeadNames, pegHeadSize, shrink, hasAlpha, textureDirectory } from '../src/lib/gameObjects/textures'
@@ -107,15 +107,23 @@ describe('library index', () => {
     expect(keyId('x')).not.toBe(keyId('y'))
   })
 
-  it('leaves out one-off pieces with no category or profile', () => {
-    const one = { key: 'k', up: 1, id: 'i', name: 'thing', cat: OTHER, profile: '', pack: 'p', chunk: 'c', record: 0, size: [1, 1, 1], tris: 2, tex: [], seen: 1 } as Candidate
-    expect(mergeCandidates([one])).toEqual([])
-    expect(mergeCandidates([one, { ...one, chunk: 'd' }])).toHaveLength(1)
+  it('keeps every model, one-off pieces too, with the maps it is in and its real names', () => {
+    const one = { key: 'k', up: 1, id: 'i', name: 'thing', cat: OTHER, profile: '', pack: 'sr_city_stream', chunk: 'sr_chunk01', record: 0, size: [1, 1, 1], tris: 2, tex: [], seen: 1, raw: ['14ThingA01'] } as Candidate
+    expect(mergeCandidates([one])).toHaveLength(1)
+    const [e] = mergeCandidates([one, { ...one, pack: 'mp_city_stream', chunk: 'mp_bac_01', raw: ['ThingB'] }, { ...one, pack: 'mp_city_stream', chunk: 'mp_bac_01_AL' }])
+    expect(e.seen).toBe(3)
+    expect(e.where).toEqual(['city', 'mp_bac_01'])
+    expect(e.raw).toEqual(['14ThingA01', 'ThingB'])
   })
 })
 
 describe('cutting an object out', () => {
   const ch = readChunk(buildChunk(world()))
+
+  it('reads a piece the game placed without a record by its instance', () => {
+    const byRecord = extractObject(ch, { record: 0 }), byInstance = extractObject(ch, { record: -(ch.records[0].instance + 1) })
+    expect(Array.from(byInstance.positions)).toEqual(Array.from(byRecord.positions))
+  })
 
   it('takes the turn out and stands it on the origin', () => {
     const turned = extractObject(ch, { record: 0 }), straight = extractObject(ch, { record: 1 })
@@ -161,8 +169,14 @@ describe('names and categories', () => {
     expect(buildingCode('shop1a_frontdoor01')).toBe('shop1a')
     expect(buildingCode('tower_hull')).toBe('tower')
     expect(buildingCode('crate01')).toBeNull()
-    expect(skipName('ter_road01')).toBe(true)
+    expect(skipName('ter_road01')).toBe(false)
+    expect(skipName('bench_sdw')).toBe(true)
     expect(skipName('bench')).toBe(false)
+    expect(categoryOf('Default', 'ter_road01')).toBe('Ground and roads')
+    // A cryptic name: the texture it wears says what it is.
+    expect(categoryOf('Default', 'b11a', ['USPSMailBox_tm.tga'])).toBe('Street furniture')
+    expect(categoryOf('Default', 'zzz', [], [120, 80, 2])).toBe('Ground and roads')
+    expect(textureName('USPSMailBox_tm.tga')).toBe('uspsmailbox')
   })
 })
 

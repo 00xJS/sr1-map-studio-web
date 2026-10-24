@@ -31,13 +31,14 @@ export function extractObject(ch: Chunk, ref: Pick<ObjectRef, 'record' | 'parts'
   const pos: number[] = [], uv: number[] = [], tris: number[] = [], triMat: number[] = []
   const matIndex = new Map<string, number>()
   const materials: string[] = []
+  // A record number below 0 is a piece placed without a record: -(instance + 1).
+  const instOf = (ri: number) => (ri < 0 ? ch.instances[-ri - 1] : ch.instances[ch.records[ri]?.instance])
   // Buildings: parts placed about the first part's position.
-  const first = ch.instances[ch.records[records[0]]?.instance]
+  const first = instOf(records[0])
   if (!first) throw new Error('record ' + records[0] + ' has no placement in the chunk')
   const origin = single ? [0, 0, 0] : first.position
   for (const ri of records) {
-    const rec = ch.records[ri]
-    const inst = rec && ch.instances[rec.instance]
+    const inst = instOf(ri)
     if (!inst || !ch.meshes[inst.mesh]) continue
     const part = meshTriangles(ch, inst.mesh)
     const R = inst.rotation

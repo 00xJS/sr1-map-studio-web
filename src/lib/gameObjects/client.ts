@@ -5,13 +5,13 @@
 import { create } from 'zustand'
 import { openDb } from '../db'
 import { gamePack } from '../gameFiles'
-import { mergeCandidates, type Candidate, type GameObjectEntry } from './indexer'
+import { mergeCandidates, type Candidate, type GameObjectEntry, type MapSummary } from './indexer'
 import type { CityCut, CityMap, ObjectResult, PackSource, Reply, Request } from './worker'
 import type { Hole, Rect } from '../city/city'
 import type { TextureDirectory } from './textures'
 
 /** Bump when the index changes shape or rules: the next visit rebuilds it. */
-export const INDEX_VERSION = 3
+export const INDEX_VERSION = 4
 const INDEX_KEY = 'gameObjects:index'
 const CHUNK_PREFIX = 'gameObjects:chunk:'
 export const PACK_FILES: Record<string, string> = {
@@ -21,7 +21,7 @@ export const PACK_FILES: Record<string, string> = {
 }
 const NEEDED = ['sr_city_stream']
 
-interface StoredIndex { version: number; sig: string; entries: GameObjectEntry[]; texDir: TextureDirectory; builtAt: string; ms: number; chunks: number; failed: string[] }
+interface StoredIndex { version: number; sig: string; entries: GameObjectEntry[]; texDir: TextureDirectory; builtAt: string; ms: number; chunks: number; failed: string[]; maps?: MapSummary[] }
 
 /** Which texture file holds each picture (kept with the index, handed to the worker when it opens the game files). */
 let texDir: TextureDirectory | null = null
@@ -34,7 +34,7 @@ export interface GameObjectsState {
   error: string | null
   /** The packfiles are open in the worker this tab (pictures and placing work). */
   connected: boolean
-  info: { builtAt: string; ms: number; chunks: number; failed: string[] } | null
+  info: { builtAt: string; ms: number; chunks: number; failed: string[]; maps?: MapSummary[] } | null
 }
 
 export const useGameObjects = create<GameObjectsState>(() => ({ status: 'idle', entries: null, progress: null, error: null, connected: false, info: null }))
@@ -120,9 +120,9 @@ export async function loadIndex(): Promise<GameObjectEntry[] | null> {
   try {
     const stored = await req((await meta()).get(INDEX_KEY)) as StoredIndex | undefined
     if (stored?.version === INDEX_VERSION) {
-      const { entries, builtAt, ms, chunks, failed } = stored
+      const { entries, builtAt, ms, chunks, failed, maps } = stored
       texDir = stored.texDir
-      useGameObjects.setState({ status: 'ready', entries, info: { builtAt, ms, chunks, failed } })
+      useGameObjects.setState({ status: 'ready', entries, info: { builtAt, ms, chunks, failed, maps } })
       return entries
     }
   } catch { /* storage blocked: build it in memory */ }
@@ -140,36 +140,42 @@ export function buildIndex(ask: boolean, force = false): Promise<GameObjectEntry
       const stored = await req((await meta()).get(INDEX_KEY)).catch(() => undefined) as StoredIndex | undefined
       if (!force && stored?.version === INDEX_VERSION && stored.sig === sig) {
         if (!texDir) { texDir = stored.texDir; await call({ type: 'texdir', dir: texDir }) }
-        useGameObjects.setState({ status: 'ready', entries: stored.entries, info: { builtAt: stored.builtAt, ms: stored.ms, chunks: stored.chunks, failed: stored.failed } })
+        useGameObjects.setState({ status: 'ready', entries: stored.entries, info: { builtAt: stored.builtAt, ms: stored.ms, chunks: stored.chunks, failed: stored.failed, maps: stored.maps } })
         return stored.entries
       }
       useGameObjects.setState({ status: 'indexing', progress: { done: 0, total: 0 }, error: null })
       const t0 = performance.now()
       // Chunks done on an earlier visit with the same game files are not read again.
       const kept = new Map<string, Candidate[]>()
+      const summaries = new Map<string, MapSummary>()
       try {
         const store = await meta()
         const [keys, values] = await Promise.all([req(store.getAllKeys(chunkRange())), req(store.getAll(chunkRange()))])
         keys.forEach((k, i) => {
-          const v = values[i] as { sig: string; version: number; candidates: Candidate[] }
-          if (!force && v?.sig === sig && v.version === INDEX_VERSION) kept.set(String(k).slice(CHUNK_PREFIX.length), v.candidates)
+          const v = values[i] as { sig: string; version: number; candidates: Candidate[]; summary?: MapSummary }
+          if (!force && v?.sig === sig && v.version === INDEX_VERSION) {
+            kept.set(String(k).slice(CHUNK_PREFIX.length), v.candidates)
+            if (v.summary) summaries.set(String(k).slice(CHUNK_PREFIX.length), v.summary)
+          }
         })
       } catch { /* storage blocked */ }
       const found = new Map(kept)
       const result = await call<{ total: number; failed: string[]; texDir: TextureDirectory }>({ type: 'index', skip: [...kept.keys()] }, (m) => {
         found.set(m.key, m.candidates)
+        if (m.summary) summaries.set(m.key, m.summary)
         useGameObjects.setState({ progress: { done: m.done, total: m.total } })
-        void meta('readwrite').then((s) => s.put({ sig, version: INDEX_VERSION, candidates: m.candidates }, CHUNK_PREFIX + m.key)).catch(() => {})
+        void meta('readwrite').then((s) => s.put({ sig, version: INDEX_VERSION, candidates: m.candidates, summary: m.summary }, CHUNK_PREFIX + m.key)).catch(() => {})
       })
       const entries = mergeCandidates([...found.values()].flat())
       texDir = result.texDir
-      const rec: StoredIndex = { version: INDEX_VERSION, sig, entries, texDir, builtAt: new Date().toISOString(), ms: Math.round(performance.now() - t0), chunks: result.total, failed: result.failed }
+      const maps = [...summaries.values()].sort((a, b) => a.chunk.localeCompare(b.chunk))
+      const rec: StoredIndex = { version: INDEX_VERSION, sig, entries, texDir, builtAt: new Date().toISOString(), ms: Math.round(performance.now() - t0), chunks: result.total, failed: result.failed, maps }
       try {
         const store = await meta('readwrite')
         await req(store.put(rec, INDEX_KEY))
         await req(store.delete(chunkRange()))
       } catch { /* storage blocked: the index lasts this tab */ }
-      useGameObjects.setState({ status: 'ready', entries, progress: null, info: { builtAt: rec.builtAt, ms: rec.ms, chunks: rec.chunks, failed: rec.failed } })
+      useGameObjects.setState({ status: 'ready', entries, progress: null, info: { builtAt: rec.builtAt, ms: rec.ms, chunks: rec.chunks, failed: rec.failed, maps } })
       return entries
     } catch (e) {
       useGameObjects.setState({ status: useGameObjects.getState().entries ? 'ready' : 'error', progress: null, error: (e as Error).message })

@@ -4,7 +4,7 @@
 // are called, so a model copied into many chunks is one entry. Pure functions: the worker runs them on chunks
 // read from the player's own packfiles, and the tests on synthetic and real chunks.
 import { meshIndexCount, meshTextures, meshTriangleCount, type Chunk } from './chunk'
-import { BUILDINGS, CATEGORIES, OTHER, baseName, buildingCode, categoryOf, skipName } from './classify'
+import { BUILDINGS, CATEGORIES, baseName, buildingCode, categoryOf, skipName } from './classify'
 
 export type Vec3 = [number, number, number]
 
@@ -15,13 +15,15 @@ export interface GameObjectEntry {
   name: string
   /** Other names the same model goes by, for searching. */
   names?: string[]
+  /** The game's own names for it, as written (record names like "14mailboxA01"), for searching. */
+  raw?: string[]
   cat: string
   /** The game's physics profile name ('' for none). */
   profile: string
   /** Where it was read from: packfile stem and chunk stem. */
   pack: string
   chunk: string
-  /** The static record placed (the first part, for buildings). */
+  /** The static record placed (the first part, for buildings); -(instance + 1) for a piece the game placed without a record. */
   record: number
   /** Buildings: every part's record. */
   parts?: number[]
@@ -33,13 +35,50 @@ export interface GameObjectEntry {
   seen: number
   /** It has its own physics shape in the game. */
   physics?: boolean
+  /** The multiplayer maps it is in (their chunk names), and 'city' when Stilwater has it too. */
+  where?: string[]
+}
+
+/** What a retail multiplayer map holds, for the library's per-map view. */
+export interface MapSummary {
+  chunk: string
+  /** Named objects and placed pieces. */
+  records: number
+  instances: number
+  /** Placed point lights (the count at header +884). */
+  lights: number
+  /** It carries the game's sky objects (sun, moon, stars, clouds). */
+  sky: boolean
+  materials: number
+  textures: number
+  /** Where its pieces stand, metres: [minX, minZ, maxX, maxZ]. */
+  extent: [number, number, number, number]
+}
+
+/** Multiplayer map chunks: the playable maps and their always-loaded halves. */
+export const isMpChunk = (pack: string, chunk: string) => pack === 'mp_city_stream' && /^mp_/i.test(chunk)
+
+/** A map chunk's contents in numbers. */
+export function summarizeChunk(ch: Chunk, chunk: string): MapSummary {
+  const dv = new DataView(ch.bytes.buffer, ch.bytes.byteOffset, ch.bytes.byteLength)
+  const lights = ch.bytes.byteLength > 888 ? dv.getUint32(884) : 0
+  let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity
+  for (const inst of ch.instances) {
+    const [x, , z] = inst.position
+    if (!Number.isFinite(x) || !Number.isFinite(z) || Math.abs(x) > 1e5 || Math.abs(z) > 1e5) continue
+    x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z)
+  }
+  const tex = new Set<string>()
+  for (const m of ch.materials) for (const t of m.textures ?? []) tex.add(t.toLowerCase())
+  const sky = ['sun', 'moon', 'stars'].every((n) => ch.records.some((r) => r.name.toLowerCase() === n))
+  const r1 = (v: number) => (Number.isFinite(v) ? Math.round(v * 10) / 10 : 0)
+  return { chunk, records: ch.records.length, instances: ch.instances.length, lights: lights < 10000 ? lights : 0, sky, materials: ch.materials.length, textures: tex.size, extent: [r1(x0), r1(z0), r1(x1), r1(z1)] }
 }
 
 /** A chunk's entries before they are merged with the other chunks'. */
 export interface Candidate extends GameObjectEntry { key: string; up: number }
 
-/** Objects bigger than this across are roads, ground and the like. */
-const MAX_SIDE = 90
+/** Smaller than this across is a speck nobody could place. */
 const MIN_SIDE = 0.03
 /** Parts of one building closer than this (metres) belong together. */
 const JOIN_GAP = 1.5
@@ -113,7 +152,9 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
   const groups = new Map<string, number[]>()
   const singles: number[] = []
 
+  const named = new Set<number>()
   ch.records.forEach((rec, i) => {
+    named.add(rec.instance)
     const lname = rec.name.toLowerCase()
     if (!lname || skipName(lname)) return
     const inst = ch.instances[rec.instance]
@@ -167,9 +208,14 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
     }
   }
 
-  for (const i of singles) {
-    const rec = ch.records[i]
-    const inst = ch.instances[rec.instance]
+  // Pieces the game placed with no record of their own (much of the city's ground, walls and trim): named after
+  // their main texture, and found again by their instance.
+  const loose: number[] = []
+  ch.instances.forEach((inst, n) => { if (!named.has(n) && ch.meshes[inst.mesh]?.subs.length) loose.push(-(n + 1)) })
+
+  for (const i of [...singles, ...loose]) {
+    const rec = i >= 0 ? ch.records[i] : null
+    const inst = ch.instances[rec ? rec.instance : -i - 1]
     const mesh = ch.meshes[inst.mesh]
     const b = boundsOf(inst.mesh)
     if (!b) continue
@@ -177,26 +223,29 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
     const up = upAxis(inst.rotation)
     const across = [0, 1, 2].filter((k) => k !== up).map((k) => ext[k])
     const size: Vec3 = [r2(Math.max(...across)), r2(Math.min(...across)), r2(ext[up])]
-    if (Math.max(...size) > MAX_SIDE || Math.max(...size) < MIN_SIDE) continue
+    if (Math.max(...size) < MIN_SIDE) continue
     const tex = meshTextures(ch, mesh)
     const key = `o|${meshIndexCount(mesh)}|${ext.map((v) => Math.round(v * 100)).join(',')}|${(tex[0] ?? '').toLowerCase()}`
-    const name = baseName(rec.name)
+    const name = rec ? baseName(rec.name) : textureName(tex[0] ?? '') || 'piece'
     const prev = out.get(key)
     if (prev) {
       prev.seen++
       if (name !== prev.name && !prev.names?.includes(name) && (prev.names?.length ?? 0) < 4) (prev.names ??= []).push(name)
+      if (rec && !prev.raw?.includes(rec.name) && (prev.raw?.length ?? 0) < 6) (prev.raw ??= []).push(rec.name)
       continue
     }
+    const profile = rec && rec.profile !== 'Default' ? rec.profile : ''
     out.set(key, {
-      key, up, id: keyId(key), name, cat: categoryOf(rec.profile, name), profile: rec.profile === 'Default' ? '' : rec.profile,
-      pack, chunk, record: i, size, tris: meshTriangleCount(ch, mesh), tex: tex.slice(0, 4), seen: 1, ...(rec.shape >= 0 ? { physics: true } : {}),
+      key, up, id: keyId(key), name, cat: categoryOf(profile, name, tex, size), profile,
+      pack, chunk, record: i, size, tris: meshTriangleCount(ch, mesh), tex: tex.slice(0, 4), seen: 1,
+      ...(rec ? { raw: [rec.name] } : {}), ...(rec && rec.shape >= 0 ? { physics: true } : {}),
     })
   }
   return [...out.values()]
 }
 
-/** Pieces with no category and no profile are mostly bits of buildings and ground: kept when the game reuses them and they are not too big. */
-const keep = (c: Candidate, seen: number) => c.cat !== OTHER || !!c.profile || (seen >= 2 && Math.max(...c.size) <= 12)
+/** A plain name from a texture file name: "USPSMailBox_tm.tga" -> "uspsmailbox". */
+export const textureName = (t: string) => t.replace(/\.\w+$/, '').replace(/_(tm|sp|nm|nor|spec|diff?|d|c|a|alpha|mask|hi|lo)$/i, '').toLowerCase()
 
 /**
  * Merges every chunk's candidates into the library: one entry per key, placed where the model is most often
@@ -204,13 +253,15 @@ const keep = (c: Candidate, seen: number) => c.cat !== OTHER || !!c.profile || (
  * how often the game uses it.
  */
 export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
-  const by = new Map<string, { copies: Candidate[]; seen: number; names: Map<string, number>; ups: Map<number, number> }>()
+  const by = new Map<string, { copies: Candidate[]; seen: number; names: Map<string, number>; ups: Map<number, number>; raw: Set<string>; where: Set<string> }>()
   // How many different objects each chunk holds: copies are taken from as few chunks as possible, so drawing a
   // page of pictures reads few chunks.
   const perChunk = new Map<string, number>()
   for (const c of all) {
     let g = by.get(c.key)
-    if (!g) by.set(c.key, (g = { copies: [], seen: 0, names: new Map(), ups: new Map() }))
+    if (!g) by.set(c.key, (g = { copies: [], seen: 0, names: new Map(), ups: new Map(), raw: new Set(), where: new Set() }))
+    g.where.add(isMpChunk(c.pack, c.chunk) ? c.chunk.toLowerCase().replace(/_al$/, '') : 'city')
+    for (const r of c.raw ?? []) if (g.raw.size < 8) g.raw.add(r)
     g.copies.push(c)
     g.seen += c.seen
     for (const n of [c.name, ...(c.names ?? [])]) g.names.set(n, (g.names.get(n) ?? 0) + (n === c.name ? c.seen : 1))
@@ -224,12 +275,13 @@ export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
     const upBest = [...g.ups.entries()].sort((a, b) => b[1] - a[1])[0][0]
     const score = (c: Candidate) => (c.up === upBest ? 1e9 : 0) + (perChunk.get(c.pack + '/' + c.chunk) ?? 0)
     const best = g.copies.reduce((a, b) => (score(b) > score(a) ? b : a))
-    if (!keep(best, g.seen)) continue
-    const { key: _k, up: _u, names: _n, ...e } = best
+    const { key: _k, up: _u, names: _n, raw: _r, ...e } = best
     const names = [...g.names.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n)
     const entry: GameObjectEntry = { ...e, name: names[0] ?? e.name, seen: g.seen }
     if (names.length > 1) entry.names = names.slice(1, 5)
     else delete entry.names
+    if (g.raw.size) entry.raw = [...g.raw]
+    entry.where = [...g.where].sort()
     entries.push(entry)
   }
   const rank = (c: string) => { const i = CATEGORIES.indexOf(c); return i < 0 ? CATEGORIES.length : i }

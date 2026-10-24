@@ -12,9 +12,10 @@ import { useChat, type Turn } from './aiSession'
 import { KeySetup, readKey, readModel } from './AiKey'
 import { loadLibrary } from './paint'
 import {
-  askWithRepair, critiquePrompt, describeMap, formatReminder, modelProfile, parseReply, partialReply, setLibraryTextures, stripThinking, systemPrompt,
+  askWithRepair, critiquePrompt, relevantGameObjects, describeMap, formatReminder, modelProfile, parseReply, partialReply, setLibraryTextures, stripThinking, systemPrompt,
   type AiAction, type ChatMessage,
 } from '../lib/aiChat'
+import { useGameObjects } from '../lib/gameObjects/client'
 import { buildReview, isCritiqueRequest, planFromAction, planSample } from '../lib/aiReview'
 import { factsText, gatherFacts } from '../lib/mapFacts'
 import { queueEdits } from '../lib/pendingEdits'
@@ -113,7 +114,8 @@ export function AiChat({ onClose }: { onClose: () => void }) {
       const map = describeMap(project, bounds)
       // The request and the one before it pick which prefabs the model is told about in full.
       const asked = [...useChat.getState().history.filter((h) => h.role === 'user').slice(-1).map((h) => h.content), msg].join(' ')
-      const system = critique ? critiquePrompt(map, factsText(facts!), profile) : systemPrompt(map, profile, asked)
+      const game = relevantGameObjects(useGameObjects.getState().entries, asked)
+      const system = critique ? critiquePrompt(map, factsText(facts!), profile) : systemPrompt(map, profile, asked, game)
       // The map summary is fresh every turn; the last few exchanges give context.
       const messages: ChatMessage[] = [{ role: 'system', content: system }, ...useChat.getState().history.slice(-10), { role: 'user', content: msg + formatReminder(profile) }]
       const { raw, repaired } = await askWithRepair(messages, readKey(), model, {

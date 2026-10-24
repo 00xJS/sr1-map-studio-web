@@ -7,7 +7,7 @@ import { SHAPE_PRESETS } from '../lib/shapes'
 import { catalogs } from '../lib/catalogs'
 import { GAME_MODES, isGlass, newLight, uid, type GameMode, type Vec3 } from '../lib/project'
 import { KINDS, defaultParams, type TextureKind } from '../lib/procedural'
-import type { AiAction } from '../lib/aiChat'
+import { relevantGameObjects, type AiAction } from '../lib/aiChat'
 import { expandPlacement, findMarkerTwin, findTwin, lightPatch, lightTargets, markerPatch, markerTargets, resolveTarget, symmetricPlan, twinItem, twinMarker } from '../lib/aiEdits'
 import { makePhysicsProps } from './physicsActions'
 import { PRESET_BY_KEY } from '../lib/physicsProps'
@@ -81,6 +81,16 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
           for (const [x, z, rot] of spots(num(a.x), num(a.z), num(a.turn), a.mirror)) {
             await act.addPrefab(a.key, [x, 0, z], floorAt(x, z), { rot, params: a.settings }); done++
           }
+          break
+        }
+        case 'add_game_object': {
+          const { useGameObjects } = await import('../lib/gameObjects/client')
+          const entries = useGameObjects.getState().entries
+          if (!entries?.length) { skipped.push('the game object library is not loaded (From my game)'); break }
+          const e = entries.find((x) => x.id === a.id) ?? (a.name ? relevantGameObjects(entries, String(a.name), 1)[0] : undefined)
+          if (!e) { skipped.push(`no game object "${a.id ?? a.name}"`); break }
+          const { placeGameObject } = await import('./gameObjectActions')
+          for (const [x, z, rot] of spots(num(a.x), num(a.z), num(a.turn), a.mirror)) { await placeGameObject(e.id, [x, 0, z], floorAt(x, z), rot); done++ }
           break
         }
         case 'add_shape': {
