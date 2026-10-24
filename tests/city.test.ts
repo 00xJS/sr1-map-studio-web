@@ -2,6 +2,7 @@
 // whole thing on a local game install when there is one (SR1_PACKFILES, or the default install folder).
 // Nothing from the game is copied into the repo.
 import { describe, expect, it } from 'vitest'
+import { GAME_TESTS } from './testMode'
 import { existsSync, openAsBlob } from 'node:fs'
 import { join } from 'node:path'
 import { moppKeys } from '../src/lib/city/collision'
@@ -52,7 +53,7 @@ describe('cutting at the edge', () => {
 const GAME = process.env.SR1_PACKFILES || 'C:/Games/SaintsReborn/dist/game/packfiles'
 const haveGame = existsSync(join(GAME, 'sr_city_stream.vpp_xbox2'))
 
-describe.skipIf(!haveGame)('the city from a local game install', () => {
+describe.skipIf(!GAME_TESTS || !haveGame)('the city from a local game install', () => {
   it('cuts a downtown block with its textures named, solid and look-only apart, and finds street level', async () => {
     const vpp = await openVpp(await openAsBlob(join(GAME, 'sr_city_stream.vpp_xbox2')), 'city')
     expect(vpp.list().filter((n) => n.endsWith('.bbchunk_xbox2')).map((n) => n.slice(0, -14)).filter(isCityChunk).length).toBeGreaterThan(150)

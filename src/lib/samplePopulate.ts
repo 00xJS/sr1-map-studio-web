@@ -5,7 +5,7 @@
 // red (−Z) and blue (+Z) get the same chances.
 import type { Vec3 } from './project'
 import type { MarkerSpec, Sample, Theme } from './sampleKit'
-import { blocker, over, support } from './sampleScale'
+import { over, partIndex, type PartIndex } from './sampleScale'
 import { prepareMap } from './analysis/analyze'
 import { nodeNear, PLAYER } from './analysis/floor'
 import { sampleInput } from './analysis/sampleInput'
@@ -40,8 +40,9 @@ export function candidates(s: Sample, floor: Sample['parts'] = s.parts): Vec3[] 
   const xs = s.parts.flatMap((p) => [p.at[0] - p.size[0], p.at[0] + p.size[0]])
   const zs = s.parts.flatMap((p) => [p.at[2] - p.size[2], p.at[2] + p.size[2]])
   const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)]
+  const all = partIndex(s.parts), ground = floor === s.parts ? all : partIndex(floor)
   // Not on top of a kerb or other low ledge (a spawn there sits half in the step).
-  const open = (p: Vec3) => support(floor, p) >= 0 && !blocker(s.parts, p) && !inKerb(s.parts, p)
+  const open = (p: Vec3) => ground.support(p) >= 0 && !all.blocker(p) && !inKerb(all, p)
   const spots = new Map<string, Vec3>()
   const key = (x: number, y: number, z: number) => `${x},${y},${z}`
   for (let x = Math.ceil(x0 / 4) * 4; x <= x1; x += 4) for (let z = Math.ceil(z0 / 4) * 4; z <= z1; z += 4) for (const y of heights) {
@@ -59,8 +60,8 @@ export function candidates(s: Sample, floor: Sample['parts'] = s.parts): Vec3[] 
     const a = queue.pop()!
     for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const k = key(a[0] + dx * 4, a[1], a[2] + dz * 4), b = spots.get(k)
-      if (!b || seen.has(k) || blocker(s.parts, way(a, dx, dz, 2))) continue
-      if (support(floor, way(a, dx, dz, 2)) < 0 && (support(floor, way(a, dx, dz, 1)) < 0 || support(floor, way(a, dx, dz, 3)) < 0)) continue
+      if (!b || seen.has(k) || all.blocker(way(a, dx, dz, 2))) continue
+      if (ground.support(way(a, dx, dz, 2)) < 0 && (ground.support(way(a, dx, dz, 1)) < 0 || ground.support(way(a, dx, dz, 3)) < 0)) continue
       seen.add(k); queue.push(b)
     }
   }
@@ -68,17 +69,17 @@ export function candidates(s: Sample, floor: Sample['parts'] = s.parts): Vec3[] 
 }
 
 /** How far a spawn at p sees along a heading at eye height before something solid is in the way (up to `max`). */
-function view(parts: Sample['parts'], p: Vec3, yaw: number, max: number): number {
+function view(parts: PartIndex, p: Vec3, yaw: number, max: number): number {
   const t = (yaw * Math.PI) / 180, eye = p[1] + 3.2
   for (let d = 1; d <= max; d += 0.5) {
     const x = p[0] + Math.sin(t) * d, z = p[2] - Math.cos(t) * d
-    if (parts.some((q) => q.kind !== 'terrain' && !q.water && q.size[1] > 0.3 && q.at[1] < eye && q.at[1] + q.size[1] > eye - 0.4 && over(q, x, z, 0))) return d
+    if (parts.some(x, z, (q) => q.kind !== 'terrain' && !q.water && q.size[1] > 0.3 && q.at[1] < eye && q.at[1] + q.size[1] > eye - 0.4 && over(q, x, z, 0))) return d
   }
   return max
 }
 
 /** A spawn facing a wall turns to the nearest heading with a few metres of open view (point-symmetric maps stay symmetric). */
-function aim(parts: Sample['parts'], p: Vec3, yaw: number): number {
+function aim(parts: PartIndex, p: Vec3, yaw: number): number {
   if (view(parts, p, yaw, 8) >= 8) return yaw
   let best = yaw, far = 0
   for (let k = 1; k <= 12; k++) for (const sign of [1, -1]) {
@@ -90,25 +91,30 @@ function aim(parts: Sample['parts'], p: Vec3, yaw: number): number {
 }
 
 /** Standing inside a kerb or raised sidewalk (its top a step above the feet): the spot belongs to the higher floor. */
-const inKerb = (parts: Sample['parts'], [x, y, z]: Vec3) =>
-  parts.some((q) => q.size[1] > 0.13 && q.at[1] + q.size[1] > y + 0.01 && q.at[1] + q.size[1] <= y + 0.35 && q.at[1] <= y + 0.01 && over(q, x, z, 0))
+const inKerb = (parts: PartIndex, [x, y, z]: Vec3) =>
+  parts.some(x, z, (q) => q.size[1] > 0.13 && q.at[1] + q.size[1] > y + 0.01 && q.at[1] + q.size[1] <= y + 0.35 && q.at[1] <= y + 0.01 && over(q, x, z, 0))
 
-/** Farthest-point picks: each new spot is as far as possible from everything already taken (and its mirror is clear too). */
-function pick(pool: Vec3[], taken: Vec3[], count: number, minGap: number, ok: (p: Vec3) => boolean, parts: Sample['parts']): Vec3[] {
+/** Farthest-point picks: each new spot is as far as possible from everything already taken (and its mirror is clear too, `mirrorOk`). */
+function pick(pool: Vec3[], taken: Vec3[], count: number, minGap: number, ok: (p: Vec3) => boolean, mirrorOk: (p: Vec3) => boolean): Vec3[] {
   const chosen: Vec3[] = []
-  const all = [...taken]
+  // How far each spot and its mirror are from everything taken, kept up to date as spots are picked.
+  const flips = pool.map(flip)
+  const gap = pool.map((p, i) => {
+    const q = flips[i]
+    let d = d2(p, q) / 2
+    for (const t of taken) d = Math.min(d, d2(t, p), d2(t, q))
+    return d
+  })
   while (chosen.length < count) {
-    let best: Vec3 | null = null, bestD = -1
-    for (const p of pool) {
-      if (!ok(p)) continue
-      const q = flip(p)
-      if (support(parts, q) < 0 || blocker(parts, q)) continue
-      const d = Math.min(...all.map((t) => d2(t, p)), ...all.map((t) => d2(t, q)), d2(p, q) / 2)
-      if (d > bestD) { bestD = d; best = p }
-    }
-    if (!best || bestD < minGap) break
-    chosen.push(best)
-    all.push(best, flip(best))
+    let best = -1, bestD = -1
+    pool.forEach((p, i) => {
+      if (!ok(p) || !mirrorOk(p)) return
+      if (gap[i] > bestD) { bestD = gap[i]; best = i }
+    })
+    if (best < 0 || bestD < minGap) break
+    const b = pool[best], fb = flips[best]
+    chosen.push(b)
+    pool.forEach((p, i) => { gap[i] = Math.min(gap[i], d2(b, p), d2(fb, p), d2(b, flips[i]), d2(fb, flips[i])) })
   }
   return chosen
 }
@@ -134,6 +140,13 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   }
   const pool = candidates(s, floor).filter((p) => reached(p) && reached(flip(p)))
   if (!pool.length) return s
+  const parts = partIndex(s.parts)
+  const mirrorClear = new Map<Vec3, boolean>()
+  const mirrorOk = (p: Vec3) => {
+    let v = mirrorClear.get(p)
+    if (v === undefined) { const q = flip(p); v = parts.support(q) >= 0 && !parts.blocker(q); mirrorClear.set(p, v) }
+    return v
+  }
   const zs = pool.map((p) => p[2])
   const depth = Math.max(...zs) - Math.min(...zs)
   const markers: MarkerSpec[] = [...s.markers]
@@ -145,7 +158,7 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   const hidden = (p: Vec3) => !walk || of('Blue team spawn').concat([flip(p)]).every((b) => walk.bvh.blocked(...(eye(b) as Vec3), ...(eye(p) as Vec3), OPAQUE))
   for (const strict of [true, false]) {
     for (let need = t.perTeam - of('Red team spawn').length; need > 0; need--) {
-      const [p] = pick(pool, of('Red team spawn'), 1, 6, (q) => q[2] < -depth * 0.3 && (!strict || hidden(q)), s.parts)
+      const [p] = pick(pool, of('Red team spawn'), 1, 6, (q) => q[2] < -depth * 0.3 && (!strict || hidden(q)), mirrorOk)
       if (!p) break
       markers.push(['Red team spawn', p, { yaw: 180 }], ['Blue team spawn', flip(p), { yaw: 0 }])
     }
@@ -153,7 +166,7 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
 
   // Free-for-all spawns: everywhere, as far apart as possible.
   const sharedNeed = Math.max(0, t.shared - of('Shared spawn').length)
-  const shared = pick(pool, [...spawns(), ...of('Chains drop-off')], Math.ceil(sharedNeed / 2), 12, (p) => p[2] < 0 || (p[2] === 0 && p[0] < 0), s.parts)
+  const shared = pick(pool, [...spawns(), ...of('Chains drop-off')], Math.ceil(sharedNeed / 2), 12, (p) => p[2] < 0 || (p[2] === 0 && p[0] < 0), mirrorOk)
   for (const p of shared) markers.push(['Shared spawn', p, { yaw: lookAtCenter(p) }], ['Shared spawn', flip(p), { yaw: lookAtCenter(flip(p)) }])
 
   // Chains drop-offs: the drop-off moves between them during the match, so they sit well apart from each other
@@ -166,7 +179,7 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   for (const [band, gap] of [[0.3, 40], [0.45, 40], [0.7, 40], [0.45, 24], [0.45, 6]]) {
     if (drops.length >= dropNeed) break
     drops.push(...pick(pool, [...of('Chains drop-off'), ...drops, ...drops.map(flip)], dropNeed - drops.length, gap,
-      (p) => Math.abs(p[2]) < depth * band && (p[2] < 0 || p[0] < 0) && (gap < 24 || offSpawns(p)), s.parts))
+      (p) => Math.abs(p[2]) < depth * band && (p[2] < 0 || p[0] < 0) && (gap < 24 || offSpawns(p)), mirrorOk))
   }
   for (const p of drops) markers.push(['Chains drop-off', p], ['Chains drop-off', flip(p)])
 
@@ -174,9 +187,9 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   const weaponNeed = Math.max(0, t.weapons - of('Weapon pickup').length)
   const away = spawns()
   const weaponOk = (p: Vec3) => (p[2] < 0 || (p[2] === 0 && p[0] < 0)) && away.every((a) => d2(a, p) > 8)
-  let spots = pick(pool, [...of('Weapon pickup'), ...away], Math.ceil(weaponNeed / 2), 10, weaponOk, s.parts)
+  let spots = pick(pool, [...of('Weapon pickup'), ...away], Math.ceil(weaponNeed / 2), 10, weaponOk, mirrorOk)
   // Closer together on small maps, if that's what it takes.
-  if (spots.length < Math.ceil(weaponNeed / 2)) spots = [...spots, ...pick(pool, [...of('Weapon pickup'), ...away, ...spots, ...spots.map(flip)], Math.ceil(weaponNeed / 2) - spots.length, 6, weaponOk, s.parts)]
+  if (spots.length < Math.ceil(weaponNeed / 2)) spots = [...spots, ...pick(pool, [...of('Weapon pickup'), ...away, ...spots, ...spots.map(flip)], Math.ceil(weaponNeed / 2) - spots.length, 6, weaponOk, mirrorOk)]
   spots.sort((a, b) => Math.hypot(a[0], a[2]) - Math.hypot(b[0], b[2]))
   const weapons = s.theme === 'Cyber' ? CYBER_POOL : URBAN_POOL
   spots.forEach((p, i) => {
@@ -188,13 +201,13 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   const lights: [Vec3, Vec3?][] = [...(s.lights ?? [])]
   const colors = LIGHTS[s.theme]
   const lightNeed = Math.max(0, Math.min(64, t.lights) - lights.length)
-  const lit = pick(pool, lights.map(([p]) => [p[0], p[1] - 7, p[2]] as Vec3), Math.ceil(lightNeed / 2), 16, (p) => p[2] < 0 || (p[2] === 0 && p[0] < 0), s.parts)
+  const lit = pick(pool, lights.map(([p]) => [p[0], p[1] - 7, p[2]] as Vec3), Math.ceil(lightNeed / 2), 16, (p) => p[2] < 0 || (p[2] === 0 && p[0] < 0), mirrorOk)
   lit.forEach((p, i) => {
     const c = colors[i % colors.length]
     lights.push([[p[0], p[1] + 7, p[2]], c], [[-p[0], p[1] + 7, -p[2]], c])
   })
 
-  const aimed = markers.map(([type, p, patch]): MarkerSpec => (/spawn/i.test(type) ? [type, p, { ...patch, yaw: aim(s.parts, p, patch?.yaw ?? 0) }] : [type, p, patch]))
+  const aimed = markers.map(([type, p, patch]): MarkerSpec => (/spawn/i.test(type) ? [type, p, { ...patch, yaw: aim(parts, p, patch?.yaw ?? 0) }] : [type, p, patch]))
   // Nobody starts nose to a wall: spawns looking into one turn toward the nearest open view.
   const faced = walk ? aimed.map(([type, p, m]): MarkerSpec => (m?.yaw !== undefined && /spawn/.test(type) ? [type, p, { ...m, yaw: openYaw(walk.bvh, p, m.yaw) }] : [type, p, m])) : aimed
   return { ...s, markers: faced, lights: lights.slice(0, 64) }

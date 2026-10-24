@@ -2,6 +2,7 @@
 // OBJ it is placed as, checked on small chunks built here. The last block indexes a local Saints Reborn install
 // when there is one (SR1_PACKFILES, or the default install folder); no game file is copied into the repo.
 import { describe, expect, it } from 'vitest'
+import { GAME_TESTS } from './testMode'
 import { existsSync, mkdirSync, openAsBlob, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { readChunk, meshTriangles, meshTriangleCount, meshTextures } from '../src/lib/gameObjects/chunk'
@@ -315,7 +316,7 @@ describe('game objects never leave the device', () => {
 const GAME = process.env.SR1_PACKFILES || 'C:/Games/SaintsReborn/dist/game/packfiles'
 const haveGame = existsSync(join(GAME, 'sr_city_stream.vpp_xbox2'))
 
-describe.skipIf(!haveGame)('the library from a local game install', () => {
+describe.skipIf(!GAME_TESTS || !haveGame)('the library from a local game install', () => {
   it('indexes every map chunk and cuts objects out with their textures', async () => {
     const packs: [string, Vpp][] = []
     for (const p of ['sr_city_stream', 'mp_city_stream', 'misc2']) if (existsSync(join(GAME, p + '.vpp_xbox2'))) packs.push([p, await openVpp(await openAsBlob(join(GAME, p + '.vpp_xbox2')), p)])
