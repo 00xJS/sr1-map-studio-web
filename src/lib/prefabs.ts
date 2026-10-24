@@ -45,9 +45,10 @@ const STYLES: Record<Style, StyleInfo> = {
 }
 const SEED: Record<Style, number> = { brick: 301, darkbrick: 302, plaster: 303, beige: 304, apartment: 305, office: 306, glass: 307, concrete: 308, projects: 309, stone: 310, shop: 311, warehouse: 312, club: 313, cyber: 314, cyberpink: 315 }
 
-export const facadeTex = (style: Style): Tex => {
+/** A style's windows, in its own wall colour or another (a district's palette). */
+export const facadeTex = (style: Style, wall?: string): Tex => {
   const st = STYLES[style]
-  return { gen: 'facade', tweak: { color: st.wall, accent: st.glass, scale: st.across, wear: 0.3, seed: SEED[style], bricks: !!st.bricks }, surface: st.bricks ? 0 : 5 }
+  return { gen: 'facade', tweak: { color: wall ?? st.wall, accent: st.glass, scale: st.across, wear: 0.3, seed: SEED[style], bricks: !!st.bricks }, surface: st.bricks ? 0 : 5 }
 }
 const STORE: Tex = { gen: 'storefront', tweak: { seed: 321 } }
 const GARAGE: Tex = { gen: 'garage_door', tweak: { seed: 322 } }
@@ -67,11 +68,16 @@ export interface BuildingOptions {
   noAwning?: boolean
   /** Side the fire escape climbs (default: beside the front), or 'none'. */
   escape?: 'N' | 'S' | 'E' | 'W' | 'none'
+  /** Colours in place of the style's own: the wall, the ledges and cornice, a neon sign over the door. */
+  wall?: string
+  trim?: Tex
+  neon?: Tex
 }
 
 /** A building with a storefront, window floors, ledges, a cornice, a parapet and rooftop clutter. Stays inside its footprint except for awnings and fire escapes (under 3 units out). */
 export function building(o: BuildingOptions): Part[] {
   const st = STYLES[o.style]
+  const trim = o.trim ?? st.trim, neon = o.neon ?? st.neon
   const y = o.y ?? 1
   const { x, z, w, d, h } = o
   const floors = Math.max(1, Math.round(h / FLOOR))
@@ -82,7 +88,7 @@ export function building(o: BuildingOptions): Part[] {
   const fd = front === 'N' || front === 'S' ? d : w // depth behind the front
   const id = gid(o.label ?? 'Building', x, y, z)
   const roof = o.roof ?? st.roof
-  const parts: Part[] = [box(o.label ?? 'Building', [w, h, d], [x, y, z], roof, facadeTex(o.style), 0, FLOOR)]
+  const parts: Part[] = [box(o.label ?? 'Building', [w, h, d], [x, y, z], roof, facadeTex(o.style, o.wall), 0, FLOOR)]
   const L = (dx: number, dy: number, dz: number): Vec3 => { const [ox, oz] = turn(dx, dz, rot); return [x + ox, y + dy, z + oz] }
 
   // Ground floor: shop windows and a door on the front, an awning over them.
@@ -94,19 +100,19 @@ export function building(o: BuildingOptions): Part[] {
   } else {
     parts.push(box('Door', [3, 5, 0.3], L(0, 0, fd / 2 + 0.1), DOOR, DOOR, rot, 5))
   }
-  if (st.neon) parts.push(box('Neon sign', [Math.min(fw - 4, 10), 1.2, 0.3], L(0, Math.min(h - 2, 7), fd / 2 + 0.2), st.neon, st.neon, rot, 2))
+  if (neon) parts.push(box('Neon sign', [Math.min(fw - 4, 10), 1.2, 0.3], L(0, Math.min(h - 2, 7), fd / 2 + 0.2), neon, neon, rot, 2))
 
   // Ledges between floors and a cornice: the outline of a real facade.
-  if (st.ledges) for (let f = 1; f < floors; f++) parts.push(box('Ledge', [w + 0.5, 0.35, d + 0.5], [x, y + f * FLOOR - 0.2, z], st.trim, st.trim, 0, 2))
+  if (st.ledges) for (let f = 1; f < floors; f++) parts.push(box('Ledge', [w + 0.5, 0.35, d + 0.5], [x, y + f * FLOOR - 0.2, z], trim, trim, 0, 2))
   // Its top stays a little under the roof: two surfaces at the same height flicker as the camera moves.
-  parts.push(box('Cornice', [w + 1, 0.64, d + 1], [x, y + h - 0.7, z], st.trim, st.trim, 0, 2))
+  parts.push(box('Cornice', [w + 1, 0.64, d + 1], [x, y + h - 0.7, z], trim, trim, 0, 2))
   // Parapet round the roof edge.
   const top = y + h
   parts.push(
-    box('Parapet', [w, 1.1, 0.5], [x, top, z - d / 2 + 0.25], st.trim, st.trim),
-    box('Parapet', [w, 1.1, 0.5], [x, top, z + d / 2 - 0.25], st.trim, st.trim),
-    box('Parapet', [0.5, 1.1, d - 1], [x - w / 2 + 0.25, top, z], st.trim, st.trim),
-    box('Parapet', [0.5, 1.1, d - 1], [x + w / 2 - 0.25, top, z], st.trim, st.trim),
+    box('Parapet', [w, 1.1, 0.5], [x, top, z - d / 2 + 0.25], trim, trim),
+    box('Parapet', [w, 1.1, 0.5], [x, top, z + d / 2 - 0.25], trim, trim),
+    box('Parapet', [0.5, 1.1, d - 1], [x - w / 2 + 0.25, top, z], trim, trim),
+    box('Parapet', [0.5, 1.1, d - 1], [x + w / 2 - 0.25, top, z], trim, trim),
   )
   // Rooftop clutter near the corners, leaving the middle of the roof clear.
   const clutterFrom = parts.length
@@ -119,7 +125,7 @@ export function building(o: BuildingOptions): Part[] {
       parts.push(cyl('Water tank', 4, 4.5, [x + cx - 1, top + 3, z + cz - 1], PB.wood, { lib: 'weathered_brown_planks', surface: 21 }, 16))
       parts.push({ ...cyl('Tank roof', 4.4, 1.6, [x + cx - 1, top + 7.5, z + cz - 1], PB.wood, PB.wood, 16), taper: 0 })
     } else {
-      parts.push(box('Stair hut', [4, 3.2, 4], [x - cx + 0.5, top, z + cz - 0.5], st.trim, st.trim))
+      parts.push(box('Stair hut', [4, 3.2, 4], [x - cx + 0.5, top, z + cz - 0.5], trim, trim))
       if (o.style === 'office' || o.style === 'glass' || o.style === 'cyber' || o.style === 'cyberpink') parts.push(cyl('Antenna', 0.3, 8, [x + cx, top, z + cz], PB.steel, PB.steel, 6))
     }
   }
