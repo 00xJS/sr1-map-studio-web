@@ -60,8 +60,8 @@ describe('Blinged Out Ride', () => {
   })
 
   it('offers its markers only while the mode is chosen', () => {
-    expect(retailToolMarkers(['Gangsta Brawl'])).toEqual([SOUND_ZONE, 'Item prop'])
-    expect(retailToolMarkers([BOR])).toEqual([...BOR_TYPES, SOUND_ZONE, 'Item prop'])
+    expect(retailToolMarkers(['Gangsta Brawl'])).toEqual([SOUND_ZONE, 'Item prop', 'Rain blocker', 'Indoor room'])
+    expect(retailToolMarkers([BOR])).toEqual([...BOR_TYPES, SOUND_ZONE, 'Item prop', 'Rain blocker', 'Indoor room'])
   })
 
   it('uses the same names, boxes and cars as the exporter', () => {

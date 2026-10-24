@@ -37,6 +37,7 @@ from sr1_native_limits import MAX_NATIVE_OBJECTS, MAX_NATIVE_TRIANGLES, MIN_NATI
 from vehicle_catalog_v041 import VEHICLE_CATALOG
 import fast_dxt
 import map_features as features
+import regions
 import retail_features as retail
 import native_sky
 import retail_records
@@ -444,6 +445,9 @@ def _export(s, log):
         # Same conversion as the map geometry and the markers.
         convert = lambda p: sr1_cts.convert_xyz(p, ws, mirror, fixed_origin)
         water_count = features.add_water(chunk, features.water_volumes(items, water, _parse, sr1_scene.transform, convert), log)
+    # Rain blockers and indoor rooms (py/regions.py), converted like the markers.
+    region_count = regions.add_regions(chunk, markers, ws, lambda p: sr1_cts.convert_xyz(p, ws, mirror, fixed_origin, space),
+                                       bool(s.get('always_clear_weather', True)), log)
     if wanted_profiles:
         placements = result.get('native_glass', {}).get('placements', [])
         features.set_profiles(chunk, {placements[j]['source']: name for j, name in wanted_profiles.items()}, log)
@@ -479,6 +483,7 @@ def _export(s, log):
         'native_props': result.get('native_props', {}).get('created', 0),
         'lights': result.get('lighting', {}).get('exported', 0),
         'water_volumes': water_count,
+        'regions': region_count,
         'game_sky': int(game_sky),
         **extras,
     }

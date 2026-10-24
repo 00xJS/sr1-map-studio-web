@@ -73,6 +73,9 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
     text: gameSkyWanted(p.settings) ? "No fallback sky picture: without your game files at export the sky is black. Add one?" : 'No sky: the game shows black overhead. Add one?',
   })
 
+  // Rain blockers keep rain out, and an always-clear map has none.
+  if (count('Rain blocker') && p.settings.always_clear_weather) add({ id: 'rain-blockers', state: 'suggested', text: 'Rain blockers only matter when the weather changes each match (this map is always clear). Switch weather to "Changes each match" to get rain.' })
+
   const weapons = count('Weapon pickup')
   add(weapons
     ? { id: 'weapons', state: 'done', text: `${weapons} weapon${weapons === 1 ? '' : 's'} to pick up` }

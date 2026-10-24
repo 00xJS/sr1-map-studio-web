@@ -17,9 +17,16 @@ export const BOR_CAR_RED = 'BOR red team car'
 export const BOR_CAR_BLUE = 'BOR blue team car'
 export const BOR_CASH = 'BOR cash spawn'
 export const SOUND_ZONE = 'Sound zone'
+/** Boxes the camera is tested against (py/regions.py): no rain inside; a room also has its own even light, no sky, no sun shadows. */
+export const RAIN_BLOCKER = 'Rain blocker'
+export const INDOOR_ROOM = 'Indoor room'
+export const REGION_TYPES = [RAIN_BLOCKER, INDOOR_ROOM]
+/** Default boxes in metres: bigger than the room, because the game tests the camera, which sits behind the player. */
+export const REGION_BOXES: Record<string, Vec3> = { [RAIN_BLOCKER]: [20, 10, 20], [INDOOR_ROOM]: [16, 8, 16] }
+export const REGION_DEFAULT_AMBIENT = 0.35
 
 export const BOR_TYPES = [BOR_CAR_RED, BOR_CAR_BLUE, BOR_GARAGE_RED, BOR_GARAGE_BLUE, BOR_CHOP, BOR_ENTRANCE, BOR_DOOR, BOR_VICTORY, BOR_CASH]
-export const RETAIL_MARKER_TYPES = [...BOR_TYPES, SOUND_ZONE, ITEM_PROP]
+export const RETAIL_MARKER_TYPES = [...BOR_TYPES, SOUND_ZONE, ITEM_PROP, ...REGION_TYPES]
 
 /** Box triggers and their default size in metres (width, height, depth). */
 export const BOR_BOXES: Record<string, Vec3> = {
@@ -30,7 +37,7 @@ export const BOR_BOXES: Record<string, Vec3> = {
   [BOR_GARAGE_RED]: [7, 5, 11],
   [BOR_GARAGE_BLUE]: [7, 5, 11],
 }
-export const isZone = (m: Pick<Marker, 'type'>) => m.type in BOR_BOXES || m.type === SOUND_ZONE
+export const isZone = (m: Pick<Marker, 'type'>) => m.type in BOR_BOXES || m.type === SOUND_ZONE || m.type in REGION_BOXES
 
 export const SOUND_DEFAULT_BOX: Vec3 = [20, 8, 20]
 export const SOUND_DEFAULT_RADIUS = 15
@@ -39,7 +46,7 @@ export const SOUND_DEFAULT_VOLUME = 0.4
 /** The zone's outline in metres: a box [w, h, d], or a sphere's radius. */
 export function zoneShape(m: Marker): { box: Vec3 } | { radius: number } {
   if (m.type === SOUND_ZONE) return m.shape === 'box' ? { box: m.size ?? SOUND_DEFAULT_BOX } : { radius: m.radius || SOUND_DEFAULT_RADIUS }
-  return { box: m.size ?? BOR_BOXES[m.type] ?? [4, 2, 4] }
+  return { box: m.size ?? BOR_BOXES[m.type] ?? REGION_BOXES[m.type] ?? [4, 2, 4] }
 }
 
 /** Models the mode has its own settings for; the first car of each team is the team's ride, chosen by the game. */
@@ -56,6 +63,7 @@ export function retailMarkerDefaults(type: string): Partial<Marker> {
   if (type === BOR_CAR_RED || type === BOR_CAR_BLUE) return { vehicle: BOR_DEFAULT_CAR }
   if (type === SOUND_ZONE) return { shape: 'sphere', radius: SOUND_DEFAULT_RADIUS, size: [...SOUND_DEFAULT_BOX] as Vec3, volume: SOUND_DEFAULT_VOLUME, sound: '' }
   if (type === ITEM_PROP) return { item: '' }
+  if (type in REGION_BOXES) return { size: [...REGION_BOXES[type]] as Vec3, ...(type === INDOOR_ROOM ? { ambient: REGION_DEFAULT_AMBIENT } : {}) }
   return {}
 }
 
@@ -70,6 +78,8 @@ export const RETAIL_MARKER_HINTS: Record<string, string> = {
   [BOR_VICTORY]: 'The victory garage in Blinged Out Ride: drive the fully blinged ride in here to win.',
   [BOR_CASH]: 'Where cash appears in Blinged Out Ride. Place 6 or more around the map.',
   [SOUND_ZONE]: 'A sphere or box that plays a sound from your game, like birds, traffic or room tone.',
+  [RAIN_BLOCKER]: 'A box where it never rains: put one over a building or under a roof. Rain only falls on maps whose weather changes each match.',
+  [INDOOR_ROOM]: 'A box that feels indoors: no rain, an even room light, no sky and no sun shadows.',
   [ITEM_PROP]: 'A small object the game places by name, like a weapon pickup: a chair, a flag, a barrel… Not yet tried in game.',
 }
 
@@ -121,4 +131,4 @@ export function retailChecklist(modes: GameMode[], markers: Marker[]): CheckItem
 }
 
 /** Marker types the spawn tool offers for the modes chosen: BOR markers only while Blinged Out Ride is. */
-export const retailToolMarkers = (modes: GameMode[]) => [...(modes.includes(BOR) ? BOR_TYPES : []), SOUND_ZONE, ITEM_PROP]
+export const retailToolMarkers = (modes: GameMode[]) => [...(modes.includes(BOR) ? BOR_TYPES : []), SOUND_ZONE, ITEM_PROP, ...REGION_TYPES]

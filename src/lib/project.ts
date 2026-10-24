@@ -105,6 +105,8 @@ export interface Marker {
   sound_random?: boolean
   delay_min_s?: number
   delay_max_s?: number
+  /** Indoor rooms: how bright the room's even light is, 0-1 (py/regions.py). */
+  ambient?: number
   /** Item props: the name of the game's item placed here (see gameObjects/items.ts). */
   item?: string
 }

@@ -2,11 +2,11 @@
 // metres around the marker (see lib/retailModes.ts).
 import * as THREE from 'three'
 import type { Marker } from '../lib/project'
-import { BOR_CAR_BLUE, BOR_CAR_RED, BOR_CASH, BOR_GARAGE_BLUE, BOR_GARAGE_RED, SOUND_ZONE, isZone, zoneShape } from '../lib/retailModes'
+import { BOR_CAR_BLUE, BOR_CAR_RED, BOR_CASH, BOR_GARAGE_BLUE, BOR_GARAGE_RED, INDOOR_ROOM, RAIN_BLOCKER, SOUND_ZONE, isZone, zoneShape } from '../lib/retailModes'
 
 export const RETAIL_MARKER_COLORS: Record<string, number> = {
   [BOR_CAR_RED]: 0xff4d5e, [BOR_GARAGE_RED]: 0xff4d5e, [BOR_CAR_BLUE]: 0x4d8bff, [BOR_GARAGE_BLUE]: 0x4d8bff,
-  [BOR_CASH]: 0x3dff9a, [SOUND_ZONE]: 0x5ce1e6,
+  [BOR_CASH]: 0x3dff9a, [SOUND_ZONE]: 0x5ce1e6, [RAIN_BLOCKER]: 0x6aa8ff, [INDOOR_ROOM]: 0xffc46a,
 }
 
 const BOX = new THREE.EdgesGeometry(new THREE.BoxGeometry(1, 1, 1).translate(0, 0.5, 0))

@@ -177,7 +177,8 @@ def full_export(pack, tmp, game):
     wood = json.loads(web_api.scene_op('convert_breakable', json.dumps({'item': crate, 'render_mode': 'wood', 'world_scale': 0.5, 'others': []})))['value']
     wood['native_profile'] = 'CrateFruit'
     markers = BOR_MARKERS + [M('Shared spawn', (x, 0.1, 0)) for x in (-4, 4)] + [M('Pimp entrance', (0, 0, -30), radius=1, disabled=False),
-        M('Sound zone', (0, 2, 0), sound='AMB_TEST_BIRDS_1', radius=30), M('Sound zone', (5, 2, 5), sound='')]
+        M('Sound zone', (0, 2, 0), sound='AMB_TEST_BIRDS_1', radius=30), M('Sound zone', (5, 2, 5), sound=''),
+        M('Rain blocker', (0, 0, 10), size=[12, 8, 12]), M('Indoor room', (20, 0, 20), size=[10, 6, 10], ambient=0.4)]
 
     def export(job, donor_spec, items):
         logs = []
@@ -206,6 +207,11 @@ def full_export(pack, tmp, game):
         bor = (out / 'rftest_bor.cts').read_bytes().decode()
         ptp = (out / 'rftest_ptp.cts').read_bytes().decode()
         check('$bor_' not in main and 'blinged' not in main and '+Vehicle' not in main, 'export: main CTS has no BOR records')
+        check('Rain blocker' not in main and 'Indoor room' not in main, 'export: rain blockers and rooms stay out of the CTS')
+        import regions as rg
+        got = rg.read_regions((out / 'rftest.bbchunk_xbox2').read_bytes())
+        check(sorted(f for _, _, f in got) == [0x8, 0x3B], 'export: a rain blocker and an indoor room in the chunk ' + str(got))
+        check(v.get('summary', {}).get('regions') == 2 and any('Regions: 1 rain blocker' in l for l in logs), 'export: regions counted and logged')
         check(bor.count('+Vehicle') == 4 and '"blinged victory"' in bor and bor.count('"garage interior"') == 3 and '"garage enter"' in bor, 'export: BOR CTS has the BOR records')
         check('$Include: "amb_rftest.cts"' in bor and '$Include: "amb_mp_arena.cts"' in bor, 'export: BOR CTS keeps both sound includes')
         for name, text in (('main', main), ('ptp', ptp)):

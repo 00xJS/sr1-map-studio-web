@@ -59,6 +59,8 @@ export async function runExport(project: Project, onLog: (t: string) => void, on
     ...gameSky,
     // Extras written after the main export (py/map_features.py).
     ambience: s.ambience || '', loading_image: s.loading_mode === 'none' ? '' : s.loading_image || '',
+    // Rain blockers note when there's no rain to block (py/regions.py).
+    always_clear_weather: s.always_clear_weather,
   }
   onLog('Running SR1 map exporter…')
   const result = await py.call<ExportResult>('export_project', JSON.stringify(spec))
@@ -184,6 +186,7 @@ function exportNotes(p: Project, r: ExportResult) {
     `Native objects: ${s.native_objects} (including ${s.native_props} movable/explosive props)`,
     `Native point lights: ${s.lights} (first gameplay test pending)`,
     ...(s.water_volumes ? [`Swimmable water: ${s.water_volumes} volume(s) (new, not yet tried in game)`] : []),
+    ...(s.regions ? [`Rain blockers and indoor rooms: ${s.regions} (new, not yet tried in game)`] : []),
     `Sky: ${s.game_sky ? "the game's own sky from mp_bac_01 in your game files (new, not yet tried in game)"
       : p.settings.native_sky ? `native sky preset ${p.settings.native_sky}` : p.settings.sky_texture ? 'fake sky image' : 'none (black in game)'}`,
     '',

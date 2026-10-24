@@ -16,8 +16,9 @@ import crate_debris
 import item_props
 import sound_zones
 import map_features
+import regions
 
-EXTRA_TYPES = set(bor_mode.TYPES) | {sound_zones.TYPE, item_props.TYPE}
+EXTRA_TYPES = set(bor_mode.TYPES) | {sound_zones.TYPE, item_props.TYPE} | set(regions.TYPES)
 CRATE_DONOR = Path('/work/game/crate_debris')
 
 

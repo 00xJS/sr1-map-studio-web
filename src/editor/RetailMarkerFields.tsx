@@ -5,7 +5,7 @@ import { useEditor } from './store'
 import { Check, Field, FileButton, NumberInput, useBusy } from '../ui'
 import type { Marker, Vec3 } from '../lib/project'
 import {
-  BOR_BOXES, BOR_CARS, BOR_CAR_BLUE, BOR_CAR_RED, BOR_DEFAULT_CAR, SOUND_DEFAULT_BOX, SOUND_DEFAULT_RADIUS, SOUND_DEFAULT_VOLUME, SOUND_ZONE,
+  BOR_BOXES, BOR_CARS, BOR_CAR_BLUE, BOR_CAR_RED, BOR_DEFAULT_CAR, SOUND_DEFAULT_BOX, SOUND_DEFAULT_RADIUS, SOUND_DEFAULT_VOLUME, SOUND_ZONE, REGION_BOXES, RAIN_BLOCKER, INDOOR_ROOM, REGION_DEFAULT_AMBIENT,
 } from '../lib/retailModes'
 import { GameItemFields } from './GameItemFields'
 import { ITEM_PROP } from '../lib/gameObjects/items'
@@ -18,6 +18,18 @@ export function RetailMarkerFields({ m, index, set }: { m: Marker; index: number
   if (m.type === BOR_CAR_RED || m.type === BOR_CAR_BLUE) return <TeamCar m={m} index={index} set={set} />
   if (m.type === SOUND_ZONE) return <SoundZone m={m} set={set} />
   if (m.type === ITEM_PROP) return <GameItemFields m={m} set={set} />
+  if (m.type in REGION_BOXES) return (
+    <>
+      <BoxSize m={m} set={set} fallback={REGION_BOXES[m.type]} hint={m.type === RAIN_BLOCKER
+        ? 'No rain inside this box. The game checks the camera, which sits behind the player: make it a few metres bigger than the room, and higher than heads. Rain only falls on maps whose weather changes each match.'
+        : 'Inside, it never rains and the room gets its own even light, with no sky and no sun shadows, like the interiors in the game. Make it a few metres bigger than the room (the game checks the camera).'} />
+      {m.type === INDOOR_ROOM && (
+        <Field label="Light inside" hint="How bright the room's even light is (the game's rooms use about 0.3 to 0.5).">
+          <NumberInput value={m.ambient ?? REGION_DEFAULT_AMBIENT} step={0.05} digits={2} min={0} max={1} onChange={(v) => set('Room light', (d) => { d.ambient = v })} />
+        </Field>
+      )}
+    </>
+  )
   return null
 }
 
