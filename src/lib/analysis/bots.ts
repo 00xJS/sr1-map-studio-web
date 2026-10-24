@@ -1,21 +1,36 @@
 // Bot playtest: a few simple bots spawn, run for a weapon, then roam between
 // weapons, drop-offs and spawns along (nearly) shortest walks, and now and
 // then die and respawn. Where they ran is a guess at where players will run.
+// They spawn by the game's rules (spawnPick.ts): each bot keeps its own clock
+// (running time, plus the 5 s wait after dying), and the others count as
+// standing where they last got to.
 import { dijkstraTo, type FloorGraph } from './floor'
 import { rng } from './sight'
+import { pickSpawn, type SpawnSpot } from './spawnPick'
+import { RESPAWN_DELAY_MS, RUN_SPEED } from '../player'
+import type { Team } from './types'
 import type { Vec3 } from '../project'
 
-export interface Interest { spawns: number[]; weapons: number[]; drops: number[] }
+/** `spawnTeams`: whose each spawn is (default: all shared). */
+export interface Interest { spawns: number[]; weapons: number[]; drops: number[]; spawnTeams?: Team[] }
 
 /** `field(goal)` gives the walking cost from every node to a goal (pass a cached one to share the work). */
 export function botPlaytest(g: FloorGraph, at: Interest, o: { bots: number; trips: number; seed: number; field?: (goal: number) => Float32Array }): { traffic: Float32Array; hotspots: Vec3[] } {
   const n = g.grid.count
   const counts = new Float32Array(n)
-  const spawns = at.spawns.filter((s) => s >= 0)
+  const keep = at.spawns.map((_, k) => k).filter((k) => at.spawns[k] >= 0)
+  const spawns = keep.map((k) => at.spawns[k])
   const places = [...new Set([...at.weapons, ...at.drops, ...spawns].filter((s) => s >= 0))]
   if (!spawns.length || places.length < 2) return { traffic: counts, hotspots: [] }
   const rand = rng(o.seed)
   const field = o.field ?? fieldCache(g)
+  const P = g.grid.pos
+  const xyz = (v: number): Vec3 => [P[v * 3], P[v * 3 + 1], P[v * 3 + 2]]
+  // Free-for-all at the shared spawns when there are any (or only one team has spawns), else two teams.
+  const teams = keep.map((k) => at.spawnTeams?.[k] ?? 'shared')
+  const ffa = teams.includes('shared') || !teams.includes('red') || !teams.includes('blue')
+  const spots: SpawnSpot[] = spawns.map((s, k) => ({ at: xyz(s), team: ffa && !teams.includes('shared') ? 'shared' : teams[k] }))
+  const teamOf = (b: number): Team => (ffa ? 'shared' : b % 2 ? 'blue' : 'red')
   /** A random goal, nearer ones likelier. */
   const choose = (from: number, list: number[]) => {
     const w = list.map((p) => (p === from ? 0 : 1 / (field(p)[from] + 30)))
@@ -50,17 +65,29 @@ export function botPlaytest(g: FloorGraph, at: Interest, o: { bots: number; trip
     return true
   }
   const bots = Math.max(1, o.bots)
-  const pos = Array.from({ length: bots }, () => spawns[Math.floor(rand() * spawns.length)])
+  const pos = new Array<number>(bots).fill(-1)
+  const clock = new Float64Array(bots)
+  /** Where bot b (re)spawns, by the game's rules, with the other bots where they are. */
+  const spawn = (b: number, from?: Vec3) => {
+    const others = pos.flatMap((p, k) => (k !== b && p >= 0 ? [{ at: xyz(p), team: teamOf(k) }] : []))
+    let s = pickSpawn(spots, teamOf(b), others, clock[b], rand, from)
+    if (s < 0) s = Math.floor(rand() * spots.length)
+    spots[s].used = clock[b]
+    return spawns[s]
+  }
+  for (let b = 0; b < bots; b++) pos[b] = spawn(b)
   const armed = new Array<boolean>(bots).fill(false)
   for (let trip = 0, fails = 0; trip < o.trips && fails < o.trips; ) {
     const b = trip % bots
     const goal = !armed[b] && at.weapons.length ? choose(pos[b], at.weapons) : choose(pos[b], places)
-    if (goal < 0 || !run(pos[b], goal)) { fails++; pos[b] = spawns[Math.floor(rand() * spawns.length)]; continue }
+    const walk = goal >= 0 ? field(goal)[pos[b]] : Infinity
+    if (goal < 0 || !run(pos[b], goal)) { fails++; clock[b] += RESPAWN_DELAY_MS; pos[b] = spawn(b, xyz(pos[b])); continue }
     trip++
+    clock[b] += (walk / RUN_SPEED) * 1000
     pos[b] = goal
     armed[b] = true
-    // Killed now and then: back to a random spawn, unarmed.
-    if (rand() < 0.25) { pos[b] = spawns[Math.floor(rand() * spawns.length)]; armed[b] = false }
+    // Killed now and then: after the wait, back to a spawn by the game's rules, unarmed.
+    if (rand() < 0.25) { clock[b] += RESPAWN_DELAY_MS; pos[b] = spawn(b, xyz(pos[b])); armed[b] = false }
   }
   // 0..1 against the busiest few percent, so one crowded corner doesn't wash the rest out.
   const sorted = Array.from(counts).filter((c) => c > 0).sort((a, b) => a - b)

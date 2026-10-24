@@ -11,6 +11,7 @@ import { nodeNear, PLAYER } from './analysis/floor'
 import { sampleInput } from './analysis/sampleInput'
 import { OPAQUE, SOLID } from './analysis/types'
 import type { Bvh } from './analysis/bvh'
+import { SPAWN_RULES, UNITS_PER_M } from './player'
 
 const URBAN_POOL = ['rpg_launcher', 'sniper_rifle', 'spas12', 'm16', 'ak47', 'pump_action_shotgun', 'mac10', 'tec9', 'magnum', 'desert eagle', 'glock', 'molotov', 'pipe_bomb', 'grenade', 'baseball_bat', 'beretta']
 const CYBER_POOL = ['rpg_laser', 'sniper_rifle', 'spas12', 'ak47L', 'm16', 'mac10L', 'magnumL', 'tec9b', 'desert_eagle_gold', 'grenade', 'pipe_bomb', 'glock']
@@ -27,6 +28,10 @@ export const FULL_TARGETS: PopulateTargets = { shared: 20, perTeam: 8, weapons: 
 
 const flip = (p: Vec3): Vec3 => [-p[0], p[1], -p[2]]
 const d2 = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[2] - b[2]) + Math.abs(a[1] - b[1]) * 2
+/** Closer than the game's 5 m (and less than 5 m above or below): an enemy there stops a spawn being used. */
+const crowding = (a: Vec3, b: Vec3) => Math.abs(a[1] - b[1]) < SPAWN_RULES.enemyDyM * UNITS_PER_M && Math.hypot(a[0] - b[0], a[1] - b[1], a[2] - b[2]) < SPAWN_RULES.enemyM * UNITS_PER_M
+/** A spot (with its mirror twin) clear of every one of `list` by that much. */
+const clearOf = (list: Vec3[], p: Vec3) => list.every((q) => !crowding(q, p) && !crowding(q, flip(p)))
 const lookAtCenter = (p: Vec3) => +((Math.atan2(-p[0], p[2]) * 180) / Math.PI).toFixed(1)
 
 /**
@@ -152,13 +157,37 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   const markers: MarkerSpec[] = [...s.markers]
   const of = (type: string) => markers.filter(([m]) => m === type).map(([, p]) => p)
   const spawns = () => [...of('Shared spawn'), ...of('Red team spawn'), ...of('Blue team spawn')]
+  // The map's own weapons and drop-offs within the game's 5 m of a spawn move (with their mirror twins) to the
+  // nearest open spot on the same floor that is clear, if there is one within 8 m.
+  {
+    const own = spawns()
+    markers.forEach(([type, p], k) => {
+      if ((type !== 'Weapon pickup' && type !== 'Chains drop-off') || clearOf(own, p) || !(p[2] < 0 || (p[2] === 0 && p[0] < 0))) return
+      const twin = markers.findIndex(([t, q], j) => j !== k && t === type && Math.abs(q[0] + p[0]) < 0.01 && Math.abs(q[2] + p[2]) < 0.01 && Math.abs(q[1] - p[1]) < 0.01)
+      let best: Vec3 | null = null, bestD = 16
+      for (const q of pool) {
+        const d = Math.hypot(q[0] - p[0], q[2] - p[2])
+        if (d >= bestD || Math.abs(q[1] - p[1]) > 0.3 || !clearOf(own, q) || !mirrorOk(q)) continue
+        if (markers.some(([t, o], j) => j !== k && j !== twin && /Weapon|drop-off/.test(t) && d2(o, q) < 4)) continue
+        best = q; bestD = d
+      }
+      if (!best) return
+      const at = best
+      markers[k] = [type, [at[0], p[1], at[2]], markers[k][2]]
+      if (twin >= 0) markers[twin] = [type, [-at[0], p[1], -at[2]], markers[twin][2]]
+    })
+  }
+  // Where players gather; spawns keep the game's 5 m from them (and they from spawns).
+  const busy = [...of('Weapon pickup'), ...of('Chains drop-off')]
 
   // Team spawns: spread across each team's end of the map, out of sight of the other team's spawns where there's room.
   const eye = (p: Vec3) => [p[0], p[1] + 0.1 + PLAYER.standEye, p[2]]
   const hidden = (p: Vec3) => !walk || of('Blue team spawn').concat([flip(p)]).every((b) => walk.bvh.blocked(...(eye(b) as Vec3), ...(eye(p) as Vec3), OPAQUE))
-  for (const strict of [true, false]) {
+  // Hidden spots first, closer together (2 m, the game's spawn box) before any in sight of the enemy.
+  // Off the weapons and drop-offs by the game's 5 m too, unless there is no room left that way.
+  for (const [strict, gap, clear] of [[true, 6, true], [true, 4, true], [false, 6, true], [false, 6, false]] as const) {
     for (let need = t.perTeam - of('Red team spawn').length; need > 0; need--) {
-      const [p] = pick(pool, of('Red team spawn'), 1, 6, (q) => q[2] < -depth * 0.3 && (!strict || hidden(q)), mirrorOk)
+      const [p] = pick(pool, of('Red team spawn'), 1, gap, (q) => q[2] < -depth * 0.3 && (!clear || clearOf(busy, q)) && (!strict || hidden(q)), mirrorOk)
       if (!p) break
       markers.push(['Red team spawn', p, { yaw: 180 }], ['Blue team spawn', flip(p), { yaw: 0 }])
     }
@@ -166,7 +195,9 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
 
   // Free-for-all spawns: everywhere, as far apart as possible.
   const sharedNeed = Math.max(0, t.shared - of('Shared spawn').length)
-  const shared = pick(pool, [...spawns(), ...of('Chains drop-off')], Math.ceil(sharedNeed / 2), 12, (p) => p[2] < 0 || (p[2] === 0 && p[0] < 0), mirrorOk)
+  const sharedOk = (p: Vec3) => p[2] < 0 || (p[2] === 0 && p[0] < 0)
+  let shared = pick(pool, [...spawns(), ...of('Chains drop-off')], Math.ceil(sharedNeed / 2), 12, (p) => sharedOk(p) && clearOf(busy, p), mirrorOk)
+  if (shared.length < Math.ceil(sharedNeed / 2)) shared = [...shared, ...pick(pool, [...spawns(), ...of('Chains drop-off'), ...shared, ...shared.map(flip)], Math.ceil(sharedNeed / 2) - shared.length, 12, sharedOk, mirrorOk)]
   for (const p of shared) markers.push(['Shared spawn', p, { yaw: lookAtCenter(p) }], ['Shared spawn', flip(p), { yaw: lookAtCenter(flip(p)) }])
 
   // Chains drop-offs: the drop-off moves between them during the match, so they sit well apart from each other
@@ -179,17 +210,20 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   for (const [band, gap] of [[0.3, 40], [0.45, 40], [0.7, 40], [0.45, 24], [0.45, 6]]) {
     if (drops.length >= dropNeed) break
     drops.push(...pick(pool, [...of('Chains drop-off'), ...drops, ...drops.map(flip)], dropNeed - drops.length, gap,
-      (p) => Math.abs(p[2]) < depth * band && (p[2] < 0 || p[0] < 0) && (gap < 24 || offSpawns(p)), mirrorOk))
+      (p) => Math.abs(p[2]) < depth * band && (p[2] < 0 || p[0] < 0) && clearOf(spawns(), p) && (gap < 24 || offSpawns(p)), mirrorOk))
   }
   for (const p of drops) markers.push(['Chains drop-off', p], ['Chains drop-off', flip(p)])
 
   // Weapons: scattered everywhere, not on top of spawns; the strongest closest to the middle.
   const weaponNeed = Math.max(0, t.weapons - of('Weapon pickup').length)
   const away = spawns()
-  const weaponOk = (p: Vec3) => (p[2] < 0 || (p[2] === 0 && p[0] < 0)) && away.every((a) => d2(a, p) > 8)
+  const weaponOk = (p: Vec3) => (p[2] < 0 || (p[2] === 0 && p[0] < 0)) && away.every((a) => d2(a, p) > 8) && clearOf(away, p)
   let spots = pick(pool, [...of('Weapon pickup'), ...away], Math.ceil(weaponNeed / 2), 10, weaponOk, mirrorOk)
   // Closer together on small maps, if that's what it takes.
   if (spots.length < Math.ceil(weaponNeed / 2)) spots = [...spots, ...pick(pool, [...of('Weapon pickup'), ...away, ...spots, ...spots.map(flip)], Math.ceil(weaponNeed / 2) - spots.length, 6, weaponOk, mirrorOk)]
+  // Still short: nearer the spawns than the game's 5 m.
+  const nearOk = (p: Vec3) => (p[2] < 0 || (p[2] === 0 && p[0] < 0)) && away.every((a) => d2(a, p) > 8)
+  if (spots.length < Math.ceil(weaponNeed / 2)) spots = [...spots, ...pick(pool, [...of('Weapon pickup'), ...away, ...spots, ...spots.map(flip)], Math.ceil(weaponNeed / 2) - spots.length, 6, nearOk, mirrorOk)]
   spots.sort((a, b) => Math.hypot(a[0], a[2]) - Math.hypot(b[0], b[2]))
   const weapons = s.theme === 'Cyber' ? CYBER_POOL : URBAN_POOL
   spots.forEach((p, i) => {

@@ -12,6 +12,8 @@
 import { SPAWN_TYPES, type Project, type Vec3 } from './project'
 import type { AiAction } from './aiChat'
 import { findMarkerTwin, findTwin } from './aiEdits'
+import { PLAYER } from './analysis/floor'
+import { CROUCH_COVER_M, MANTLE, STEP, UNITS_PER_M } from './player'
 
 /** The 3D view's world box for object i, when it has one. */
 export type BoundsFn = (index: number) => [Vec3, Vec3] | null
@@ -56,7 +58,7 @@ export interface MapFacts {
   symmetry: { objects: { total: number; matched: number; unmatched: number[] }; markers: { total: number; matched: number; unmatched: number[] }; score: number }
   spawns: { list: SpawnFact[]; exposed: number[]; inside: number[]; noFloor: number[]; wrongEnd: number[] }
   sightLines: { longestM: number; from: Vec3; to: Vec3; longCount: number }
-  /** Share of open floor with something chest-high within 3 m, by area. */
+  /** Share of open floor with cover tall enough to hide a crouching player (1.15 m) within 3 m, by area. */
   cover: { red: number; middle: number; blue: number }
   flow: { crossings: number[]; groundRoute: boolean | null; routeM: number | null; straightM: number | null }
   weapons: { total: number; red: number; middle: number; blue: number; byId: Record<string, number>; power: { id: string; at: Vec3; side: 'red' | 'middle' | 'blue' }[]; redNearestM: number | null; blueNearestM: number | null }
@@ -175,9 +177,12 @@ export const gridFacts: FactSource = {
     const ex = extentOf(p, ss)
     const g = new HeightGrid(ex.minX, ex.minZ, ex.maxX, ex.maxZ, ss)
     const floor = g.floorY
-    const eye = u(1.6), step = u(0.8), chest = u(1.0)
+    // The game's player: eyes 1.62 m up, steps up 0.28 m, jumps onto 1.1 m.
+    const eye = u(PLAYER.standEye / UNITS_PER_M), step = u(STEP / UNITS_PER_M), jump = u(MANTLE / UNITS_PER_M), crouchCover = u(CROUCH_COVER_M)
     const depth = ex.maxZ - ex.minZ
     const walkable = (h: number) => Number.isFinite(h) && h <= floor + step
+    /** Ground a player gets onto from the floor, with a jump if need be. */
+    const onFoot = (h: number) => Number.isFinite(h) && h <= floor + jump
     const issues: FactIssue[] = []
 
     // Counts.
@@ -314,7 +319,7 @@ export const gridFacts: FactSource = {
       })
     } else if (longest) issues.push({ id: 'sight-ok', topic: 'sightlines', severity: 'good', text: `The longest clear sight line is ${m(longest)} m.` })
 
-    // Cover: open floor with something chest-high within 3 m.
+    // Cover: open floor with something within 3 m tall enough to crouch behind (the game's crouching player is 1.11 m).
     const zone = { red: [0, 0], middle: [0, 0], blue: [0, 0] } as Record<'red' | 'middle' | 'blue', [number, number]>
     const reach = Math.ceil(u(3) / CELL)
     const bare: Record<'red' | 'middle' | 'blue', [number, number][]> = { red: [], middle: [], blue: [] }
@@ -326,7 +331,7 @@ export const gridFacts: FactSource = {
       let near = false
       for (let a = -reach; a <= reach && !near; a++) for (let b = -reach; b <= reach && !near; b++) {
         const hh = g.top[Math.min(g.nz - 1, Math.max(0, k + a)) * g.nx + Math.min(g.nx - 1, Math.max(0, i + b))]
-        near = Number.isFinite(hh) && hh >= h + chest
+        near = Number.isFinite(hh) && hh >= h + crouchCover
       }
       zone[zn][1]++
       if (near) zone[zn][0]++
@@ -341,8 +346,8 @@ export const gridFacts: FactSource = {
       for (const q of bare[zn].filter(([, z]) => zn === 'red' || z <= 0)) if (picks.every((o) => Math.hypot(o[0] - q[0], o[1] - q[1]) > u(12)) && picks.length < 4) picks.push(q)
       issues.push({
         id: 'cover-' + zn, topic: 'cover', severity: cover[zn] < 0.2 ? 'bad' : 'warn',
-        text: `Only ${Math.round(cover[zn] * 100)}% of the open floor ${zn === 'middle' ? 'in the middle' : "on each team's side"} has cover within 3 m.`,
-        ...(picks.length ? { fix: { label: 'Add chest-high boxes in the open (both halves)', actions: picks.map(([x, z]): AiAction => ({ do: 'add_shape', shape: 'box', x: r1(x), z: r1(z), size: [Math.round(u(2)), Math.round(u(1.2)), Math.round(u(2))], mirror: true })) } } : {}),
+        text: `Only ${Math.round(cover[zn] * 100)}% of the open floor ${zn === 'middle' ? 'in the middle' : "on each team's side"} has cover within 3 m tall enough to crouch behind (1.15 m or more).`,
+        ...(picks.length ? { fix: { label: 'Add boxes to crouch behind in the open (both halves)', actions: picks.map(([x, z]): AiAction => ({ do: 'add_shape', shape: 'box', x: r1(x), z: r1(z), size: [Math.round(u(2)), r1(u(1.2)), Math.round(u(2))], mirror: true })) } } : {}),
       })
     }
     if (Math.abs(cover.red - cover.blue) > 0.1) issues.push({ id: 'cover-unfair', topic: 'fairness', severity: 'warn', text: `Red's side has cover on ${Math.round(cover.red * 100)}% of its floor, blue's on ${Math.round(cover.blue * 100)}%.` })
@@ -377,7 +382,7 @@ export const gridFacts: FactSource = {
           const ii = i + di, kk = k + dk
           if (ii < 0 || kk < 0 || ii >= g.nx || kk >= g.nz) continue
           const nn = kk * g.nx + ii
-          if (dist[nn] >= 0 || !walkable(g.top[nn])) continue
+          if (dist[nn] >= 0 || !onFoot(g.top[nn])) continue
           dist[nn] = dist[n] + 1
           q.push(nn)
         }

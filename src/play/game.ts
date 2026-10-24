@@ -3,6 +3,7 @@
 // Pure module: positions in editor units (1 unit = 0.5 m), times in ms.
 import { catalogs } from '../lib/catalogs'
 import type { Marker, Vec3 } from '../lib/project'
+import { pickupRespawnMs } from '../lib/player'
 
 export type RunMode = 'roam' | 'weapons' | 'dropoffs'
 
@@ -21,8 +22,6 @@ const REACH_DOWN = 1.5
 const REACH_UP = 3.6
 /** The run's clock starts once the player has moved this far from the spawn. */
 const START_MOVE = 0.3
-/** Weapons come back this long after being picked up in free roam, unless the marker says otherwise. */
-const RESPAWN_MS = 10000
 
 export interface Pickup {
   id: string
@@ -36,6 +35,8 @@ export interface Pickup {
   taken: boolean
   /** Free roam: when a taken weapon comes back. */
   back?: number
+  /** Free roam: how long a taken weapon stays away, ms (the marker's own time, or the game's default for the weapon). */
+  respawnMs?: number
 }
 
 export interface RunState {
@@ -72,7 +73,7 @@ export function pickupsOf(markers: Marker[]): Pickup[] {
   for (const m of markers) {
     if (m.type === 'Weapon pickup') {
       const weapon = m.weapon || m.label || 'weapon'
-      out.push({ id: m.uid, kind: 'weapon', at: m.position, weapon, label: weaponName(weapon), radius: PICKUP_RADIUS, taken: false })
+      out.push({ id: m.uid, kind: 'weapon', at: m.position, weapon, label: weaponName(weapon), radius: PICKUP_RADIUS, taken: false, respawnMs: pickupRespawnMs(weapon, m.respawn_ms) })
     } else if (m.type === 'Chains drop-off') {
       out.push({ id: m.uid, kind: 'dropoff', at: m.position, label: m.label || 'Drop-off', radius: Math.max(DROP_RADIUS, (m.radius || 0) * 2), taken: false })
     }
@@ -124,9 +125,10 @@ export function visible(p: Pickup, now: number): boolean {
 
 /**
  * Advances the run to the player's feet at `now`. Mutates `s` and returns what
- * happened, for the HUD. `respawnMs` overrides how long free-roam weapons stay away.
+ * happened, for the HUD. `respawnMs` overrides how long free-roam weapons stay away
+ * (by default each pickup's own time: 15 s, a sniper rifle 20 s, an RPG 30 s, unless the marker sets one).
  */
-export function stepRun(s: RunState, feet: Vec3, now: number, respawnMs = RESPAWN_MS): GameEvent[] {
+export function stepRun(s: RunState, feet: Vec3, now: number, respawnMs?: number): GameEvent[] {
   const events: GameEvent[] = []
   if (s.started === null && s.mode !== 'roam' && Math.hypot(feet[0] - s.origin[0], feet[2] - s.origin[2]) > START_MOVE) {
     s.started = now
@@ -138,7 +140,7 @@ export function stepRun(s: RunState, feet: Vec3, now: number, respawnMs = RESPAW
       if (s.mode === 'roam' && p.taken && p.back !== undefined && now >= p.back) { p.taken = false; p.back = undefined }
       if (p.taken || !touches(p, feet)) continue
       p.taken = true
-      if (s.mode === 'roam') p.back = now + respawnMs
+      if (s.mode === 'roam') p.back = now + (respawnMs ?? p.respawnMs ?? pickupRespawnMs(p.weapon))
       const first = !s.inventory.includes(p.weapon!)
       if (first) s.inventory.push(p.weapon!)
       s.current = p.weapon!

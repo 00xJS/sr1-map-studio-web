@@ -164,7 +164,7 @@ export const URBAN: Sample[] = [
       ),
     ],
     markers: teamMarkers({
-      red: [[-6, 1.3, -82], [6, 1.3, -82]],
+      red: [[-12, 1.3, -82], [12, 1.3, -82]],
       shared: [[-50, 1, -52], [0, 1, -28]],
       weapons: [['sniper_rifle', [0, 1.3, -84]], ['rpg_launcher', [0, 1, -4]]],
       drops: [[-60, 1, -4]],
@@ -307,7 +307,7 @@ export const URBAN: Sample[] = [
     markers: teamMarkers({
       red: [[-30, 1, -92], [30, 1, -92]],
       shared: [[-35, 1, -50], [0, 8, 0]],
-      weapons: [['sniper_rifle', [0, 8, -3]], ['rpg_launcher', [-12, 1, 0]]],
+      weapons: [['sniper_rifle', [0, 1, -12]], ['rpg_launcher', [-12, 1, 0]]],
       drops: [[-90, 1, -4]],
       pimp: [0, 1, -95],
     }),
@@ -591,7 +591,7 @@ export const URBAN: Sample[] = [
     markers: teamMarkers({
       red: [[-10, 1, -94], [10, 1, -94]],
       shared: [[0, 1, -50], [-30, 10, -40], [-60, 7, -94]],
-      weapons: [['sniper_rifle', [-30, 10, -41]], ['rpg_launcher', [0, 7, 2]]],
+      weapons: [['sniper_rifle', [-37, 4, -47]], ['rpg_launcher', [0, 7, 2]]],
       drops: [[-90, 1, 0]],
       pimp: [0, 1, -97],
     }),

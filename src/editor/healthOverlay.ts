@@ -2,11 +2,13 @@
 // standable spot (how exposed it is, how busy, or which side gets there
 // first), the sniper lanes, and numbered spawn badges coloured by risk.
 import * as THREE from 'three'
-import type { HealthReport, Risk } from '../lib/analysis/types'
+import type { HealthReport, MoveKind, Risk } from '../lib/analysis/types'
 
-export type OverlayKind = 'off' | 'sight' | 'crouch' | 'traffic' | 'spawns' | 'sides'
+export type OverlayKind = 'off' | 'sight' | 'crouch' | 'traffic' | 'spawns' | 'sides' | 'moves'
 
 export const RISK_COLORS: Record<Risk, string> = { ok: '#4fd18b', watch: '#ffc23d', campable: '#ff5d6c' }
+/** Getting around: gaps blue (sprint) or purple (too wide), drops orange (hurt) or red (kill), climb-only walls yellow. */
+export const MOVE_COLORS: Record<MoveKind, string> = { 'sprint-gap': '#5aa9ff', 'wide-gap': '#b07cff', 'hurt-drop': '#ff9f43', 'kill-drop': '#ff4d5e', 'climb-only': '#ffd84d' }
 const EYE = 3.24
 
 /** 0 hidden (blue) → 1 seen by the whole map (red). */
@@ -22,10 +24,21 @@ export function buildOverlay(r: HealthReport, kind: OverlayKind, focus: number |
   const disposables: { dispose(): void }[] = []
   const keep = <T extends { dispose(): void }>(x: T) => { disposables.push(x); return x }
 
-  if (kind !== 'spawns') root.add(tiles(r, kind, keep))
+  if (kind !== 'spawns' && kind !== 'moves') root.add(tiles(r, kind, keep))
   if (kind === 'sight' || kind === 'crouch') root.add(lines(r.lanes.map((l) => [l.from, l.to]), 0xff3355, 0.9, keep))
   if (kind === 'traffic') for (const p of r.hotspots) root.add(ring([p[0], p[1] + 0.15, p[2]], 6, 0xffe066, keep))
+  if (kind === 'moves') {
+    // A ring where you stand, a line across to the other side, and the size in metres; the one picked in the panel bigger.
+    ;(r.moves ?? []).forEach((mv, i) => {
+      const color = new THREE.Color(MOVE_COLORS[mv.kind]).getHex(), big = i === focus
+      root.add(ring([mv.at[0], mv.at[1] + 0.15, mv.at[2]], big ? 3 : 1.6, color, keep))
+      if (mv.to) root.add(lines([[[mv.at[0], mv.at[1] + 0.3, mv.at[2]], [mv.to[0], mv.to[1] + 0.3, mv.to[2]]]], color, 0.9, keep))
+      const label = Number.isFinite(mv.metres) ? `${Math.round(mv.metres)}` : '!'
+      root.add(badge(label, MOVE_COLORS[mv.kind], [mv.at[0], mv.at[1] + 3, mv.at[2]], big ? 3.6 : 2.4, keep))
+    })
+  }
   // Spawn badges on every overlay, and lines from the places that can see the spawn picked in the panel.
+  if (kind === 'moves') focus = null
   for (const s of r.spawns) {
     const show = kind === 'spawns' || s.risk !== 'ok' || s.number === focus
     if (!show) continue

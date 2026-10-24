@@ -2,9 +2,10 @@
 // a report out (sight lines, spawn safety, red vs blue fairness, a bot
 // playtest). No DOM or three.js, so it runs in a worker, in tests and for the AI.
 import { Bvh } from './bvh'
-import { buildFloor, dijkstra, dijkstraTo, nodeNear, PLAYER, type FloorGraph } from './floor'
+import { buildFloor, dijkstra, dijkstraTo, LETHAL_DROP, nodeNear, PLAYER, type FloorGraph } from './floor'
 import { observe, pickLanes, pickObservers, sees, type SightCounts } from './sight'
 import { botPlaytest, fieldCache } from './bots'
+import { findMoves, movesSummary } from './moves'
 import type { AnalysisInput, AnalysisMarker, AnalysisOptions, FairnessReport, HealthReport, Risk, SpawnReport, Team, TeamStats } from './types'
 import type { Vec3 } from '../project'
 
@@ -54,7 +55,7 @@ export function prepareMap(input: AnalysisInput, opts: AnalysisOptions = {}): Pr
   const [minX, , minZ] = bvh.min, [maxX, , maxZ] = bvh.max
   const area = Math.max(1, (maxX - minX) * (maxZ - minZ))
   const cell = opts.cell ?? Math.max(2, Math.ceil(Math.sqrt(area / 90000) * 2) / 2)
-  const g = buildFloor(bvh, cell, opts.maxDrop ?? 16)
+  const g = buildFloor(bvh, cell, opts.maxDrop ?? LETHAL_DROP)
   lap('floor')
 
   // Markers on the floor graph.
@@ -134,7 +135,7 @@ export function finishMap(p: Prepared, counts: SightCounts): HealthReport {
   lap('fairness')
 
   progress(opts, 'Bots playing the map', 0.9, 1)(0)
-  const bots = botPlaytest(g, { spawns: nodes(spawnIdx), weapons: nodes(weaponIdx), drops: nodes(dropIdx) },
+  const bots = botPlaytest(g, { spawns: spawnIdx.map((i) => nodeOf[i]), spawnTeams: spawnIdx.map((i) => teamOf(markers[i].type)), weapons: nodes(weaponIdx), drops: nodes(dropIdx) },
     { bots: opts.bots ?? BOTS.bots, trips: opts.trips ?? BOTS.trips, seed: opts.seed ?? 1, field })
   lap('bots')
 
@@ -143,10 +144,14 @@ export function finishMap(p: Prepared, counts: SightCounts): HealthReport {
   const blindShare = reachList.length ? blind / reachList.length : 0
   const openShare = reachList.length ? open / reachList.length : 0
 
+  const moves = findMoves(bvh, g)
+  lap('moves')
   const { score, findings } = summarize(spawns, fairness, unreachable, lanes, blindShare, openShare, reachList.length)
+  const getAround = movesSummary(moves)
+  if (getAround && reachList.length) findings.push(getAround)
   return {
     version: 1, grid: g.grid, exposure: stand, exposureCrouch: crouch, traffic: bots.traffic, territory,
-    lanes, blindShare, openShare, spawns, fairness, unreachable, hotspots: bots.hotspots, score, findings,
+    lanes, blindShare, openShare, spawns, fairness, unreachable, hotspots: bots.hotspots, moves, score, findings,
     stats: { triangles: input.flags.length, nodes: g.grid.count, reachable: reachList.length, observers: p.observers.length, rays: bvh.rays + counts.rays, ms },
   }
 }

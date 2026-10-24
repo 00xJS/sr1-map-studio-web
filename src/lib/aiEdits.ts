@@ -215,6 +215,8 @@ export function markerPatch(a: Record<string, unknown>, lists: { weapons: string
   if (finite(a.radius)) patch.radius = Math.max(0.1, Math.min(200, a.radius))
   if (Array.isArray(a.size) && a.size.length === 3 && a.size.every(finite)) patch.size = a.size.map((v) => Math.max(0.1, Math.min(500, v))) as Vec3
   if (finite(a.delay_ms)) patch.delay_ms = Math.max(0, Math.round(a.delay_ms))
+  // Weapon pickups: seconds until it comes back once taken (0: the game's default for the weapon).
+  if (finite(a.respawn_s)) patch.respawn_ms = a.respawn_s > 0 ? Math.round(Math.min(600, Math.max(1, a.respawn_s)) * 1000) : 0
   if (typeof a.label === 'string') patch.label = a.label.slice(0, 64)
   if (typeof a.sound === 'string') patch.sound = a.sound.slice(0, 64)
   if (finite(a.volume)) patch.volume = Math.max(0, Math.min(1, a.volume))

@@ -84,6 +84,8 @@ export interface Marker {
   vehicle: string
   radius: number
   delay_ms: number
+  /** Weapon pickups: how long it stays away once taken, ms (unset: the game's default for the weapon, see player.ts). */
+  respawn_ms?: number
   max_fires: number
   disabled: boolean
   trigger_action: string

@@ -7,9 +7,9 @@ import { Vector3 } from 'three'
 import { useEditor } from './store'
 import { getViewer } from './Viewport'
 import { runHealthCheck, stopHealthCheck, useHealth, useHealthStale, type OverlayKind } from './health'
-import { RISK_COLORS } from './healthOverlay'
+import { MOVE_COLORS, RISK_COLORS } from './healthOverlay'
 import { BOTS } from '../lib/analysis/analyze'
-import type { HealthReport, SpawnReport, TeamStats } from '../lib/analysis/types'
+import type { HealthReport, MoveFinding, MoveKind, SpawnReport, TeamStats } from '../lib/analysis/types'
 
 const OVERLAYS: { kind: OverlayKind; label: string; title: string; advanced?: boolean }[] = [
   { kind: 'sight', label: 'Sight lines', title: 'How much of the map sees each spot, standing; red lines are the longest sight lines (sniper lanes)' },
@@ -17,6 +17,7 @@ const OVERLAYS: { kind: OverlayKind; label: string; title: string; advanced?: bo
   { kind: 'traffic', label: 'Traffic', title: 'Where the bots ran most: where players will actually run' },
   { kind: 'spawns', label: 'Spawns', title: 'Every spawn, coloured by how safe it is, with lines from the places that can see the risky ones' },
   { kind: 'sides', label: 'Red vs blue', title: 'Which team gets to each spot first', advanced: true },
+  { kind: 'moves', label: 'Getting around', title: 'Gaps that take a sprinting jump (or can’t be jumped), drops that hurt or kill, and walls only the game’s own maps let you climb' },
 ]
 
 const LEGEND: Record<OverlayKind, string> = {
@@ -26,6 +27,11 @@ const LEGEND: Record<OverlayKind, string> = {
   traffic: 'Purple: a few runs. Red to yellow: busier. Yellow rings: the busiest spots.',
   spawns: 'Green: safe. Yellow: could use more cover. Red: easy to camp. Click a spawn finding (or one in the Health tab) to see the places that can see it.',
   sides: 'Red or blue: the team that gets there first walking from its spawns.',
+  moves: 'Blue: a gap only a sprinting jump crosses. Purple: too wide to jump. Orange: a drop that hurts. Red: a drop that kills. Yellow: a wall exported maps can’t climb. Numbers are metres.',
+}
+
+const MOVE_WORD: Record<MoveKind, string> = {
+  'sprint-gap': 'Sprint-jump gaps', 'wide-gap': 'Gaps too wide to jump', 'kill-drop': 'Drops that kill', 'hurt-drop': 'Drops that hurt', 'climb-only': 'Walls you can’t climb in exported maps',
 }
 
 const RISK_WORD = { ok: 'Safe', watch: 'Needs cover', campable: 'Easy to camp' } as const
@@ -85,6 +91,7 @@ function Findings({ r, max }: { r: HealthReport; max?: number }) {
       {r.findings.slice(0, max).map((f, i) => {
         const n = /^Spawn (\d+) /.exec(f)?.[1]
         const s = n && r.spawns.find((x) => x.number === Number(n))
+        if (f.startsWith('Getting around') && r.moves?.length) return <li key={i}><a href="#" onClick={(e) => { e.preventDefault(); focusMove(r.moves, 0) }} title="Show them on the map">{f}</a></li>
         return <li key={i}>{s ? <a href="#" onClick={(e) => { e.preventDefault(); focusSpawn(s) }} title="Show it on the map, with the places that can see it">{f}</a> : f}</li>
       })}
     </ul>
@@ -140,6 +147,7 @@ export function HealthPanel() {
         <Spawns r={report} />
         <Fairness r={report} />
         <SightAndFlow r={report} />
+        <GettingAround r={report} />
         <Stats r={report} />
       </>}
     </div>
@@ -163,8 +171,51 @@ function focusSpawn(s: SpawnReport) {
   v.requestRender()
 }
 
-function Spawns({ r }: { r: HealthReport }) {
+/** Shows one of the gaps, drops or walls on the map (with the others), the camera looking at it from where it is. */
+function focusMove(moves: MoveFinding[], i: number) {
+  const mv = moves[i]
+  if (!mv) return
+  useHealth.setState({ overlay: 'moves', focus: i })
+  const v = getViewer()
+  if (!v) return
+  const target = new Vector3(...(mv.to ? mv.at.map((a, k) => (a + mv.to![k]) / 2) as [number, number, number] : mv.at))
+  const back = v.camera.position.clone().sub(v.orbit.target)
+  if (back.lengthSq() < 1e-6) back.set(1, 1, 1)
+  v.orbit.target.copy(target)
+  v.camera.position.copy(target).add(back.setLength(40))
+  v.requestRender()
+}
+
+/** Gaps, drops and climb-only walls, by kind; click one to see it. */
+function GettingAround({ r }: { r: HealthReport }) {
   const focus = useHealth((s) => s.focus)
+  const overlay = useHealth((s) => s.overlay)
+  const moves = r.moves ?? []
+  const kinds = (Object.keys(MOVE_WORD) as MoveKind[]).filter((k) => moves.some((mv) => mv.kind === k))
+  return (
+    <div className="group">
+      <span className="section-title">Getting around</span>
+      {!moves.length
+        ? <span className="small faint">No gaps to jump, no drops that hurt, and no walls that only climbing would get you up.</span>
+        : kinds.map((k) => (
+          <div key={k} className="col" style={{ gap: 2 }}>
+            <span className="small"><span className="health-badge" style={{ background: MOVE_COLORS[k], width: 10, height: 10, display: 'inline-block', marginRight: 6 }} />{MOVE_WORD[k]}</span>
+            <div className="list" style={{ maxHeight: 160 }}>
+              {moves.map((mv, i) => mv.kind !== k ? null : (
+                <div key={i} className={'list-item' + (overlay === 'moves' && focus === i ? ' selected' : '')} onClick={() => focusMove(moves, i)} title="Show it on the map">
+                  <span className="grow small">{mv.text}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      <span className="small faint">From the game’s own numbers: a run jump clears about 2.5 m and a sprint jump 6 m; falls over 4 m hurt and 9 m kills; a jump gets you onto about 1.1 m.</span>
+    </div>
+  )
+}
+
+function Spawns({ r }: { r: HealthReport }) {
+  const focus = useHealth((s) => (s.overlay === 'moves' ? null : s.focus))
   const order = [...r.spawns].sort((a, b) => ['campable', 'watch', 'ok'].indexOf(a.risk) - ['campable', 'watch', 'ok'].indexOf(b.risk) || a.number - b.number)
   return (
     <div className="group">
@@ -223,7 +274,7 @@ function SightAndFlow({ r }: { r: HealthReport }) {
       <span className="small">{Math.round(r.openShare * 100)}% of the floor is wide open (half the map sees it); {Math.round(r.blindShare * 100)}% is hidden from almost everywhere.</span>
       {r.lanes.length > 0 && <span className="small">Longest sight lines: {r.lanes.map((l) => `${l.metres} m`).join(', ')}.</span>}
       {r.unreachable.length > 0 && <span className="small warn">Can't be walked to: {r.unreachable.map((u) => `${u.type.toLowerCase()} at ${u.position.map((v) => Math.round(v)).join(', ')}`).join('; ')}.</span>}
-      <span className="small faint">Traffic comes from {BOTS.bots} bots making {BOTS.trips} runs between spawns, weapons and drop-offs, now and then dying and respawning.</span>
+      <span className="small faint">Traffic comes from {BOTS.bots} bots making {BOTS.trips} runs between spawns, weapons and drop-offs, now and then dying and respawning where the game would put them (never within 5 m of an enemy, likelier the further from one).</span>
     </div>
   )
 }

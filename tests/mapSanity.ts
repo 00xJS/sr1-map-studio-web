@@ -3,7 +3,7 @@
 // Every check returns plain-language problems; an empty list is a clean map.
 import { Bvh } from '../src/lib/analysis/bvh'
 import { prepareMap } from '../src/lib/analysis/analyze'
-import { PLAYER } from '../src/lib/analysis/floor'
+import { JUMP_UP, PLAYER } from '../src/lib/analysis/floor'
 import { sampleInput } from '../src/lib/analysis/sampleInput'
 import { OPAQUE, SOLID } from '../src/lib/analysis/types'
 import type { Vec3 } from '../src/lib/project'
@@ -11,8 +11,7 @@ import { turn, type Part, type Sample } from '../src/lib/sampleKit'
 import { over, partIndex } from '../src/lib/sampleScale'
 
 const SPAWNS = ['Shared spawn', 'Red team spawn', 'Blue team spawn']
-/** Highest ledge a player gets onto (a jump from a step), as the health check's floor graph allows. */
-const JUMP_UP = PLAYER.jump + PLAYER.step - 0.2
+// JUMP_UP: the highest ledge a player gets onto, as the health check's floor graph allows (the game's 1.1 m).
 const r1 = (v: number) => +v.toFixed(1)
 const at = (p: Part) => `${p.label} at ${p.at.map(r1).join(', ')}`
 /** World point from a part's local offset (the editor's heading convention). */

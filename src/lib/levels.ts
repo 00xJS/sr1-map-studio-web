@@ -5,6 +5,7 @@
 // Blinged Out Ride its own <map>_bor.cts plus levels/<map>_mode.xtbl.
 import { PIMP_EXIT, SPAWN_TYPES, type GameMode, type Marker, type ProjectSettings } from './project'
 import { BOR, BOR_TYPES, borExtraCars, borMissing, borWarnings } from './retailModes'
+import { SPAWN_RULES, UNITS_PER_M } from './player'
 
 export interface LevelEntry {
   mode: GameMode
@@ -71,6 +72,31 @@ export function bunched(markers: Pick<Marker, 'position'>[], gap: number): numbe
   return markers.filter((m, i) => markers.some((o, j) => j !== i && near(m.position, o.position))).length
 }
 
+/**
+ * Weapon pickups and drop-offs within the game's 5 m of a spawn (and less than 5 m above or below): the game
+ * won't spawn anyone there while an enemy is that close, and players gather at those. Marker indexes, the
+ * pickup or drop-off first.
+ */
+export function crowdedSpawns(markers: Pick<Marker, 'type' | 'position'>[]): { marker: number; spawn: number }[] {
+  const near = SPAWN_RULES.enemyM * UNITS_PER_M, dy = SPAWN_RULES.enemyDyM * UNITS_PER_M
+  const out: { marker: number; spawn: number }[] = []
+  markers.forEach((m, i) => {
+    if (m.type !== 'Weapon pickup' && m.type !== 'Chains drop-off') return
+    const s = markers.findIndex((o) => SPAWN_TYPES.includes(o.type) && Math.abs(o.position[1] - m.position[1]) < dy
+      && Math.hypot(o.position[0] - m.position[0], o.position[1] - m.position[1], o.position[2] - m.position[2]) < near)
+    if (s >= 0) out.push({ marker: i, spawn: s })
+  })
+  return out
+}
+
+/** The 5 m check in plain words. */
+export function crowdedText(markers: Pick<Marker, 'type'>[], list: { marker: number }[]): string {
+  const n = list.length
+  const kinds = [...new Set(list.map((c) => (markers[c.marker].type === 'Weapon pickup' ? 'weapon pickup' : 'drop-off')))]
+  const what = kinds.length === 2 ? (n === 1 ? 'weapon pickup or drop-off' : 'weapon pickups and drop-offs') : `${kinds[0]}${n === 1 ? '' : 's'}`
+  return `${n} ${what} ${n === 1 ? 'is' : 'are'} within ${SPAWN_RULES.enemyM} m of a spawn. The game won't spawn anyone there while an enemy is that close, and players gather at ${n === 1 ? 'it' : 'them'}: move ${n === 1 ? 'it' : 'them'} further away.`
+}
+
 /** Markers that only a game mode which isn't selected uses: the warning to show and the marker types a one-click fix removes. */
 export interface UnusedMarkers { text: string; types: string[]; count: number }
 
@@ -108,6 +134,8 @@ export function checkModes(settings: Pick<ProjectSettings, 'modes'>, markers: Ma
     const close = bunched(shared, SPAWN_GAP)
     if (close) warnings.push(`${close} Player spawns are within ${SPAWN_GAP / 2} m of another, so players can appear next to each other. The game's own maps keep them about 10 to 45 m apart.`)
   }
+  const crowded = crowdedSpawns(markers)
+  if (crowded.length) warnings.push(crowdedText(markers, crowded))
   if (modes.some((m) => m.includes('Chains'))) {
     const drops = markers.filter((m) => m.type === 'Chains drop-off')
     if (drops.length < 2) warnings.push(`Big Ass Chains modes need Chains drop-off markers; place at least 2, ideally ${CHAINS_DROPS} (the drop-off moves between them during the match).`)
