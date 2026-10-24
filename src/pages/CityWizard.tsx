@@ -33,20 +33,31 @@ function CitySketch({ s }: { s: Sample }) {
       g.restore()
     }
     for (const p of s.parts) if (p.label === 'River' || p.label === 'Pond') draw(p, '#2e6f96')
+    // Bridges carry the street over the water.
+    for (const p of s.parts) if (p.label === 'Bridge deck') draw(p, '#26272b')
     for (const p of s.parts) if (LOT_COLOURS[p.label]) draw(p, LOT_COLOURS[p.label] + '66')
-    // Buildings and big pieces: each placed prefab as one footprint (its parts' box), shaded by height; then
-    // anything else whose top stands above head height; the freeway on top.
-    const groups = new Map<string, { x0: number; x1: number; z0: number; z1: number; top: number }>()
+    for (const p of s.parts) if (p.label === 'Median') draw(p, '#4f8f45')
+    // Buildings and big pieces: each placed prefab as one footprint (its parts' box, square to the prefab's own
+    // heading), shaded by height; then anything else whose top stands above head height; the freeway on top.
+    const groups = new Map<string, { x: number; z: number; rot: number; x0: number; x1: number; z0: number; z1: number; top: number }>()
     for (const p of s.parts) {
       if (!p.prefab || p.prefab.key === 'road' || !p.group) continue
-      const g0 = groups.get(p.group) ?? { x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity, top: 0 }
-      const hw = Math.max(p.size[0], p.size[2]) / 2
-      g0.x0 = Math.min(g0.x0, p.at[0] - hw); g0.x1 = Math.max(g0.x1, p.at[0] + hw); g0.z0 = Math.min(g0.z0, p.at[2] - hw); g0.z1 = Math.max(g0.z1, p.at[2] + hw)
+      const { at, rot } = p.prefab
+      const g0 = groups.get(p.group) ?? { x: at[0], z: at[2], rot, x0: Infinity, x1: -Infinity, z0: Infinity, z1: -Infinity, top: 0 }
+      // The part in the prefab's frame.
+      const t = (-rot * Math.PI) / 180, dx = p.at[0] - at[0], dz = p.at[2] - at[2]
+      const lx = dx * Math.cos(t) + dz * Math.sin(t), lz = -dx * Math.sin(t) + dz * Math.cos(t)
+      const a = (((p.rot ?? 0) - rot) * Math.PI) / 180, c = Math.abs(Math.cos(a)), sn = Math.abs(Math.sin(a))
+      const hx = (p.size[0] * c + p.size[2] * sn) / 2, hz = (p.size[0] * sn + p.size[2] * c) / 2
+      g0.x0 = Math.min(g0.x0, lx - hx); g0.x1 = Math.max(g0.x1, lx + hx); g0.z0 = Math.min(g0.z0, lz - hz); g0.z1 = Math.max(g0.z1, lz + hz)
       g0.top = Math.max(g0.top, p.at[1] + p.size[1])
       groups.set(p.group, g0)
     }
     const shade = (top: number) => `hsl(215 12% ${40 + Math.min(1, top / 160) * 50}%)`
-    for (const b of [...groups.values()].filter((b) => b.top > 6).sort((a, c) => a.top - c.top)) { g.fillStyle = shade(b.top); g.fillRect(b.x0, b.z0, b.x1 - b.x0, b.z1 - b.z0) }
+    for (const b of [...groups.values()].filter((b) => b.top > 6).sort((a, c) => a.top - c.top)) {
+      g.fillStyle = shade(b.top)
+      g.save(); g.translate(b.x, b.z); g.rotate((-b.rot * Math.PI) / 180); g.fillRect(b.x0, b.z0, b.x1 - b.x0, b.z1 - b.z0); g.restore()
+    }
     const tall = s.parts.filter((p) => !p.prefab && p.at[1] + p.size[1] > 6 && p.at[1] < 4 && !/^(Ground|Wall)$|railing|pier|pillar|quay|bed|freeway/i.test(p.label)).sort((a, b) => a.at[1] + a.size[1] - (b.at[1] + b.size[1]))
     for (const p of tall) draw(p, shade(p.at[1] + p.size[1]))
     for (const p of s.parts) if (p.label === 'Freeway deck') draw(p, '#4a4b52')
@@ -68,7 +79,7 @@ export function CityWizard({ busy, onCreate }: { busy: boolean; onCreate: (s: Sa
   return (
     <div className="wizard">
       <div className="col" style={{ gap: 12, flex: '1 1 300px', minWidth: 0 }}>
-        <p className="small muted">An original city in the style of Saints Row's Stilwater, built from the site's own pieces, so it works with or without the game: a river with bridges and quays, downtown towers, a Chinatown-like quarter, a red-light strip, the projects, a barrio, suburbs, hillside homes, docks and factories, and parks, with sidewalks, street lamps, shops and parked cars.</p>
+        <p className="small muted">An original city in the style of Saints Row's Stilwater, built from the site's own pieces, so it works with or without the game: a river with bridges and quays, streets that bend and a diagonal avenue, downtown towers, a Chinatown-like quarter, a red-light strip, the projects, a barrio, suburbs, hillside homes, docks and factories, and parks, with sidewalks, street lamps, shops and parked cars.</p>
         <div className="col" style={{ gap: 6 }}>
           <span className="section-title">Size</span>
           <div className="row wrap">

@@ -145,7 +145,7 @@ function slab(label: string, pts: Pt[], y: number, h: number, top: Tex, side: Te
   return blob(label, ring.map((p): [number, number] => [+(p[0] - c[0]).toFixed(3), +(p[1] - c[1]).toFixed(3)]), h, [+c[0].toFixed(3), y, +c[1].toFixed(3)], top, side, tile)
 }
 
-export interface RoadBuild { parts: Part[]; lights: [Vec3, Vec3?][]; junctions: Pt[] }
+export interface RoadBuild { parts: Part[]; lights: [Vec3, Vec3?][]; junctions: Pt[]; graph: RoadGraph }
 
 /** The pieces of a road network in its own frame (y is the surface it lies on). */
 export function buildRoad(lines: Polyline[], o: RoadOptions, y = 1): RoadBuild {
@@ -287,7 +287,7 @@ export function buildRoad(lines: Polyline[], o: RoadOptions, y = 1): RoadBuild {
       }
     }
   }
-  return { parts, lights, junctions: [...junction.keys()].map((k) => g.nodes[k]) }
+  return { parts, lights, junctions: [...junction.keys()].map((k) => g.nodes[k]), graph: g }
 }
 
 // ---------------- the road prefab ----------------
