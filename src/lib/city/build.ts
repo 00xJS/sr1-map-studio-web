@@ -15,6 +15,10 @@ import { workerCityCut } from '../gameObjects/client'
 import type { CityCut, CityMap } from '../gameObjects/worker'
 import { chunksIn, type Rect } from './city'
 import { splitParts } from './parts'
+import { mapLimit } from '../hubRules'
+
+/** Pictures encoded at once while a cut is saved. */
+const PICTURES_AT_ONCE = 8
 
 /** Biggest side of an area (metres): the game's own multiplayer maps are 45 to 120 m across. */
 export const MAX_SIDE = 300
@@ -151,12 +155,13 @@ export async function cityProject(r: Rect, map: CityMap, onProgress: (t: string)
   // The game's layer pictures (decals, masks, normal and specular maps), each once for the whole cut.
   const layerPath = new Map<string, string | null>()
   await storeLayers(cut.solid.mesh, usedMats, cut.solid.layers, '', p.files, layerPath)
-  for (const m of usedMats) {
+  // Encoding pictures is the slow part of a cut: several at once.
+  await mapLimit(usedMats, PICTURES_AT_ONCE, async (m) => {
     const f = await storeFile(await rgbaPng(cut.solid.textures[m] ?? plain(), matName[m] + '.png'), matName[m] + '.png', 'game')
     f.ref.origin = 'game'
     p.files[f.vpath] = f.ref
     texPath[m] = f.vpath
-  }
+  })
   const items: SceneItem[] = []
   const { cacheModel } = await import('../assets')
   const counts = new Map<string, number>()

@@ -5,6 +5,7 @@
 // so a copy of the map that arrives without those files (a backup, a cloud save) can rebuild them from that
 // player's own game.
 import { storeFile } from '../files'
+import { mapLimit } from '../hubRules'
 import { catalogs } from '../catalogs'
 import { parseObj } from '../geometry'
 import type { FileRef, Project, SceneItem } from '../project'
@@ -95,17 +96,23 @@ export interface StoredObject {
 export async function storeLayers(mesh: ObjectMesh, mats: number[], layers: Record<string, ObjectTexture | null> | undefined, tag: string, files: Record<string, FileRef>, have: Map<string, string | null>) {
   // A material's own picture is its OBJ texture already; only the others are stored here.
   const own = (i: number, t: string) => t.toLowerCase() === mesh.materials[i].toLowerCase()
+  const todo: string[] = []
   for (const tex of new Set(mats.flatMap((i) => lookTextures(mesh.looks?.[i] ?? null).filter((t) => !own(i, t))))) {
     const k = tex.toLowerCase()
     if (have.has(k)) continue
-    const t = layers?.[k]
-    if (!t) { have.set(k, null); continue }
+    if (!layers?.[k]) { have.set(k, null); continue }
+    have.set(k, null)
+    todo.push(tex)
+  }
+  // Several pictures encoded at once (encoding is the slow part).
+  await mapLimit(todo, 8, async (tex) => {
+    const k = tex.toLowerCase()
     const name = safe(stemOf(tex)) + (/\.tgn$/i.test(tex) ? '_nm' : '') + tag + '.png'
-    const s = await storeFile(await rgbaPng(t, name), name, 'game')
+    const s = await storeFile(await rgbaPng(layers![k]!, name), name, 'game')
     s.ref.origin = 'game'
     files[s.vpath] = s.ref
     have.set(k, s.vpath)
-  }
+  })
 }
 
 /**

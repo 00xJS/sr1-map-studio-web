@@ -257,7 +257,8 @@ export interface HubFile { hash: string; size: number; name: string; type: strin
 const HASH_RE = /^[0-9a-f]{64}$/
 const MAX_SNAPSHOT_CHARS = 5 * MB
 
-async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
+/** `fn` over the items, at most `limit` at a time, results in order. */
+export async function mapLimit<T, R>(items: T[], limit: number, fn: (x: T) => Promise<R>): Promise<R[]> {
   const out: R[] = new Array(items.length)
   let next = 0
   const worker = async () => { while (next < items.length) { const i = next++; out[i] = await fn(items[i]) } }
