@@ -1,4 +1,5 @@
 // POST /api/ai  {model, messages, temperature?, max_tokens?, stream?}  ->  the chat completion from NVIDIA
+// GET  /api/ai/models  ->  the models NVIDIA's API serves right now (public; no key needed or sent)
 //
 // A relay for the editor's AI chat: NVIDIA's API (build.nvidia.com) is not
 // callable from the browser directly. The user's own key arrives in the
@@ -6,12 +7,20 @@
 // logged here. With stream: true the answer comes back as server-sent events,
 // piped through as they arrive.
 const UPSTREAM = 'https://integrate.api.nvidia.com/v1/chat/completions'
+const MODELS = 'https://integrate.api.nvidia.com/v1/models'
 const MAX_BODY = 400_000
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
 
 export default async (req: Request) => {
+  if (req.method === 'GET' && new URL(req.url).pathname.endsWith('/models')) {
+    const upstream = await fetch(MODELS, { headers: { Accept: 'application/json' }, signal: req.signal })
+    if (!upstream.ok) return json(502, { error: "Couldn't reach NVIDIA's model list." })
+    const { data } = (await upstream.json()) as { data?: { id?: unknown }[] }
+    const ids = (data ?? []).map((m) => m.id).filter((id): id is string => typeof id === 'string')
+    return new Response(JSON.stringify({ models: ids }), { headers: { 'Content-Type': 'application/json', 'Cache-Control': 'public, max-age=3600' } })
+  }
   if (req.method !== 'POST') return json(405, { error: 'Use POST.' })
   const auth = req.headers.get('authorization') || ''
   if (!/^Bearer nvapi-[\w-]{20,}$/.test(auth)) return json(401, { error: 'Add your NVIDIA API key (it starts with nvapi-).' })
@@ -41,4 +50,4 @@ export default async (req: Request) => {
   return new Response(await upstream.text(), { status: upstream.status, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' } })
 }
 
-export const config = { path: '/api/ai' }
+export const config = { path: ['/api/ai', '/api/ai/models'] }

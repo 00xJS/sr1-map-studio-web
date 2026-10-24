@@ -6,7 +6,8 @@ export default defineConfig(({ mode }) => ({
   plugins: [react(), devGameFiles()],
   worker: { format: 'es' },
   // The AI chat's relay (netlify/functions/ai.mts) during development: straight through to NVIDIA.
-  server: { proxy: { '/api/ai': { target: 'https://integrate.api.nvidia.com', changeOrigin: true, rewrite: () => '/v1/chat/completions' } } },
+  // The model list comes back as NVIDIA's own {data: [{id}]}; listModels reads both shapes.
+  server: { proxy: { '/api/ai': { target: 'https://integrate.api.nvidia.com', changeOrigin: true, rewrite: (path: string) => (path.startsWith('/api/ai/models') ? '/v1/models' : '/v1/chat/completions') } } },
   build: { target: 'es2022', chunkSizeWarningLimit: 1500 },
   // `vitest --mode game` / `--mode full` turn on the slower checks (tests/testMode.ts).
   test: { include: ['tests/**/*.test.ts'], env: { SR1_TEST_MODE: mode } },

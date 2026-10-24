@@ -12,8 +12,9 @@ import { KINDS } from './procedural'
 import { DENSITY, LAYOUTS, SETTINGS } from './mapWizard'
 import { TOPICS } from './mapFacts'
 
-export const DEFAULT_MODEL = 'meta/llama-3.3-70b-instruct'
-export const SUGGESTED_MODELS = ['meta/llama-3.3-70b-instruct', 'nvidia/nemotron-3-super-120b-a12b', 'moonshotai/kimi-k2.6']
+/** Good picks, best first; the first is the default. NVIDIA retires models, so the live list decides what shows. */
+export const SUGGESTED_MODELS = ['mistralai/mistral-large-2-instruct', 'moonshotai/kimi-k2.6', 'nvidia/nemotron-3-super-120b-a12b', 'deepseek-ai/deepseek-v4.1-flash', 'z-ai/glm-5.3']
+export const DEFAULT_MODEL = SUGGESTED_MODELS[0]
 export const KEY_STORE = 'sr1ms.nvidiaKey'
 export const MODEL_STORE = 'sr1ms.nvidiaModel'
 
@@ -323,6 +324,26 @@ export function partialReply(content: string): string {
   const m = stripThinking(content).match(/"reply"\s*:\s*"((?:[^"\\]|\\.)*)/)
   if (!m) return ''
   try { return JSON.parse('"' + m[1].replace(/\\$/, '') + '"') } catch { return m[1] }
+}
+
+// ---------------- which models there are ----------------
+
+/** Models on NVIDIA's API that can't chat: embeddings, safety guards, reward models, parsers, detectors and the like. */
+const NOT_CHAT = /embed|guard|safety|reward|parse|clip|detector|retriever|calibration|deplot|kosmos|translate|diffusion/i
+
+/** The chat models among NVIDIA's ids, suggested ones first, the rest A to Z. */
+export function chatModels(ids: string[]): string[] {
+  const chat = [...new Set(ids)].filter((id) => !NOT_CHAT.test(id)).sort()
+  return [...SUGGESTED_MODELS.filter((m) => chat.includes(m)), ...chat.filter((m) => !SUGGESTED_MODELS.includes(m))]
+}
+
+/** The chat models NVIDIA's API serves right now (the list is public: no key is sent). */
+export async function listModels(signal?: AbortSignal): Promise<string[]> {
+  const res = await fetch('/api/ai/models', { signal })
+  if (!res.ok) throw new Error("Couldn't load NVIDIA's model list.")
+  // The relay sends {models: [id]}; the dev server passes NVIDIA's own {data: [{id}]} through.
+  const body = (await res.json()) as { models?: string[]; data?: { id: string }[] }
+  return chatModels(body.models ?? body.data?.map((m) => m.id) ?? [])
 }
 
 // ---------------- talking to the model ----------------

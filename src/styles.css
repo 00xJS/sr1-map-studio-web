@@ -369,6 +369,12 @@ button.prefab-pick:hover { background: var(--bg-hover); border-color: var(--acce
 .ai-msg.error { color: var(--bad); }
 .ai-input { padding: 8px; border-top: 1px solid var(--line); gap: 6px; align-items: flex-end; }
 .ai-input textarea { flex: 1; resize: none; }
+.model-list { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; border: 1px solid var(--line); border-radius: 6px; }
+.model-row { display: flex; gap: 6px; align-items: center; text-align: left; background: none; border: 0; border-radius: 0; padding: 4px 8px; font-size: 12px; justify-content: flex-start; }
+.model-row:hover { background: var(--bg-hover); }
+.model-row.on { background: var(--accent-soft); }
+.model-row span:first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.model-row .tag { font-size: 10px; padding: 0 5px; border-radius: 4px; background: var(--bg-hover); color: var(--text-muted); white-space: nowrap; }
 .ai-thinking::after { content: ''; display: inline-block; width: 1.2em; animation: ai-dots 1.2s steps(4) infinite; overflow: hidden; vertical-align: bottom; }
 @keyframes ai-dots { from { width: 0 } to { width: 1.2em } }
 .ai-thought { max-height: 6.5em; overflow: hidden; font-style: italic; mask-image: linear-gradient(transparent, #000 40%); -webkit-mask-image: linear-gradient(transparent, #000 40%); }

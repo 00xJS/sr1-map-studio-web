@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  chatModels, listModels, DEFAULT_MODEL,
   askModel, askWithRepair, critiquePrompt, describeMap, describePrompt, modelProfile, needsRepair, parseReply, partialReply, readJsonObject, repairJson, systemPrompt,
 } from '../src/lib/aiChat'
 import { buildReview, clampToMap, describeEdit, heuristicPlan, isCritiqueRequest, planFromAction, planFromModel } from '../src/lib/aiReview'
@@ -152,6 +153,22 @@ describe('talking to the model (mocked)', () => {
   })
 })
 
+describe('model list', () => {
+  it('keeps chat models, suggested ones first, and drops embedders and guards', () => {
+    const ids = ['z/zeta-chat', 'nvidia/nv-embedqa-mistral-7b-v2', 'meta/llama-guard-4-12b', 'nvidia/nemotron-4-340b-reward', 'a/alpha-instruct', DEFAULT_MODEL, DEFAULT_MODEL]
+    expect(chatModels(ids)).toEqual([DEFAULT_MODEL, 'a/alpha-instruct', 'z/zeta-chat'])
+  })
+
+  it('reads the relay and the dev proxy shapes', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ models: ['b/x', 'a/y'] }))))
+    expect(await listModels()).toEqual(['a/y', 'b/x'])
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(JSON.stringify({ data: [{ id: 'c/z' }] }))))
+    expect(await listModels()).toEqual(['c/z'])
+    vi.stubGlobal('fetch', vi.fn(async () => new Response('{}', { status: 502 })))
+    await expect(listModels()).rejects.toThrow(/model list/)
+  })
+})
+
 describe('the relay', () => {
   it('passes the key through, caps the request, and streams the answer back', async () => {
     const upstream = vi.fn(async () => answer('', { stream: ['{"reply":"hi"}'] }))
@@ -162,6 +179,16 @@ describe('the relay', () => {
     const [, init] = upstream.mock.calls[0] as unknown as [string, RequestInit]
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer ' + KEY)
     expect(JSON.parse(init.body as string)).toEqual({ model: 'meta/llama-3.3-70b-instruct', messages: [], temperature: 0.3, max_tokens: 8192, stream: true })
+  })
+
+  it('lists the models without a key, and sends no key upstream', async () => {
+    const upstream = vi.fn(async () => new Response(JSON.stringify({ data: [{ id: 'a/chat-1' }, { id: 'b/embed-2' }] })))
+    vi.stubGlobal('fetch', upstream)
+    const res = await relay(new Request('http://x/api/ai/models'))
+    expect(await res.json()).toEqual({ models: ['a/chat-1', 'b/embed-2'] })
+    const [url, init] = upstream.mock.calls[0] as unknown as [string, RequestInit]
+    expect(url).toBe('https://integrate.api.nvidia.com/v1/models')
+    expect(JSON.stringify(init.headers)).not.toMatch(/authorization/i)
   })
 
   it('refuses a missing key without calling NVIDIA', async () => {
