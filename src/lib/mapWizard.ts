@@ -8,12 +8,13 @@ import { ALL_MODES, CY, PB, box, cyl, ground, mirror, perimeter, ramp, teamMarke
 import { U, car } from './urbanKit'
 import { ALL_PREFABS } from './prefabRegistry'
 import { prefabParams, tagPrefab } from './prefabs'
+import { prefabFootprint } from './prefabIndex'
 import { detailize } from './sampleDetail'
 import { dress, type DressOptions } from './sampleDress'
 import { populate, type PopulateTargets } from './samplePopulate'
 import { neighbourhood } from './neighbourhood'
 
-export type WizardSetting = 'downtown' | 'industrial' | 'paintball' | 'cyber' | 'suburbs' | 'docks' | 'construction' | 'military'
+export type WizardSetting = 'downtown' | 'industrial' | 'paintball' | 'cyber' | 'suburbs' | 'docks' | 'construction' | 'military' | 'rundown'
 export type WizardLayout = 'blocks' | 'plaza' | 'lanes' | 'arena' | 'heights' | 'neighbourhood' | 'crossroads' | 'compounds' | 'maze' | 'scatter'
 export type WizardDensity = 'open' | 'normal' | 'packed'
 
@@ -39,6 +40,7 @@ export const SETTINGS: Record<WizardSetting, { label: string; icon: string; hint
   docks: { label: 'Docks', icon: '⚓', hint: 'A quayside of container stacks, rusty sheds, bollards and buoys.' },
   construction: { label: 'Construction', icon: '🚧', hint: 'A dirt site of concrete shells, scaffolding, pipes, skips and diggers.' },
   military: { label: 'Military', icon: '🪖', hint: 'A sandy base of bunkers, barriers, sandbags, tents and jeeps.' },
+  rundown: { label: 'Rundown', icon: '🏚️', hint: 'The bad side of town: abandoned and burned-out buildings, boarded stores, wrecked cars, fire barrels, trash and graffiti.' },
 }
 
 export const LAYOUTS: Record<WizardLayout, { label: string; hint: string }> = {
@@ -135,6 +137,28 @@ function walkIn(key: string, x: number, z: number, w: number, d: number, extra: 
   return tagPrefab(def.make(x, z, 0, y, params), key, params, [x, y, z], 0)
 }
 
+/** One of these fixed-size prefabs that fits the plot, centred on it with its front toward the middle; null when none fits. */
+function fitted(r: Rng, keys: string[], x: number, z: number, w: number, d: number): Part[] | null {
+  const fits = keys.filter((k) => ALL_PREFABS[k]).filter((k) => { const [x0, z0, x1, z1] = prefabFootprint(k); return x1 - x0 <= w && z1 - z0 <= d })
+  if (!fits.length) return null
+  const key = r.pick(fits), [x0, z0, x1, z1] = prefabFootprint(key)
+  const px = x - (x0 + x1) / 2, pz = z - (z0 + z1) / 2
+  const def = ALL_PREFABS[key], params = prefabParams(def, {})
+  return tagPrefab(def.make(px, pz, 0, 1, params), key, params, [px, 1, pz], 0)
+}
+
+/** A prefab at a spot and heading (a wrecked car by the road). */
+function placed(key: string, x: number, z: number, rot: number): Part[] {
+  const def = ALL_PREFABS[key]
+  if (!def) return []
+  const params = prefabParams(def, {})
+  return tagPrefab(def.make(x, z, rot, 1, params), key, params, [x, 1, z], rot)
+}
+
+/** Derelict buildings for the rundown setting: an abandoned house, a burned-out shell, a boarded store, a tenement. */
+const RUINS = ['boardedhouse', 'burnedshell', 'boardedstore', 'srtenement']
+const WRECKS = ['burnedcar', 'srcarhusk']
+
 const FACADES = [PB.brick, PB.oldBrick, PB.plaster, PB.beige, U.apartments, U.office, U.officeGreen, U.shopfront, U.projects]
 const NEON = [CY.cyan, CY.pink, CY.lime, CY.purple, CY.orange, CY.matrix]
 const CAR_COLORS = ['#a8322b', '#2f5f8f', '#d8d4cc', '#2a2a2e', '#c9a23a', '#3f7a3a', '#7a7f86']
@@ -211,6 +235,17 @@ const LOOKS: Record<WizardSetting, Look> = {
     deck: { top: PB.planks, side: PB.darkConcrete },
     centre: ['radar', 'checkpoint', 'helipad'],
     dress: ['sandbagwall', 'hesco', 'twall', 'ammocrates', 'camonet', 'armytent', 'jeep', 'dragonteeth', 'hedgehogs', 'wirecoil', 'fieldgun', 'flagpole'],
+  },
+  rundown: {
+    theme: 'Urban', ground: [PB.oldAsphalt], wall: PB.oldBrick, wallTop: PB.darkConcrete, wallH: 8, heights: [6, 8, 10, 14], hoodHeights: [8, 10, 14, 18],
+    // Mostly the real derelicts where they fit; otherwise a grimy block or a building to walk into.
+    structure: (r, x, z, w, d, h) => (r.chance(0.65) && fitted(r, RUINS, x, z, w, d))
+      || (w >= 14 && d >= 14 && r.chance(0.3) ? walkIn('twostory', x, z, w, d, { style: 'brick' })
+        : [box('Abandoned building', [w, h, d], [x, 1, z], U.roof, r.pick([PB.oldBrick, PB.cracked, U.projects, PB.cinder]), 0, 6)]),
+    deck: { top: PB.planks, side: PB.oldBrick },
+    extras: (r, x, z, rot) => (r.chance(0.35) ? placed(r.pick(WRECKS), x, z, rot) : r.chance(0.25) ? [car(x, z, rot, r.pick(CAR_COLORS), r.int(1, 99))] : []),
+    centre: ['burnedshell', 'junkpile', 'carwreck'],
+    dress: ['firebarrel', 'trashbags', 'binbags', 'srtires', 'shoppingcart', 'couch', 'srboxes', 'srdumpsterlarge', 'srchainlink', 'graffiti', 'junkpile', 'burnedcar'],
   },
 }
 

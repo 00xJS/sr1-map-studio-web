@@ -62,6 +62,8 @@ export type AiAction =
   | { do: 'rename_map'; name: string }
   | ({ do: 'select' } & AiTarget)
   | ({ do: 'paint'; texture: string; material?: string; color?: string; accent?: string } & AiTarget)
+  | { do: 'spread_spawns'; which?: 'shared' | 'team' | 'all'; count?: number }
+  | { do: 'add_weapons'; weapons: string[]; where?: 'middle' | 'spread' | 'ends'; mirror?: boolean }
   | { do: 'place_line'; item: AiPlaceable; from: [number, number]; to: [number, number]; count: number; face?: 'along' | 'across'; mirror?: boolean }
   | { do: 'place_ring'; item: AiPlaceable; center?: [number, number]; radius: number; count: number; start?: number; face?: 'in' | 'out'; mirror?: boolean }
   | ({ do: 'mirror'; markers?: number[] } & AiTarget)
@@ -69,7 +71,7 @@ export type AiAction =
   | { do: 'set_weather'; clear: boolean }
   | { do: 'generate_map'; setting: string; layout: string; players: number; density?: string; seed?: number; name?: string; then?: AiAction[]; generator?: 'wizard' | 'city'; size?: string }
 
-export const KNOWN_EDITS = new Set(['add_prefab', 'add_shape', 'move', 'turn', 'scale', 'delete', 'duplicate', 'prefab_settings', 'add_marker', 'delete_markers', 'move_marker', 'add_light', 'set_modes', 'rename_map', 'select', 'paint', 'place_line', 'place_ring', 'mirror', 'make_symmetric', 'set_weather', 'generate_map'])
+export const KNOWN_EDITS = new Set(['add_prefab', 'add_shape', 'move', 'turn', 'scale', 'delete', 'duplicate', 'prefab_settings', 'add_marker', 'delete_markers', 'move_marker', 'add_light', 'set_modes', 'rename_map', 'select', 'paint', 'place_line', 'place_ring', 'mirror', 'make_symmetric', 'set_weather', 'generate_map', 'spread_spawns', 'add_weapons'])
 
 export interface AiReply { reply: string; actions: AiAction[] }
 
@@ -198,6 +200,8 @@ const EDITS = `{"do":"add_prefab","key":"bench","x":10,"z":-20,"turn":90,"settin
 {"do":"place_ring","item":{"do":"add_shape","shape":"pillar"},"center":[0,0],"radius":25,"count":8,"face":"out"}
 {"do":"add_marker","type":"Shared spawn","x":0,"z":-20,"mirror":true}   (weapons: "type":"Weapon pickup","weapon":"<id>")
 {"do":"move_marker","index":12,"x":4,"z":-50}
+{"do":"spread_spawns","which":"shared","count":16}   (moves the spawns onto open floor, as far apart as it allows: "shared" free-for-all spawns, "team" (count is per team, each at its own end) or "all"; leave out count to keep how many there are. Use it for "reshift / spread out / fix the spawns")
+{"do":"add_weapons","weapons":["rpg_launcher","sniper_rifle","spas12"],"where":"spread"}   (finds open floor for each, off the spawns, twin on the other half; "where": middle, spread or ends. Use it for "add these weapons" instead of guessing spots)
 {"do":"delete_markers","type":"Weapon pickup","near":[x,z,radius]}   or {"do":"delete_markers","indices":[12]}
 {"do":"add_light","x":0,"y":8,"z":0,"color":[1,0.8,0.6],"mirror":true}
 {"do":"mirror","name":"crate"}   (adds missing twins across the middle; any target; markers: {"do":"mirror","markers":[12,13]})
@@ -287,7 +291,7 @@ The generator makes a fair, point-symmetric map with spawns, weapons and lights 
 Use "then" for what the generator can't do: rain or night, a particular centrepiece, landmarks, signs, colours, more of something. Use "mirror": true for anything off-centre on a wizard map.
 
 Edits:
-${EDITS.split('\n').filter((l) => /"(add_prefab|add_shape|delete|place_line|place_ring|add_marker|add_light|set_weather|set_modes|paint|rename_map)"/.test(l)).join('\n')}
+${EDITS.split('\n').filter((l) => /"(add_prefab|add_shape|delete|place_line|place_ring|add_marker|add_light|set_weather|set_modes|paint|rename_map|spread_spawns|add_weapons)"/.test(l)).join('\n')}
 
 ${reference(profile, request)}
 ${profile.tier === 'reasoning' ? '' : `

@@ -70,6 +70,7 @@ export function heuristicPlan(text: string, seed = newSeed()): MapPlan {
   const t = text.toLowerCase()
   const setting: WizardSetting = /cyber|neon|tron|digital|futur|sci-?fi|synth|hologram/.test(t) ? 'cyber'
     : /paintball|turf|inflatable|airsoft/.test(t) ? 'paintball'
+      : /ghetto|\bhood\b|slum|projects|abandon|derelict|run-?down|burn(ed|t)|ruin|decay|condemned|skid row|crack ?house|boarded|sketchy|bad side/.test(t) ? 'rundown'
       : /industr|warehouse|factory|dock|harbou?r|\bport\b|container|refinery|shipyard|depot/.test(t) ? 'industrial' : 'downtown'
   const layout: WizardLayout = /tower|roof|high ground|heights|vertical|deck|platform/.test(t) ? 'heights'
     : /arena|ring|circle|colosseum|\bpit\b/.test(t) ? 'arena'
@@ -145,6 +146,8 @@ export function describeEdit(a: AiAction): string {
     case 'place_line': return `A line of ${a.count} ${(a.item as { key?: string; shape?: string; type?: string })?.key ?? (a.item as { shape?: string })?.shape ?? 'things'}${both(a)}`
     case 'place_ring': return `A ring of ${a.count} ${(a.item as { key?: string })?.key ?? (a.item as { shape?: string })?.shape ?? 'things'}`
     case 'set_modes': return `Game modes: ${(a.modes ?? []).join(', ')}`
+    case 'spread_spawns': return `Spread out the ${a.which === 'team' ? 'team spawns' : a.which === 'all' ? 'spawns' : 'free-for-all spawns'}${a.count ? ` (${a.count}${a.which === 'team' ? ' per team' : ''})` : ''}`
+    case 'add_weapons': return `Add weapons: ${(a.weapons ?? []).join(', ')}${a.where && a.where !== 'spread' ? ` (${a.where})` : ''}`
     default: return a.do.replace(/_/g, ' ')
   }
 }

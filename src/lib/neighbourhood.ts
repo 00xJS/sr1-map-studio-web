@@ -54,6 +54,7 @@ const GROUND = {
   docks: { lot: PB.concrete, park: U.grass, plaza: PB.diamond },
   construction: { lot: PB.dirt, park: U.grass, plaza: PB.concrete },
   military: { lot: PB.sand, park: PB.dirt, plaza: PB.concrete },
+  rundown: { lot: PB.oldAsphalt, park: PB.dirt, plaza: PB.cracked },
 } as const
 const HILL_TEX = TERRAIN_TEX
 

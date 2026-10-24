@@ -150,7 +150,7 @@ export class HeightGrid {
 
 // ---------------- the facts ----------------
 
-function extentOf(p: Project, ss: Solid[]) {
+export function extentOf(p: Project, ss: Solid[]) {
   let minX = Infinity, maxX = -Infinity, minZ = Infinity, maxZ = -Infinity
   const add = (x: number, z: number) => { minX = Math.min(minX, x); maxX = Math.max(maxX, x); minZ = Math.min(minZ, z); maxZ = Math.max(maxZ, z) }
   for (const s of ss) {

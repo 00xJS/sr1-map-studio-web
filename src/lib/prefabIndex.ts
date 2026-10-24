@@ -65,3 +65,18 @@ export function hashText(s: string): string {
   for (let i = 0; i < s.length; i++) h = Math.imul(h ^ s.charCodeAt(i), 0x01000193)
   return (h >>> 0).toString(36)
 }
+
+/** Footprint of a prefab placed at the origin facing 0: [minX, minZ, maxX, maxZ]. */
+export function prefabFootprint(key: string): [number, number, number, number] {
+  const parts = ALL_PREFABS[key].make(0, 0, 0, 0)
+  let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity]
+  for (const p of parts) {
+    const t = ((p.rot ?? 0) * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t)
+    const [hx, hz] = [p.size[0] / 2, p.size[2] / 2]
+    for (const [dx, dz] of [[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz]]) {
+      const x = p.at[0] + dx * c + dz * s, z = p.at[2] - dx * s + dz * c
+      x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z)
+    }
+  }
+  return Number.isFinite(x0) ? [x0, z0, x1, z1] : [-1, -1, 1, 1]
+}

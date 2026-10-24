@@ -2,6 +2,7 @@
 // a page at a time, so you can walk or fly past each one (or export it) and
 // spot anything that looks wrong: flicker, gaps, odd sizes.
 import { ALL_PREFABS, PREFAB_CATEGORIES } from './prefabRegistry'
+import { prefabFootprint as footprint } from './prefabIndex'
 import { prefabParams, tagPrefab } from './prefabs'
 import { box, LIGHT, PB, type MarkerSpec, type Part, type Sample } from './sampleKit'
 import type { Vec3 } from './project'
@@ -16,20 +17,6 @@ const MAX_LIGHTS = 60
 
 export interface GalleryPage { category: string; page: number; pages: number; keys: string[] }
 
-/** Footprint of a prefab placed at the origin facing 0: [minX, minZ, maxX, maxZ]. */
-function footprint(key: string): [number, number, number, number] {
-  const parts = ALL_PREFABS[key].make(0, 0, 0, 0)
-  let [x0, z0, x1, z1] = [Infinity, Infinity, -Infinity, -Infinity]
-  for (const p of parts) {
-    const t = ((p.rot ?? 0) * Math.PI) / 180, c = Math.cos(t), s = Math.sin(t)
-    const [hx, hz] = [p.size[0] / 2, p.size[2] / 2]
-    for (const [dx, dz] of [[-hx, -hz], [hx, -hz], [hx, hz], [-hx, hz]]) {
-      const x = p.at[0] + dx * c + dz * s, z = p.at[2] - dx * s + dz * c
-      x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z)
-    }
-  }
-  return Number.isFinite(x0) ? [x0, z0, x1, z1] : [-1, -1, 1, 1]
-}
 
 /** Every category split into pages small enough to build and walk comfortably. */
 export function galleryPages(): GalleryPage[] {

@@ -10,6 +10,7 @@ import { KINDS, defaultParams, type TextureKind } from '../lib/procedural'
 import type { AiAction } from '../lib/aiChat'
 import { expandPlacement, findMarkerTwin, findTwin, resolveTarget, symmetricPlan, twinItem, twinMarker } from '../lib/aiEdits'
 import { loadLibrary, niceName, paintMaterial } from './paint'
+import { spreadSpawns, weaponSpots } from '../lib/markerPlacer'
 import type { Swatch } from './store'
 
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
@@ -137,6 +138,30 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
             const type = twin ? TWIN_MARKER[a.type] ?? a.type : a.type
             act.addMarker(type, [x, floorAt(x, z) + 0.1, z], a.type === 'Weapon pickup' ? { weapon: a.weapon } : {}); done++
           }
+          break
+        }
+        case 'spread_spawns': {
+          const viewer = getViewer()
+          const which = a.which === 'team' || a.which === 'all' ? a.which : 'shared'
+          const markers = spreadSpawns(currentProject()!, viewer ? (i) => viewer.itemBounds(i) : undefined, which, typeof a.count === 'number' ? a.count : undefined)
+          if (!markers) { skipped.push('no open floor to put spawns on'); break }
+          st.update('Spread spawns', (d) => { d.markers = markers })
+          done++
+          break
+        }
+        case 'add_weapons': {
+          const known = weapons()
+          const list = (Array.isArray(a.weapons) ? a.weapons : []).map(String)
+          for (const w of list.filter((w) => !known.has(w))) skipped.push(`unknown weapon "${w}"`)
+          const want = list.filter((w) => known.has(w))
+          if (!want.length) break
+          const viewer = getViewer()
+          const at = weaponSpots(currentProject()!, viewer ? (i) => viewer.itemBounds(i) : undefined, want.length, a.where === 'middle' || a.where === 'ends' ? a.where : 'spread')
+          if (at.length < want.length) skipped.push(`room for ${at.length} of ${want.length} weapons`)
+          at.forEach((p, i) => {
+            act.addMarker('Weapon pickup', [p[0], p[1] + 0.1, p[2]], { weapon: want[i] }); done++
+            if (a.mirror !== false) { act.addMarker('Weapon pickup', [-p[0], p[1] + 0.1, -p[2]], { weapon: want[i] }); done++ }
+          })
           break
         }
         case 'delete_markers': {
