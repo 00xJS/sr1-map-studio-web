@@ -1,10 +1,20 @@
 // Walk-through: play the map at player size before exporting it. First person
 // by default (V for a third-person view of the player: a stand-in, or the
-// user's own Saints Row character once loaded), WASD to move,
-// Shift to run, Space to jump, hold C to crouch (not Ctrl: Ctrl+W would close the tab), steps and ramps
-// climbable, walls solid. Sizes are in editor units (1 unit = 0.5 m in game).
+// user's own Saints Row character once loaded), WASD to run (a keyboard always
+// runs in the game), Shift to sprint while the sprint meter lasts, Space to jump,
+// hold C to crouch (not Ctrl: Ctrl+W would close the tab), steps and ramps
+// climbable, walls solid. Sizes are in editor units (1 unit = 0.5 m in game);
+// the game's own numbers live in src/lib/player.ts.
 import * as THREE from 'three'
 import type { Vec3 } from '../lib/project'
+import { FOG, GRAVITY, JUMP_SPEED, PITCH_DOWN_DEG, PITCH_UP_DEG, RUN_SPEED, SPRINT_SPEED, STEP, SprintMeter, CROUCH_SPEED as GAME_CROUCH_SPEED, JUMP_HEIGHT as GAME_JUMP_HEIGHT } from '../lib/player'
+
+// The game's fog never hides things completely: three.js fog is capped at FOG.max. Fog is only on while walking,
+// and this runs before anything is drawn, so every material picks it up.
+const FOG_MIX = 'gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor );'
+if (THREE.ShaderChunk.fog_fragment.includes(FOG_MIX)) {
+  THREE.ShaderChunk.fog_fragment = THREE.ShaderChunk.fog_fragment.replace(FOG_MIX, `gl_FragColor.rgb = mix( gl_FragColor.rgb, fogColor, fogFactor * ${FOG.max.toFixed(3)} );`)
+}
 
 export interface WalkHost {
   camera: THREE.PerspectiveCamera
@@ -17,6 +27,8 @@ export interface WalkHost {
 export interface WalkState {
   locked: boolean; third: boolean; running: boolean; height: number
   crouched: boolean
+  /** The sprint meter ran dry: no sprinting until Shift is let go. */
+  tired?: boolean
   /** Eye height above the feet the camera is heading to, editor units. */
   eye: number
   /** Collision height (capsule top above the feet), editor units. */
@@ -38,14 +50,13 @@ export const CROUCH_HEIGHT = 2.22
 export const CROUCH_EYE = 2.1
 export const RADIUS = 0.85
 /** SR1's crouch_walk_speed, 1.9 m/s. */
-export const CROUCH_SPEED = 3.8
+export const CROUCH_SPEED = GAME_CROUCH_SPEED
 /** Jump height 0.85 m. */
-export const JUMP_HEIGHT = 1.7
+export const JUMP_HEIGHT = GAME_JUMP_HEIGHT
 /** How fast the camera and pose blend between standing and crouched (per second). */
 const CROUCH_BLEND = 9
-const STEP = 1.2
-const WALK = 9, RUN = 15, GRAVITY = 42
-const JUMP = Math.sqrt(2 * GRAVITY * JUMP_HEIGHT)
+const PITCH_MIN = (PITCH_DOWN_DEG * Math.PI) / 180, PITCH_MAX = (PITCH_UP_DEG * Math.PI) / 180
+const clampPitch = (p: number) => Math.max(PITCH_MIN, Math.min(PITCH_MAX, p))
 /** Heights of the wall-probe rays for a body `h` tall. */
 const rayHeights = (h: number) => [STEP + 0.15, Math.min(1.9, h - 0.6), h - 0.3]
 
@@ -106,6 +117,8 @@ export class Walker {
   private stand = mannequin()
   private body: WalkBody = this.stand
   private crouched = false
+  private sprint = new SprintMeter()
+  private tired = false
   /** 0 standing, 1 crouched: the camera and pose blend. */
   private crouchK = 0
   private ray = new THREE.Raycaster()
@@ -132,7 +145,7 @@ export class Walker {
     on<MouseEvent>(document, 'mousemove', (e) => {
       if (document.pointerLockElement !== host.canvas) return
       this.yaw -= e.movementX * 0.0022
-      this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - e.movementY * 0.0022))
+      this.pitch = clampPitch(this.pitch - e.movementY * 0.0022)
     })
     on<KeyboardEvent>(window, 'keydown', (e) => {
       const k = e.key.toLowerCase()
@@ -149,10 +162,10 @@ export class Walker {
   /** Turns the view by a drag, in pixels (touch look). */
   look(dx: number, dy: number, speed = 0.005) {
     this.yaw -= dx * speed
-    this.pitch = Math.max(-1.45, Math.min(1.45, this.pitch - dy * speed))
+    this.pitch = clampPitch(this.pitch - dy * speed)
   }
 
-  /** Holds or releases a key from an on-screen button (' ' jump, 'c' crouch, 'shift' run). */
+  /** Holds or releases a key from an on-screen button (' ' jump, 'c' crouch, 'shift' sprint). */
   press(key: string, down: boolean) {
     if (down) this.keys.add(key); else this.keys.delete(key)
     if (key === 'shift') this.emit()
@@ -168,7 +181,11 @@ export class Walker {
     this.vy = 0
     this.yaw = (-yawDeg * Math.PI) / 180
     this.pitch = 0
+    this.sprint.reset()
   }
+
+  /** The sprint meter, 0 empty .. 1 full. */
+  get sprintLeft() { return this.sprint.level }
 
   /** Swaps the third-person body (null: back to the stand-in). The walker never disposes a body it was given. */
   setBody(body: WalkBody | null) {
@@ -191,7 +208,7 @@ export class Walker {
   private emit() {
     this.onState?.({
       locked: document.pointerLockElement === this.host.canvas, third: this.third, running: this.keys.has('shift'), height: this.pos.y,
-      crouched: this.crouched, eye: this.crouched ? CROUCH_EYE : STAND_EYE, head: this.crouched ? CROUCH_HEIGHT : STAND_HEIGHT,
+      crouched: this.crouched, tired: this.tired, eye: this.crouched ? CROUCH_EYE : STAND_EYE, head: this.crouched ? CROUCH_HEIGHT : STAND_HEIGHT,
     })
   }
 
@@ -265,14 +282,17 @@ export class Walker {
     const keyed = want.lengthSq() > 0
     const stick = keyed ? 0 : Math.min(1, Math.hypot(this.stick.x, this.stick.y))
     if (stick > 0.05) want.addScaledVector(fwd, this.stick.y).addScaledVector(right, this.stick.x)
-    let pace = this.crouched ? CROUCH_SPEED : k.has('shift') ? RUN : WALK
-    // The stick walks slower when half pushed and runs when pushed all the way.
-    if (stick > 0.05) pace = !this.crouched && !k.has('shift') && stick > 0.9 ? RUN : pace * stick
+    // Shift sprints while the meter lasts (on the ground or in the air, as long as you are moving).
+    const sprinting = this.sprint.update(dt, k.has('shift') && !this.crouched && want.lengthSq() > 0)
+    if (this.sprint.empty !== this.tired) { this.tired = this.sprint.empty; this.emit() }
+    let pace = this.crouched ? CROUCH_SPEED : sprinting ? SPRINT_SPEED : RUN_SPEED
+    // The stick moves slower when half pushed and runs when pushed all the way.
+    if (stick > 0.05 && stick <= 0.9) pace *= stick
     if (want.lengthSq()) this.moveFlat(want.normalize().multiplyScalar(pace * dt), height)
     this.pushOut()
 
     // Up and down: land on whatever is below, step up small ledges, bump heads on ceilings.
-    if (this.grounded && !this.crouched && k.has(' ')) { this.vy = JUMP; this.grounded = false }
+    if (this.grounded && !this.crouched && k.has(' ')) { this.vy = JUMP_SPEED; this.grounded = false; this.sprint.jump() }
     this.vy -= GRAVITY * dt
     const down = new THREE.Vector3(0, -1, 0)
     if (this.vy > 0) {
@@ -292,7 +312,7 @@ export class Walker {
     if (this.pos.y < -200) this.respawn(this.start.at, this.start.yaw)
 
     const moved = Math.hypot(this.pos.x - was.x, this.pos.z - was.z)
-    const speed = dt > 0 && this.grounded && moved < RUN * dt * 1.5 ? moved / dt : 0
+    const speed = dt > 0 && this.grounded && moved < SPRINT_SPEED * dt * 1.5 ? moved / dt : 0
 
     // Camera: at the eyes (blending between standing and crouched), or behind the player.
     this.crouchK += ((this.crouched ? 1 : 0) - this.crouchK) * Math.min(1, dt * CROUCH_BLEND)

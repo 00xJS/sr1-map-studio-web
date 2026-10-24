@@ -60,7 +60,8 @@ const halo = (r: number, y: number, n: number, tex: Tex, big = false): Part[] =>
 const gridBlocks: Part[] = []
 for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) {
   if ((i + j) % 2 === 0 || (i === 0 && Math.abs(j) === 1)) continue
-  const h = 2 + 2 * ((i * i + j * j) % 3)
+  // The blocks either side of the tower are low enough to jump onto from a jump pad (1 m up from its lip).
+  const h = Math.abs(i) === 1 && j === 0 ? 3.6 : 2 + 2 * ((i * i + j * j) % 3)
   const tex = Math.abs(i) % 2 ? CY.cyan : CY.pink
   gridBlocks.push(box('Neon block', [4, h, 4], [12 * i, 1, 12 * j], tex))
 }
@@ -74,7 +75,8 @@ for (let k = -3; k <= 3; k++) for (let i = -4; i <= 4; i++) {
   if (Math.abs(x) > 32) continue
   const z = +(HZ * k).toFixed(2)
   const n = x === 0 && z === 0 ? 0 : (Math.round(Math.abs(x)) * 7 + Math.round(Math.abs(z)) * 3) % 4
-  const h = [2.5, 4, 6, 9][n]
+  // The lowest (the middle one, with a rocket launcher on top) is a jump up: about 1 m.
+  const h = [2, 4, 6, 9][n]
   hexes.push({ ...cyl('Hex pillar', 7, h, [x, 1, z], CY.dark, hexColors[n], 6), big: true })
 }
 const c3 = +(HZ / 3).toFixed(3)
@@ -181,7 +183,7 @@ export const CYBER: Sample[] = [
     markers: teamMarkers({
       red: [[-9, 1, -36], [-3, 1, -36], [3, 1, -36], [9, 1, -36]],
       shared: [[5, 1, -c3], [-15, 1, -c3], [5, 1, -(HZ * 2 + c3)], [-25, 1, -(HZ + 2 * c3)]],
-      weapons: [['rpg_laser', [0, 3.5, 0]], ['mac10L', [15, 1, -c3]], ['spas12', [-5, 1, -(HZ * 2 + c3)]]],
+      weapons: [['rpg_laser', [0, 3, 0]], ['mac10L', [15, 1, -c3]], ['spas12', [-5, 1, -(HZ * 2 + c3)]]],
       drops: [[-25, 1, c3]],
       pimp: [0, 1, -37],
     }),

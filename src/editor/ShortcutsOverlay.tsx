@@ -38,7 +38,7 @@ export function ShortcutsOverlay() {
           </section>
         ))}
       </div>
-      <p className="faint small">Free camera (View menu): hold the right mouse button to look around, WASD to fly, mouse wheel sets the speed. Walking: WASD, Shift run, Space jump, C crouch, V third person.</p>
+      <p className="faint small">Free camera (View menu): hold the right mouse button to look around, WASD to fly, mouse wheel sets the speed. Walking: WASD run, Shift sprint, Space jump, C crouch, V third person.</p>
     </Modal>
   )
 }

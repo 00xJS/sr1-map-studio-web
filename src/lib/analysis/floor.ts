@@ -4,14 +4,24 @@
 // drop down to the neighbouring spot. Shortest walks come from Dijkstra on it.
 import type { Bvh } from './bvh'
 import { SOLID, type FloorGrid } from './types'
+import { CROUCH_SPEED, FALL, JUMP_HEIGHT, LETHAL_FALL_M, MANTLE, MAX_SLOPE_DEG, RUN_SPEED, STEP, UNITS_PER_M } from '../player'
 
 /** The walk-through's player (src/editor/walk.ts), editor units. Kept here so the worker doesn't load three.js. */
-export const PLAYER = { stand: 3.56, crouch: 2.22, standEye: 3.24, crouchEye: 2.1, radius: 0.85, step: 1.2, jump: 1.7, walk: 9, crouchSpeed: 3.8 }
-/** Steepest ramp the walker climbs (its wall probe at step height + 0.15 clears the slope up to about 58°). */
-const SLOPE = (PLAYER.step + 0.15) / PLAYER.radius
+export const PLAYER = { stand: 3.56, crouch: 2.22, standEye: 3.24, crouchEye: 2.1, radius: 0.85, step: STEP, jump: JUMP_HEIGHT, walk: RUN_SPEED, crouchSpeed: CROUCH_SPEED }
+/** Steepest ramp walked up, as rise over run. */
+export const SLOPE = Math.tan((MAX_SLOPE_DEG * Math.PI) / 180)
 /** Highest ledge a jump gets onto. */
-const JUMP_UP = PLAYER.jump + PLAYER.step - 0.2
+export const JUMP_UP = MANTLE
+/** Height of the wall probes above the feet: just over a step. */
 const LOW = PLAYER.step + 0.15
+/** Drops up to this are free, editor units (4 m); higher ones hurt. */
+export const FREE_DROP = FALL.freeM * UNITS_PER_M
+/** Drops this high or higher kill from full health, editor units (9 m). */
+export const LETHAL_DROP = LETHAL_FALL_M * UNITS_PER_M
+/** Extra walking cost per unit of a drop that hurts, so routes go round one when they can. */
+const HURT_COST = 3
+/** Points sampled across each sloped edge to tell a ramp (or stairs) from a ledge. */
+const RAMP_SAMPLES = 8
 
 export interface FloorGraph {
   grid: FloorGrid
@@ -74,13 +84,13 @@ export function buildFloor(bvh: Bvh, cell: number, maxDrop: number): FloorGraph 
       if (i < 0 || j < 0 || i >= nx || j >= nz) continue
       const flat = cell * (di && dj ? Math.SQRT2 : 1)
       const maxRise = Math.max(SLOPE * flat, JUMP_UP)
-      // You end up on the highest floor in that column you can get up to.
+      // You end up on the highest floor in that column you can get to (a deck under a roof, say, not the roof).
       const c = j * nx + i
-      let b = -1
-      for (let n = colStart[c]; n < colStart[c + 1]; n++) if (pos[n * 3 + 1] <= ay + maxRise) { b = n; break }
-      if (b < 0) continue
-      const cst = edge(bvh, pos, crouchOnly, a, b, flat, maxDrop, ys, tris)
-      if (cst > 0) { to.push(b); cost.push(cst) }
+      for (let b = colStart[c]; b < colStart[c + 1]; b++) {
+        if (pos[b * 3 + 1] > ay + maxRise) continue
+        const cst = edge(bvh, pos, crouchOnly, a, b, flat, maxDrop, ys, tris)
+        if (cst > 0) { to.push(b); cost.push(cst); break }
+      }
     }
   }
   edgeStart[count] = to.length
@@ -106,29 +116,52 @@ function edge(bvh: Bvh, pos: Float32Array, crouchOnly: Uint8Array, a: number, b:
   const head = (low ? PLAYER.crouch : PLAYER.stand) - 0.3
   const slow = low ? PLAYER.walk / PLAYER.crouchSpeed : 1
   if (rise < -PLAYER.step) {
-    // A drop: walk off at a's height, then fall.
-    if (-rise > maxDrop) return 0
-    if (bvh.blocked(ax, ay + LOW, az, bx, ay + LOW, bz, SOLID)) return 0
-    if (bvh.blocked(ax, ay + head, az, bx, ay + head, bz, SOLID)) return 0
-    return flat * slow + 1
+    // A drop: walk off at a's height (or hop over a railing), then fall. Ones that hurt cost extra; ones that kill
+    // are not taken.
+    if (-rise > maxDrop || -rise >= LETHAL_DROP) return 0
+    const hurt = Math.max(0, -rise - FREE_DROP) * HURT_COST
+    if (!bvh.blocked(ax, ay + LOW, az, bx, ay + LOW, bz, SOLID) && !bvh.blocked(ax, ay + head, az, bx, ay + head, bz, SOLID)) return flat * slow + 1 + hurt
+    return !crouchOnly[a] && canHop(bvh, ax, ay, az, bx, bz) ? flat * 1.5 + 2 + hurt : 0
   }
   // Walk, following the slope: probes at step height and at the head.
   const walkable = !bvh.blocked(ax, ay + LOW, az, bx, by + LOW, bz, SOLID) && !bvh.blocked(ax, ay + head, az, bx, by + head, bz, SOLID)
   if (walkable && Math.abs(rise) > 0.25) {
-    // A ramp or stairs, not a ledge: the floor halfway is between the two.
-    const mx = (ax + bx) / 2, mz = (az + bz) / 2, hi = Math.max(ay, by)
-    bvh.column(mx, mz, hi + 0.3, Math.min(ay, by) - PLAYER.step - 0.3, SOLID, ys, tris)
-    const sub = Math.max(PLAYER.step, SLOPE * flat / 2)
-    let mid = NaN
-    for (let k = 0; k < ys.length; k++) if (Math.abs(bvh.normalY(tris[k])) >= 0.5) { mid = ys[k]; break }
-    if (Number.isFinite(mid) && Math.abs(mid - ay) <= sub && Math.abs(by - mid) <= sub) return Math.hypot(flat, rise) * slow
+    // A ramp or stairs, not a ledge: the floor rises a little at a time all the way across, never more than a step
+    // (or the steepest slope) between two samples.
+    if (smoothRise(bvh, ax, ay, az, bx, by, bz, flat, ys, tris)) return Math.hypot(flat, rise) * slow
   } else if (walkable && rise <= SLOPE * flat) return Math.hypot(flat, rise) * slow
+  if (rise > JUMP_UP || crouchOnly[a]) return 0
   // A jump up onto a ledge: room to jump at a, and nothing in the way over the edge.
-  if (rise > PLAYER.step * 0.5 && rise <= JUMP_UP && !crouchOnly[a]) {
+  if (rise > PLAYER.step * 0.5) {
     const over = by + 0.5
     if (!bvh.blocked(ax, over, az, bx, over, bz, SOLID) && !bvh.blocked(ax, ay + 0.2, az, ax, over + PLAYER.stand - 0.5, az, SOLID)) return flat * 1.5 + 2
   }
-  return 0
+  // A hop over something low in the way (a railing, a parapet) onto floor about as high.
+  return canHop(bvh, ax, ay, az, bx, bz) ? flat * 1.5 + 2 : 0
+}
+
+/** Whether a jump from a clears whatever stands between it and b: nothing above a, nothing at the top of the jump. */
+function canHop(bvh: Bvh, ax: number, ay: number, az: number, bx: number, bz: number): boolean {
+  const top = ay + JUMP_UP + 0.05
+  return !bvh.blocked(ax, ay + 0.2, az, ax, top + PLAYER.crouch, az, SOLID)
+    && !bvh.blocked(ax, top, az, bx, top, bz, SOLID)
+    && !bvh.blocked(ax, top + PLAYER.crouch - 0.3, az, bx, top + PLAYER.crouch - 0.3, bz, SOLID)
+}
+
+/** Whether the floor from a to b climbs smoothly enough to walk: sampled across, no rise bigger than a step or the slope limit. */
+function smoothRise(bvh: Bvh, ax: number, ay: number, az: number, bx: number, by: number, bz: number, flat: number, ys: number[], tris: number[]): boolean {
+  const hi = Math.max(ay, by) + 0.3, lo = Math.min(ay, by) - PLAYER.step - 0.3
+  const sub = Math.max(PLAYER.step, (SLOPE * flat) / RAMP_SAMPLES)
+  let prev = ay
+  for (let s = 1; s < RAMP_SAMPLES; s++) {
+    const f = s / RAMP_SAMPLES
+    bvh.column(ax + (bx - ax) * f, az + (bz - az) * f, hi, lo, SOLID, ys, tris)
+    let y = NaN
+    for (let k = 0; k < ys.length; k++) if (Math.abs(bvh.normalY(tris[k])) >= 0.5) { y = ys[k]; break }
+    if (!Number.isFinite(y) || Math.abs(y - prev) > sub) return false
+    prev = y
+  }
+  return Math.abs(by - prev) <= sub
 }
 
 /** Shortest walking cost from any source to every node (Infinity where none reaches). */

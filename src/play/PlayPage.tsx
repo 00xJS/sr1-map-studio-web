@@ -216,7 +216,7 @@ function PlayView({ project, mapKey, shared, back }: Source) {
         {!touch && !walk.locked && !finish && (
           <div className="play-hint">
             <b>Click the map to play</b>
-            <span className="small">WASD move · Shift run · Space jump · C crouch · V third person · R back to the spawn · Esc menu</span>
+            <span className="small">WASD run · Shift sprint · Space jump · C crouch · V third person · R back to the spawn · Esc menu</span>
           </div>
         )}
         {touch && !finish && <TouchControls walker={() => viewer.current?.walk ?? null} onMenu={() => setPhase('paused')} />}
@@ -259,8 +259,8 @@ function PlayView({ project, mapKey, shared, back }: Source) {
             {runs.length === 1 && <p className="faint small">This map has no weapon pickups or Chains drop-offs, so there are no timed runs. Add some in the editor.</p>}
             {!touch && <MyCharacter viewer={() => viewer.current} />}
             <p className="faint small">{touch
-              ? 'Left thumb moves (push all the way to run), drag on the right to look, buttons to jump and crouch.'
-              : 'WASD to move, the mouse to look, Shift to run, Space to jump, C to crouch, V for third person.'}{' '}
+              ? 'Left thumb moves (push all the way to run), drag on the right to look, buttons to sprint, jump and crouch.'
+              : 'WASD to run, the mouse to look, Shift to sprint (for 3 s, then it refills), Space to jump, C to crouch, V for third person.'}{' '}
               Plays in your browser: no game needed.</p>
             <Link to={back.to} className="small">{back.label}</Link>
           </div>

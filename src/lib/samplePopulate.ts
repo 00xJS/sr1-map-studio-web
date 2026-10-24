@@ -156,9 +156,10 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   // Team spawns: spread across each team's end of the map, out of sight of the other team's spawns where there's room.
   const eye = (p: Vec3) => [p[0], p[1] + 0.1 + PLAYER.standEye, p[2]]
   const hidden = (p: Vec3) => !walk || of('Blue team spawn').concat([flip(p)]).every((b) => walk.bvh.blocked(...(eye(b) as Vec3), ...(eye(p) as Vec3), OPAQUE))
-  for (const strict of [true, false]) {
+  // Hidden spots first, closer together (2 m, the game's spawn box) before any in sight of the enemy.
+  for (const [strict, gap] of [[true, 6], [true, 4], [false, 6]] as const) {
     for (let need = t.perTeam - of('Red team spawn').length; need > 0; need--) {
-      const [p] = pick(pool, of('Red team spawn'), 1, 6, (q) => q[2] < -depth * 0.3 && (!strict || hidden(q)), mirrorOk)
+      const [p] = pick(pool, of('Red team spawn'), 1, gap, (q) => q[2] < -depth * 0.3 && (!strict || hidden(q)), mirrorOk)
       if (!p) break
       markers.push(['Red team spawn', p, { yaw: 180 }], ['Blue team spawn', flip(p), { yaw: 0 }])
     }

@@ -101,8 +101,11 @@ describe('getting around', () => {
   })
 
   it('a ledge low enough to jump onto is reachable; drops are one way', () => {
-    const r = check([ground(), box([10, 2.4, 10], [0, 0, 0])], [...base, ['Weapon pickup', [0, 2.4, 0], { weapon: 'ak47' }]])
+    // The game's jump gets you onto about 1.1 m: a 1 m ledge is fine, a 1.2 m one is not.
+    const r = check([ground(), box([10, 2, 10], [0, 0, 0])], [...base, ['Weapon pickup', [0, 2, 0], { weapon: 'ak47' }]])
     expect(r.unreachable).toEqual([])
+    const high = check([ground(), box([10, 2.4, 10], [0, 0, 0])], [...base, ['Weapon pickup', [0, 2.4, 0], { weapon: 'ak47' }]])
+    expect(high.unreachable.map((u) => u.type)).toEqual(['Weapon pickup'])
   })
 
   it('stairs climb', () => {

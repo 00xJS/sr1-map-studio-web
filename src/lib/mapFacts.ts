@@ -12,6 +12,8 @@
 import { SPAWN_TYPES, type Project, type Vec3 } from './project'
 import type { AiAction } from './aiChat'
 import { findMarkerTwin, findTwin } from './aiEdits'
+import { PLAYER } from './analysis/floor'
+import { MANTLE, STEP, UNITS_PER_M } from './player'
 
 /** The 3D view's world box for object i, when it has one. */
 export type BoundsFn = (index: number) => [Vec3, Vec3] | null
@@ -175,9 +177,12 @@ export const gridFacts: FactSource = {
     const ex = extentOf(p, ss)
     const g = new HeightGrid(ex.minX, ex.minZ, ex.maxX, ex.maxZ, ss)
     const floor = g.floorY
-    const eye = u(1.6), step = u(0.8), chest = u(1.0)
+    // The game's player: eyes 1.62 m up, steps up 0.28 m, jumps onto 1.1 m.
+    const eye = u(PLAYER.standEye / UNITS_PER_M), step = u(STEP / UNITS_PER_M), jump = u(MANTLE / UNITS_PER_M), chest = u(1.0)
     const depth = ex.maxZ - ex.minZ
     const walkable = (h: number) => Number.isFinite(h) && h <= floor + step
+    /** Ground a player gets onto from the floor, with a jump if need be. */
+    const onFoot = (h: number) => Number.isFinite(h) && h <= floor + jump
     const issues: FactIssue[] = []
 
     // Counts.
@@ -377,7 +382,7 @@ export const gridFacts: FactSource = {
           const ii = i + di, kk = k + dk
           if (ii < 0 || kk < 0 || ii >= g.nx || kk >= g.nz) continue
           const nn = kk * g.nx + ii
-          if (dist[nn] >= 0 || !walkable(g.top[nn])) continue
+          if (dist[nn] >= 0 || !onFoot(g.top[nn])) continue
           dist[nn] = dist[n] + 1
           q.push(nn)
         }

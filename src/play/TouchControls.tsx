@@ -25,7 +25,7 @@ export function TouchControls({ walker, onMenu }: { walker: () => Walker | null;
   const origin = useRef({ x: 0, y: 0 })
   const look = useRef<{ id: number; x: number; y: number } | null>(null)
 
-  useEffect(() => () => { const w = walker(); if (w) { w.stick.x = w.stick.y = 0; w.press('c', false); w.press(' ', false) } }, [walker])
+  useEffect(() => () => { const w = walker(); if (w) { w.stick.x = w.stick.y = 0; w.press('c', false); w.press(' ', false); w.press('shift', false) } }, [walker])
 
   const moveDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (stickId.current !== null) return
@@ -86,6 +86,7 @@ export function TouchControls({ walker, onMenu }: { walker: () => Walker | null;
         <button className="play-round" aria-label="Third person view" onClick={() => tap('v')}>👁</button>
         <button className={'play-round' + (crouch ? ' on' : '')} aria-label="Crouch" aria-pressed={crouch}
           onClick={() => { const next = !crouch; setCrouch(next); walker()?.press('c', next) }}>⤓</button>
+        <button className="play-round" aria-label="Sprint (hold)" {...hold('shift')}>»</button>
         <button className="play-round big" aria-label="Jump" {...hold(' ')}>⤒</button>
       </div>
     </div>

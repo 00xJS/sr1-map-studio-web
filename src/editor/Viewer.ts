@@ -7,6 +7,7 @@ import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
 import type { MinimapRect } from '../lib/minimap'
 import { RADIUS, STAND_HEIGHT, Walker, type WalkBody, type WalkState } from './walk'
+import { CAMERA_FOV, FOG } from '../lib/player'
 import { PhysicsPreview, type PhysicsStatus } from './physicsPreview'
 import { presetOf } from '../lib/physicsProps'
 import { StaticBatch, batchable, type BatchSource } from './batch'
@@ -399,7 +400,7 @@ export class Viewer {
       if (!this.walker || !this.project || !gameSkyWanted(this.project.settings)) return
       if (!ok) return this.showMapSky()
       this.scene.background = this.gameSky()
-      this.scene.fog = new THREE.Fog(0xc8d6e0, 160, 1200)
+      this.scene.fog = new THREE.Fog(0xc8d6e0, FOG.near, FOG.far)
       this.requestRender()
     })
   }
@@ -417,13 +418,13 @@ export class Viewer {
           t.colorSpace = THREE.SRGBColorSpace
           t.mapping = THREE.EquirectangularReflectionMapping
           this.scene.background = t
-          this.scene.fog = new THREE.Fog(0xb9c9d6, 160, 1200)
+          this.scene.fog = new THREE.Fog(0xb9c9d6, FOG.near, FOG.far)
           this.requestRender()
         })
       })
     } else if (s?.native_sky) {
       this.scene.background = this.sky()
-      this.scene.fog = new THREE.Fog(0xb9c9d6, 120, 900)
+      this.scene.fog = new THREE.Fog(0xb9c9d6, FOG.near, FOG.far)
     } else this.scene.background = new THREE.Color(0x000000)
   }
 
@@ -448,7 +449,7 @@ export class Viewer {
     this.beforeWalk = { pos: this.camera.position.clone(), target: this.orbit.target.clone(), fov: this.camera.fov, hidden, background: this.scene.background, fog: this.scene.fog }
     this.orbit.enabled = false
     this.gizmo.enabled = false
-    this.camera.fov = 70
+    this.camera.fov = CAMERA_FOV
     this.camera.near = 0.05
     this.camera.updateProjectionMatrix()
     const solids = this.solids()

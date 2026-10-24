@@ -30,7 +30,7 @@ export interface AnalysisOptions {
   rayBudget?: number
   /** Longest sight line that counts, editor units (default 300 = 150 m). */
   maxSight?: number
-  /** Highest drop a player takes on purpose, editor units (default 16 = 8 m). */
+  /** Highest drop a player takes on purpose, editor units (default: anything short of the 9 m (18 units) that kills; drops over 4 m count as costly). */
   maxDrop?: number
   /** Bot playtest: bots and the trips they make between spawns, weapons and drop-offs (default 8 and 800). */
   bots?: number
