@@ -13,6 +13,10 @@ edited) changes them on purpose:
   Self_Illumination 0. So new materials are cloned from a plain (flags 3)
   template material, alpha ones too, and every bb-simple1 material in the
   map ends with Self_Illumination 0 (glass and props included).
+- Fade distances: each record keeps its donor's fade distance (+28, the
+  distance squared): 20 m for glass panes, 75 m for props. They are set on
+  purpose instead: world geometry 5000 m (the far clip: never fades),
+  props, breakables and glass 150 m.
 
 tests/retail_records_check.py checks all of it.
 """
@@ -31,6 +35,18 @@ SELF_ILLUMINATION = 0x9F9A4F60
 PLAIN = 3          # material flags of ordinary retail geometry
 GLOW = 0x8         # the self-illuminated class (lit windows, lamps, neon)
 CONSTANTS = 4      # material part holding the 24-byte constants (name hash, register, 0, 4 floats)
+
+# Record fields (80-byte static records).
+FADE = 28                # fade distance squared
+FLAGS = 32
+INSTANCE = 60
+RENDERS = 0x10000000     # an ordinary drawn static record
+NATIVE = 0x20000         # a movable / breakable object (has a collision shape and a profile)
+GLASS = 0x1400           # with NATIVE: a glass pane (0x10021400)
+SKY = 0x8000             # drawn through the sky list only
+FADE_WORLD = 5000.0      # metres; the game's far clip, so world geometry never fades
+FADE_PROP = 150.0
+FADE_GLASS = 150.0
 
 _original = {}
 
@@ -98,7 +114,7 @@ def build_bbchunk_multibatch(*a, **kw):
         return _original['build'](*a, **kw)
 
 
-def unlit_materials(chunk_path, log=None):
+def unlit_materials(g):
     """Self_Illumination 0 on every bb-simple1 material in the map (run before the game's own sky is added).
 
     Catches the materials cloned outside the main build: breakable wood and
@@ -108,20 +124,52 @@ def unlit_materials(chunk_path, log=None):
     to glow. The glass keeps its flags (27): the meaning of its 0x10 bit is
     not known, and the pane needs its see-through path.
     """
-    path = Path(chunk_path)
-    ch = rc.read_chunk(path.read_bytes())
-    g = rc.chunk_geometry(ch)
     changed = 0
     for M in g.mats:
         if rc.U32(M.m, 0) == K_BASE_SHADER and (self_illumination(M) or 0.0) != 0.0:
             set_self_illumination(M, 0.0)
             changed += 1
-    if changed:
-        rc.set_geometry(ch, g)
-        path.write_bytes(rc.write_chunk(ch))
-    if log:
-        log(f'Materials: Self_Illumination 0, as retail ({changed} copied value(s) cleared).')
     return changed
+
+
+def record_kind(flags):
+    """'world', 'prop', 'glass' or None (the sky, or a record that is not drawn)."""
+    if flags & SKY or not flags & RENDERS:
+        return None
+    if flags & NATIVE:
+        return 'glass' if flags & GLASS == GLASS else 'prop'
+    return 'world'
+
+
+def set_fades(ch):
+    """Fade distances by kind of record; returns {kind: count}."""
+    recs = ch.get('static_records').data
+    want = {'world': FADE_WORLD, 'prop': FADE_PROP, 'glass': FADE_GLASS}
+    counts = {}
+    for r in range(rc.U32(ch.header, 868)):
+        kind = record_kind(rc.U32(recs, 80 * r + FLAGS))
+        if kind is None:
+            continue
+        rc.WrF(recs, 80 * r + FADE, want[kind] ** 2)
+        counts[kind] = counts.get(kind, 0) + 1
+    return counts
+
+
+def finish_map(chunk_path, log=None):
+    """The retail values above, on the map chunk export_map wrote (before water, physics shapes and the sky)."""
+    path = Path(chunk_path)
+    ch = rc.read_chunk(path.read_bytes())
+    g = rc.chunk_geometry(ch)
+    unlit = unlit_materials(g)
+    if unlit:
+        rc.set_geometry(ch, g)
+    fades = set_fades(ch)
+    path.write_bytes(rc.write_chunk(ch))
+    if log:
+        log(f'Materials: Self_Illumination 0, as retail ({unlit} copied value(s) cleared).')
+        log('Fade distances: ' + ', '.join(f'{n} {k} record(s) {dict(world=FADE_WORLD, prop=FADE_PROP, glass=FADE_GLASS)[k]:g} m'
+                                          for k, n in sorted(fades.items())) + '.')
+    return {'unlit': unlit, 'fades': fades}
 
 
 def install():

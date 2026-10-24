@@ -432,7 +432,7 @@ def _export(s, log):
         bbcity_donor=opt('bbcity_donor'), native_sky_chunk=opt('native_sky_chunk'), native_sky_peg=opt('native_sky_peg'))
     mirror = bool(s.get('mirror_x', True))
     chunk = out / (base + '.bbchunk_xbox2')
-    retail_records.unlit_materials(chunk, log)
+    retail_records.finish_map(chunk, log)
     water_count = 0
     if water:
         # Same conversion as the map geometry and the markers.

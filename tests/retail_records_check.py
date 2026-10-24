@@ -7,7 +7,7 @@ SR1_DATA_PACK set to an unpacked SR1 Map Studio desktop folder (the one
 holding reference_beavercreek/, native_glass/, native_props/) it runs a full
 export through web_api.py of a scene with an opaque floor, an alpha fence, a
 glass pane, a movable prop and a breakable wood crate, and re-reads the map
-it wrote. With SR1_GAME_PACKFILES set to the game's packfiles folder it also
+it wrote: materials, fade distances. With SR1_GAME_PACKFILES set to the game's packfiles folder it also
 reads the retail multiplayer maps (mp_city_stream.vpp_xbox2) and checks the
 values copied here are the ones retail uses. Everything is written to a
 temporary folder; nothing from the game or the data pack is kept.
@@ -68,6 +68,12 @@ def units():
     rr.set_self_illumination(M, 0.0)
     check(rr.self_illumination(M) == 0.0 and struct.unpack_from('>f', M.parts[4], 8)[0] == 1.0,
           'materials: Self_Illumination set to 0, other constants kept')
+
+
+def unit_fades():
+    check([rr.record_kind(f) for f in (0x10000000, 0x10021400, 0x10020000, 0x10008000, 0x8000, 0)] == ['world', 'glass', 'prop', None, None, None],
+          'fades: world, glass and prop records told apart; the sky and undrawn records left alone')
+    check(rr.FADE_WORLD >= 1000 and 100 <= rr.FADE_PROP <= 200 and 100 <= rr.FADE_GLASS <= 200, 'fades: world never fades, props and glass at 150 m')
 
 
 def obj_box(path, size, mat, at=(0, 0, 0)):
@@ -174,6 +180,33 @@ def export_materials(x):
     check(any(l.startswith('Materials: Self_Illumination 0') for l in x['logs']), 'export: logs the material change')
 
 
+def records(ch):
+    recs = ch.get('static_records').data
+    n = rc.U32(ch.header, 868)
+    names = bytes(recs[80 * n:]).split(b'\0')[:n]
+    inst = ch.get('instances').data
+    out = []
+    for r in range(n):
+        ii = rc.I32(recs, 80 * r + 60)
+        mesh = rc.U32(inst, 112 * ii + 104) if 0 <= ii < len(inst) // 112 else None
+        out.append(dict(name=names[r].decode('latin1'), flags=rc.U32(recs, 80 * r + 32), fade=rc.F32(recs, 80 * r + 28) ** 0.5, mesh=mesh))
+    return out
+
+
+def export_fades(x):
+    g = rc.chunk_geometry(x['ch'])
+    drawn = lambda k: k is not None and k < len(g.meshes) and any(rc.U16(S.s16, 2) for S in g.meshes[k].subs)
+    rs = [r for r in records(x['ch']) if drawn(r['mesh'])]
+    world = [r for r in rs if rr.record_kind(r['flags']) == 'world']
+    glass = [r for r in rs if r['name'].endswith('native_glass_000')]
+    props = [r for r in rs if rr.record_kind(r['flags']) == 'prop']
+    close = lambda a, b: abs(a - b) < 0.01
+    check(world and all(close(r['fade'], rr.FADE_WORLD) for r in world), f'export: {len(world)} world record(s) fade at {rr.FADE_WORLD:g} m (was the donor\'s 1000 m)')
+    check(len(glass) == 1 and close(glass[0]['fade'], rr.FADE_GLASS), f'export: the glass pane fades at {rr.FADE_GLASS:g} m (was 20 m)')
+    check(len(props) >= 2 and all(close(r['fade'], rr.FADE_PROP) for r in props), f'export: {len(props)} prop/breakable record(s) fade at {rr.FADE_PROP:g} m (was 75 m)')
+    check(any(l.startswith('Fade distances: ') for l in x['logs']), 'export: logs the fade distances')
+
+
 def retail_materials(packfiles, tmp):
     """Retail bb-simple1: alpha (DXT5) and opaque materials alike are mostly flags 3 with Self_Illumination 0."""
     pk = rc.Packfile(Path(packfiles) / 'mp_city_stream.vpp_xbox2')
@@ -208,11 +241,13 @@ def retail_materials(packfiles, tmp):
 with tempfile.TemporaryDirectory() as t:
     tmp = Path(t)
     units()
+    unit_fades()
     pack = os.environ.get('SR1_DATA_PACK')
     if pack:
         x = full_export(Path(pack), tmp)
         if x:
             export_materials(x)
+            export_fades(x)
     else:
         print('skip full export (set SR1_DATA_PACK to run it)')
     game = os.environ.get('SR1_GAME_PACKFILES')
