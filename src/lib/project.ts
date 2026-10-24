@@ -227,8 +227,18 @@ export function newMarker(type: string, position: Vec3 = [0, 0, 0]): Marker {
   return Object.assign(m, retailMarkerDefaults(type))
 }
 
-export function newLight(position: Vec3 = [0, 3, 0]): Light {
-  return { uid: uid(), name: 'Point light', enabled: true, position, color: [1, 0.85, 0.65], intensity: 1, inner_range: 1, range: 8 }
+/**
+ * Light ranges in game metres, as the game's own lights have them: full brightness out to the first, dark at the
+ * second. Interior omni lights ("BB Omni") 1 / 3 m, street lamps (lampPostStLightA) 11 / 17 m. A light's
+ * inner_range and range are in editor units; the exporter multiplies them by the map's world scale.
+ */
+export const LIGHT_RANGES = { interior: [1, 3], lamp: [11, 17] } as const
+export type LightKind = keyof typeof LIGHT_RANGES
+
+/** A light with the retail ranges of its kind (an interior light unless told), in units for `worldScale`. */
+export function newLight(position: Vec3 = [0, 3, 0], kind: LightKind = 'interior', worldScale = 0.5): Light {
+  const [inner, outer] = LIGHT_RANGES[kind].map((m) => +(m / (worldScale || 0.5)).toFixed(2))
+  return { uid: uid(), name: kind === 'lamp' ? 'Street lamp' : 'Point light', enabled: true, position, color: [1, 0.85, 0.65], intensity: 1, inner_range: inner, range: outer }
 }
 
 export const SPAWN_TYPES = ['Shared spawn', 'Red team spawn', 'Blue team spawn']

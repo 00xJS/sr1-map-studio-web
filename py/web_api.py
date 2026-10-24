@@ -39,6 +39,13 @@ import fast_dxt
 import map_features as features
 import retail_features as retail
 import native_sky
+import retail_records
+import peg_mips
+
+# Retail material values (and, below, record settings) instead of the template's.
+retail_records.install()
+# Full mip chains in the map's own textures, laid out as retail PEGs store them.
+peg_mips.install()
 
 # Same output as the original compressor, about 20x faster (see fast_dxt.py).
 fast_dxt.install()
@@ -425,6 +432,13 @@ def _export(s, log):
         bbcity_donor=opt('bbcity_donor'), native_sky_chunk=opt('native_sky_chunk'), native_sky_peg=opt('native_sky_peg'))
     mirror = bool(s.get('mirror_x', True))
     chunk = out / (base + '.bbchunk_xbox2')
+    # Look-only overlays (tags, stickers, flat sheets without collision) go on the decal layer.
+    decal_prefixes = tuple('obj%03d_' % j for j, it in enumerate(items)
+                           if it.get('collision_disabled') and not native.is_glass(it)
+                           and retail_records.is_decal(it, _dims(_parse(it['path']), it.get('scale', 1), 1)))
+    decal_materials = {mid for name, mid in result['bbchunk']['material_ids'].items() if decal_prefixes and name.startswith(decal_prefixes)}
+    retail_records.finish_map(chunk, log, decal_materials)
+    retail_records.fix_hmap(out / (base + '.hmap_xbox2'), log)
     water_count = 0
     if water:
         # Same conversion as the map geometry and the markers.

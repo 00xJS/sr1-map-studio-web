@@ -29,7 +29,7 @@ export function LightsPanel() {
             <div key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} onClick={() => useEditor.getState().select({ kind: 'light', index: i })}>
               <span className="swatch" style={{ background: toHex(x.color), opacity: x.enabled ? 1 : 0.35 }} />
               <span className="grow">{x.name}</span>
-              <span className="meta">{x.range} m</span>
+              <span className="meta">{+(x.range * project.settings.world_scale).toFixed(1)} m</span>
             </div>
           ))}
           {!project.lights.length && <div className="list-item faint">No lights.</div>}
@@ -43,6 +43,8 @@ export function LightsPanel() {
 
 function LightEditor({ l, index }: { l: Light; index: number }) {
   const update = useEditor((s) => s.update)
+  const scale = useEditor((s) => s.project!.settings.world_scale)
+  const m = (v: number) => +(v * scale).toFixed(1)
   const set = (label: string, fn: (d: Light) => void, merge?: string) => update(label, (d) => { fn(d.lights[index]) }, merge ? { merge: merge + index } : undefined)
   return (
     <div className="group">
@@ -56,6 +58,7 @@ function LightEditor({ l, index }: { l: Light; index: number }) {
         <Field label="Full-bright range"><NumberInput value={l.inner_range} step={0.5} min={0} max={1000} onChange={(v) => set('Inner range', (d) => { d.inner_range = v })} /></Field>
         <Field label="Outer range"><NumberInput value={l.range} step={0.5} min={0.01} max={1000} onChange={(v) => set('Range', (d) => { d.range = v })} /></Field>
       </div>
+      <span className="faint small">In game: full bright to {m(l.inner_range)} m, dark at {m(l.range)} m (the game's own: rooms 1 / 3 m, street lamps 11 / 17 m).</span>
       {l.inner_range >= l.range && <span className="small bad">Full-bright range must be smaller than the outer range.</span>}
     </div>
   )
