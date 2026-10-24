@@ -6,9 +6,19 @@ import { KINDS } from '../src/lib/procedural'
 import { newMarker } from '../src/lib/project'
 import { catalogs } from '../src/lib/catalogs'
 import { blocker, support } from '../src/lib/sampleScale'
+import type { Sample } from '../src/lib/sampleKit'
 
 const library = new Set((JSON.parse(readFileSync('public/textures/index.json', 'utf8')).textures as { id: string }[]).map((t) => t.id))
 const weapons = new Set(catalogs.weapons.map(([, id]) => id))
+
+// Each map is built once here and shared by the checks below (building is the slow part; nothing changes a build).
+const builds = new Map<string, Sample>()
+function built(id: string, compact = false): Sample {
+  const key = id + (compact ? ':compact' : '')
+  let s = builds.get(key)
+  if (!s) builds.set(key, (s = sampleFor(id, compact)))
+  return s
+}
 
 describe('sample maps', () => {
   for (const s of SAMPLES) {
@@ -28,7 +38,7 @@ describe('sample maps', () => {
 
     it(`${s.name}: ready for its game modes`, () => {
       // The map as players get it: spawns, weapons and drop-offs filled in.
-      const markers = sampleFor(s.id).markers.map(([type, at, patch]) => ({ ...newMarker(type, at), ...patch }))
+      const markers = built(s.id).markers.map(([type, at, patch]) => ({ ...newMarker(type, at), ...patch }))
       const { errors, warnings } = checkModes({ modes: s.modes }, markers)
       expect(errors).toEqual([])
       expect(warnings.filter((w) => !w.includes('Retail PTP maps use 6 per team'))).toEqual([])
@@ -37,12 +47,13 @@ describe('sample maps', () => {
 })
 
 describe('sample marker placement', () => {
-  const builds = SAMPLES.flatMap((s) => [
-    { name: `${s.name} (full)`, s: sampleFor(s.id) },
-    ...((s.size ?? 'compact') === 'compact' ? [{ name: `${s.name} (compact)`, s: sampleFor(s.id, true) }] : []),
+  const maps = SAMPLES.flatMap((s) => [
+    { name: `${s.name} (full)`, get: () => built(s.id) },
+    ...((s.size ?? 'compact') === 'compact' ? [{ name: `${s.name} (compact)`, get: () => built(s.id, true) }] : []),
   ])
-  for (const { name, s } of builds) {
+  for (const { name, get } of maps) {
     it(`${name}: every marker stands on a floor with head room`, () => {
+      const s = get()
       const problems: string[] = []
       for (const [type, p] of s.markers) {
         const where = `${type} at ${p.join(', ')}`
@@ -54,6 +65,7 @@ describe('sample marker placement', () => {
     })
 
     it(`${name}: plenty of spawns and weapons, ready for its modes`, () => {
+      const s = get()
       const count = (t: string) => s.markers.filter(([m]) => m === t).length
       const markers = s.markers.map(([type, at, patch]) => ({ ...newMarker(type, at), ...patch }))
       expect(checkModes({ modes: s.modes }, markers).errors).toEqual([])
@@ -81,7 +93,7 @@ describe('placed prefabs', () => {
     const problems: string[] = []
     for (const s of SAMPLES) {
       const groups = new Map<string, typeof s.parts>()
-      for (const p of sampleFor(s.id).parts) if (p.prefab && p.group) groups.set(p.group, [...(groups.get(p.group) ?? []), p])
+      for (const p of built(s.id).parts) if (p.prefab && p.group) groups.set(p.group, [...(groups.get(p.group) ?? []), p])
       for (const [g, parts] of groups) {
         const tag = parts[0].prefab!
         const near = Math.min(...parts.map((p) => Math.hypot(p.at[0] - tag.at[0], p.at[2] - tag.at[2])))

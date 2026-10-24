@@ -182,18 +182,20 @@ export function dress(s: Sample, o: DressOptions = DENSE): Sample {
     return null
   }
   const taken: Vec3[] = [...markers, ...parts.filter((q) => q.at[1] + q.size[1] > ground + 0.35 && Math.max(q.size[0], q.size[2]) < 40).map((q) => q.at)]
-  const dist = (p: Vec3) => {
-    let d = Infinity
-    for (const t of taken) { const e = Math.hypot(t[0] - p[0], t[2] - p[2]); if (e < d) d = e }
-    // Its own mirrored twin counts as a neighbour too.
-    return Math.min(d, Math.hypot(2 * p[0], 2 * p[2]))
-  }
+  // Distance from each floor spot to the nearest taken spot, kept up to date as pieces go down.
+  const nearest = floor.map(() => Infinity)
+  const takeAll = (ts: Vec3[]) => floor.forEach((p, i) => {
+    for (const t of ts) { const e = Math.hypot(t[0] - p[0], t[2] - p[2]); if (e < nearest[i]) nearest[i] = e }
+  })
+  takeAll(taken)
+  // Its own mirrored twin counts as a neighbour too.
+  const dist = (i: number) => Math.min(nearest[i], Math.hypot(2 * floor[i][0], 2 * floor[i][2]))
 
   // No one piece fills the map: each is used about as often as the others.
   const used = new Map<string, number>(), cap = Math.max(2, Math.ceil(pairs / keys.length) + 1)
   for (let i = 0; i < pairs; i++) {
     // Farthest open spot first; try the map's pieces in turn until one fits there and at its mirror.
-    const order = floor.map((p) => [dist(p), p] as const).sort((a, b) => b[0] - a[0]).slice(0, 160)
+    const order = floor.map((p, i) => [dist(i), p] as const).sort((a, b) => b[0] - a[0]).slice(0, 160)
     let placed = false
     for (const [, p] of order) {
       const q: Vec3 = [-p[0], p[1], -p[2]]
@@ -216,7 +218,7 @@ export function dress(s: Sample, o: DressOptions = DENSE): Sample {
         const [piece, twin] = made
         parts.push(...piece, ...twin)
         used.set(key, (used.get(key) ?? 0) + 1)
-        taken.push(p, q)
+        takeAll([p, q])
         placed = true
       }
       if (placed) break

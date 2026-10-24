@@ -49,20 +49,77 @@ export function over(p: Part, x: number, z: number, margin: number) {
   return Math.abs(lx) <= rx && Math.abs(lz) <= rz
 }
 
+const standsOn = (p: Part, x: number, y: number, z: number) =>
+  (p.kind === 'box' || p.kind === 'cylinder') && Math.abs(p.at[1] + p.size[1] - y) < 0.01 && over(p, x, z, -0.2)
+
+const blocks = (p: Part, x: number, y: number, z: number) =>
+  p.kind === 'terrain' ? terrainBlocks(p, x, y, z) : p.at[1] < y + 3.4 && p.at[1] + p.size[1] > y + 0.01 && over(p, x, z, 0.5)
+    // Paint, paths, curbs and water films at foot level are stepped over, not walls.
+    && !(p.size[1] <= 0.3 && p.at[1] + p.size[1] <= y + 0.35)
+
 /** The part a marker stands on: a flat top at its height, under it. */
 export function support(parts: Part[], [x, y, z]: Vec3): number {
   let best = -1
   parts.forEach((p, i) => {
-    if ((p.kind === 'box' || p.kind === 'cylinder') && Math.abs(p.at[1] + p.size[1] - y) < 0.01 && over(p, x, z, -0.2)) best = i
+    if (standsOn(p, x, y, z)) best = i
   })
   return best
 }
 
 /** Something within half a unit of a marker between its feet and head height (about 3.4 units). */
 export function blocker(parts: Part[], [x, y, z]: Vec3): Part | undefined {
-  return parts.find((p) => p.kind === 'terrain' ? terrainBlocks(p, x, y, z) : p.at[1] < y + 3.4 && p.at[1] + p.size[1] > y + 0.01 && over(p, x, z, 0.5)
-    // Paint, paths, curbs and water films at foot level are stepped over, not walls.
-    && !(p.size[1] <= 0.3 && p.at[1] + p.size[1] <= y + 0.35))
+  return parts.find((p) => blocks(p, x, y, z))
+}
+
+export interface PartIndex {
+  /** Same answer as support(parts, at). */
+  support(at: Vec3): number
+  /** Same answer as blocker(parts, at). */
+  blocker(at: Vec3): Part | undefined
+  /** Whether any part whose footprint (grown by up to a unit) covers x, z passes the test. */
+  some(x: number, z: number, test: (p: Part) => boolean): boolean
+}
+
+/**
+ * support and blocker for many spots on one map: parts are filed by the 8-unit squares their footprint covers,
+ * so each question looks at the few parts nearby instead of all of them. The parts must not change while it's used.
+ */
+export function partIndex(parts: Part[]): PartIndex {
+  const C = 8, GROW = 1, cells = new Map<number, number[]>(), wide: number[] = []
+  const key = (cx: number, cz: number) => (cx + 32768) * 65536 + (cz + 32768)
+  parts.forEach((p, i) => {
+    const b = aabb(p)
+    const x0 = Math.floor((b.x0 - GROW) / C), x1 = Math.floor((b.x1 + GROW) / C), z0 = Math.floor((b.z0 - GROW) / C), z1 = Math.floor((b.z1 + GROW) / C)
+    // Huge, far-off or broken footprints are checked everywhere.
+    if (!((x1 - x0 + 1) * (z1 - z0 + 1) <= 4096) || Math.max(-x0, x1, -z0, z1) > 32000) { wide.push(i); return }
+    for (let cx = x0; cx <= x1; cx++) for (let cz = z0; cz <= z1; cz++) {
+      const k = key(cx, cz), list = cells.get(k)
+      if (list) list.push(i)
+      else cells.set(k, [i])
+    }
+  })
+  const NONE: number[] = []
+  const near = (x: number, z: number) => cells.get(key(Math.floor(x / C), Math.floor(z / C))) ?? NONE
+  return {
+    support([x, y, z]) {
+      // The last matching part, as support() gives.
+      let best = -1
+      const list = near(x, z)
+      for (let j = list.length - 1; j >= 0; j--) if (standsOn(parts[list[j]], x, y, z)) { best = list[j]; break }
+      for (let j = wide.length - 1; j >= 0 && wide[j] > best; j--) if (standsOn(parts[wide[j]], x, y, z)) { best = wide[j]; break }
+      return best
+    },
+    blocker([x, y, z]) {
+      // The first matching part, as blocker() gives.
+      let first = Infinity
+      for (const i of near(x, z)) if (blocks(parts[i], x, y, z)) { first = i; break }
+      for (const i of wide) { if (i > first) break; if (blocks(parts[i], x, y, z)) { first = i; break } }
+      return parts[first]
+    },
+    some(x, z, test) {
+      return near(x, z).some((i) => test(parts[i])) || wide.some((i) => test(parts[i]))
+    },
+  }
 }
 
 /** Terrain is in the way where its surface within half a unit of the spot rises more than a kerb above the feet. */

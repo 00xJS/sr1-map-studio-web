@@ -1,6 +1,7 @@
 // The Saints Row player pipeline (src/lib/sr1char). The last block builds the real character from a local Saints
 // Reborn install and is skipped when there is none; no game file is ever copied into the repo.
 import { describe, expect, it } from 'vitest'
+import { GAME_TESTS } from './testMode'
 import { existsSync, openAsBlob } from 'node:fs'
 import * as THREE from 'three'
 import { zlibSync } from 'fflate'
@@ -107,7 +108,7 @@ describe('materials', () => {
 const GAME = process.env.SR1_PACKFILES || 'C:/Games/SaintsReborn/dist/game/packfiles'
 const haveGame = existsSync(GAME + '/misc2.vpp_xbox2')
 
-describe.skipIf(!haveGame)('the player from a local game install', () => {
+describe.skipIf(!GAME_TESTS || !haveGame)('the player from a local game install', () => {
   it('builds the default character standing at the origin, facing -Z, at player height', async () => {
     const packs = []
     for (const n of PACKFILES) if (existsSync(GAME + '/' + n)) packs.push(await openVpp(await openAsBlob(GAME + '/' + n), n))

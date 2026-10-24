@@ -10,6 +10,7 @@ import { newProject, newMarker, type SceneItem, type Vec3 } from '../project'
 export function sampleInput(sample: Pick<Sample, 'parts' | 'markers'>) {
   const project = newProject(sample.parts.length ? 'sample' : 'empty')
   const models = new Map<string, ReturnType<typeof parseObj>>()
+  const parsed = new Map<string, ReturnType<typeof parseObj>>()
   project.scene_items = sample.parts.map((part, i): SceneItem => {
     const shape: Shape = {
       kind: part.kind, size: part.size, tile: part.tile ?? 4,
@@ -17,7 +18,11 @@ export function sampleInput(sample: Pick<Sample, 'parts' | 'markers'>) {
       ...(part.lie ? { lie: true } : {}), ...(part.outline ? { outline: part.outline } : {}),
     }
     const path = `/sample/${i}.obj`
-    models.set(path, parseObj(shapeObj(shape)))
+    // Parts of the same shape share one parsed model (only read from here on).
+    const key = JSON.stringify(shape)
+    let model = parsed.get(key)
+    if (!model) { model = parseObj(shapeObj(shape)); parsed.set(key, model) }
+    models.set(path, model)
     return {
       uid: String(i), name: part.label, path, position: part.at, rotation: [0, part.rot ?? 0, 0], scale: 1, textures: {}, alpha: {},
       ...(part.water ? { swimmable_water: true } : {}),

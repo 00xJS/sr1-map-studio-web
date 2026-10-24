@@ -8,7 +8,7 @@ import { sampleInput } from '../src/lib/analysis/sampleInput'
 import { OPAQUE, SOLID } from '../src/lib/analysis/types'
 import type { Vec3 } from '../src/lib/project'
 import { turn, type Part, type Sample } from '../src/lib/sampleKit'
-import { over } from '../src/lib/sampleScale'
+import { over, partIndex } from '../src/lib/sampleScale'
 
 const SPAWNS = ['Shared spawn', 'Red team spawn', 'Blue team spawn']
 /** Highest ledge a player gets onto (a jump from a step), as the health check's floor graph allows. */
@@ -208,10 +208,10 @@ export function enclosure(s: Sample): string[] {
   const nx = Math.ceil((Math.max(...xs) + 4 - x0) / cell), nz = Math.ceil((Math.max(...zs) + 4 - z0) / cell)
   // A wall is anything a player can neither step nor jump over, reaching down to near the floor.
   const walls = s.parts.filter((p) => p.at[1] <= ground + 0.4 && top(p) > ground + JUMP_UP && !isFloor(p))
-  const blocked = new Uint8Array(nx * nz)
+  const blocked = new Uint8Array(nx * nz), wallsNear = partIndex(walls)
   for (let j = 0; j < nz; j++) for (let i = 0; i < nx; i++) {
     const x = x0 + (i + 0.5) * cell, z = z0 + (j + 0.5) * cell
-    if (walls.some((p) => over(p, x, z, 0.25))) blocked[j * nx + i] = 1
+    if (wallsNear.some(x, z, (p) => over(p, x, z, 0.25))) blocked[j * nx + i] = 1
   }
   const outside = new Uint8Array(nx * nz)
   const stack: number[] = [0]
