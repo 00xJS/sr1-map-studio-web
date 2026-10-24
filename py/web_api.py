@@ -40,9 +40,12 @@ import map_features as features
 import retail_features as retail
 import native_sky
 import retail_records
+import peg_mips
 
 # Retail material values (and, below, record settings) instead of the template's.
 retail_records.install()
+# Full mip chains in the map's own textures, laid out as retail PEGs store them.
+peg_mips.install()
 
 # Same output as the original compressor, about 20x faster (see fast_dxt.py).
 fast_dxt.install()
