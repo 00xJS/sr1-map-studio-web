@@ -4,7 +4,7 @@
 // with door gaps (doors 4 wide and 5.6 high; players are about 3.6 tall), a
 // floor is 7 units (3.5 m) and floors sit at ground level, so every prefab
 // places like the others. Signs are plain colored panels: no names or logos.
-import { CY, PB, box, cyl, lying, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
+import { CY, PB, box, cyl, lying, ramp, ring, stairs, turn, type Part, type Tex } from './sampleKit'
 import { FLOOR, facadeTex, group, local, wheels, type ParamDef, type Params, type PrefabDef, type Style } from './prefabs'
 import { poolParts } from './prefabsMore'
 
@@ -779,8 +779,8 @@ const SHOPS: Record<string, Def> = {
       return [
         ...at(L, 1.5, -2.5, 0, (M) => showcase(M, 8, FROSTING), FL), box('Coffee machine', [1.6, 1.4, 1.2], L(-1, FL + 2, -5.9), BLACK, PB.steel), box('Back counter', [8, 2, 1.6], L(1.5, FL, -5.9), WHITE),
         ...[[-0.5, 3], [4.2, 3]].flatMap(([x, z]) => [...at(L, x, z, 0, (M) => roundTable(M, 2.4), FL), ...at(L, x - 1.6, z, 90, (M) => stool(M, PB.orange), FL), ...at(L, x + 1.6, z, 90, (M) => stool(M, PB.orange), FL)]),
-        ...[-1.8, 1.8].map((x) => box('Donut stand', [0.5, 2, 0.5], L(x, top, 0), PB.steel)),
-        lying('Giant donut', 8, 2, L(0, top + 1.8, 0), DOUGH, FROSTING, 16, 90), lying('Donut hole', 2.6, 2.1, L(0, top + 4.5, 0), DOUGH, BLACK, 12, 90),
+        ...[-1.8, 1.8].map((x) => box('Donut stand', [0.5, 2.8, 0.5], L(x, top, 0), PB.steel)),
+        ring('Giant donut', 8, 2.6, L(0, top + 1.6, 0), FROSTING, DOUGH, true, 0, 32),
       ]
     }),
   convenience: shop('Convenience store', 'Convenience store', 'A glass-fronted corner store: aisles, a wall of coolers, the counter by the door, an ice chest and propane cage outside', { floors: 0, sign: 'red', awning: 'red', walls: 'beige' }, [],

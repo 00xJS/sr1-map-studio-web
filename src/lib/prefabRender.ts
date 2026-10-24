@@ -91,9 +91,20 @@ function meshOf(m: ObjModel, maps: (THREE.Texture | null)[]): THREE.Mesh {
   g.setAttribute('position', new THREE.BufferAttribute(m.positions, 3))
   g.setAttribute('uv', new THREE.BufferAttribute(m.uvs, 2))
   g.setIndex(new THREE.BufferAttribute(index, 1))
-  g.computeVertexNormals()
+  setNormals(g, m)
   const mats = m.mats.map((_, i) => new THREE.MeshLambertMaterial({ map: maps[i] ?? null, color: maps[i] ? 0xffffff : 0x8a8790, side: THREE.DoubleSide }))
   return new THREE.Mesh(g, mats)
+}
+
+/** Flat normals from the faces, then the model's own where it has them (round sides shaded smooth). */
+export function setNormals(g: THREE.BufferGeometry, m: ObjModel) {
+  g.computeVertexNormals()
+  if (!m.normals) return
+  const n = g.getAttribute('normal') as THREE.BufferAttribute
+  for (let i = 0; i < n.count; i++) {
+    const x = m.normals[i * 3], y = m.normals[i * 3 + 1], z = m.normals[i * 3 + 2], l = Math.hypot(x, y, z)
+    if (l > 1e-6) n.setXYZ(i, x / l, y / l, z / l)
+  }
 }
 
 const shapeOf = partShape

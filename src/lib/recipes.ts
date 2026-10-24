@@ -66,7 +66,7 @@ export function withoutPhoto<T extends PrefabUser>(it: T, files: Record<string, 
 
 export const LIBRARY_ID = /^[a-z0-9_]{1,64}$/
 export const MAX_TEXTURE_SIZE = 2048
-const SHAPE_KINDS: ShapeKind[] = ['box', 'ramp', 'stairs', 'cylinder', 'roof', 'blob']
+const SHAPE_KINDS: ShapeKind[] = ['box', 'ramp', 'stairs', 'cylinder', 'roof', 'blob', 'torus']
 const MAX_PIECES = 400
 const MAX_OUTLINE = 256
 const HEX = /^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i

@@ -7,6 +7,8 @@ export interface ObjModel {
   positions: Float32Array // per native vertex (split by v/vt/vn corner key)
   uvs: Float32Array // 0,0 where the corner has no UV
   hasUv: Uint8Array
+  /** Authored normals per native vertex (0,0,0 where the corner has none); absent when the file has none. */
+  normals?: Float32Array
   faces: Uint32Array // 3 native vertex ids per triangle, in source order
   faceMat: Uint16Array // index into mats
   mats: string[]
@@ -22,7 +24,7 @@ const objIndex = (s: string | undefined, n: number): number | null => {
 export function parseObj(text: string): ObjModel {
   const pos: number[] = []
   const tex: number[] = []
-  let normalsCount = 0
+  const nrm: number[] = []
   const mats: string[] = []
   const matIndex = new Map<string, number>()
   let mat = '(default)'
@@ -30,6 +32,7 @@ export function parseObj(text: string): ObjModel {
   const outPos: number[] = []
   const outUv: number[] = []
   const outHasUv: number[] = []
+  const outN: number[] = []
   const faces: number[] = []
   const faceMat: number[] = []
   const mtllibs: string[] = []
@@ -44,6 +47,8 @@ export function parseObj(text: string): ObjModel {
     outPos.push(pos[vi * 3], pos[vi * 3 + 1], pos[vi * 3 + 2])
     if (ti !== null && ti >= 0 && ti < tex.length / 2) { outUv.push(tex[ti * 2], tex[ti * 2 + 1]); outHasUv.push(1) }
     else { outUv.push(0, 0); outHasUv.push(0) }
+    if (ni !== null && ni >= 0 && ni < nrm.length / 3) outN.push(nrm[ni * 3], nrm[ni * 3 + 1], nrm[ni * 3 + 2])
+    else outN.push(0, 0, 0)
     return id
   }
 
@@ -58,7 +63,8 @@ export function parseObj(text: string): ObjModel {
       const p = line.split(/\s+/)
       tex.push(parseFloat(p[1]), parseFloat(p[2]))
     } else if (line.startsWith('vn ')) {
-      normalsCount++
+      const p = line.split(/\s+/)
+      nrm.push(parseFloat(p[1]), parseFloat(p[2]), parseFloat(p[3]))
     } else if (line.startsWith('usemtl ')) {
       mat = line.slice(7).trim()
     } else if (line.startsWith('mtllib ')) {
@@ -68,7 +74,7 @@ export function parseObj(text: string): ObjModel {
       const toks = line.split(/\s+/).slice(1)
       for (const tok of toks) {
         const q = tok.split('/')
-        corners.push([objIndex(q[0], pos.length / 3), q.length > 1 ? objIndex(q[1], tex.length / 2) : null, q.length > 2 ? objIndex(q[2], normalsCount) : null])
+        corners.push([objIndex(q[0], pos.length / 3), q.length > 1 ? objIndex(q[1], tex.length / 2) : null, q.length > 2 ? objIndex(q[2], nrm.length / 3) : null])
       }
       let mi = matIndex.get(mat)
       if (mi === undefined) { mi = mats.length; mats.push(mat); matIndex.set(mat, mi) }
@@ -80,6 +86,7 @@ export function parseObj(text: string): ObjModel {
   }
   return {
     positions: new Float32Array(outPos), uvs: new Float32Array(outUv), hasUv: new Uint8Array(outHasUv),
+    ...(nrm.length ? { normals: new Float32Array(outN) } : {}),
     faces: new Uint32Array(faces), faceMat: new Uint16Array(faceMat), mats, mtllibs,
   }
 }

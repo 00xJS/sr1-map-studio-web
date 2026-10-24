@@ -84,6 +84,9 @@ export const cyl = (label: string, d: number, h: number, at: Vec3, top: Tex, sid
 /** A cylinder on its side, `len` long along X and `d` across: wheels, logs, pipes. */
 export const lying = (label: string, d: number, len: number, at: Vec3, top: Tex, side: Tex = top, sides = 16, rot = 0): Part =>
   ({ label, kind: 'cylinder', size: [len, d, d], at, top, side, segments: sides, rot, tile: 4, lie: true })
+/** A ring (donut, tyre, life buoy) `d` across and `thick` through. Flat it takes `top` on its upper half; standing (facing ±Z) on both faces. */
+export const ring = (label: string, d: number, thick: number, at: Vec3, top: Tex, side: Tex = top, stand = false, rot = 0, steps = 24): Part =>
+  ({ label, kind: 'torus', size: stand ? [d, d, thick] : [d, thick, d], at, top, side, segments: steps, rot, tile: 4, ...(stand ? { lie: true } : {}) })
 /** A flat slab with an organic outline ([x, z] points round its middle), `h` thick. */
 export function blob(label: string, outline: [number, number][], h: number, at: Vec3, top: Tex, side: Tex = top, tile = 6): Part {
   const xs = outline.map((p) => p[0]), zs = outline.map((p) => p[1])

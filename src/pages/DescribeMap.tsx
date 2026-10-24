@@ -12,6 +12,8 @@ import { loadLibrary } from '../editor/paint'
 import { Sketch } from './MapWizard'
 
 const EXAMPLES = ['A rainy rooftop map with a central tower for 8 players', 'Tight neon arena for 1v1', 'Paintball field with long lanes, 10 players', 'Docks at night with lots of cover']
+/** Characters: long, imaginative descriptions are welcome; the model reads all of it. */
+const MAX_CHARS = 3000
 
 export function DescribeMap({ busy, onCreate, onTune }: { busy: boolean; onCreate: (s: Sample, edits?: PendingEdits) => void; onTune: (o: WizardOptions) => void }) {
   const [text, setText] = useState('')
@@ -52,7 +54,7 @@ export function DescribeMap({ busy, onCreate, onTune }: { busy: boolean; onCreat
       <div className="col" style={{ gap: 12, flex: '1 1 300px', minWidth: 0 }}>
         <label className="col" style={{ gap: 6 }}>
           <span className="section-title">Describe your map</span>
-          <textarea rows={3} value={text} maxLength={400} placeholder={EXAMPLES[0]} onChange={(e) => setText(e.target.value)}
+          <textarea rows={3} value={text} maxLength={MAX_CHARS} placeholder={EXAMPLES[0]} onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void ask() } }} />
         </label>
         <div className="row wrap">{EXAMPLES.map((x) => <button key={x} className="sm quiet" onClick={() => setText(x)}>{x}</button>)}</div>

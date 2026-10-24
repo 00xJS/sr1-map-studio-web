@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  chatModels, listModels, DEFAULT_MODEL,
+  chatModels, listModels, resolveModelId, DEFAULT_MODEL, FREE_MODELS,
   askModel, askWithRepair, critiquePrompt, describeMap, describePrompt, modelProfile, needsRepair, parseReply, partialReply, readJsonObject, repairJson, systemPrompt,
 } from '../src/lib/aiChat'
 import { buildReview, clampToMap, describeEdit, heuristicPlan, isCritiqueRequest, planFromAction, planFromModel } from '../src/lib/aiReview'
@@ -144,6 +144,18 @@ describe('talking to the model (mocked)', () => {
     expect(String(await askModel([], KEY, 'm/x').catch((e: Error) => e))).toMatch(/did not accept the key/)
   })
 
+  it('asks once more when NVIDIA times out, and says so plainly if it happens again', async () => {
+    const page = '<HTML><HEAD><TITLE>Inactivity Timeout</TITLE></HEAD><BODY>Too much time has passed</BODY></HTML>'
+    const fetchMock = vi.fn().mockResolvedValueOnce(new Response(page, { status: 504 })).mockResolvedValueOnce(answer('{"reply":"ok","actions":[]}'))
+    vi.stubGlobal('fetch', fetchMock)
+    expect(await askModel([], KEY, 'm/x')).toBe('{"reply":"ok","actions":[]}')
+    expect(fetchMock).toHaveBeenCalledTimes(2)
+    vi.stubGlobal('fetch', vi.fn(async () => new Response(page, { status: 504 })))
+    const err = String(await askModel([], KEY, 'm/x').catch((e: Error) => e))
+    expect(err).toMatch(/didn't start answering in time/)
+    expect(err).not.toContain('<')
+  })
+
   it('stops when cancelled', async () => {
     vi.stubGlobal('fetch', vi.fn((_u: string, init: RequestInit) => new Promise((_, reject) => init.signal!.addEventListener('abort', () => reject(new DOMException('aborted', 'AbortError'))))))
     const ctl = new AbortController()
@@ -157,6 +169,19 @@ describe('model list', () => {
   it('keeps chat models, suggested ones first, and drops embedders and guards', () => {
     const ids = ['z/zeta-chat', 'nvidia/nv-embedqa-mistral-7b-v2', 'meta/llama-guard-4-12b', 'nvidia/nemotron-4-340b-reward', 'a/alpha-instruct', DEFAULT_MODEL, DEFAULT_MODEL]
     expect(chatModels(ids)).toEqual([DEFAULT_MODEL, 'a/alpha-instruct', 'z/zeta-chat'])
+  })
+
+  it('puts the free ones before the rest', () => {
+    const paid = 'moonshotai/kimi-k2.6', free = FREE_MODELS.find((m) => m !== DEFAULT_MODEL)!
+    expect(chatModels([paid, free, DEFAULT_MODEL])).toEqual([DEFAULT_MODEL, free, paid])
+  })
+
+  it('turns a pasted build.nvidia.com link into the API id', () => {
+    const live = ['z-ai/glm-5.3', 'nvidia/llama-3.1-nemotron-safety-guard-8b-v3']
+    expect(resolveModelId('https://build.nvidia.com/z-ai/glm-5-3?tab=api', live)).toBe('z-ai/glm-5.3')
+    expect(resolveModelId('nvidia/llama-3_1-nemotron-safety-guard-8b-v3', live)).toBe('nvidia/llama-3.1-nemotron-safety-guard-8b-v3')
+    expect(resolveModelId(' z-ai/glm-5.3 ', live)).toBe('z-ai/glm-5.3')
+    expect(resolveModelId('some/new-model', live)).toBe('some/new-model')
   })
 
   it('reads the relay and the dev proxy shapes', async () => {

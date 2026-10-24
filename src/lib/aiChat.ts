@@ -12,8 +12,20 @@ import { KINDS } from './procedural'
 import { DENSITY, LAYOUTS, SETTINGS } from './mapWizard'
 import { TOPICS } from './mapFacts'
 
-/** Good picks, best first; the first is the default. NVIDIA retires models, so the live list decides what shows. */
-export const SUGGESTED_MODELS = ['mistralai/mistral-large-2-instruct', 'moonshotai/kimi-k2.6', 'nvidia/nemotron-3-super-120b-a12b', 'deepseek-ai/deepseek-v4.1-flash', 'z-ai/glm-5.3']
+/**
+ * The chat models marked "Free Endpoint" on build.nvidia.com (its models page, filtered to Free Endpoint),
+ * as of October 2026. NVIDIA's API answers for more models than these, but the rest need a paid partner plan
+ * or are being retired. The live list still decides what shows, so a model NVIDIA drops disappears by itself.
+ */
+export const FREE_MODELS = [
+  'google/gemma-4-31b-it', 'deepseek-ai/deepseek-v4.1-flash', 'z-ai/glm-5.3', 'z-ai/glm-5.3-flash', 'nvidia/nemotron-3-ultra-550b-a55b',
+  'nvidia/nemotron-3.5-lightning-30b-a3b', 'nvidia/nemotron-3.5-super-vl-120b-a12b', 'nvidia/nemotron-3.5-bolt-e4b', 'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning',
+  'minimaxai/minimax-m3.1-flash', 'stepfun-ai/step-5-preview', 'openai/gpt-oss-20b', 'meta/muse-glimmer-30b', 'poolside/laguna-xs-2.1',
+  'google/diffusiongemma-26b-a4b-it', 'meta/llama-3.2-90b-vision-instruct', 'meta/llama-3.2-11b-vision-instruct',
+]
+/** Good free picks, best first; the first is the default. */
+export const SUGGESTED_MODELS = ['google/gemma-4-31b-it', 'deepseek-ai/deepseek-v4.1-flash', 'z-ai/glm-5.3', 'nvidia/nemotron-3-ultra-550b-a55b']
+export const isFree = (id: string) => FREE_MODELS.includes(id)
 export const DEFAULT_MODEL = SUGGESTED_MODELS[0]
 export const KEY_STORE = 'sr1ms.nvidiaKey'
 export const MODEL_STORE = 'sr1ms.nvidiaModel'
@@ -331,10 +343,22 @@ export function partialReply(content: string): string {
 /** Models on NVIDIA's API that can't chat: embeddings, safety guards, reward models, parsers, detectors and the like. */
 const NOT_CHAT = /embed|guard|safety|reward|parse|clip|detector|retriever|calibration|deplot|kosmos|translate|diffusion/i
 
-/** The chat models among NVIDIA's ids, suggested ones first, the rest A to Z. */
+/** The chat models among NVIDIA's ids: suggested ones first, then the other free ones, then the rest, each A to Z. */
 export function chatModels(ids: string[]): string[] {
-  const chat = [...new Set(ids)].filter((id) => !NOT_CHAT.test(id)).sort()
-  return [...SUGGESTED_MODELS.filter((m) => chat.includes(m)), ...chat.filter((m) => !SUGGESTED_MODELS.includes(m))]
+  const chat = [...new Set(ids)].filter((id) => isFree(id) || !NOT_CHAT.test(id)).sort()
+  const rank = (m: string) => (SUGGESTED_MODELS.includes(m) ? SUGGESTED_MODELS.indexOf(m) - 100 : isFree(m) ? 0 : 1)
+  return chat.sort((a, b) => rank(a) - rank(b) || (a < b ? -1 : 1))
+}
+
+const slug = (s: string) => s.toLowerCase().replace(/[._]/g, '-')
+/**
+ * A model id from what someone pasted: the id itself, or a build.nvidia.com page address
+ * (whose spelling differs: z-ai/glm-5-3 for z-ai/glm-5.3), matched against the live list.
+ */
+export function resolveModelId(input: string, live: string[]): string {
+  const t = input.trim().replace(/^https?:\/\/build\.nvidia\.com\//i, '').replace(/[?#].*$/, '').replace(/\/+$/, '')
+  if (live.includes(t)) return t
+  return live.find((m) => slug(m) === slug(t)) ?? t
 }
 
 /** The chat models NVIDIA's API serves right now (the list is public: no key is sent). */
@@ -360,6 +384,17 @@ const scrub = (s: string, key: string) => (key ? s.split(key).join('nvapi-…') 
  * the whole answer.
  */
 export async function askModel(messages: ChatMessage[], key: string, model: string, opts: AskOptions = {}): Promise<string> {
+  try { return await askOnce(messages, key, model, opts) } catch (err) {
+    // A busy free endpoint often answers on the second try.
+    if (!(err instanceof BusyError) || opts.signal?.aborted) throw err
+    return askOnce(messages, key, model, opts)
+  }
+}
+
+/** NVIDIA gave up waiting for the model to start (its gateway's "Inactivity Timeout"). */
+export class BusyError extends Error {}
+
+async function askOnce(messages: ChatMessage[], key: string, model: string, opts: AskOptions): Promise<string> {
   const profile = opts.profile ?? modelProfile(model)
   const stream = !!opts.onProgress
   const res = await fetch('/api/ai', {
@@ -376,7 +411,12 @@ export async function askModel(messages: ChatMessage[], key: string, model: stri
     if (res.status === 401 || res.status === 403) throw new Error('NVIDIA did not accept the key. Check it on build.nvidia.com.')
     if (res.status === 404) throw new Error(`Model "${model}" was not found. Pick another in the chat settings.`)
     if (res.status === 429) throw new Error('Too many requests for the free tier right now. Wait a minute and try again.')
-    throw new Error(scrub(typeof msg === 'string' && msg ? msg : `The AI service answered ${res.status}.`, key))
+    if (res.status === 408 || res.status === 504 || /inactivity timeout|timed out/i.test(text)) {
+      throw new BusyError(`${model} didn't start answering in time: NVIDIA's free endpoint is busy or the model is slow. Try again, or pick a faster model in the AI settings (like ${SUGGESTED_MODELS[0]}).`)
+    }
+    // Gateways answer with web pages: keep just their words.
+    const plain = typeof msg === 'string' ? msg.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim() : ''
+    throw new Error(scrub(plain || `The AI service answered ${res.status}.`, key))
   }
   if (!stream || !(res.headers.get('content-type') || '').includes('event-stream') || !res.body) {
     let data: any = null

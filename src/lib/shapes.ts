@@ -6,13 +6,13 @@
 import type { Vec3 } from './project'
 import { terrainFaces, terrainObj } from './terrain'
 
-export type ShapeKind = 'box' | 'ramp' | 'stairs' | 'cylinder' | 'roof' | 'blob' | 'terrain'
+export type ShapeKind = 'box' | 'ramp' | 'stairs' | 'cylinder' | 'roof' | 'blob' | 'terrain' | 'torus'
 
 export interface Shape {
   kind: ShapeKind
   /** Width (X), height (Y), depth (Z), in editor units. */
   size: Vec3
-  /** Stairs: number of steps. Cylinder: number of sides. */
+  /** Stairs: number of steps. Cylinder: number of sides. Torus: steps round the ring. */
   segments?: number
   /** Units per texture repeat. */
   tile: number
@@ -20,7 +20,8 @@ export interface Shape {
   taper?: number
   /** Box: rounds off the vertical and top edges by this many units. */
   bevel?: number
-  /** Cylinder: lying on its side, its length along X (wheels, logs, pipes). Size stays width (length) × height × depth. */
+  /** Cylinder: lying on its side, its length along X (wheels, logs, pipes). Size stays width (length) × height × depth.
+   *  Torus: standing up facing ±Z, size outer width × outer height × tube thickness. */
   lie?: boolean
   /** Blob: the outline as [x, z] points round the middle (each visible from the centre), extruded up by the height. */
   outline?: [number, number][]
@@ -45,21 +46,59 @@ export const SHAPE_PRESETS: Record<string, ShapePreset> = {
   block: { label: 'Rounded box', hint: 'Cover with softened edges', shape: { kind: 'box', size: [4, 3, 4], tile: 3, bevel: 0.4 } },
   roof: { label: 'Roof', hint: 'A pitched roof; the ridge runs along X', shape: { kind: 'roof', size: [12, 4, 10], tile: 4 } },
   cone: { label: 'Cone', hint: 'A cone or spire', shape: { kind: 'cylinder', size: [3, 5, 3], segments: 16, tile: 4, taper: 0 } },
+  ring: { label: 'Ring', hint: 'A donut or tyre shape lying flat; the top takes the top texture', shape: { kind: 'torus', size: [6, 2, 6], segments: 24, tile: 4 } },
 }
 
 type V = [number, number, number]
-/** `mat` names a material other than top/side (a terrain's rock). */
-export interface Face { pts: V[]; top: boolean; mat?: string }
+/** `mat` names a material other than top/side (a terrain's rock). `ns`: a normal per point, for surfaces shaded smooth (round sides). */
+export interface Face { pts: V[]; top: boolean; mat?: string; ns?: V[] }
 
+const add = (a: V, b: V): V => [a[0] + b[0], a[1] + b[1], a[2] + b[2]]
 const sub = (a: V, b: V): V => [a[0] - b[0], a[1] - b[1], a[2] - b[2]]
 const cross = (a: V, b: V): V => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]]
 const dot = (a: V, b: V) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
+const norm = (a: V): V => { const l = Math.hypot(a[0], a[1], a[2]) || 1; return [a[0] / l, a[1] / l, a[2] / l] }
 const avg = (pts: V[]): V => pts.reduce<V>((s, p) => [s[0] + p[0] / pts.length, s[1] + p[1] / pts.length, s[2] + p[2] / pts.length], [0, 0, 0])
 
 /** Polygon wound counter-clockwise seen from outside (OBJ convention), judged against the solid's center. */
 function outward(pts: V[], center: V): V[] {
   const n = cross(sub(pts[1], pts[0]), sub(pts[2], pts[0]))
   return dot(n, sub(avg(pts), center)) >= 0 ? pts : [...pts].reverse()
+}
+
+/** A smooth face wound to match its normals (which point outward). */
+function smooth(pts: V[], ns: V[], top: boolean): Face {
+  const n = cross(sub(pts[1], pts[0]), sub(pts[2], pts[0]))
+  return dot(n, avg(ns)) >= 0 ? { pts, ns, top } : { pts: [...pts].reverse(), ns: [...ns].reverse(), top }
+}
+
+/** Round sides with at least this many steps are shaded smooth; fewer stay faceted (a hex nut, an octagon kiosk). */
+const SMOOTH_FROM = 10
+
+/** A ring: `R` from the middle to the tube's centre, tube radii `rx` across and `ry` up, flat in XZ (standing: in XY, facing ±Z). */
+function torusFaces(w: number, h: number, d: number, steps: number, stand: boolean): Face[] {
+  const n = Math.max(6, Math.min(64, Math.round(steps)))
+  const m = Math.max(6, Math.round(n / 2))
+  // Flat: across is X/Z, thickness is Y. Standing: across is X/Y, thickness is Z.
+  const ax = w / 2, az = stand ? h / 2 : d / 2, t = stand ? d : h
+  const tube = Math.min(t / 2, Math.min(ax, az) * 0.9)
+  const ring = (i: number, j: number): [V, V] => {
+    const a = (i / n) * Math.PI * 2, b = (j / m) * Math.PI * 2
+    const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b)
+    // Tube centre on an ellipse; the tube's own width is `tube` across and t/2 through.
+    const cx = (ax - tube) * ca, cz = (az - tube) * sa
+    const p: V = [cx + tube * cb * ca, (t / 2) * sb, cz + tube * cb * sa]
+    const nn = norm([cb * ca / tube, sb / (t / 2), cb * sa / tube])
+    return stand ? [[p[0], p[2] + h / 2, p[1]], [nn[0], nn[2], nn[1]]] : [[p[0], p[1] + h / 2, p[2]], nn]
+  }
+  const out: Face[] = []
+  for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
+    const q = [ring(i, j), ring(i + 1, j), ring(i + 1, j + 1), ring(i, j + 1)]
+    const ns = q.map((c) => c[1]), up = avg(ns)
+    // The icing: the top (lying flat) or both faces (standing).
+    out.push(smooth(q.map((c) => c[0]), ns, stand ? Math.abs(up[2]) > 0.35 : up[1] > 0.3))
+  }
+  return out
 }
 
 function boxFaces(x0: number, x1: number, y0: number, y1: number, z0: number, z1: number): Face[] {
@@ -159,11 +198,15 @@ export function faces(s: Shape): Face[] {
       }
       return out
     }
+    case 'torus': return torusFaces(w, h, d, s.segments ?? 24, !!s.lie)
     case 'cylinder': {
       if (s.lie) {
         // Built upright with the length as its height, then tipped onto its side.
         const c: V = [0, h / 2, 0]
-        return faces({ ...s, lie: false, size: [h, w, d] }).map((f) => upward(f.pts.map(([x, y, z]): V => [y - w / 2, x + h / 2, z]), c))
+        const tip = ([x, y, z]: V): V => [y - w / 2, x + h / 2, z]
+        return faces({ ...s, lie: false, size: [h, w, d] }).map((f) => f.ns
+          ? ((ns) => smooth(f.pts.map(tip), ns, norm(avg(ns))[1] > 0.55))(f.ns.map(([x, y, z]): V => [y, x, z]))
+          : upward(f.pts.map(tip), c))
       }
       const n = Math.max(3, Math.min(64, Math.round(s.segments ?? 16)))
       const ring = (y: number) => [...Array(n)].map((_, i): V => {
@@ -175,6 +218,17 @@ export function faces(s: Shape): Face[] {
       const c: V = [0, h / 3, 0]
       const out: Face[] = [{ pts: outward(lo, c), top: false }]
       if (t > 0) out.push({ pts: outward(hi, c), top: true })
+      if (n >= SMOOTH_FROM) {
+        // Round sides: each point's normal points straight out from the axis, tilted up by the taper.
+        const lean = ((1 - t) * (w + d)) / 4 / h
+        const at = (i: number): V => { const a = (i / n) * Math.PI * 2, r = norm([Math.cos(a) / w, 0, Math.sin(a) / d]); return norm([r[0], lean, r[2]]) }
+        for (let i = 0; i < n; i++) {
+          const j = (i + 1) % n, ns = [at(i), at(j)]
+          const top = norm(add(ns[0], ns[1]))[1] > 0.55
+          out.push(t > 0 ? smooth([lo[i], lo[j], hi[j], hi[i]], [ns[0], ns[1], ns[1], ns[0]], top) : smooth([lo[i], lo[j], [0, h, 0]], [ns[0], ns[1], norm(add(ns[0], ns[1]))], top))
+        }
+        return out
+      }
       for (let i = 0; i < n; i++) {
         const j = (i + 1) % n
         // A cone meets in a point: triangles instead of quads.
@@ -205,31 +259,45 @@ function uv(p: V, normal: V, tile: number): [number, number] {
 
 const fmt = (n: number) => String(+n.toFixed(5))
 
+/** Writes faces as OBJ, gathering polygons by material. Smooth faces carry their normals (`vn`); flat ones leave them to the reader. */
+class ObjWriter {
+  v: string[] = []
+  vt: string[] = []
+  vn: string[] = []
+  groups = new Map<string, string[]>()
+  add(f: Face, place: (p: V) => V, turn: (n: V) => V, tile: number, fit: boolean | undefined, mat: string) {
+    const pts = f.pts.map(place)
+    // Texture coordinates from where the face ends up, so pieces side by side carry the pattern on across the join.
+    const uvs = faceUvs(pts, cross(sub(pts[1], pts[0]), sub(pts[2], pts[0])), tile, fit)
+    const idx = pts.map((p, k) => {
+      this.v.push(`v ${fmt(p[0])} ${fmt(p[1])} ${fmt(p[2])}`)
+      this.vt.push(`vt ${fmt(uvs[k][0])} ${fmt(uvs[k][1])}`)
+      const i = this.v.length
+      if (!f.ns) return `${i}/${i}`
+      const n = turn(f.ns[k])
+      this.vn.push(`vn ${fmt(n[0])} ${fmt(n[1])} ${fmt(n[2])}`)
+      return `${i}/${i}/${this.vn.length}`
+    })
+    if (!this.groups.has(mat)) this.groups.set(mat, [])
+    this.groups.get(mat)!.push('f ' + idx.join(' '))
+  }
+  text(head: string) {
+    const lines = [head, ...this.v, ...this.vt, ...this.vn]
+    for (const [m, fs] of this.groups) lines.push('usemtl ' + m, ...fs)
+    return lines.join('\n') + '\n'
+  }
+}
+
+const same = (p: V) => p
+
 /** OBJ text with materials "top" and "side"; polygons are fan-triangulated by the importer. */
 export function shapeObj(s: Shape): string {
   if (s.kind === 'terrain') return terrainObj(s)
-  const lines = ['# SR1 Map Studio block-out shape: ' + JSON.stringify(s)]
-  const vt: string[] = []
-  const groups: Record<'top' | 'side', string[]> = { top: [], side: [] }
-  let vi = 1
-  for (const f of faces(s)) {
-    const n = cross(sub(f.pts[1], f.pts[0]), sub(f.pts[2], f.pts[0]))
-    const idx: string[] = []
-    const uvs = faceUvs(f.pts, n, s.tile, s.fit)
-    for (const [k, p] of f.pts.entries()) {
-      lines.push(`v ${fmt(p[0])} ${fmt(p[1])} ${fmt(p[2])}`)
-      const [u, v] = uvs[k]
-      vt.push(`vt ${fmt(u)} ${fmt(v)}`)
-      idx.push(`${vi}/${vi}`)
-      vi++
-    }
-    groups[f.top ? 'top' : 'side'].push('f ' + idx.join(' '))
-  }
-  lines.push(...vt)
-  for (const m of ['top', 'side'] as const) {
-    if (groups[m].length) lines.push('usemtl ' + m, ...groups[m])
-  }
-  return lines.join('\n') + '\n'
+  const w = new ObjWriter()
+  w.groups.set('top', []).set('side', [])
+  for (const f of faces(s)) w.add(f, same, same, s.tile, s.fit, f.top ? 'top' : 'side')
+  for (const m of ['top', 'side']) if (!w.groups.get(m)!.length) w.groups.delete(m)
+  return w.text('# SR1 Map Studio block-out shape: ' + JSON.stringify(s))
 }
 
 /** One piece of a compound object: a shape placed relative to the object's origin, with its own material names. */
@@ -237,32 +305,15 @@ export interface CompoundPiece { shape: Shape; at: Vec3; rot: number; top: strin
 
 /** Several shapes as one OBJ (a prefab): each keeps its own texture scale; materials are shared by name. */
 export function compoundObj(pieces: CompoundPiece[]): string {
-  const lines = ['# SR1 Map Studio prefab']
-  const vt: string[] = []
-  const groups = new Map<string, string[]>()
-  let vi = 1
+  const w = new ObjWriter()
   for (const pc of pieces) {
     const t = (pc.rot * Math.PI) / 180, c = Math.cos(t), sn = Math.sin(t)
-    for (const f of faces(pc.shape)) {
-      const n = cross(sub(f.pts[1], f.pts[0]), sub(f.pts[2], f.pts[0]))
-      const idx: string[] = []
-      const uvs = faceUvs(f.pts, n, pc.shape.tile, pc.shape.fit)
-      for (const [k, p] of f.pts.entries()) {
-        // Same turn as the editor's heading: x' = x cos + z sin, z' = -x sin + z cos.
-        lines.push(`v ${fmt(p[0] * c + p[2] * sn + pc.at[0])} ${fmt(p[1] + pc.at[1])} ${fmt(-p[0] * sn + p[2] * c + pc.at[2])}`)
-        const [u, v] = uvs[k]
-        vt.push(`vt ${fmt(u)} ${fmt(v)}`)
-        idx.push(`${vi}/${vi}`)
-        vi++
-      }
-      const m = f.top ? pc.top : pc.side
-      if (!groups.has(m)) groups.set(m, [])
-      groups.get(m)!.push('f ' + idx.join(' '))
-    }
+    // Same turn as the editor's heading: x' = x cos + z sin, z' = -x sin + z cos.
+    const turn = (p: V): V => [p[0] * c + p[2] * sn, p[1], -p[0] * sn + p[2] * c]
+    const place = (p: V): V => { const q = turn(p); return [q[0] + pc.at[0], q[1] + pc.at[1], q[2] + pc.at[2]] }
+    for (const f of faces(pc.shape)) w.add(f, place, turn, pc.shape.tile, pc.shape.fit, f.top ? pc.top : pc.side)
   }
-  lines.push(...vt)
-  for (const [m, fs] of groups) lines.push('usemtl ' + m, ...fs)
-  return lines.join('\n') + '\n'
+  return w.text('# SR1 Map Studio prefab')
 }
 
 /** "Wall 12×6×1": the preset label plus the size. */

@@ -11,6 +11,7 @@ import { PhysicsPreview, type PhysicsStatus } from './physicsPreview'
 import { presetOf } from '../lib/physicsProps'
 import { StaticBatch, batchable, type BatchSource } from './batch'
 import type { ObjModel } from '../lib/geometry'
+import { setNormals } from '../lib/prefabRender'
 import { loadModel, peekModel, textureUrl } from '../lib/assets'
 import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
 import { RETAIL_MARKER_COLORS, syncZone } from './zones'
@@ -1119,7 +1120,7 @@ function buildGeometry(m: ObjModel): GeoInfo {
   g.setAttribute('position', new THREE.BufferAttribute(m.positions, 3))
   g.setAttribute('uv', new THREE.BufferAttribute(m.uvs, 2))
   g.setIndex(new THREE.BufferAttribute(index, 1))
-  g.computeVertexNormals()
+  setNormals(g, m)
   g.computeBoundingSphere()
   return { geometry: g, faceOrder, mats: m.mats }
 }
