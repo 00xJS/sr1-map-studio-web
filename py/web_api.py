@@ -39,6 +39,10 @@ import fast_dxt
 import map_features as features
 import retail_features as retail
 import native_sky
+import retail_records
+
+# Retail material values (and, below, record settings) instead of the template's.
+retail_records.install()
 
 # Same output as the original compressor, about 20x faster (see fast_dxt.py).
 fast_dxt.install()
@@ -425,6 +429,7 @@ def _export(s, log):
         bbcity_donor=opt('bbcity_donor'), native_sky_chunk=opt('native_sky_chunk'), native_sky_peg=opt('native_sky_peg'))
     mirror = bool(s.get('mirror_x', True))
     chunk = out / (base + '.bbchunk_xbox2')
+    retail_records.unlit_materials(chunk, log)
     water_count = 0
     if water:
         # Same conversion as the map geometry and the markers.
