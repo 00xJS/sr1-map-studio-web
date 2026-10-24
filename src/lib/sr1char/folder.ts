@@ -5,7 +5,8 @@
 // so the next walk can open it again, and the built character is kept in memory for this tab.
 import { db } from '../db'
 import { openVpp, type Vpp } from './vpp'
-import { buildPlayer, type PlayerModel } from './player'
+// The model builder needs three.js: loaded when a player is built, not with every page that reads game files.
+import type { PlayerModel } from './player'
 
 /** In the order entries are looked up: misc2 holds the meshes and textures, morph_stream the face and body morphs,
  *  preload the skeleton; cmesh_stream is the fallback for anything missing from misc2. */
@@ -60,6 +61,7 @@ export function loadPlayer(found: Map<string, Blob>, where: string): Promise<Pla
     }
     const packs: Vpp[] = []
     for (const n of PACKFILES) { const f = found.get(n); if (f) packs.push(await openVpp(f, n)) }
+    const { buildPlayer } = await import('./player')
     return buildPlayer(packs)
   })()
   built = { key, model }

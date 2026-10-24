@@ -46,6 +46,12 @@ export class StaticBatch {
     this.timer = setTimeout(() => { this.timer = null; this.build() }, REBUILD_MS)
   }
 
+  /** The objects' looks changed (a texture arrived): drop the merged copies and merge again shortly. */
+  invalidate() {
+    this.clear()
+    this.timer = setTimeout(() => { this.timer = null; this.build() }, REBUILD_MS)
+  }
+
   /** Show every object's own mesh again and drop the merged ones. */
   clear() {
     if (this.timer) { clearTimeout(this.timer); this.timer = null }

@@ -3,11 +3,12 @@
 // from these descriptions, so they need no downloads or game files.
 // Coordinates are editor units (the default world scale of 0.5 halves them in game).
 import { ALL_PREFABS } from './prefabRegistry'
-import { newLight, newMarker, newProject, uid, type FileRef, type Light, type Marker, type Project, type SceneItem, type Vec3 } from './project'
+import { fileVPath, newLight, newMarker, newProject, uid, type FileRef, type Light, type Marker, type Project, type SceneItem, type Vec3 } from './project'
 import { compoundObj, shapeName, shapeObj, type Shape } from './shapes'
-import { KINDS, defaultParams, generate } from './procedural'
-import { pixelsToPng } from './images'
+import { KINDS, defaultParams } from './procedural'
+import { generatedPng } from './texgen'
 import { storeFile } from './files'
+import { db } from './db'
 import { tagRecipe } from './recipes'
 import { ALL_MODES, GB, PB, box, turn, type Part, type Sample, type Tex, type Theme } from './sampleKit'
 import { PAINTBALL, poster, put } from './samplesPaintball'
@@ -243,8 +244,15 @@ function storedTexture(t: Tex) {
       }
       const size = texSize(t.gen)
       const params = { ...defaultParams(t.gen, size), ...t.tweak, size }
-      const s = await storeFile(tagRecipe(await pixelsToPng(generate(params), size, `${t.gen}_${params.seed}.png`), { kind: 'generated', params }), `${t.gen}_${params.seed}.png`)
-      return { vpath: s.vpath, surface: t.surface ?? KINDS[t.gen].surface, ref: s.ref }
+      const name = `${t.gen}_${params.seed}.png`
+      const surface = t.surface ?? KINDS[t.gen].surface
+      // Painted before (on an earlier build in this browser) and still stored: no need to paint it again.
+      const memo = 'texgen:' + JSON.stringify(params)
+      const known = await db.getMeta<FileRef>(memo).catch(() => undefined)
+      if (known && await db.hasBlob(known.hash).catch(() => false)) return { vpath: fileVPath(known.hash, known.name), surface, ref: known }
+      const s = await storeFile(tagRecipe(await generatedPng(params, name), { kind: 'generated', params }), name)
+      void db.setMeta(memo, s.ref).catch(() => {})
+      return { vpath: s.vpath, surface, ref: s.ref }
     })()
     p.catch(() => texCache.delete(key))
     texCache.set(key, p)
@@ -261,6 +269,15 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
     files[x.vpath] = x.ref
     return x
   }
+
+  // Every texture the map uses, painted up front and several at a time (see texgen.ts).
+  const unique = new Map<string, Tex>()
+  for (const p of parts) for (const t of [p.top, p.side, ...(p.rock ? [p.rock] : [])]) unique.set(JSON.stringify(t), t)
+  let painted = 0
+  await Promise.all([...unique.values()].map(async (t) => {
+    await texture(t)
+    if (++painted % 10 === 0 || painted === unique.size) onProgress?.(`Painting textures (${painted}/${unique.size})…`)
+  }))
 
   const items: SceneItem[] = []
   const shapeOf = (part: Part): Shape => ({
@@ -279,8 +296,9 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
     if (!byGroup.has(part.group)) { byGroup.set(part.group, []); units.push(byGroup.get(part.group)!) }
     byGroup.get(part.group)!.push(part)
   }
-  for (const [i, unit] of units.entries()) {
-    if (i % 20 === 0) onProgress?.(`Building ${unit[0].label.toLowerCase()} (${i + 1}/${units.length})…`)
+  // Each object is its own job (model text, hash, store); several run at once, the scene keeps their order.
+  const out: SceneItem[] = new Array(units.length)
+  const one = async (unit: Part[]): Promise<SceneItem> => {
     if (unit.length === 1) {
       const part = unit[0]
       const shape = shapeOf(part)
@@ -289,21 +307,21 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
       const [top, side] = await Promise.all([texture(part.top), texture(part.side)])
       // Terrain has a third material for its rocky ground.
       const rock = part.kind === 'terrain' ? await texture(part.rock ?? part.side) : null
-      items.push({
+      return ({
         uid: uid(), name: shapeName(part.label, shape), path: obj.vpath, source_path: obj.vpath, shape,
         position: part.at, rotation: [0, part.rot ?? 0, 0], scale: 1,
         textures: { top: top.vpath, side: side.vpath, ...(rock ? { rock: rock.vpath } : {}) }, alpha: { top: seeThrough(part.top), side: seeThrough(part.side), ...(rock ? { rock: false } : {}) },
         surface_ids: { top: top.surface, side: side.surface, ...(rock ? { rock: rock.surface } : {}) }, physics_intent: 'Static',
         ...(part.water ? { swimmable_water: true } : {}),
       })
-      continue
     }
     // Prefab: origin at its placement point (or the first part's base), turned as placed; one material per distinct texture.
     const tag = unit[0].prefab
     const origin = tag?.at ?? unit[0].at
     const turnBy = tag?.rot ?? 0
     const mats = new Map<string, Tex>()
-    const matOf = (t: Tex) => { const k = JSON.stringify(t); if (!mats.has(k)) mats.set(k, t); return 'm' + [...mats.keys()].indexOf(k) }
+    const matIds = new Map<string, string>()
+    const matOf = (t: Tex) => { const k = JSON.stringify(t); let m = matIds.get(k); if (!m) { m = 'm' + mats.size; mats.set(k, t); matIds.set(k, m) } return m }
     // A road network (thousands of pieces) is laid out flicker-free by construction (see roads.ts); checking it takes seconds.
     const pieces = (tag?.key === 'road' ? unit : unflicker(unit)).map((p) => {
       const [dx, dz] = turn(p.at[0] - origin[0], p.at[2] - origin[2], -turnBy)
@@ -313,20 +331,29 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
     files[stored.vpath] = stored.ref
     const textures: Record<string, string> = {}, alpha: Record<string, boolean> = {}, surface_ids: Record<string, number> = {}
     for (const [k, t] of mats) {
-      const name = 'm' + [...mats.keys()].indexOf(k)
+      const name = matIds.get(k)!
       const tx = await texture(t)
       textures[name] = tx.vpath; alpha[name] = seeThrough(t); surface_ids[name] = tx.surface
     }
     // Water parts: their materials, unless a solid part shares the same texture.
     const solid = new Set(unit.filter((p) => !p.water).flatMap((p) => [matOf(p.top), matOf(p.side)]))
     const water = [...new Set(unit.filter((p) => p.water).flatMap((p) => [matOf(p.top), matOf(p.side)]))].filter((m) => !solid.has(m))
-    items.push({
+    return {
       uid: uid(), name: (unit[0].prefab && ALL_PREFABS[unit[0].prefab.key]?.label) || unit[0].group!.split('@')[0].replace(/[~|]+$/, ''), path: stored.vpath, source_path: stored.vpath,
       position: origin, rotation: [0, turnBy, 0], scale: 1, textures, alpha, surface_ids, physics_intent: 'Static',
       ...(water.length ? { swimmable_water: true, water_materials: water } : {}),
       ...(tag ? { prefab: { key: tag.key, params: tag.params, defaults: { ...textures } } } : {}),
-    })
+    }
   }
+  let taken = 0, done = 0
+  await Promise.all(Array.from({ length: Math.min(8, units.length) }, async () => {
+    while (taken < units.length) {
+      const i = taken++
+      out[i] = await one(units[i])
+      if (++done % 20 === 0 || done === units.length) onProgress?.(`Building ${units[i][0].label.toLowerCase()} (${done}/${units.length})…`)
+    }
+  }))
+  items.push(...out)
   return { items, files }
 }
 

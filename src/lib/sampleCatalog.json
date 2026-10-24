@@ -1,0 +1,428 @@
+[
+ {
+  "id": "flat",
+  "name": "Flat ground",
+  "icon": "▭",
+  "theme": "Starter",
+  "description": "One big concrete floor with four spawns. A clean canvas for building your own layout."
+ },
+ {
+  "id": "arena",
+  "name": "Arena",
+  "icon": "🏟",
+  "theme": "Starter",
+  "description": "Walled square with a raised center platform, four ramps, pillars and cover. Set up for every mode."
+ },
+ {
+  "id": "warehouse",
+  "name": "Warehouse",
+  "icon": "🏭",
+  "theme": "Starter",
+  "description": "Indoor hall with corrugated walls, crate stacks, support columns and a catwalk reached by stairs."
+ },
+ {
+  "id": "rooftops",
+  "name": "Rooftops",
+  "icon": "🏙",
+  "theme": "Starter",
+  "description": "Eight buildings around a plaza, joined by bridges. Stairs lead up from the plaza."
+ },
+ {
+  "id": "street",
+  "name": "Street",
+  "icon": "🛣",
+  "theme": "Starter",
+  "description": "A city block: road with a center line, curbs and sidewalks, buildings on both sides and parked cover."
+ },
+ {
+  "id": "u_downtown",
+  "name": "Downtown Crossroads",
+  "icon": "🚦",
+  "theme": "Urban",
+  "description": "A four-way intersection between city blocks: office towers, shops with awnings, alleys, a courtyard, parked cars, a crashed bus and a climbable roof.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_plaza",
+  "name": "Civic Plaza",
+  "icon": "🏛",
+  "theme": "Urban",
+  "description": "A grand square with a fountain, colonnades and planters, between two courthouses with raised porticos and wide steps.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_park",
+  "name": "City Park",
+  "icon": "🌳",
+  "theme": "Urban",
+  "description": "Lawns, crossing paths, ponds, a gazebo in the middle, a playground and lots of trees. Long sightlines broken up by greenery.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_parking",
+  "name": "Mall Parking Lot",
+  "icon": "🛒",
+  "theme": "Urban",
+  "description": "A huge lot between two mall entrances: rows of parked cars, light poles, cart corrals and planted islands. Cars are the cover.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_gas",
+  "name": "Gas Station Corner",
+  "icon": "⛽",
+  "theme": "Urban",
+  "description": "Two gas stations face off across a highway: pump islands under canopies, convenience stores, billboards and parked trucks.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_trainyard",
+  "name": "Train Yard",
+  "icon": "🚂",
+  "theme": "Urban",
+  "description": "Parallel tracks full of boxcars, a station platform, fuel tanks and a footbridge over the rails.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_docks",
+  "name": "Harbor Docks",
+  "icon": "⚓",
+  "theme": "Urban",
+  "description": "Two quays around a shallow harbor basin with piers, moored boats, gantry cranes, container stacks and warehouses.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_suburb",
+  "name": "Suburban Cul-de-sac",
+  "icon": "🏡",
+  "theme": "Urban",
+  "description": "Houses with gabled roofs, porches, picket fences and yards around a cul-de-sac. A backyard pool, mailboxes and parked cars.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_trailer",
+  "name": "Trailer Park",
+  "icon": "🚐",
+  "theme": "Urban",
+  "description": "Rows of trailers with porches, junk cars, propane tanks and laundry lines, a park office in the middle and a chain-link fence around it all.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_chinatown",
+  "name": "Chinatown",
+  "icon": "🏮",
+  "theme": "Urban",
+  "description": "A main street under a grand gate, lined with shops, colored awnings, glowing signs and market stalls, with lanterns overhead and side alleys.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_skyscraper",
+  "name": "Skyscraper Site",
+  "icon": "🏗",
+  "theme": "Urban",
+  "description": "A three-story concrete frame rising in steps, with stairs between floors, a tower crane, materials yards and site trailers.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_rooftops",
+  "name": "Rooftop Run",
+  "icon": "🏙",
+  "theme": "Urban",
+  "description": "A grid of buildings at three heights joined by ramps across the streets. Climb from the street and run the rooftops.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_highway",
+  "name": "Highway Interchange",
+  "icon": "🛣",
+  "theme": "Urban",
+  "description": "Two elevated roads cross at different heights over a street level of pillars and barriers. Ramps link the ground, the low deck and the high deck.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_school",
+  "name": "High School",
+  "icon": "🏫",
+  "theme": "Urban",
+  "description": "Two U-shaped school buildings face each other across a football field with bleachers, a basketball court, buses and a flagpole.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_terminal",
+  "name": "Bus Terminal",
+  "icon": "🚌",
+  "theme": "Urban",
+  "description": "Covered platforms between parked buses, a ticket hall at each end and an overhead walkway with stairs at both ends.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_projects",
+  "name": "Housing Projects",
+  "icon": "🏢",
+  "theme": "Urban",
+  "description": "Tall apartment blocks around courtyards with a playground, a half court, dumpster rows, chain-link fences and a parking lot.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_warehouses",
+  "name": "Warehouse District",
+  "icon": "📦",
+  "theme": "Urban",
+  "description": "Big warehouses with raised loading docks, trucks backed up to the doors, forklifts, pallet stacks and a rail spur.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_canal",
+  "name": "Canal District",
+  "icon": "🛶",
+  "theme": "Urban",
+  "description": "A sunken canal runs through the middle, crossed by three bridges. Cafés, steps down to the water, moored boats and townhouses on both banks.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_junkyard",
+  "name": "Junkyard",
+  "icon": "♻",
+  "theme": "Urban",
+  "description": "Stacks of wrecked cars, a car crusher, scrap heaps, tire piles and a magnet crane, inside a corrugated fence.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_church",
+  "name": "Church Square",
+  "icon": "⛪",
+  "theme": "Urban",
+  "description": "A stone church with a bell tower in the middle of a tree-lined square, graveyards on both sides and row houses around the edge.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_clubstrip",
+  "name": "Club Strip",
+  "icon": "🍸",
+  "theme": "Urban",
+  "description": "A boulevard of nightclubs with glowing pink and cyan fronts, entrance canopies, velvet ropes, limos and colored light everywhere.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_river",
+  "name": "River Bridge",
+  "icon": "🌉",
+  "theme": "Urban",
+  "description": "A road bridge and two footbridges cross a river. Steps lead down to the riverside paths under the bridge; warehouses and lofts line both banks.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_market",
+  "name": "Farmers Market",
+  "icon": "🥕",
+  "theme": "Urban",
+  "description": "An open square packed with market tents and food trucks under string lights, with a raised music stage in the middle.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_ruins",
+  "name": "Burned Block",
+  "icon": "🔥",
+  "theme": "Urban",
+  "description": "A burned-out city block: broken walls of different heights, rubble heaps, gutted cars and fire barrels glowing orange.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_mainstreet",
+  "name": "Main Street",
+  "icon": "🎭",
+  "theme": "Urban",
+  "description": "A classic main street: storefronts with awnings, a diner, a theater with a marquee, side alleys, phone booths and a water tower on a roof you can climb.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_office_park",
+  "name": "Office Park",
+  "icon": "🏢",
+  "theme": "Urban",
+  "description": "Glass office towers around a landscaped courtyard with reflecting pools, a parking deck with a rooftop level, and a sculpture garden.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "u_stadium",
+  "name": "Stadium Plaza",
+  "icon": "🏟",
+  "theme": "Urban",
+  "description": "The plaza outside a stadium: ticket booths, turnstile rows, statues, merch stands and a raised concourse ring around the stadium wall.",
+  "added": "2026-10-22"
+ },
+ {
+  "id": "pb_speedball",
+  "name": "Speedball Field",
+  "icon": "🎯",
+  "theme": "Urban paintball",
+  "description": "Tournament turf with logo-printed inflatables: snake, doritos, cans, a cake, a temple, a maya and the big X in the middle. Behind the side boards: team pits, referee towers, scoreboards, a stand, gear and air."
+ },
+ {
+  "id": "pb_rooftop",
+  "name": "Rooftop Paintball",
+  "icon": "🏢",
+  "theme": "Urban paintball",
+  "description": "A gravel roof with parapets, AC units, vents, a satellite dish, stair bulkheads and two water towers you can climb for the high ground."
+ },
+ {
+  "id": "pb_containers",
+  "name": "Container Yard",
+  "icon": "🚢",
+  "theme": "Urban paintball",
+  "description": "Shipping containers in lanes, some stacked two high, with stairs onto a container roof for a sniper spot. Floodlights in the corners."
+ },
+ {
+  "id": "pb_garage",
+  "name": "Parking Garage",
+  "icon": "🅿",
+  "theme": "Urban paintball",
+  "description": "Each team starts on an upper deck with a ramp and stairs down to the parking level, where cars sit in their bays and barriers give cover."
+ },
+ {
+  "id": "pb_alley",
+  "name": "Back Alleys",
+  "icon": "🏚",
+  "theme": "Urban paintball",
+  "description": "City blocks with narrow alleys, dumpsters, trash bags and barrels around a fountain plaza. Fire escapes up the side of two blocks lead onto their roofs."
+ },
+ {
+  "id": "pb_tires",
+  "name": "Tire Yard",
+  "icon": "🛞",
+  "theme": "Urban paintball",
+  "description": "A dirt lot of tire stacks, cable spools, pallets and plywood walls around a big tire pile, with referee towers, an air station and banners on the fence."
+ },
+ {
+  "id": "pb_construction",
+  "name": "Construction Site",
+  "icon": "🏗",
+  "theme": "Urban paintball",
+  "description": "A half-built concrete frame with an open upper floor, beam and rebar stacks, drain pipes, sand piles, a cement mixer, site lights and plywood barricades."
+ },
+ {
+  "id": "pb_court",
+  "name": "Street Court",
+  "icon": "🏀",
+  "theme": "Urban paintball",
+  "description": "An open basketball court in the middle (the kill zone), hoops at both ends, with bleachers, benches, cars in their bays, dumpsters and brick walls around it."
+ },
+ {
+  "id": "pb_subway",
+  "name": "Subway Station",
+  "icon": "🚇",
+  "theme": "Urban paintball",
+  "description": "Two tiled platforms with yellow edges over a sunken track with stopped train cars. Stairs climb from the tracks; pillars, benches and vending machines line the platforms."
+ },
+ {
+  "id": "pb_skate",
+  "name": "Skate Park",
+  "icon": "🛹",
+  "theme": "Urban paintball",
+  "description": "Quarter pipes, a funbox with ramps on every side, ledges, grind rails and a stair set, with benches and floodlights. Fast, flowing fights."
+ },
+ {
+  "id": "pb_village",
+  "name": "Bunker Village",
+  "icon": "🛖",
+  "theme": "Urban paintball",
+  "description": "Plywood huts with doorways, sandbag lines, a fire pit, washing on the line and two lookout towers flying the team flags. Clear huts room by room or hold a tower."
+ },
+ {
+  "id": "pb_market",
+  "name": "Night Market",
+  "icon": "🏮",
+  "theme": "Urban paintball",
+  "description": "A cobbled street of market stalls under strings of lanterns, with produce crates, carts and a pagoda in the middle."
+ },
+ {
+  "id": "pb_overpass",
+  "name": "Overpass",
+  "icon": "🌉",
+  "theme": "Urban paintball",
+  "description": "An elevated highway crosses the middle on pillars. Fight on the deck between stalled cars, or under it behind jersey barriers and the exit signs."
+ },
+ {
+  "id": "cy_grid",
+  "name": "Neon Grid",
+  "icon": "🟦",
+  "theme": "Cyber",
+  "description": "A glowing grid floor with a checkerboard of neon blocks at different heights, a ramped tower in the middle and jump pads up onto the blocks beside it."
+ },
+ {
+  "id": "cy_core",
+  "name": "Data Core",
+  "icon": "💠",
+  "theme": "Cyber",
+  "description": "A round arena around a towering core of falling code. Ramps climb to the core ring; glowing conduits and code pillars break up the floor."
+ },
+ {
+  "id": "cy_circuit",
+  "name": "Circuit Board",
+  "icon": "🔌",
+  "theme": "Cyber",
+  "description": "Shrunk down onto a motherboard: chips to climb, capacitors and resistors for cover, gold traces and a CPU with a heat sink."
+ },
+ {
+  "id": "cy_hex",
+  "name": "Hex Hive",
+  "icon": "⬡",
+  "theme": "Cyber",
+  "description": "A honeycomb of hexagonal pillars at four heights. Weave through the gaps; grab the laser RPG on the low center hex."
+ },
+ {
+  "id": "cy_servers",
+  "name": "Server Farm",
+  "icon": "🖥",
+  "theme": "Cyber",
+  "description": "Rows of blinking server racks with tight aisles at both ends, and an open floor with cooling units and a manned control desk in the middle."
+ },
+ {
+  "id": "cy_islands",
+  "name": "Sky Islands",
+  "icon": "🏝",
+  "theme": "Cyber",
+  "description": "Floating platforms at different heights over a glowing void floor, joined by neon bridges and ramps, round a core of falling code."
+ },
+ {
+  "id": "cy_pyramid",
+  "name": "Neon Ziggurat",
+  "icon": "🔺",
+  "theme": "Cyber",
+  "description": "A four-tier stepped pyramid with stairs up every face and a laser RPG on top, ringed by glowing obelisks."
+ },
+ {
+  "id": "cy_maze",
+  "name": "Holo Maze",
+  "icon": "🌀",
+  "theme": "Cyber",
+  "description": "A maze of glowing walls on a 10-unit grid with short sightlines everywhere. The laser RPG waits in the very center."
+ },
+ {
+  "id": "cy_skyline",
+  "name": "Neon Skyline",
+  "icon": "🌃",
+  "theme": "Cyber",
+  "description": "Glowing towers at different heights linked by sloped neon bridges. Spawn on your home tower behind its holo billboard; the street far below has stairs back up."
+ },
+ {
+  "id": "cy_colosseum",
+  "name": "Cyber Colosseum",
+  "icon": "🏛",
+  "theme": "Cyber",
+  "description": "An octagonal pit ringed by tiered neon seating up to a walkway round the top, with a ramped platform under a four-sided scoreboard in the middle and blocks for cover."
+ },
+ {
+  "id": "cy_lanes",
+  "name": "Three Lanes",
+  "icon": "🛤",
+  "theme": "Cyber",
+  "description": "Three long lanes split by glowing walls with gaps to cross between them. Each base has a sniper deck over the middle lane, and jump pads in the side lanes lead up onto ledges."
+ },
+ {
+  "id": "cy_reactor",
+  "name": "Reactor",
+  "icon": "☢",
+  "theme": "Cyber",
+  "description": "A glowing reactor core on a ramped platform between two huge cooling towers, with raised pipes, coolant pools and control rooms."
+ }
+]

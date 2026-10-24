@@ -593,23 +593,36 @@ export class Viewer {
     if (this.textures.has(path)) return this.textures.get(path)
     this.textures.set(path, undefined as any)
     textureUrl(this.project, path).then((url) => {
-      if (!url) { this.textures.set(path, null); this.refreshMaterials(); return }
+      if (!url) { this.textures.set(path, null); this.applyTexture(path, null); return }
       this.texLoader.load(url, (t) => {
         t.colorSpace = THREE.SRGBColorSpace
         t.wrapS = t.wrapT = THREE.RepeatWrapping
         t.anisotropy = 4
         this.textures.set(path, t)
-        this.refreshMaterials()
-      }, undefined, () => { this.textures.set(path, null); this.refreshMaterials() })
+        this.applyTexture(path, t)
+      }, undefined, () => { this.textures.set(path, null); this.applyTexture(path, null) })
     })
     return undefined
   }
 
-  private refreshMaterials() {
-    for (const n of this.items.values()) n.key = ''
-    this.syncItems()
+  /**
+   * A texture arrived (or turned out missing): put it into the materials waiting for it, in place. Rebuilding
+   * every object's mesh per texture made big maps (hundreds of objects and textures) freeze while they opened.
+   */
+  private applyTexture(path: string, t: THREE.Texture | null) {
+    for (const n of this.items.values()) {
+      for (const m of (n.mesh?.material as THREE.MeshLambertMaterial[] | undefined) ?? []) {
+        if (m.userData.tex !== path) continue
+        m.map = t ?? checker()
+        m.color.setHex(0xffffff)
+        m.needsUpdate = true
+      }
+    }
+    // The merged copies hold the old look: merge again once the textures stop arriving.
+    this.batch.invalidate()
     this.requestRender()
   }
+
 
   private itemKey(it: SceneItem, index: number) {
     const o = this.opts
@@ -658,6 +671,12 @@ export class Viewer {
 
   // Big maps draw unselected, unchanging objects merged by material (batch.ts).
   private batch = new StaticBatch(() => this.batchSources(), () => this.requestRender())
+  private batchTimer: ReturnType<typeof setTimeout> | null = null
+  /** One batch check for a burst of objects finishing loading, not one per object (each walks the whole map). */
+  private batchSoon() {
+    if (this.batchTimer) return
+    this.batchTimer = setTimeout(() => { this.batchTimer = null; this.batch.update(this.batchSources()) }, 60)
+  }
   private batchSources(): BatchSource[] | null {
     const o = this.opts
     if (o.wireframe || o.collisionView !== 'off' || o.soloMaterial) return null
@@ -696,6 +715,7 @@ export class Viewer {
         })
         m.visible = !solo || solo === `${index}:${mat}`
         m.userData.mat = mat
+        m.userData.tex = texPath
         return m
       })
       if (node.mesh) {
@@ -710,7 +730,7 @@ export class Viewer {
       if (!this.framed && index === 0) { this.framed = true; this.frame(node.group) }
       this.syncOverlay(node, it, index, true)
       this.updateSelectionBox()
-      this.batch.update(this.batchSources())
+      this.batchSoon()
       this.requestRender()
     }).catch(() => { /* missing file: shown in the scene list */ })
   }

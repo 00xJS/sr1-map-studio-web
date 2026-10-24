@@ -2,18 +2,18 @@ import { lazy, Suspense, useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { db, requestPersistence, type ProjectRecord } from '../lib/db'
 import { newProject, normalizeProject, uid, type Project } from '../lib/project'
-import { SamplePicker } from './SamplePicker'
 import { queueEdits, type PendingEdits } from '../lib/pendingEdits'
 import { dataPackStatus, type DataPackStatus } from '../lib/datapack'
 import { downloadBlob } from '../lib/exporter'
 import { accountsEnabled, hubEnabled, useBackend, type HubMapMeta } from '../lib/backend'
-import { SAMPLES, type Sample } from '../lib/samples'
-import { startFromSample } from './sampleStart'
+import { SAMPLE_CARDS as SAMPLES, type SampleCard as Sample } from '../lib/sampleCatalog'
 import { FileButton, Modal, confirmDialog, infoDialog, timeAgo, toastError, useBusy } from '../ui'
 import './home.css'
 
 const CloudSection = lazy(() => import('./CloudSection').then((m) => ({ default: m.CloudSection })))
 const HeroReel = lazy(() => import('./HeroReel'))
+// The maps and the dialog to start one need every prefab: loaded when asked for, not with the home page.
+const SamplePicker = lazy(() => import('./SamplePicker').then((m) => ({ default: m.SamplePicker })))
 
 type Meta = Omit<ProjectRecord, 'project'>
 
@@ -82,7 +82,7 @@ export default function Home() {
 
   const start = async (s: Sample) => {
     setProgress(`Building ${s.name}…`)
-    try { nav('/editor/' + (await startFromSample(s.id, false, (t) => setProgress(`${s.name}: ${t}`)))) }
+    try { const { startFromSample } = await import('./sampleStart'); nav('/editor/' + (await startFromSample(s.id, false, (t) => setProgress(`${s.name}: ${t}`)))) }
     catch (e) { toastError(e); setProgress(null) }
   }
 
@@ -233,7 +233,7 @@ export default function Home() {
         </div>
       </section>
 
-      {picking && <SamplePicker onClose={() => setPicking(null)} onBuilt={(p, edits) => open(p, edits, picking === 'first')} onBlank={() => open(newProject()).catch(toastError)} />}
+      {picking && <Suspense fallback={null}><SamplePicker onClose={() => setPicking(null)} onBuilt={(p, edits) => open(p, edits, picking === 'first')} onBlank={() => open(newProject()).catch(toastError)} /></Suspense>}
       {progress && <Modal title="Building map"><div className="col"><div className="progress"><div /></div><span className="small muted">{progress}</span></div></Modal>}
     </div>
   )

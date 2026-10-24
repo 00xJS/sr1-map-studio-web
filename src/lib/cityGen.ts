@@ -6,9 +6,10 @@
 import type { Vec3 } from './project'
 import { ALL_PREFABS } from './prefabRegistry'
 import { building, prefabParams, tagPrefab, type Params, type Style } from './prefabs'
-import { PB, blob, box, perimeter, type MarkerSpec, type Part, type Sample, type Tex } from './sampleKit'
+import { PB, blob, box, perimeter, ramp, type MarkerSpec, type Part, type Sample, type Tex } from './sampleKit'
 import { U, car } from './urbanKit'
-import { buildRoad, formatPath, roadOptions, roadPrefabParts, WALK_H, type Polyline } from './roads'
+import { ROAD_TEX, buildRoad, formatPath, roadOptions, roadPrefabParts, WALK_H, type Polyline } from './roads'
+const ROAD_TEX_ASPHALT = ROAD_TEX.asphalt
 import { rng, type Rng } from './mapWizard'
 
 export type CitySize = 'town' | 'city' | 'big'
@@ -448,17 +449,23 @@ export function citySample(o: CityOptions): Sample {
   const freeCols = Array.from({ length: n + 1 }, (_, i) => i).filter((i) => !bridgeCols.has(i))
   const inner = freeCols.filter((i) => i > 0 && i < n)
   const fi = r.pick(inner.length ? inner : freeCols)
+  const H = 20, FW = 36, RUN = 60
+  const freeway = { x: lineAt(fi), z0: -L / 2 + EDGE + 2, z1: L / 2 - EDGE - 2 }
   {
-    const x = lineAt(fi), H = 20, FW = 36, z0 = -L / 2 + EDGE + 2, z1 = L / 2 - EDGE - 2
+    const { x, z0, z1 } = freeway
     const id = `Freeway@${x}`
-    const deck = buildRoad([[[x, z0], [x, z1]]], { width: FW - 4, walk: 0, lines: 'dashed', lamps: 0, crossings: false }, H)
+    // On-ramps at both ends, from the street up to the deck (a gentle 1 in 3, walkable and drivable).
+    const d0 = z0 + RUN, d1 = z1 - RUN
+    const deck = buildRoad([[[x, d0], [x, d1]]], { width: FW - 4, walk: 0, lines: 'dashed', lamps: 0, crossings: false }, H)
     parts.push(
-      { ...box('Freeway deck', [FW, 2.5, z1 - z0], [x, H - 2.5, (z0 + z1) / 2], PB.concrete, PB.concrete), group: id },
+      { ...box('Freeway deck', [FW, 2.5, d1 - d0], [x, H - 2.5, (d0 + d1) / 2], PB.concrete, PB.concrete), group: id },
       ...deck.parts.map((q) => ({ ...q, group: id })),
-      ...[-1, 1].map((sx): Part => ({ ...box('Freeway barrier', [1, 2.2, z1 - z0], [x + sx * (FW / 2 - 0.5), H, (z0 + z1) / 2], PB.concrete, PB.concrete), group: id })),
+      ...[-1, 1].map((sx): Part => ({ ...box('Freeway barrier', [1, 2.2, d1 - d0], [x + sx * (FW / 2 - 0.5), H, (d0 + d1) / 2], PB.concrete, PB.concrete), group: id })),
+      { ...ramp('Freeway ramp', [FW, H - 1, RUN], [x, 1, z0 + RUN / 2], ROAD_TEX_ASPHALT, PB.concrete, 180), group: id },
+      { ...ramp('Freeway ramp', [FW, H - 1, RUN], [x, 1, z1 - RUN / 2], ROAD_TEX_ASPHALT, PB.concrete, 0), group: id },
     )
     // Pillars between the lanes, on land; over the river the span stands on piers from the bed.
-    for (let z = z0 + 20; z < z1 - 10; z += 60) {
+    for (let z = d0 + 10; z < d1 - 10; z += 60) {
       const onRiver = z > zA - 4 && z < zB + 4
       for (const sx of [-1, 1]) {
         const y0 = onRiver ? BED : 1
@@ -561,6 +568,9 @@ export function citySample(o: CityOptions): Sample {
     }
     return out
   }
+  // Not on the freeway's ramps.
+  const clearOfRamps = (p: Vec3) => !(Math.abs(p[0] - freeway.x) < FW / 2 + 2 && (p[2] < freeway.z0 + RUN + 2 || p[2] > freeway.z1 - RUN - 2))
+  for (let k = pool.length - 1; k >= 0; k--) if (!clearOfRamps(pool[k])) pool.splice(k, 1)
   const red = spread(pool.filter((p) => p[2] <= lineAt(0) + 1), 6, [])
   const blue = spread(pool.filter((p) => p[2] >= lineAt(n) - 1), 6, [])
   const shared = spread(pool, 16, [...red, ...blue])
