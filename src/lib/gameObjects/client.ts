@@ -6,7 +6,8 @@ import { create } from 'zustand'
 import { openDb } from '../db'
 import { gamePack } from '../gameFiles'
 import { mergeCandidates, type Candidate, type GameObjectEntry } from './indexer'
-import type { ObjectResult, PackSource, Reply, Request } from './worker'
+import type { CityCut, CityMap, ObjectResult, PackSource, Reply, Request } from './worker'
+import type { Hole, Rect } from '../city/city'
 import type { TextureDirectory } from './textures'
 
 /** Bump when the index changes shape or rules: the next visit rebuilds it. */
@@ -46,7 +47,7 @@ export class NeedGameFolder extends Error {
 
 let worker: Worker | null = null
 let nextId = 1
-const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; onChunk?: (m: Extract<Reply, { type: 'chunk' }>) => void }>()
+const pending = new Map<number, { resolve: (v: any) => void; reject: (e: Error) => void; onChunk?: (m: Extract<Reply, { type: 'chunk' }>) => void; onProgress?: (done: number, total: number) => void }>()
 
 function getWorker(): Worker {
   if (worker) return worker
@@ -55,7 +56,7 @@ function getWorker(): Worker {
     const m = e.data
     const p = pending.get(m.id)
     if (!p) return
-    if ('type' in m) { p.onChunk?.(m); return }
+    if ('type' in m) { if (m.type === 'chunk') p.onChunk?.(m); else p.onProgress?.(m.done, m.total); return }
     pending.delete(m.id)
     if (m.ok) p.resolve(m.value)
     else p.reject(new Error(m.error))
@@ -64,10 +65,10 @@ function getWorker(): Worker {
 }
 
 type Body = Request extends infer R ? (R extends Request ? Omit<R, 'id'> : never) : never
-function call<T>(msg: Body, onChunk?: (m: Extract<Reply, { type: 'chunk' }>) => void): Promise<T> {
+function call<T>(msg: Body, onChunk?: (m: Extract<Reply, { type: 'chunk' }>) => void, onProgress?: (done: number, total: number) => void): Promise<T> {
   const id = nextId++
   return new Promise<T>((resolve, reject) => {
-    pending.set(id, { resolve, reject, onChunk })
+    pending.set(id, { resolve, reject, onChunk, onProgress })
     getWorker().postMessage({ ...msg, id })
   })
 }
@@ -218,4 +219,38 @@ if (import.meta.env.DEV && typeof window !== 'undefined') {
     },
     buildIndex, loadIndex, getObject, state: () => useGameObjects.getState(),
   }
+}
+
+// ---------------- the city (see ../city) ----------------
+
+/** Reads every city chunk for the top-down map (the game files must be open: connect first). */
+export const workerCityMap = (onProgress: (done: number, total: number) => void) => call<CityMap>({ type: 'cityMap' }, undefined, onProgress)
+export const workerCityCut = (rect: Rect, stems: string[], texSize: number) => call<CityCut>({ type: 'cityCut', rect, stems, texSize })
+export const workerCityScan = (rect: Rect, stems: string[]) => call<Hole[]>({ type: 'cityScan', rect, stems })
+
+const CITY_KEY = 'city:map'
+const CITY_VERSION = 1
+interface StoredCity extends CityMap { version: number; sig: string; builtAt: string }
+
+/** The stored city map, if one was built from these game files (or any, when the files aren't open). */
+export async function loadCityMap(): Promise<CityMap | null> {
+  try {
+    const s = await req((await meta()).get(CITY_KEY)) as StoredCity | undefined
+    return s?.version === CITY_VERSION ? s : null
+  } catch { return null }
+}
+
+/** Builds the city map from the game files (about one read of every city chunk) and keeps it on this device. */
+export async function buildCityMap(ask: boolean, onProgress: (done: number, total: number) => void): Promise<CityMap> {
+  const sig = await connect(ask)
+  const map = await workerCityMap(onProgress)
+  if (!texDir && map.texDir) texDir = map.texDir
+  try { await req((await meta('readwrite')).put({ ...map, version: CITY_VERSION, sig, builtAt: new Date().toISOString() } satisfies StoredCity, CITY_KEY)) } catch { /* storage blocked: this tab only */ }
+  return map
+}
+
+/** Opens the game files for the city, handing the worker the texture directory the city map keeps (when the library hasn't). */
+export async function connectCity(ask: boolean, map: CityMap) {
+  await connect(ask)
+  if (!texDir && map.texDir) { texDir = map.texDir; await call({ type: 'texdir', dir: texDir }) }
 }

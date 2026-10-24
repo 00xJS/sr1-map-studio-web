@@ -430,3 +430,7 @@ kbd { font: 11px/1 var(--mono); padding: 3px 6px; border-radius: 4px; background
 /* The prefab browser's "From my game" tab (objects from the player's own game files). */
 .prefab-tabs .game-tab { border-style: dashed; }
 .game-notice { margin: 4px 2px 2px; }
+
+/* Stilwater page: the city map beside its panel; stacked on narrow screens. */
+.city-layout { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
+.city-map { flex: 1 1 520px; min-width: 0; width: 100%; height: min(72vh, 820px); border-radius: 10px; background: #0d0e12; cursor: crosshair; touch-action: none; display: block; }

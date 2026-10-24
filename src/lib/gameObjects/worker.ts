@@ -8,6 +8,7 @@ import type { PegImage } from '../sr1char/peg'
 import { indexChunk, type Candidate } from './indexer'
 import { extractObject, type ObjectMesh } from './extract'
 import { ALWAYS_PEGS, chunkPegNames, findTexture, hasAlpha, indexPeg, shrink, textureDirectory, type PegIndex, type TextureDirectory } from './textures'
+import { MAP, cutArea, isCityChunk, mapChunk, scanArea, type ChunkSummary, type Hole, type Rect } from '../city/city'
 
 /** A packfile: a File from the player's folder, or (development only) a URL the dev server serves by range. */
 export type PackSource = File | { url: string; size: number }
@@ -20,11 +21,20 @@ export type Request =
   | { id: number; type: 'index'; skip: string[] }
   | { id: number; type: 'texdir'; dir: TextureDirectory }
   | { id: number; type: 'object'; pack: string; chunk: string; record: number; parts?: number[]; texSize: number }
+  | { id: number; type: 'cityMap' }
+  | { id: number; type: 'cityCut'; rect: Rect; stems: string[]; texSize: number }
+  | { id: number; type: 'cityScan'; rect: Rect; stems: string[] }
 
 export type Reply =
   | { id: number; ok: true; value: unknown }
   | { id: number; ok: false; error: string }
   | { id: number; type: 'chunk'; key: string; candidates: Candidate[]; done: number; total: number; ms: number }
+  | { id: number; type: 'progress'; done: number; total: number }
+
+/** The city map: highest surface per pixel (decimetres, -32768 for nothing) and which chunks cover where. */
+export interface CityMap { top: Int16Array; summaries: ChunkSummary[]; texDir?: TextureDirectory }
+/** A cut-out: what's solid and what's only drawn, sharing one list of materials and their pictures. */
+export interface CityCut { solid: ObjectResult; look: ObjectResult; ground: number; standable: [number, number, number][] }
 
 /** Library packfiles: the city, the multiplayer maps, and misc2 (the always-loaded city chunks and textures). */
 export const INDEX_PACKS = ['sr_city_stream', 'mp_city_stream', 'misc2']
@@ -73,7 +83,7 @@ class Lru<V> {
   set(k: string, v: V) { this.m.delete(k); this.m.set(k, v); while (this.m.size > this.max) this.m.delete(this.m.keys().next().value!) }
   clear() { this.m.clear() }
 }
-const chunks = new Lru<Promise<Chunk>>(4)
+const chunks = new Lru<Promise<Chunk>>(8)
 const pegs = new Lru<Promise<PegIndex | null>>(4)
 let always: Promise<PegIndex[]> | null = null
 let texDir: TextureDirectory | null = null
@@ -174,13 +184,69 @@ async function index(id: number, skip: Set<string>) {
   return { total: jobs.length, failed, texDir }
 }
 
+// ---------------- the city ----------------
+
+async function cityStems(): Promise<string[]> {
+  const vpp = await pack('sr_city_stream')
+  return vpp.list().filter((n) => /\.bbchunk_xbox2$/i.test(n)).map((n) => n.replace(/\.bbchunk_xbox2$/i, '')).filter(isCityChunk)
+}
+
+async function cityMap(id: number): Promise<CityMap> {
+  const stems = await cityStems()
+  const top = new Float32Array(MAP.size * MAP.size).fill(-Infinity)
+  const summaries: ChunkSummary[] = []
+  for (const [i, stem] of stems.entries()) {
+    try { summaries.push(mapChunk(await chunkOf('sr_city_stream', stem), stem, top)) } catch { /* an unreadable chunk leaves a gap */ }
+    post({ id, type: 'progress', done: i + 1, total: stems.length })
+  }
+  const out = new Int16Array(top.length)
+  for (let i = 0; i < top.length; i++) out[i] = top[i] > -1e4 ? Math.max(-32767, Math.min(32767, Math.round(top[i] * 10))) : -32768
+  // Which texture file holds each picture (as the library builds it), so cut-outs find every texture.
+  if (!texDir) {
+    const opened: [string, Vpp][] = []
+    for (const p of INDEX_PACKS) if (vpps.has(p)) opened.push([p, await pack(p)])
+    texDir = await textureDirectory(opened)
+  }
+  return { top: out, summaries, texDir }
+}
+
+async function areaChunks(stems: string[]) {
+  const out: [string, Awaited<ReturnType<typeof chunkOf>>][] = []
+  for (const s of stems) out.push([s, await chunkOf('sr_city_stream', s)])
+  return out
+}
+
+async function cityCut(m: Extract<Request, { type: 'cityCut' }>): Promise<CityCut> {
+  const cut = cutArea(await areaChunks(m.stems), m.rect)
+  // Pictures: each material's from the chunk it was first met in.
+  const byChunk = new Map<string, number[]>()
+  cut.matChunk.forEach((c, i) => { const l = byChunk.get(c); if (l) l.push(i); else byChunk.set(c, [i]) })
+  const textures: (ObjectTexture | null)[] = cut.solid.materials.map(() => null)
+  for (const [c, list] of byChunk) {
+    const found = await texturesFor('sr_city_stream', c, list.map((i) => cut.solid.materials[i]), m.texSize)
+    list.forEach((i, k) => { textures[i] = found[k] })
+  }
+  return { solid: { mesh: cut.solid, textures }, look: { mesh: cut.look, textures }, ground: cut.ground, standable: cut.standable }
+}
+
 self.onmessage = async (e: MessageEvent<Request>) => {
   const m = e.data
   try {
     if (m.type === 'open') post({ id: m.id, ok: true, value: openPacks(m.packs) })
     else if (m.type === 'texdir') { texDir = m.dir; post({ id: m.id, ok: true, value: true }) }
     else if (m.type === 'index') post({ id: m.id, ok: true, value: await index(m.id, new Set(m.skip)) })
-    else if (m.type === 'object') {
+    else if (m.type === 'cityMap') {
+      const v = await cityMap(m.id)
+      post({ id: m.id, ok: true, value: v }, [v.top.buffer])
+    } else if (m.type === 'cityScan') post({ id: m.id, ok: true, value: scanArea(await areaChunks(m.stems), m.rect) satisfies Hole[] })
+    else if (m.type === 'cityCut') {
+      const v = await cityCut(m)
+      // Both meshes share the pictures: send them once (the look mesh's list is the same objects).
+      const transfer: Transferable[] = []
+      for (const r of [v.solid, v.look]) transfer.push(r.mesh.positions.buffer, r.mesh.uvs.buffer, r.mesh.triangles.buffer, r.mesh.triMaterial.buffer)
+      for (const t of v.solid.textures) if (t) transfer.push(t.rgba)
+      post({ id: m.id, ok: true, value: v }, transfer)
+    } else if (m.type === 'object') {
       const ch = await chunkOf(m.pack, m.chunk)
       const mesh = extractObject(ch, m)
       const textures = await texturesFor(m.pack, m.chunk, mesh.materials, m.texSize)

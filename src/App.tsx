@@ -12,6 +12,7 @@ const HubMap = lazy(() => import('./pages/HubMap'))
 const Account = lazy(() => import('./pages/Account'))
 const Catalog = lazy(() => import('./pages/Catalog'))
 const Play = lazy(() => import('./play/PlayPage'))
+const City = lazy(() => import('./pages/City'))
 
 export function Shell({ children }: { children: ReactNode }) {
   const user = useUser()
@@ -22,6 +23,7 @@ export function Shell({ children }: { children: ReactNode }) {
         <nav>
           <NavLink to="/" end>My maps</NavLink>
           <NavLink to="/maps">Map catalog</NavLink>
+          <NavLink to="/city" title="The real city from your own game: start a map from it, or scan it for holes">Stilwater</NavLink>
           {hubEnabled && <NavLink to="/showcase">Showcase</NavLink>}
           <NavLink to="/setup">Data pack</NavLink>
           <NavLink to="/about">About</NavLink>
@@ -62,6 +64,7 @@ export default function App() {
           <Route path="/play/:id" element={<ErrorBoundary label="Play mode hit an error"><Play /></ErrorBoundary>} />
           <Route path="/" element={<Shell><Home /></Shell>} />
           <Route path="/maps" element={<Shell><Catalog /></Shell>} />
+          <Route path="/city" element={<Shell><ErrorBoundary label="The city page hit an error"><Suspense fallback={null}><City /></Suspense></ErrorBoundary></Shell>} />
           <Route path="/setup" element={<Shell><Setup /></Shell>} />
           <Route path="/about" element={<Shell><About /></Shell>} />
           <Route path="/showcase" element={<Shell>{hubEnabled ? <Hub /> : <HubOff />}</Shell>} />

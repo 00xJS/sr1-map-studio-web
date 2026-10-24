@@ -43,6 +43,8 @@ export interface Chunk {
   materials: Material[]
   meshes: Mesh[]
   records: StaticRecord[]
+  /** Where the collision blob (one MOPP block per mesh, then one over the instances) sits in `bytes`. */
+  coll: { at: number; size: number }
 }
 
 class Reader {
@@ -89,10 +91,12 @@ function parseFront(r: Reader): Front {
 }
 
 /** The render geometry from `at`; returns where it ends (the static records follow). */
-function readGeometry(r: Reader, f: Front): { vbs: VertexBuffer[]; materials: Material[]; meshes: Mesh[]; end: number } {
+function readGeometry(r: Reader, f: Front): { vbs: VertexBuffer[]; materials: Material[]; meshes: Mesh[]; end: number; coll: { at: number; size: number } } {
   let c = f.geo
   const nv = f.vbs
-  c += 4 + r.u32(c) // collision blob
+  const coll = { at: c + 4, size: r.u32(c) }
+  r.check(coll.at, coll.size)
+  c += 4 + coll.size // collision blob
   c = al(c + 24, 4)
   c += 4 * nv // vertex buffer pointers
   const aux: number[] = []
@@ -179,7 +183,7 @@ function readGeometry(r: Reader, f: Front): { vbs: VertexBuffer[]; materials: Ma
     }
     meshes.push({ min: [r.f32(h), r.f32(h + 4), r.f32(h + 8)], max: [r.f32(h + 12), r.f32(h + 16), r.f32(h + 20)], subs })
   }
-  return { vbs, materials, meshes, end: c }
+  return { vbs, materials, meshes, end: c, coll }
 }
 
 /** Static records start right after the geometry; then the record blob that holds the profile names. */
@@ -216,7 +220,7 @@ export function readChunk(bytes: Uint8Array): Chunk {
     for (let k = 0; k < 9; k++) rotation.push(r.f32(a + 16 + 4 * k))
     instances.push({ position: [r.f32(a + 4), r.f32(a + 8), r.f32(a + 12)], rotation, mesh: r.u32(a + 104), flags: r.u32(a + 108) })
   }
-  return { bytes, strings: f.strings, instances, vbs: g.vbs, materials: g.materials, meshes: g.meshes, records: readRecords(r, g.end) }
+  return { bytes, strings: f.strings, instances, vbs: g.vbs, materials: g.materials, meshes: g.meshes, records: readRecords(r, g.end), coll: g.coll }
 }
 
 // ---------------- triangles of one mesh ----------------
