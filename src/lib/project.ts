@@ -134,6 +134,8 @@ export interface ProjectSettings {
   minimap_texture: string
   sky_scale: number
   native_sky: '' | 'sr_alwayshwyf01' | 'sr_custom000001'
+  /** The game's own sky (clouds, sun, moon, stars) read from the player's game files at export; unset means on. sky_texture is the fallback. */
+  game_sky?: boolean
   bbcity_donor: string
   cts_template: string
   marker_game_coords: boolean
@@ -183,6 +185,9 @@ export interface Project {
 }
 
 export const uid = () => crypto.randomUUID()
+
+/** The export adds the game's own sky (see gameSky.ts): on unless turned off; a native sky preset brings its own instead. */
+export const gameSkyWanted = (s: Pick<ProjectSettings, 'game_sky' | 'native_sky'>) => s.game_sky !== false && !s.native_sky
 
 export const defaultSettings = (): ProjectSettings => ({
   base_name: 'mymap',

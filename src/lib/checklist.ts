@@ -1,6 +1,6 @@
 // "Ready to play" checklist: what a map still needs before it can go into the
 // game ('needed' blocks Play), and what would make it better ('suggested').
-import { PIMP_EXIT, SPAWN_TYPES, isCustomNative, isGlass, type Project } from './project'
+import { PIMP_EXIT, SPAWN_TYPES, gameSkyWanted, isCustomNative, isGlass, type Project } from './project'
 import { retailChecklist } from './retailModes'
 import { CHAINS_DROPS, DROP_GAP, FFA_SPAWNS, SPAWN_GAP, bunched, freeForAll, unusedModeMarkers } from './levels'
 
@@ -65,8 +65,11 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
     else if (bunched(shared, SPAWN_GAP)) add({ id: 'ffa-spawns', state: 'suggested', text: `${bunched(shared, SPAWN_GAP)} Player spawns are within ${SPAWN_GAP / 2} m of another: spread them out so players don't appear together` })
   }
 
-  // No sky picture and no native sky: the game draws a black sky.
-  if (p.scene_items.length && !p.settings.sky_texture && !p.settings.native_sky) add({ id: 'sky', state: 'suggested', text: 'No sky: the game shows black overhead. Add one?', fix: { kind: 'sky' }, action: 'Add sky' })
+  // No sky picture and no native sky: the game draws a black sky (unless the export can add the game's own sky).
+  if (p.scene_items.length && !p.settings.sky_texture && !p.settings.native_sky) add({
+    id: 'sky', state: 'suggested', fix: { kind: 'sky' }, action: 'Add sky',
+    text: gameSkyWanted(p.settings) ? "No fallback sky picture: without your game files at export the sky is black. Add one?" : 'No sky: the game shows black overhead. Add one?',
+  })
 
   const weapons = count('Weapon pickup')
   add(weapons

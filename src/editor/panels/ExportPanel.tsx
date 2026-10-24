@@ -13,6 +13,9 @@ import { downloadBlob } from '../../lib/exporter'
 import { GAME_MODES, SPAWN_TYPES, baseName, type ProjectSettings } from '../../lib/project'
 import { checkModes, levelEntries, unusedModeMarkers } from '../../lib/levels'
 import { installSupported } from '../../lib/install'
+import { MP_PACK } from '../../lib/gameFiles'
+import { gameSkyAvailable, gameSkyWanted, SKY_SOURCE } from '../../lib/gameSky'
+import { GameFilesButton } from '../RetailMarkerFields'
 
 const sanitize = (s: string) => s.trim().replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()
 
@@ -106,6 +109,7 @@ export function ExportPanel() {
 
       <div className="group">
         <span className="section-title">Sky &amp; minimap</span>
+        <GameSkySetting />
         <Field label="Native sky" hint={hasGroup(pack, 'sky') ? 'Experimental: stages the original sky resource pair with your map.' : 'Native sky presets are not in your data pack.'}>
           <select value={s.native_sky} disabled={!hasGroup(pack, 'sky')} onChange={(e) => set('native_sky', e.target.value as ProjectSettings['native_sky'])}>
             <option value="">None</option>
@@ -113,7 +117,7 @@ export function ExportPanel() {
             <option value="sr_custom000001">sr_custom000001 (Seafood)</option>
           </select>
         </Field>
-        <FileSetting label="Fake sky image" hint="Optional. Blank = no fake skybox." k="sky_texture" accept="image/*,.tga,.dds" />
+        <FileSetting label="Fake sky image" hint={gameSkyWanted(s) ? "Used when the game's own sky can't be added. Blank = none." : 'Optional. Blank = no fake skybox.'} k="sky_texture" accept="image/*,.tga,.dds" />
         {s.sky_texture && <Field label="Skybox size (0 = auto)"><NumberInput value={s.sky_scale} step={0.5} min={0} max={100} onChange={(v) => set('sky_scale', v)} /></Field>}
         <MinimapSetting />
         <FileSetting label="Native BBCity donor (advanced)" hint="Optional .bbcity_xbox2 from your game for native city metadata. Stays on this device." k="bbcity_donor" accept=".bbcity_xbox2" />
@@ -164,6 +168,33 @@ export function ExportPanel() {
       )}
       <p className="faint small">Export runs entirely in your browser using the original SR1 Map Studio exporter (Python, in WebAssembly). Nothing is uploaded.</p>
     </>
+  )
+}
+
+/** The game's own sky, read from the player's game files at export (src/lib/gameSky.ts). */
+function GameSkySetting() {
+  const s = useEditor((st) => st.project!.settings)
+  const update = useEditor((st) => st.update)
+  const [ready, setReady] = useState<boolean | null>(null)
+  const check = () => gameSkyAvailable().then(setReady)
+  useEffect(() => { check() }, [])
+  const on = gameSkyWanted(s)
+  return (
+    <div className="col">
+      <Check checked={s.game_sky !== false} disabled={!!s.native_sky} onChange={(v) => update('Export setting', (d) => { d.settings.game_sky = v })}
+        title={`Copies the sky of the game's ${SKY_SOURCE} map into yours at export: clouds, sun, moon and stars that follow the time of day. Read from your own game files; nothing is uploaded.`}>
+        The game's own sky (clouds, sun, moon, stars)
+      </Check>
+      {s.native_sky
+        ? <span className="faint small">Off while a native sky preset is chosen: the preset brings its own sky.</span>
+        : on && ready === true ? <span className="faint small">Read from {MP_PACK} in your game at export. New: not yet tried in game.</span>
+        : on && ready === false ? (
+          <>
+            <span className="faint small">Needs your Saints Reborn folder at export; without it the fake sky image is used.</span>
+            <GameFilesButton pack={MP_PACK} what="sky" onReady={check} />
+          </>
+        ) : null}
+    </div>
   )
 }
 
