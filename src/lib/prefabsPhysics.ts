@@ -19,7 +19,7 @@ const prop = (part: Part, preset: string, shape?: PhysicsShape, bottomHeavy?: bo
 const ball = (label: string, d: number, at: [number, number, number], tex: Tex, preset: string): PhysicsPart =>
   ({ ...box(label, [d, d, d], at, tex), physics: { preset, shape: 'sphere', ball: true } })
 
-const paint = (color: string, accent: string, seed: number, surface: number): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0.08, seed }, surface })
+const paint = (color: string, accent: string, seed: number, surface: number): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.08, seed }, surface })
 const CRATE: Tex = PB.planks
 const TANK: Tex = paint('#c8302a', '#6a1410', 371, 15)
 const PIN: Tex = paint('#f2efe6', '#b8b2a2', 372, 21)

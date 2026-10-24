@@ -38,8 +38,8 @@ export const ROAD_TEX = {
   asphalt: { gen: 'asphalt', tweak: { line: 'none', seed: 81 } } as Tex,
   walk: { gen: 'tiles', tweak: { color: '#a29e95', accent: '#77736c', scale: 4, wear: 0.25, seed: 83 } } as Tex,
   kerb: PB.concrete,
-  white: { gen: 'tiles', tweak: { color: '#e6e4de', accent: '#c9c6bd', scale: 1, wear: 0.1, seed: 94 }, surface: 0 } as Tex,
-  yellow: { gen: 'tiles', tweak: { color: '#e8b81c', accent: '#b38a10', scale: 1, wear: 0.15, seed: 95 }, surface: 0 } as Tex,
+  white: { gen: 'paint', tweak: { color: '#e6e4de', accent: '#c9c6bd', scale: 2, wear: 0.1, seed: 94 }, surface: 0 } as Tex,
+  yellow: { gen: 'paint', tweak: { color: '#e8b81c', accent: '#b38a10', scale: 2, wear: 0.15, seed: 95 }, surface: 0 } as Tex,
 }
 
 // ---------------- vectors ----------------

@@ -164,9 +164,9 @@ export function building(o: BuildingOptions): Part[] {
 
 // ---------------- street props ----------------
 
-const CAR_GLASS: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 330 }, surface: 9 }
-const HEADLIGHT: Tex = { gen: 'tiles', tweak: { color: '#f4f1e2', accent: '#c9c4ad', scale: 1, wear: 0, seed: 333 }, surface: 9 }
-const TAILLIGHT: Tex = { gen: 'tiles', tweak: { color: '#c4161c', accent: '#7a0c10', scale: 1, wear: 0, seed: 334 }, surface: 9 }
+const CAR_GLASS: Tex = { gen: 'paint', tweak: { color: '#25313b', accent: '#1a2229', scale: 2, wear: 0, seed: 330 }, surface: 9 }
+const HEADLIGHT: Tex = { gen: 'paint', tweak: { color: '#f4f1e2', accent: '#c9c4ad', scale: 2, wear: 0, seed: 333 }, surface: 9 }
+const TAILLIGHT: Tex = { gen: 'paint', tweak: { color: '#c4161c', accent: '#7a0c10', scale: 2, wear: 0, seed: 334 }, surface: 9 }
 const TRIM: Tex = { gen: 'metal_plate', tweak: { color: '#1d1d20', accent: '#1d1d20', scale: 2, wear: 0.1, seed: 335 }, surface: 15 }
 const CHROME: Tex = { gen: 'metal_plate', tweak: { color: '#b9bcc0', accent: '#8d9094', scale: 1, wear: 0, seed: 336 }, surface: 15 }
 
@@ -248,7 +248,7 @@ export function trafficCone(x: number, z: number, y = 1): Part[] {
 
 // ---------------- scenes ----------------
 
-const CANOPY: Tex = { gen: 'tiles', tweak: { color: '#e6e4de', accent: '#b23a2a', scale: 1, wear: 0.1, seed: 340 } }
+const CANOPY: Tex = { gen: 'paint', tweak: { color: '#e6e4de', accent: '#b23a2a', scale: 2, wear: 0.1, seed: 340 } }
 
 /** A setting a placed prefab can change afterwards (its size, floors, style, color...). */
 export interface ParamDef {

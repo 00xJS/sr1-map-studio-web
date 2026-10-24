@@ -27,20 +27,20 @@ const paintParam = (def: string, options: [string, string][] = CAR_COLORS) => se
 // ---------------- materials ----------------
 
 // Same settings as the street car's, so they share one texture each.
-const GLASS: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 330 }, surface: 9 }
-const HEADLIGHT: Tex = { gen: 'tiles', tweak: { color: '#f4f1e2', accent: '#c9c4ad', scale: 1, wear: 0, seed: 333 }, surface: 9 }
-const TAILLIGHT: Tex = { gen: 'tiles', tweak: { color: '#c4161c', accent: '#7a0c10', scale: 1, wear: 0, seed: 334 }, surface: 9 }
+const GLASS: Tex = { gen: 'paint', tweak: { color: '#25313b', accent: '#1a2229', scale: 2, wear: 0, seed: 330 }, surface: 9 }
+const HEADLIGHT: Tex = { gen: 'paint', tweak: { color: '#f4f1e2', accent: '#c9c4ad', scale: 2, wear: 0, seed: 333 }, surface: 9 }
+const TAILLIGHT: Tex = { gen: 'paint', tweak: { color: '#c4161c', accent: '#7a0c10', scale: 2, wear: 0, seed: 334 }, surface: 9 }
 const TRIM: Tex = { gen: 'metal_plate', tweak: { color: '#1d1d20', accent: '#1d1d20', scale: 2, wear: 0.1, seed: 335 }, surface: 15 }
 const CHROME: Tex = { gen: 'metal_plate', tweak: { color: '#b9bcc0', accent: '#8d9094', scale: 1, wear: 0, seed: 336 }, surface: 15 }
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0.06, seed }, surface })
-const glow = (color: string, accent: string, seed: number): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0, seed }, surface: 17 })
+const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface })
+const glow = (color: string, accent: string, seed: number): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0, seed }, surface: 17 })
 const LIGHT_RED = glow('#e02020', '#801010', 701)
 const LIGHT_BLUE = glow('#2050ff', '#102080', 702)
 const LIGHT_AMBER = glow('#ffa020', '#a05a10', 703)
-const SEAT: Tex = { gen: 'tiles', tweak: { color: '#2a2420', accent: '#1e1a17', scale: 4, wear: 0.15, seed: 704 }, surface: 17 }
-const TAN_SEAT: Tex = { gen: 'tiles', tweak: { color: '#c8b08a', accent: '#a8906a', scale: 4, wear: 0.1, seed: 705 }, surface: 17 }
-const SOFT_TOP: Tex = { gen: 'tiles', tweak: { color: '#1e1e22', accent: '#141416', scale: 6, wear: 0.1, seed: 706 }, surface: 17 }
+const SEAT: Tex = { gen: 'paint', tweak: { color: '#2a2420', accent: '#1e1a17', scale: 4, wear: 0.15, seed: 704 }, surface: 17 }
+const TAN_SEAT: Tex = { gen: 'paint', tweak: { color: '#c8b08a', accent: '#a8906a', scale: 4, wear: 0.1, seed: 705 }, surface: 17 }
+const SOFT_TOP: Tex = { gen: 'paint', tweak: { color: '#1e1e22', accent: '#141416', scale: 6, wear: 0.1, seed: 706 }, surface: 17 }
 const WHITE = carPaint('#e8e8e8', 347)
 const BLACK = carPaint('#202020', 344)
 const YELLOW = carPaint('#e0b020', 346)

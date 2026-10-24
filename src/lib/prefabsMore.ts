@@ -1,7 +1,7 @@
 // More prefabs, by theme, for building fun game maps: paintball fields, cyber
 // arenas, obstacle courses, king-of-the-hill towers, forts, street scenes.
 // Each is one object (a group) placed with its base at y and turned by rot.
-import { CY, PB, blob, box, cyl, lying, organic, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
+import { CY, PB, ball, blob, box, cyl, lying, organic, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
 import { group, local, wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
 
 const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
@@ -54,8 +54,8 @@ const FLOWERS: Tex = { gen: 'grass', tweak: { color: '#3d6e28', accent: '#d24a8a
 const SANDBAG: Tex = { gen: 'sand', tweak: { color: '#b49a6a', accent: '#8a7550', scale: 2, seed: 9 } }
 const NET: Tex = { gen: 'tiles', tweak: { color: '#1d1d1f', accent: '#3a3a40', scale: 16, wear: 0, seed: 354 }, surface: 14 }
 const SCREEN: Tex = { gen: 'tiles', tweak: { color: '#14191f', accent: '#18d8ff', scale: 3, wear: 0, seed: 355 }, surface: 15 }
-const RED_LIGHT: Tex = { gen: 'tiles', tweak: { color: '#d02020', accent: '#601010', scale: 1, wear: 0, seed: 356 }, surface: 17 }
-const GREEN_LIGHT: Tex = { gen: 'tiles', tweak: { color: '#20c040', accent: '#106020', scale: 1, wear: 0, seed: 357 }, surface: 17 }
+const RED_LIGHT: Tex = { gen: 'paint', tweak: { color: '#d02020', accent: '#601010', scale: 2, wear: 0, seed: 356 }, surface: 17 }
+const GREEN_LIGHT: Tex = { gen: 'paint', tweak: { color: '#20c040', accent: '#106020', scale: 2, wear: 0, seed: 357 }, surface: 17 }
 const HAZARD: Tex = { gen: 'hazard', tweak: { seed: 358 } }
 
 const posts4 = (L: (a: number, b: number, c: number) => [number, number, number], w: number, d: number, h: number, tex: Tex, s = 0.3, y = 0) =>
@@ -140,8 +140,11 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
     cyl('Sign post', 0.2, 5.1, L(0, 0, 0), PB.steel, PB.steel, 6), lying('Stop sign', 1.66, 0.1, L(0, 4.04, 0.15), PB.red, PB.red, 8, 90),
   ]) },
   hydrant: { category: 'Street', label: 'Fire hydrant', hint: 'A red hydrant', make: pf('Hydrant', (L) => [
-    { ...cyl('Hydrant', 0.8, 1.4, L(0, 0, 0), PB.red, PB.red, 10), taper: 0.8 }, { ...cyl('Hydrant cap', 0.7, 0.4, L(0, 1.4, 0), PB.red, PB.red, 10), taper: 0.3 },
-    box('Hydrant nozzle', [1.3, 0.3, 0.3], L(0, 0.9, 0), PB.red),
+    // A squat barrel on a flange, a collar and a domed bonnet, with capped outlets either side and to the front.
+    cyl('Hydrant flange', 0.76, 0.16, L(0, 0, 0), PB.red, PB.red, 14), { ...cyl('Hydrant barrel', 0.62, 1.22, L(0, 0.16, 0), PB.red, PB.red, 14), taper: 0.92 },
+    cyl('Hydrant collar', 0.7, 0.12, L(0, 1.36, 0), PB.red, PB.red, 14), ball('Hydrant bonnet', [0.58, 0.6, 0.58], L(0, 1.18, 0), PB.red, PB.red),
+    cyl('Operating nut', 0.14, 0.12, L(0, 1.74, 0), PB.steel, PB.steel, 5),
+    lying('Side outlets', 0.22, 1.02, L(0, 0.8, 0), PB.red, PB.steel, 10), lying('Pumper outlet', 0.32, 0.3, L(0, 0.62, 0.36), PB.red, PB.steel, 10, 90),
   ]) },
   mailbox: { category: 'Street', label: 'Mailbox', hint: 'A blue mailbox', make: pf('Mailbox', (L) => [
     { ...box('Mailbox', [1.4, 2.4, 1.4], L(0, 0.4, 0), PB.blue), bevel: 0.25 }, ...posts4(L, 1.1, 1.1, 0.4, PB.black, 0.2),

@@ -40,7 +40,7 @@ const stepsFor = (h: number) => Math.max(2, Math.ceil(h / 0.6 - 1e-6))
 
 // ---------------- materials ----------------
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0.06, seed }, surface })
+const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface })
 const pattern = (color: string, accent: string, scale: number, seed: number, surface = 17): Tex => ({ gen: 'tiles', tweak: { color, accent, scale, wear: 0.08, seed }, surface })
 const wood = (color: string, accent: string, seed: number): Tex => ({ gen: 'wood_planks', tweak: { color, accent, scale: 3, wear: 0.12, seed }, surface: 21 })
 const metal = (color: string, accent: string, seed: number, wear = 0.1): Tex => ({ gen: 'metal_plate', tweak: { color, accent, scale: 2, wear, seed }, surface: 15 })
@@ -55,8 +55,8 @@ const DARK_WOOD = wood('#4a3324', '#2e1f15', 606)
 const LIGHT_WOOD = wood('#b48a5a', '#8a6640', 607)
 const WHITE_WOOD = wood('#e2ded4', '#c4beb0', 608)
 const MARBLE: Tex = { lib: 'marble_01', surface: 13 }
-const GLASS: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 609 }, surface: 9 }
-const MIRROR: Tex = { gen: 'tiles', tweak: { color: '#a8bcc8', accent: '#d2e0e8', scale: 1, wear: 0, seed: 610 }, surface: 9 }
+const GLASS: Tex = { gen: 'paint', tweak: { color: '#25313b', accent: '#1a2229', scale: 2, wear: 0, seed: 609 }, surface: 9 }
+const MIRROR: Tex = { gen: 'paint', tweak: { color: '#a8bcc8', accent: '#d2e0e8', scale: 2, wear: 0, seed: 610 }, surface: 9 }
 const SCREEN: Tex = { gen: 'tiles', tweak: { color: '#14191f', accent: '#18d8ff', scale: 3, wear: 0, seed: 611 }, surface: 15 }
 const FELT: Tex = pattern('#1f6b3a', '#1a5a31', 4, 612)
 const LEATHER = pattern('#3a2620', '#2a1a15', 4, 613)
@@ -69,7 +69,7 @@ const CANVAS = solid('#e6e0d0', '#c8c0aa', 619)
 const RING_SKIRT = solid('#1f3f8a', '#142a5e', 620)
 const ROPE = solid('#c8302a', '#7a1410', 621)
 const MAT = pattern('#2a2a30', '#1d1d22', 6, 622, 18)
-const WATER_BLUE: Tex = { gen: 'tiles', tweak: { color: '#8ec8e8', accent: '#bfe2f2', scale: 1, wear: 0, seed: 623 }, surface: 9 }
+const WATER_BLUE: Tex = { gen: 'paint', tweak: { color: '#8ec8e8', accent: '#bfe2f2', scale: 2, wear: 0, seed: 623 }, surface: 9 }
 const WHITEBOARD = solid('#f6f6f2', '#e2e2dc', 624, 5)
 const BOTTLE_GREEN = solid('#2f6a3a', '#1d4424', 625, 9)
 const BOTTLE_AMBER = solid('#9a5a1a', '#6a3a0a', 626, 9)

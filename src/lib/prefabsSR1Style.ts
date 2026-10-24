@@ -14,7 +14,7 @@
 // props with the nose at +Z, like the street car.
 import type { Vec3 } from './project'
 import { BANNERS } from './procedural'
-import { CY, PB, box, cyl, lying, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
+import { CY, PB, box, cyl, sack, lying, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
 import { CAR_COLORS, carPaint, group, local, wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
 
 type Lf = (dx: number, dy: number, dz: number) => Vec3
@@ -74,7 +74,7 @@ const fit = (p: Part): Part => ({ ...p, fit: true })
 
 // ---------------- materials (seeds 900 and up) ----------------
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0.06, seed }, surface })
+const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface })
 const metal = (color: string, seed: number, wear = 0.25, surface = 15, scale = 2, accent = '#6a3a22'): Tex => ({ gen: 'metal_plate', tweak: { color, accent, scale, wear, seed }, surface })
 const conc = (color: string, seed: number, wear = 0.4, accent = '#5e5a54'): Tex => ({ gen: 'concrete', tweak: { color, accent, wear, seed }, surface: 0 })
 const wood = (color: string, seed: number, scale = 6, wear = 0.3): Tex => ({ gen: 'wood_planks', tweak: { color, accent: '#4a3624', scale, wear, seed }, surface: 21 })
@@ -87,9 +87,9 @@ const words = (text: string, aspect: number, color: string, accent: string, surf
   ({ gen: 'banner', tweak: { seed: Math.max(0, BANNERS.indexOf(text)), scale: aspect, color, accent, wear: 0.08 }, surface })
 
 // The street car's glass, lights and trim, so they share one texture each.
-const GLASS: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 330 }, surface: 9 }
-const HEADLIGHT: Tex = { gen: 'tiles', tweak: { color: '#f4f1e2', accent: '#c9c4ad', scale: 1, wear: 0, seed: 333 }, surface: 9 }
-const TAILLIGHT: Tex = { gen: 'tiles', tweak: { color: '#c4161c', accent: '#7a0c10', scale: 1, wear: 0, seed: 334 }, surface: 9 }
+const GLASS: Tex = { gen: 'paint', tweak: { color: '#25313b', accent: '#1a2229', scale: 2, wear: 0, seed: 330 }, surface: 9 }
+const HEADLIGHT: Tex = { gen: 'paint', tweak: { color: '#f4f1e2', accent: '#c9c4ad', scale: 2, wear: 0, seed: 333 }, surface: 9 }
+const TAILLIGHT: Tex = { gen: 'paint', tweak: { color: '#c4161c', accent: '#7a0c10', scale: 2, wear: 0, seed: 334 }, surface: 9 }
 const TRIM: Tex = { gen: 'metal_plate', tweak: { color: '#1d1d20', accent: '#1d1d20', scale: 2, wear: 0.1, seed: 335 }, surface: 15 }
 const CHROME: Tex = { gen: 'metal_plate', tweak: { color: '#b9bcc0', accent: '#8d9094', scale: 1, wear: 0, seed: 336 }, surface: 15 }
 
@@ -626,7 +626,7 @@ const JUNK: Record<string, Def> = {
   }), ['pipe', 'culvert', 'cover']),
   srtrashbags: sr('Trash bags', 'A heap of black garbage bags (0.78 m each)', [num('n', 'Bags', 1, 9, 5)], (L, p) => {
     const spots = [[0, 0, 0], [0.7, 0.15, 0], [-0.65, 0.2, 0], [0.3, -0.55, 0], [0.2, 0.05, 0.55], [-0.4, -0.5, 0], [1.2, -0.4, 0], [-1.1, -0.3, 0], [-0.3, 0.1, 0.55]]
-    return spots.slice(0, +p.n).map(([x, z, y], i) => tp(C('Trash bag', 0.78 - (i % 3) * 0.06, 0.72 - (i % 2) * 0.12, L(x, y, z), TRASH_BAG, TRASH_BAG, 7, i * 23), 0.45))
+    return spots.slice(0, +p.n).flatMap(([x, z, y], i) => sack(L(x, y, z), (0.78 - (i % 3) * 0.06) * S, (0.72 - (i % 2) * 0.12) * S, TRASH_BAG, i * 23))
   }, ['garbage', 'bags', 'trash']),
   srtires: sr('Old tires', 'Tires lying flat, 0.83 m across, stacked', [num('n', 'Tires', 1, 8, 4)], (L, p) => [...Array(+p.n)].map((_, i) => C('Tire', 0.83, 0.23, L((i % 2) * 0.06, i * 0.23, 0), BLACK, RUBBER, 14)), ['tires', 'tyres', 'junk']),
   srcarhusk: sr('Burned car shell', 'A burned-out car shell sitting on the ground, 3.76 × 1.76 m', [], (L) => [

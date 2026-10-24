@@ -68,6 +68,23 @@ describe('block-out shapes', () => {
     expect(volume({ kind: 'blob', size: [4, 0.5, 2], outline, tile: 4 }).v).toBeCloseTo(4 * 0.5, 4)
   })
 
+  it('a ball is a smooth closed ellipsoid standing on its lowest point', () => {
+    const { v, m } = volume({ kind: 'sphere', size: [4, 2, 6], segments: 32, tile: 4 })
+    expect(v / ((4 / 3) * Math.PI * 2 * 1 * 3)).toBeGreaterThan(0.97)
+    expect(v / ((4 / 3) * Math.PI * 2 * 1 * 3)).toBeLessThanOrEqual(1)
+    expect(Math.min(...m.positions.filter((_, i) => i % 3 === 1))).toBeCloseTo(0, 5)
+    expect(m.normals).toBeTruthy()
+  })
+
+  it('a ring has a hole: about 2 pi^2 R r^2, lying flat or standing', () => {
+    const want = 2 * Math.PI ** 2 * 2 * 1 ** 2
+    for (const lie of [false, true]) {
+      const { v } = volume({ kind: 'torus', size: lie ? [6, 6, 2] : [6, 2, 6], segments: 48, tile: 4, lie })
+      expect(v / want).toBeGreaterThan(0.95)
+      expect(v / want).toBeLessThanOrEqual(1.001)
+    }
+  })
+
   it('fit stretches the texture once across a face', () => {
     const m = parseObj(shapeObj({ kind: 'box', size: [12, 6, 0.2], fit: true, tile: 4 }))
     const us = [], vs = []

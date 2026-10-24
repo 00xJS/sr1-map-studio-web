@@ -10,7 +10,7 @@ export type TextureKind =
   | 'facade' | 'storefront' | 'garage_door' | 'hazard' | 'matrix' | 'water'
   | 'chevrons' | 'emblem' | 'screen' | 'scoreboard' | 'banner'
   | 'poster' | 'graffiti' | 'sign'
-  | 'lettering' | 'picture' | 'sky'
+  | 'lettering' | 'picture' | 'sky' | 'paint'
 
 export interface GenParams {
   kind: TextureKind
@@ -37,6 +37,7 @@ export const KINDS: Record<TextureKind, KindInfo> = {
   concrete: { label: 'Concrete', surface: 0, color: '#8d8b86', accent: '#5e5a54', scale: 4, wear: 0.4, accentLabel: 'Stains', scaleLabel: 'Patchiness' },
   asphalt: { label: 'Asphalt', surface: 0, color: '#3b3b3d', accent: '#e8c53a', scale: 4, wear: 0.3, accentLabel: 'Line color', scaleLabel: 'Patchiness' },
   brick: { label: 'Brick', surface: 0, color: '#8a3b2a', accent: '#b9b2a6', scale: 8, wear: 0.4, accentLabel: 'Mortar', scaleLabel: 'Rows' },
+  paint: { label: 'Paint', surface: 17, color: '#c8c4bc', accent: '#8a857c', scale: 2, wear: 0.08, accentLabel: 'Scuffs', scaleLabel: 'Blotchiness' },
   tiles: { label: 'Tiles', surface: 3, color: '#d9d4c7', accent: '#8f8a80', scale: 4, wear: 0.2, accentLabel: 'Grout', scaleLabel: 'Tiles per side' },
   metal_plate: { label: 'Metal plates', surface: 15, color: '#7d848a', accent: '#8a4a22', scale: 2, wear: 0.3, accentLabel: 'Rust', scaleLabel: 'Panels per side' },
   diamond_plate: { label: 'Diamond plate', surface: 15, color: '#a5abb0', accent: '#6a7075', scale: 8, wear: 0.2, accentLabel: 'Shadow', scaleLabel: 'Bumps per side' },
@@ -381,6 +382,12 @@ function pattern(p: GenParams): Pixel {
         c = shade(c, 1 - 0.35 * dirt)
         return c
       }
+    }
+    case 'paint': return (u, v) => {
+      // A plain painted or moulded surface: no lines or grid, just a soft unevenness and a few scuffs.
+      let c = shade(base, 0.94 + 0.09 * fbm(u, v, n, 4, s) + 0.03 * noise(u, v, 128, 128, s + 1))
+      const scuff = clamp01((fbm(u, v, n * 2, 4, s + 3) - 0.62) * 3.5) * wear
+      return mix(c, accent, 0.5 * scuff)
     }
     case 'tiles': return (u, v) => {
       const fx = (u * n) % 1, fy = (v * n) % 1

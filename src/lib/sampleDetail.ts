@@ -39,7 +39,7 @@ function bus(p: Part): Part[] {
   const along = p.size[2] >= p.size[0]
   const [w, h, len] = along ? p.size : [p.size[2], p.size[1], p.size[0]]
   const rot = (p.rot ?? 0) + (along ? 0 : 90)
-  const glass: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 330 }, surface: 9 }
+  const glass: Tex = { gen: 'paint', tweak: { color: '#25313b', accent: '#1a2229', scale: 2, wear: 0, seed: 330 }, surface: 9 }
   const t = (rot * Math.PI) / 180, at = (dx: number, dy: number, dz: number): [number, number, number] =>
     [p.at[0] + dx * Math.cos(t) + dz * Math.sin(t), p.at[1] + dy, p.at[2] - dx * Math.sin(t) + dz * Math.cos(t)]
   return group(`${p.label}@${p.at.join(',')}#${busSeed++}`, [

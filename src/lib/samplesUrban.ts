@@ -11,7 +11,7 @@ import { ALL_PREFABS } from './prefabRegistry'
 import { facadeTex, group, prefabParams, tagPrefab, type Style } from './prefabs'
 
 const meta = { theme: 'Urban' as const, modes: ALL_MODES, size: 'full' as const, added: '2026-10-22' }
-const GLASS: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 330 }, surface: 9 }
+const GLASS: Tex = { gen: 'paint', tweak: { color: '#25313b', accent: '#1a2229', scale: 2, wear: 0, seed: 330 }, surface: 9 }
 const DOOR_WOOD: Tex = { gen: 'wood_planks', tweak: { color: '#4a3324', accent: '#2e1f15', scale: 3, wear: 0.15, seed: 400 }, surface: 21 }
 /** Where the club strip's clubs stand along each side (all on their own half: the mirror makes the other). */
 const CLUBS = [-92, -66, -40, -14]

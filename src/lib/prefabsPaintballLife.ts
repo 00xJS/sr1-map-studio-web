@@ -7,7 +7,7 @@
 // clothesline, a fire pit). Each is one object placed with its base at y and
 // turned by rot; pieces with a front face +Z. Signs and banners use the
 // generated 'banner' texture, so nothing here needs an image file.
-import { CY, PB, box, cyl, lying, stairs, type Part, type Tex } from './sampleKit'
+import { CY, PB, box, cyl, sack, lying, stairs, type Part, type Tex } from './sampleKit'
 import { group, local, type ParamDef, type Params, type PrefabDef } from './prefabs'
 import { BANNERS } from './procedural'
 
@@ -44,16 +44,16 @@ const BANNER_COLORS: Record<string, [string, string]> = {
 const bannerColor = (d: string): ParamDef => ({ key: 'color', label: 'Colors', kind: 'select', options: [['blue', 'Blue'], ['black', 'Black'], ['red', 'Red'], ['yellow', 'Yellow'], ['green', 'Green']], default: d })
 
 const NET: Tex = { gen: 'tiles', tweak: { color: '#1d1d1f', accent: '#3a3a40', scale: 16, wear: 0, seed: 354 }, surface: 14 }
-const PLASTIC: Tex = { gen: 'tiles', tweak: { color: '#e4e4e0', accent: '#c8c8c2', scale: 1, wear: 0.05, seed: 470 }, surface: 17 }
-const CARDBOARD: Tex = { gen: 'tiles', tweak: { color: '#a8834f', accent: '#8a6a3c', scale: 2, wear: 0.2, seed: 471 }, surface: 21 }
+const PLASTIC: Tex = { gen: 'paint', tweak: { color: '#e4e4e0', accent: '#c8c8c2', scale: 2, wear: 0.05, seed: 470 }, surface: 17 }
+const CARDBOARD: Tex = { gen: 'paint', tweak: { color: '#a8834f', accent: '#8a6a3c', scale: 2, wear: 0.2, seed: 471 }, surface: 21 }
 const BAG: Tex = { gen: 'concrete', tweak: { color: '#1e1f22', accent: '#3a3c40', scale: 6, wear: 0.4, seed: 472 }, surface: 17 }
-const GLOW: Tex = { gen: 'tiles', tweak: { color: '#fff3c8', accent: '#ffe08a', scale: 1, wear: 0, seed: 473 }, surface: 17 }
-const LANTERN: Tex = { gen: 'tiles', tweak: { color: '#e0402a', accent: '#ff9a4a', scale: 2, wear: 0, seed: 474 }, surface: 17 }
+const GLOW: Tex = { gen: 'paint', tweak: { color: '#fff3c8', accent: '#ffe08a', scale: 2, wear: 0, seed: 473 }, surface: 17 }
+const LANTERN: Tex = { gen: 'paint', tweak: { color: '#e0402a', accent: '#ff9a4a', scale: 2, wear: 0, seed: 474 }, surface: 17 }
 const TANK_GREEN: Tex = { gen: 'metal_plate', tweak: { color: '#2f6a3a', accent: '#1d3f24', scale: 1, wear: 0.1, seed: 475 } }
-const LINEN = (color: string, seed: number): Tex => ({ gen: 'tiles', tweak: { color, accent: color, scale: 1, wear: 0.05, seed }, surface: 21 })
-const PAINT_LINE: Tex = { gen: 'tiles', tweak: { color: '#e8e8e0', accent: '#d0d0c8', scale: 1, wear: 0.3, seed: 477 } }
+const LINEN = (color: string, seed: number): Tex => ({ gen: 'paint', tweak: { color, accent: color, scale: 2, wear: 0.05, seed }, surface: 21 })
+const PAINT_LINE: Tex = { gen: 'paint', tweak: { color: '#e8e8e0', accent: '#d0d0c8', scale: 2, wear: 0.3, seed: 477 } }
 const ROCK: Tex = { lib: 'rock_face_03', surface: 0 }
-const EMBER: Tex = { gen: 'tiles', tweak: { color: '#ff7a1a', accent: '#a02a08', scale: 3, wear: 0.4, seed: 478 }, surface: 17 }
+const EMBER: Tex = { gen: 'paint', tweak: { color: '#ff7a1a', accent: '#a02a08', scale: 3, wear: 0.4, seed: 478 }, surface: 17 }
 
 /** A paintball marker lying on a table: body, barrel and hopper. */
 const marker = (L: L, x: number, y: number, z: number, tex: Tex): Part[] => [
@@ -173,10 +173,10 @@ export const LIFE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   // ---------------- city fields ----------------
   trashbags: { category: 'Street', label: 'Trash bags', hint: 'A heap of black trash bags', make: pf('Trash bags', (L) => [
     ...[[0, 0, 1.6, 1.2], [1.3, 0.4, 1.4, 1], [-1.2, 0.5, 1.5, 1.1], [0.4, -1.1, 1.3, 0.9], [0.2, 0.2, 1.2, 0.8]].map(([a, b, d, h], i) =>
-      ({ ...cyl('Trash bag', d, h, L(a, i === 4 ? 1 : 0, b), BAG, BAG, 9, i * 37), taper: 0.55 })),
+      sack(L(a, i === 4 ? 1 : 0, b), d, h, BAG, i * 37)).flat(),
   ]) },
   parkinggate: { category: 'Street', label: 'Parking gate', hint: 'A ticket booth with a striped barrier arm across +Z of it', make: pf('Parking gate', (L) => [
-    { ...box('Ticket booth', [2.6, 3.4, 2.6], L(-1.6, 0, 0), PB.concrete, CY.white), bevel: 0.1 }, box('Booth window', [2.7, 1.2, 1.8], L(-1.6, 1.6, 0), { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 330 }, surface: 9 }),
+    { ...box('Ticket booth', [2.6, 3.4, 2.6], L(-1.6, 0, 0), PB.concrete, CY.white), bevel: 0.1 }, box('Booth window', [2.7, 1.2, 1.8], L(-1.6, 1.6, 0), { gen: 'paint', tweak: { color: '#25313b', accent: '#1a2229', scale: 2, wear: 0, seed: 330 }, surface: 9 }),
     box('Booth roof', [3.2, 0.3, 3.2], L(-1.6, 3.4, 0), PB.steel),
     { ...box('Gate post', [0.6, 1.4, 0.6], L(0.6, 0, 0), PB.yellow), bevel: 0.08 }, lying('Barrier arm', 0.25, 7, L(4.3, 1.15, 0), { gen: 'hazard', tweak: { color: '#e8e8e0', accent: '#c22a22', seed: 479 } }, CY.white, 8),
     panel('Exit sign', 2, 0.7, L(-1.6, 3.9, 1.3), say('EXIT', 2.85, '#1f7a34', '#ffffff')),
@@ -191,7 +191,7 @@ export const LIFE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   turnstiles: { category: 'Street', label: 'Turnstiles', hint: 'A row of ticket gates to walk through along Z', make: pf('Turnstiles', (L) => [
     ...[-3.9, -1.3, 1.3, 3.9].map((a) => ({ ...box('Gate post', [0.7, 2, 1.8], L(a, 0, 0), PB.steel), bevel: 0.1 })),
     ...[-2.6, 0, 2.6].map((a) => box('Gate arm', [1.6, 0.12, 0.12], L(a, 1.4, 0.5), PB.steel)),
-    ...[-3.9, -1.3, 1.3, 3.9].map((a) => box('Ticket light', [0.4, 0.1, 0.3], L(a, 2, 0.6), { gen: 'tiles', tweak: { color: '#20c040', accent: '#106020', scale: 1, wear: 0, seed: 357 }, surface: 17 })),
+    ...[-3.9, -1.3, 1.3, 3.9].map((a) => box('Ticket light', [0.4, 0.1, 0.3], L(a, 2, 0.6), { gen: 'paint', tweak: { color: '#20c040', accent: '#106020', scale: 2, wear: 0, seed: 357 }, surface: 17 })),
   ]) },
   lanterns: { category: 'Street', label: 'Lantern string', hint: 'Paper lanterns on a line between two poles', ...pfp('Lantern string', [{ key: 'len', label: 'Length', kind: 'number', min: 6, max: 40, step: 1, default: 14 }], (L, p) => {
     const len = +p.len, n = Math.max(2, Math.round(len / 2.4))

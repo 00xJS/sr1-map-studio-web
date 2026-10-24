@@ -37,19 +37,19 @@ const yesNo = (key: string, label: string, def: 'yes' | 'no'): ParamDef => sel(k
 
 // ---------------- materials ----------------
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0.06, seed }, surface })
+const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface })
 const DARK_WOOD: Tex = { gen: 'wood_planks', tweak: { color: '#4a3324', accent: '#2e1f15', scale: 3, wear: 0.15, seed: 400 }, surface: 21 }
 const LIGHT_WOOD: Tex = { gen: 'wood_planks', tweak: { color: '#b48a5a', accent: '#8a6640', scale: 4, wear: 0.1, seed: 401 }, surface: 21 }
 const FLOOR_WOOD: Tex = { lib: 'wood_floor', surface: 21 }
-const FABRIC: Tex = { gen: 'tiles', tweak: { color: '#5a3a4a', accent: '#4a2f3d', scale: 6, wear: 0.1, seed: 402 }, surface: 17 }
-const LEATHER: Tex = { gen: 'tiles', tweak: { color: '#3a2620', accent: '#2a1a15', scale: 4, wear: 0.2, seed: 403 }, surface: 17 }
+const FABRIC: Tex = { gen: 'paint', tweak: { color: '#5a3a4a', accent: '#4a2f3d', scale: 6, wear: 0.1, seed: 402 }, surface: 17 }
+const LEATHER: Tex = { gen: 'paint', tweak: { color: '#3a2620', accent: '#2a1a15', scale: 4, wear: 0.2, seed: 403 }, surface: 17 }
 const WHITE = solid('#e8e6e0', '#cfccc4', 404)
 const LINEN = solid('#d9d4c8', '#bdb6a6', 405)
 const BLACK = solid('#1d1d20', '#141416', 406, 15)
-const GLASS: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 407 }, surface: 9 }
+const GLASS: Tex = { gen: 'paint', tweak: { color: '#25313b', accent: '#1a2229', scale: 2, wear: 0, seed: 407 }, surface: 9 }
 const SCREEN: Tex = { gen: 'tiles', tweak: { color: '#14191f', accent: '#18d8ff', scale: 3, wear: 0, seed: 408 }, surface: 15 }
-const FELT: Tex = { gen: 'tiles', tweak: { color: '#1f6b3a', accent: '#1a5a31', scale: 4, wear: 0.05, seed: 409 }, surface: 17 }
-const CHALK: Tex = { gen: 'tiles', tweak: { color: '#1f3a2a', accent: '#2c4a36', scale: 2, wear: 0.3, seed: 410 }, surface: 5 }
+const FELT: Tex = { gen: 'paint', tweak: { color: '#1f6b3a', accent: '#1a5a31', scale: 4, wear: 0.05, seed: 409 }, surface: 17 }
+const CHALK: Tex = { gen: 'paint', tweak: { color: '#1f3a2a', accent: '#2c4a36', scale: 2, wear: 0.3, seed: 410 }, surface: 5 }
 const MARBLE: Tex = { lib: 'marble_01', surface: 13 }
 const STONE: Tex = { lib: 'medieval_blocks_03', surface: 0 }
 const SLATE: Tex = { lib: 'roof_slates_03', surface: 0 }
@@ -651,7 +651,7 @@ const umbrella = (L: Lf, tex: Tex): Part[] => [cyl('Umbrella pole', 0.15, 4.4, L
 const trashCan = (L: Lf): Part[] => [{ ...cyl('Trash can', 1.4, 2, L(0, 0, 0), PB.black, PB.boxGreen, 10), taper: 1.1 }]
 
 const SHOPS: Record<string, Def> = {
-  liquorstore: shop('Liquor store', 'Liquor store', 'A corner liquor store: barred windows, doors on two sides, aisles, coolers and a counter behind thick glass', { sign: 'neonorange', awning: 'none' }, [],
+  liquorstore: shop('Liquor store', 'Liquor store', 'A corner liquor store: barred windows, doors on two sides, aisles, coolers and a counter behind thick glass', { sign: 'neonorange', awning: 'none', upper: 'darkbrick', walls: 'concrete' }, [],
     () => ({ w: 20, d: 16, doors: [DOOR(-6)], right: [DOOR(4)], display: [1, 6.5], displayW: 4.5, floor: PB.tilesWhite, bars: true }),
     (L) => [
       ...at(L, 6, -2.5, 0, (M) => counter(M, 7), FL), box('Security glass', [7, 3, 0.15], L(6, FL + 2.1, -1.6), GLASS),
@@ -659,7 +659,7 @@ const SHOPS: Record<string, Def> = {
       ...at(L, -5.6, -0.5, 90, (M) => aisle(M, 8), FL), ...at(L, -1.8, -0.5, 90, (M) => aisle(M, 8), FL),
       ...at(L, -8.3, -1, 90, (M) => cooler(M, 3), FL),
     ]),
-  laundromat: shop('Laundromat', 'Laundromat', 'Rows of washers and stacked dryers, a folding table and plastic chairs', { sign: 'cyan', awning: 'blue', walls: 'beige' }, [],
+  laundromat: shop('Laundromat', 'Laundromat', 'Rows of washers and stacked dryers, a folding table and plastic chairs', { sign: 'cyan', awning: 'blue', walls: 'beige', upper: 'apartment' }, [],
     () => ({ w: 20, d: 18, doors: [DOOR(0)], display: [-6, 6], displayW: 6, floor: PB.tilesWhite }),
     (L) => [
       ...at(L, -8.2, 0, 90, (M) => row(M, 6, 2.4, (N) => washer(N)), FL),
@@ -667,7 +667,7 @@ const SHOPS: Record<string, Def> = {
       ...at(L, 1, -1, 0, (M) => table(M, 8, 2.6, WHITE), FL),
       ...at(L, 8.4, 0, 270, (M) => row(M, 4, 2, (N) => plasticChair(N, PB.orange)), FL),
     ]),
-  barbershop: shop('Barbershop', 'Barbershop', 'Barber chairs facing a long mirror, waiting chairs and a striped pole by the door', { floors: 1, sign: 'white', awning: 'red' }, [],
+  barbershop: shop('Barbershop', 'Barbershop', 'Barber chairs facing a long mirror, waiting chairs and a striped pole by the door', { floors: 1, sign: 'white', awning: 'red', upper: 'plaster', walls: 'oldbrick' }, [],
     () => ({ w: 14, d: 14, doors: [DOOR(-4)], display: [3], displayW: 5, floor: CHECKER }),
     (L) => [
       cyl('Barber pole', 0.7, 3.2, L(-1.2, 2, 7.6), BARBER, BARBER, 10), cyl('Pole cap', 0.9, 0.4, L(-1.2, 5.2, 7.6), PB.steel, PB.steel, 10), cyl('Pole cap', 0.9, 0.4, L(-1.2, 1.6, 7.6), PB.steel, PB.steel, 10),
@@ -676,7 +676,7 @@ const SHOPS: Record<string, Def> = {
       ...at(L, -5.6, -1.5, 90, (M) => row(M, 4, 2, (N) => plasticChair(N, PB.red)), FL),
       box('TV', [3.6, 2.2, 0.25], L(-2, 4, -6.4), BLACK, SCREEN),
     ]),
-  beautysalon: shop('Beauty salon', 'Beauty salon', 'Styling chairs at mirrors, hood dryers along the back and a wash basin', { floors: 1, sign: 'pink', awning: 'black', walls: 'plaster' }, [],
+  beautysalon: shop('Beauty salon', 'Beauty salon', 'Styling chairs at mirrors, hood dryers along the back and a wash basin', { floors: 1, sign: 'pink', awning: 'black', walls: 'plaster', upper: 'beige' }, [],
     () => ({ w: 16, d: 14, doors: [DOOR(-5)], display: [1.5], displayW: 6, floor: BIG_TILES }),
     (L) => [
       box('Mirror', [0.1, 2.6, 9], L(7.35, 2.6, 0), MIRROR),
@@ -685,7 +685,7 @@ const SHOPS: Record<string, Def> = {
       ...at(L, -6, -5.2, 0, (M) => [box('Wash basin', [3, 2.2, 1.8], M(0, 0, 0), WHITE), box('Basin', [1.6, 0.1, 1], M(0, 2.2, 0.2), PB.steel)], FL),
       ...at(L, -6.4, 1, 90, (M) => couch(M, 4, FROSTING), FL),
     ]),
-  tattooparlor: shop('Tattoo parlor', 'Tattoo parlor', 'A tattoo bench and the artist’s stool, flash art all over the walls, a glass counter and neon', { floors: 1, sign: 'cyan', awning: 'black', walls: 'oldbrick' }, [],
+  tattooparlor: shop('Tattoo parlor', 'Tattoo parlor', 'A tattoo bench and the artist’s stool, flash art all over the walls, a glass counter and neon', { floors: 1, sign: 'cyan', awning: 'black', walls: 'oldbrick', upper: 'darkbrick' }, [],
     () => ({ w: 14, d: 14, doors: [DOOR(-4)], display: [3], displayW: 5, floor: PB.floorWorn }),
     (L) => [
       ...at(L, 3, -3, 90, (M) => [box('Tattoo bench', [2, 1.8, 6], M(0, 0, 0), LEATHER), ramp('Headrest', [2, 1, 2], M(0, 1.8, -2), LEATHER)], FL),
@@ -695,7 +695,7 @@ const SHOPS: Record<string, Def> = {
       ...at(L, -3.5, -4, 0, (M) => showcase(M, 5, MURALS.purple), FL), box('Neon strip', [12, 0.25, 0.15], L(0, 6.2, -6.4), CY.cyan),
       ...at(L, 4.8, 3.8, 270, (M) => couch(M, 4, LEATHER), FL),
     ]),
-  pawnshop: shop('Pawn shop', 'Pawn shop', 'Barred windows, glass cases of jewelry, guitars on the wall and a stack of second-hand TVs', { sign: 'yellow', awning: 'none' }, [],
+  pawnshop: shop('Pawn shop', 'Pawn shop', 'Barred windows, glass cases of jewelry, guitars on the wall and a stack of second-hand TVs', { sign: 'yellow', awning: 'none', upper: 'concrete', walls: 'concrete' }, [],
     () => ({ w: 20, d: 16, doors: [DOOR(-6)], display: [1, 6.5], displayW: 4.5, floor: PB.floorWorn, bars: true }),
     (L) => [
       ...at(L, 3.5, -2.5, 0, (M) => showcase(M, 9, CY.gold), FL), ...at(L, 8.4, 2, 270, (M) => showcase(M, 6, PB.yellow), FL),
@@ -704,7 +704,7 @@ const SHOPS: Record<string, Def> = {
       ...at(L, -4.5, -5.5, 0, (M) => [box('TV stack', [4, 2.6, 2], M(0, 0, 0), BLACK, SCREEN), box('TV stack', [3, 2.2, 1.8], M(0.3, 2.6, 0), BLACK, SCREEN)], FL),
       box('Register', [1.3, 0.6, 1], L(6, FL + 2.3, -2.5), BLACK),
     ]),
-  checkcashing: shop('Check cashing', 'Check cashing', 'Teller windows behind thick glass, a rope line, an ATM and a bench to wait on', { floors: 1, sign: 'green', awning: 'green', walls: 'beige' }, [],
+  checkcashing: shop('Check cashing', 'Check cashing', 'Teller windows behind thick glass, a rope line, an ATM and a bench to wait on', { floors: 1, sign: 'green', awning: 'green', walls: 'beige', upper: 'plaster' }, [],
     () => ({ w: 16, d: 14, doors: [DOOR(-4)], display: [3.5], displayW: 5, floor: BIG_TILES }),
     (L) => [
       ...wall(L, 'x', -7.5, 7.5, -2, 7, 0.3, PB.plaster, PB.concrete, [DOOR(-6, 2.4, 5.4), WIN(-2, 2.4, 2.2, 2.1), WIN(1.5, 2.4, 2.2, 2.1), WIN(5, 2.4, 2.2, 2.1)], FL, 'Teller wall'),
@@ -713,7 +713,7 @@ const SHOPS: Record<string, Def> = {
       box('ATM', [2.2, 4.4, 1.6], L(-6.6, FL, 4.2), PB.steel, PB.blue, 90), box('ATM screen', [1.2, 0.8, 0.1], L(-5.75, FL + 2.8, 4.2), SCREEN, SCREEN, 90),
       box('Bench', [4, 0.9, 1.4], L(-5.4, FL, 0.2), DARK_WOOD), box('Safe', [3, 4, 2.4], L(4, FL, -5.6), PB.steel, BLACK),
     ]),
-  bailbonds: shop('Bail bonds', 'Bail bonds office', 'A cramped storefront office: a desk, client chairs, filing cabinets and a neon sign', { floors: 1, sign: 'neonorange', awning: 'none', walls: 'plaster' }, [],
+  bailbonds: shop('Bail bonds', 'Bail bonds office', 'A cramped storefront office: a desk, client chairs, filing cabinets and a neon sign', { floors: 1, sign: 'neonorange', awning: 'none', walls: 'plaster', upper: 'darkbrick' }, [],
     () => ({ w: 12, d: 12, doors: [DOOR(-3)], display: [2.6], displayW: 4, floor: PB.floorWorn }),
     (L) => [
       ...at(L, 1, -2.5, 0, (M) => [...table(M, 5, 2.4, LIGHT_WOOD), box('Monitor', [2, 1.2, 0.15], M(0, 1.55, -0.6), BLACK, SCREEN), ...at(M, 0, -1.9, 0, chair)], FL),
@@ -749,7 +749,7 @@ const SHOPS: Record<string, Def> = {
       box('Oven mouth', [1.6, 1, 0.2], L(4, FL + 2.2, -3.95), BLACK), box('Prep table', [4, 2, 2], L(-1.5, FL, -6.2), PB.steel),
       ...[[-5, 4.2], [-5, -1.2]].flatMap(([x, z]) => [...at(L, x, z, 0, (M) => table(M, 3, 2.4, PRINT_CLOTH), FL), ...at(L, x, z + 2, 180, chair, FL), ...at(L, x, z - 2, 0, chair, FL)]),
     ]),
-  noodlebar: shop('Noodle bar', 'Noodle bar', 'A counter with stools looking into an open kitchen, red lanterns hanging from the ceiling', { floors: 1, sign: 'pink', awning: 'red', walls: 'plaster' }, [],
+  noodlebar: shop('Noodle bar', 'Noodle bar', 'A counter with stools looking into an open kitchen, red lanterns hanging from the ceiling', { floors: 1, sign: 'pink', awning: 'red', walls: 'plaster', upper: 'apartment' }, [],
     () => ({ w: 14, d: 14, doors: [DOOR(-4)], display: [3], displayW: 5, floor: FLOOR_WOOD }),
     (L) => [
       ...at(L, 1, -2, 0, (M) => counter(M, 10, LIGHT_WOOD, DARK_WOOD, false), FL), ...at(L, 1, -0.2, 0, (M) => row(M, 4, 2.4, (N) => stool(N, PB.red)), FL),
@@ -926,7 +926,7 @@ const SHOPS: Record<string, Def> = {
       ]
     }),
   },
-  divebar: shop('Dive bar', 'Dive bar', 'A neighbourhood bar: neon in the windows, a bar with stools down one side, a pool table, a jukebox and a dartboard', { floors: 1, sign: 'neonorange', awning: 'black', walls: 'oldbrick' }, [],
+  divebar: shop('Dive bar', 'Dive bar', 'A neighbourhood bar: neon in the windows, a bar with stools down one side, a pool table, a jukebox and a dartboard', { floors: 1, sign: 'neonorange', awning: 'black', walls: 'oldbrick', upper: 'darkbrick' }, [],
     () => ({ w: 18, d: 14, doors: [DOOR(-5)], display: [2, 6.2], displayW: 3.5, floor: FLOOR_WOOD }),
     (L) => [
       ...[2, 6.2].map((x, i) => box('Window neon', [1.8, 0.9, 0.12], L(x, 2.8, 6.3), i ? CY.cyan : CY.pink)),

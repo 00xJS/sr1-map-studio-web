@@ -6,13 +6,13 @@
 import type { Vec3 } from './project'
 import { terrainFaces, terrainObj } from './terrain'
 
-export type ShapeKind = 'box' | 'ramp' | 'stairs' | 'cylinder' | 'roof' | 'blob' | 'terrain' | 'torus'
+export type ShapeKind = 'box' | 'ramp' | 'stairs' | 'cylinder' | 'roof' | 'blob' | 'terrain' | 'torus' | 'sphere'
 
 export interface Shape {
   kind: ShapeKind
   /** Width (X), height (Y), depth (Z), in editor units. */
   size: Vec3
-  /** Stairs: number of steps. Cylinder: number of sides. Torus: steps round the ring. */
+  /** Stairs: number of steps. Cylinder: number of sides. Torus and sphere: steps round the middle. */
   segments?: number
   /** Units per texture repeat. */
   tile: number
@@ -46,6 +46,7 @@ export const SHAPE_PRESETS: Record<string, ShapePreset> = {
   block: { label: 'Rounded box', hint: 'Cover with softened edges', shape: { kind: 'box', size: [4, 3, 4], tile: 3, bevel: 0.4 } },
   roof: { label: 'Roof', hint: 'A pitched roof; the ridge runs along X', shape: { kind: 'roof', size: [12, 4, 10], tile: 4 } },
   cone: { label: 'Cone', hint: 'A cone or spire', shape: { kind: 'cylinder', size: [3, 5, 3], segments: 16, tile: 4, taper: 0 } },
+  ball: { label: 'Ball', hint: 'A ball or rounded lump; stretch it into an egg, a dome or a sack', shape: { kind: 'sphere', size: [3, 3, 3], segments: 16, tile: 4 } },
   ring: { label: 'Ring', hint: 'A donut or tyre shape lying flat; the top takes the top texture', shape: { kind: 'torus', size: [6, 2, 6], segments: 24, tile: 4 } },
 }
 
@@ -73,7 +74,30 @@ function smooth(pts: V[], ns: V[], top: boolean): Face {
 }
 
 /** Round sides with at least this many steps are shaded smooth; fewer stay faceted (a hex nut, an octagon kiosk). */
-const SMOOTH_FROM = 10
+const SMOOTH_FROM = 8
+
+/** An ellipsoid w × h × d standing on its lowest point, shaded smooth; faces looking mostly up take the top material. */
+function sphereFaces(w: number, h: number, d: number, steps: number): Face[] {
+  const n = Math.max(6, Math.min(64, Math.round(steps)))
+  const m = Math.max(4, Math.round(n / 2))
+  const at = (i: number, j: number): [V, V] => {
+    const a = (i / n) * Math.PI * 2, b = -Math.PI / 2 + (j / m) * Math.PI
+    const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b)
+    // The poles are exact points, so the rings that meet there close up.
+    const c = j === 0 || j === m ? 0 : cb
+    return [[(w / 2) * c * ca, (h / 2) * (1 + sb), (d / 2) * c * sa], norm([(c * ca) / w, sb / h, (c * sa) / d])]
+  }
+  const out: Face[] = []
+  for (let i = 0; i < n; i++) for (let j = 0; j < m; j++) {
+    // Drop the doubled point at a pole: the quad there is a triangle.
+    const q = [at(i, j), at(i + 1, j), at(i + 1, j + 1), at(i, j + 1)].filter((c, k, all) => k === 0 || Math.hypot(...sub(c[0], all[k - 1][0])) > 1e-9)
+    if (q.length > 3 && Math.hypot(...sub(q[q.length - 1][0], q[0][0])) < 1e-9) q.pop()
+    if (q.length < 3) continue
+    const ns = q.map((c) => c[1])
+    out.push(smooth(q.map((c) => c[0]), ns, norm(avg(ns))[1] > 0.55))
+  }
+  return out
+}
 
 /** A ring: `R` from the middle to the tube's centre, tube radii `rx` across and `ry` up, flat in XZ (standing: in XY, facing ±Z). */
 function torusFaces(w: number, h: number, d: number, steps: number, stand: boolean): Face[] {
@@ -199,6 +223,7 @@ export function faces(s: Shape): Face[] {
       return out
     }
     case 'torus': return torusFaces(w, h, d, s.segments ?? 24, !!s.lie)
+    case 'sphere': return sphereFaces(w, h, d, s.segments ?? 16)
     case 'cylinder': {
       if (s.lie) {
         // Built upright with the length as its height, then tipped onto its side.

@@ -68,7 +68,7 @@ const PALM_BARK: Tex = { gen: 'wood_planks', tweak: { color: '#8a7255', accent: 
 const COCONUT: Tex = { gen: 'wood_planks', tweak: { color: '#5a4026', accent: '#3a2816', scale: 2, seed: 612 } }
 const CACTUS: Tex = { gen: 'grass', tweak: { color: '#3f6e3a', accent: '#6a8a52', scale: 8, wear: 0.15, seed: 613 }, surface: 7 }
 const PEAR: Tex = { gen: 'grass', tweak: { color: '#5a8a3a', accent: '#8aa04a', scale: 3, wear: 0.2, seed: 614 }, surface: 7 }
-const BLOOM: Tex = { gen: 'tiles', tweak: { color: '#e04a8a', accent: '#b02a6a', scale: 1, wear: 0, seed: 615 }, surface: 17 }
+const BLOOM: Tex = { gen: 'paint', tweak: { color: '#e04a8a', accent: '#b02a6a', scale: 2, wear: 0, seed: 615 }, surface: 17 }
 const MULCH: Tex = { gen: 'dirt', tweak: { color: '#5a3a22', accent: '#3a2414', scale: 6, wear: 0.6, seed: 616 } }
 const SOIL: Tex = { gen: 'dirt', tweak: { color: '#3e2c1e', accent: '#5a4430', scale: 8, wear: 0.5, seed: 617 } }
 const LAWN: Tex = { gen: 'grass', tweak: { color: '#4a8a2e', accent: '#6aa03a', scale: 4, wear: 0.15, seed: 618 }, surface: 11 }
@@ -80,14 +80,14 @@ const RED_SAND: Tex = { gen: 'sand', tweak: { color: '#c08050', accent: '#9a6038
 const GRASSY_ROCK: Tex = { lib: 'aerial_grass_rock', surface: 0 }
 const CAVE_DARK: Tex = { gen: 'concrete', tweak: { color: '#2a2622', accent: '#1a1714', wear: 0.6, seed: 624 } }
 const MOSS = leaves('#3a5a22', '#5a7a2e', 625)
-const MUSH_CAP: Tex = { gen: 'tiles', tweak: { color: '#c42a1e', accent: '#f0e8d8', scale: 3, wear: 0.6, seed: 626 }, surface: 17 }
-const MUSH_BROWN: Tex = { gen: 'tiles', tweak: { color: '#8a5a32', accent: '#b08a5a', scale: 3, wear: 0.4, seed: 627 }, surface: 17 }
-const MUSH_STEM: Tex = { gen: 'tiles', tweak: { color: '#ece4d2', accent: '#d8ccb4', scale: 1, wear: 0.1, seed: 628 }, surface: 17 }
+const MUSH_CAP: Tex = { gen: 'paint', tweak: { color: '#c42a1e', accent: '#f0e8d8', scale: 3, wear: 0.6, seed: 626 }, surface: 17 }
+const MUSH_BROWN: Tex = { gen: 'paint', tweak: { color: '#8a5a32', accent: '#b08a5a', scale: 3, wear: 0.4, seed: 627 }, surface: 17 }
+const MUSH_STEM: Tex = { gen: 'paint', tweak: { color: '#ece4d2', accent: '#d8ccb4', scale: 2, wear: 0.1, seed: 628 }, surface: 17 }
 const BAMBOO: Tex = { gen: 'wood_planks', tweak: { color: '#8aa03a', accent: '#5a7a22', scale: 1, wear: 0.2, seed: 629 } }
 const BAMBOO_LEAVES = leaves('#4a8a2a', '#7aaa3a', 630)
 const EMBER: Tex = CY.orange
 const ASH: Tex = { gen: 'concrete', tweak: { color: '#3a3634', accent: '#1e1c1a', wear: 0.7, seed: 631 } }
-const solid = (color: string, accent: string, seed: number): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0.06, seed }, surface: 17 })
+const solid = (color: string, accent: string, seed: number): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface: 17 })
 const WHITE = solid('#eeece6', '#d4d0c6', 632)
 const CHECKER: Tex = { gen: 'tiles', tweak: { color: '#c8282a', accent: '#f2eee6', scale: 6, wear: 0.05, seed: 633 }, surface: 17 }
 const WICKER: Tex = { gen: 'wood_planks', tweak: { color: '#b88a4a', accent: '#8a6030', scale: 10, seed: 634 } }

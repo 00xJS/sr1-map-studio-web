@@ -39,7 +39,7 @@ export const RAIN_LIGHT: Vec3 = [0.3, 1, 0.5]
 const SEEDS: Record<string, number> = { cyan: 0, pink: 1, purple: 2, lime: 3, orange: 4, white: 5, red: 6, blue: 7 }
 const gen = (kind: TextureKind, color: string, accent: string, seed: number, scale: number, wear = 0): Tex => ({ gen: kind, tweak: { color, accent, scale, wear, seed }, surface: 15 })
 /** Solid glowing neon in any glow color. */
-export const neonTex = (c: string): Tex => ({ gen: 'tiles', tweak: { color: GLOW[c] ?? c, accent: GLOW[c] ?? c, scale: 1, wear: 0, seed: 470 + (SEEDS[c] ?? 9) }, surface: 17 })
+export const neonTex = (c: string): Tex => ({ gen: 'paint', tweak: { color: GLOW[c] ?? c, accent: GLOW[c] ?? c, scale: 2, wear: 0, seed: 470 + (SEEDS[c] ?? 9) }, surface: 17 })
 /** A console screen glowing in color c. */
 export const screenTex = (c: string, seed = 0): Tex => gen('screen', '#06121a', GLOW[c] ?? c, 480 + (SEEDS[c] ?? 9) * 10 + (seed % 10), 9, 0.3)
 /** Lane arrows: `arrows` chevrons along the texture. */
