@@ -17,12 +17,43 @@ export interface VertexBuffer {
   vertexBytes: number
   indexAt: number
   indexCount: number
+  /**
+   * The vertex layout, told from the stride and the bytes: lit world geometry (position, DEC3N normal and
+   * tangent at 12 and 16, then 1-4 SHORT2 UV sets from 20) or position and UV sets only (sky, clouds, shadow
+   * volumes; UV sets from 12). `uvAt` is -1 when there is no UV set.
+   */
+  lit: boolean
+  uvAt: number
+  uvSets: number
 }
 
 export interface Batch { first: number; count: number; material: number }
 export interface SubMesh { vb: number; batches: Batch[] }
 export interface Mesh { min: [number, number, number]; max: [number, number, number]; subs: SubMesh[] }
-export interface Material { textures: string[] }
+/** A texture parameter of a material: the shader slot (name hash, e.g. Diffuse_Map) and the picture it names. */
+export interface TextureSlot { slot: number; texture: string }
+/** A named constant (name hash) with its four values. */
+export interface MaterialConst { name: number; values: [number, number, number, number] }
+/** A per-axis address mode on one texture parameter (index into `slots`): axis 1 = U, 2 = V; mode 3 = clamp. */
+export interface AddressMode { param: number; axis: number; mode: number }
+
+/**
+ * A material record as stored: the shader (hash of the effect's name), the material key, the flags (3 normal,
+ * 0xB self-lit/glowing, 4 stencil shadow), every texture slot, the engine-bound textures, the tiling and other
+ * constants, and the address-mode overrides (clamped decals).
+ */
+export interface Material {
+  /** Picture names among the slots (any slot), in record order: what earlier versions kept. */
+  textures: string[]
+  shader: number
+  key: number
+  flags: number
+  slots: TextureSlot[]
+  engine: { name: number; id: number }[]
+  tiling: MaterialConst[]
+  constants: MaterialConst[]
+  address: AddressMode[]
+}
 
 export interface StaticRecord {
   name: string
@@ -67,6 +98,37 @@ class Reader {
 }
 
 interface Front { strings: string[]; meshes: number; instances: number; vbs: number; a164: number; inst: number; geo: number }
+
+/** A signed 10-bit field of a DEC3N word (x bits 0-9, y 10-19, z 20-29), as -1..1. */
+const dec10 = (w: number, k: number) => { let v = (w >>> (10 * k)) & 1023; if (v >= 512) v -= 1024; return v / 511 }
+
+/** A DEC3N word as (x, y, z, w): w is the top two bits as a signed number (1 = +1, 3 = -1, 0 = 0). */
+export function dec3n(w: number): [number, number, number, number] {
+  const top = (w >>> 30) & 3
+  return [dec10(w, 0), dec10(w, 1), dec10(w, 2), top === 3 ? -1 : top === 1 ? 1 : top === 2 ? -2 : 0]
+}
+
+/**
+ * Which vertex layout a buffer has. Lit world geometry is position, DEC3N normal, DEC3N tangent, then the UV
+ * sets (stride 24-36); the rest is position and UV sets. The stride alone can't tell 24 and 28 apart, so the
+ * normals of the first vertices decide: unit length for lit geometry.
+ */
+export function vertexLayout(dv: DataView, v: Pick<VertexBuffer, 'count' | 'stride' | 'vertexAt' | 'vertexBytes'>): { lit: boolean; uvAt: number; uvSets: number } {
+  const s = v.stride
+  if (s >= 24 && s <= 36 && s % 4 === 0 && v.count && v.vertexBytes >= s * v.count) {
+    const n = Math.min(v.count, 16)
+    let unit = 0
+    for (let i = 0; i < n; i++) {
+      const [x, y, z] = dec3n(dv.getUint32(v.vertexAt + s * i + 12))
+      const l = Math.hypot(x, y, z)
+      if (l > 0.85 && l < 1.15) unit++
+    }
+    if (unit * 2 >= n) return { lit: true, uvAt: 20, uvSets: (s - 20) / 4 }
+  }
+  if (s >= 16 && s % 4 === 0 && s <= 28) return { lit: false, uvAt: 12, uvSets: (s - 12) / 4 }
+  // Older reading: one UV set at 20 for any stride that has room for it.
+  return s >= 24 ? { lit: false, uvAt: 20, uvSets: 1 } : { lit: false, uvAt: -1, uvSets: 0 }
+}
 
 function parseFront(r: Reader): Front {
   if (r.b.length < 968 || r.u32(0) !== MAGIC) throw new Error('not a Saints Row map chunk (.bbchunk_xbox2)')
@@ -118,10 +180,11 @@ function readGeometry(r: Reader, f: Front): { vbs: VertexBuffer[]; materials: Ma
   c = al(c, 4096)
   const vbs: VertexBuffer[] = []
   for (const d of descs) {
-    const v: VertexBuffer = { count: r.u16(d + 12), stride: r.u16(d + 16), vertexAt: 0, vertexBytes: 0, indexAt: 0, indexCount: 0 }
+    const v: VertexBuffer = { count: r.u16(d + 12), stride: r.u16(d + 16), vertexAt: 0, vertexBytes: 0, indexAt: 0, indexCount: 0, lit: false, uvAt: -1, uvSets: 0 }
     if (r.u32(d + 8)) { c = al(c, 32); v.indexAt = c; v.indexCount = r.u16(d + 14); c += v.indexCount * 2 }
     if (r.u32(d + 4)) { c = al(c, 32); v.vertexAt = c; v.vertexBytes = v.stride * v.count; c += v.vertexBytes }
     r.check(v.indexAt, v.indexCount * 2); r.check(v.vertexAt, v.vertexBytes)
+    Object.assign(v, vertexLayout(r.dv, v))
     vbs.push(v)
   }
   c = al(al(c, 4096), 16)
@@ -136,16 +199,30 @@ function readGeometry(r: Reader, f: Front): { vbs: VertexBuffer[]; materials: Ma
       const m = mb + 56 * i
       const take = (a: number, k: number) => { c = al(c, a); const at = c; c += k; return at }
       const params = take(4, r.u16(m + 10) * 12)
-      const textures: string[] = []
+      const textures: string[] = [], slots: TextureSlot[] = []
       for (let j = 0; j < r.u16(m + 10); j++) {
         const ix = r.u32(params + 12 * j + 4)
         const s = f.strings[ix]
+        slots.push({ slot: r.u32(params + 12 * j), texture: s ?? '' })
         if (s && /\.(tga|tgn|dds|png)$/i.test(s)) textures.push(s)
       }
-      take(4, Math.max(r.s16(m + 20), 0) * 8)
-      for (const off of [28, 40]) { take(16, r.u16(m + off) * 24); take(16, r.u16(m + off + 2) * 2) }
-      take(4, r.u16(m + 8) * 6)
-      materials.push({ textures })
+      const ne = Math.max(r.s16(m + 20), 0)
+      const eb = take(4, ne * 8)
+      const engine = Array.from({ length: ne }, (_, j) => ({ name: r.u32(eb + 8 * j), id: r.u32(eb + 8 * j + 4) }))
+      const lists: MaterialConst[][] = []
+      for (const off of [28, 40]) {
+        const n = r.u16(m + off)
+        const at = take(16, n * 24)
+        lists.push(Array.from({ length: n }, (_, j) => {
+          const o = at + 24 * j
+          return { name: r.u32(o), values: [r.f32(o + 8), r.f32(o + 12), r.f32(o + 16), r.f32(o + 20)] as [number, number, number, number] }
+        }))
+        take(16, r.u16(m + off + 2) * 2)
+      }
+      const na = r.u16(m + 8)
+      const ab = take(4, na * 6)
+      const address = Array.from({ length: na }, (_, j) => ({ param: r.u16(ab + 6 * j), axis: r.u16(ab + 6 * j + 2), mode: r.u16(ab + 6 * j + 4) }))
+      materials.push({ textures, shader: r.u32(m), key: r.u32(m + 4), flags: r.u16(m + 18), slots, engine, tiling: lists[0], constants: lists[1], address })
     }
   }
   if (n2) {
@@ -234,6 +311,19 @@ export interface MeshPart {
   triangles: Uint32Array
   /** Material index of each triangle. */
   triMaterial: Uint16Array
+  /** UV sets 1-3 (u, v per vertex, as stored), as many as the mesh's buffers have; zeros where a buffer has fewer. */
+  extraUvs: Float32Array[]
+  /** Stored unit normals and tangents (x, y, z, sign of the bitangent), mesh frame; null when no buffer is lit. */
+  normals: Float32Array | null
+  tangents: Float32Array | null
+}
+
+/** Reads UV set `k` of vertex `i` (stored as SHORT2 / 1024) into `out` at `at`. */
+export function readUv(dv: DataView, vb: VertexBuffer, i: number, k: number, out: { [n: number]: number }, at: number) {
+  if (vb.uvAt < 0 || k >= vb.uvSets) { out[at] = 0; out[at + 1] = 0; return }
+  const o = vb.vertexAt + vb.stride * i + vb.uvAt + 4 * k
+  out[at] = dv.getInt16(o) / 1024
+  out[at + 1] = dv.getInt16(o + 2) / 1024
 }
 
 /** Every triangle of a mesh, with only the vertices its strips use (vertex buffers are shared between meshes). */
@@ -242,9 +332,16 @@ export function meshTriangles(ch: Chunk, meshIndex: number): MeshPart {
   if (!mesh) throw new Error('mesh ' + meshIndex + ' is not in the chunk')
   const dv = new DataView(ch.bytes.buffer, ch.bytes.byteOffset, ch.bytes.byteLength)
   const pos: number[] = [], uv: number[] = [], tris: number[] = [], mats: number[] = []
+  const usable = (vb: VertexBuffer | undefined): vb is VertexBuffer => !!vb && vb.stride >= 12 && vb.stride % 4 === 0 && vb.stride <= 128 && !!vb.count && vb.vertexBytes >= vb.stride * vb.count
+  const subVbs = mesh.subs.map((s) => ch.vbs[s.vb]).filter(usable)
+  const nExtra = Math.max(0, ...subVbs.map((v) => v.uvSets - 1))
+  const lit = subVbs.some((v) => v.lit)
+  const extra: number[][] = Array.from({ length: Math.min(3, nExtra) }, () => [])
+  const nrm: number[] = [], tan: number[] = []
+  const tmp = [0, 0]
   for (const sub of mesh.subs) {
     const vb = ch.vbs[sub.vb]
-    if (!vb || vb.stride < 12 || vb.stride % 4 || vb.stride > 128 || !vb.count || vb.vertexBytes < vb.stride * vb.count) continue
+    if (!usable(vb)) continue
     const remap = new Map<number, number>()
     const vert = (i: number) => {
       let k = remap.get(i)
@@ -252,8 +349,15 @@ export function meshTriangles(ch: Chunk, meshIndex: number): MeshPart {
       k = pos.length / 3
       const o = vb.vertexAt + vb.stride * i
       pos.push(dv.getFloat32(o), dv.getFloat32(o + 4), dv.getFloat32(o + 8))
-      if (vb.stride >= 24) uv.push(dv.getInt16(o + 20) / 1024, dv.getInt16(o + 22) / 1024)
-      else uv.push(0, 0)
+      readUv(dv, vb, i, 0, tmp, 0)
+      uv.push(tmp[0], tmp[1])
+      extra.forEach((e, s) => { readUv(dv, vb, i, s + 1, tmp, 0); e.push(tmp[0], tmp[1]) })
+      if (lit) {
+        if (vb.lit) {
+          const n = dec3n(dv.getUint32(o + 12)), t = dec3n(dv.getUint32(o + 16))
+          nrm.push(n[0], n[1], n[2]); tan.push(t[0], t[1], t[2], t[3] < 0 ? -1 : 1)
+        } else { nrm.push(0, 0, 0); tan.push(0, 0, 0, 1) }
+      }
       remap.set(i, k)
       return k
     }
@@ -272,7 +376,10 @@ export function meshTriangles(ch: Chunk, meshIndex: number): MeshPart {
       }
     }
   }
-  return { positions: new Float32Array(pos), uvs: new Float32Array(uv), triangles: new Uint32Array(tris), triMaterial: new Uint16Array(mats) }
+  return {
+    positions: new Float32Array(pos), uvs: new Float32Array(uv), triangles: new Uint32Array(tris), triMaterial: new Uint16Array(mats),
+    extraUvs: extra.map((e) => new Float32Array(e)), normals: lit ? new Float32Array(nrm) : null, tangents: lit ? new Float32Array(tan) : null,
+  }
 }
 
 /** Strip index count over a mesh's batches: a cheap fingerprint of its geometry. */
