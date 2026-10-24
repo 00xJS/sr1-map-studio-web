@@ -5,6 +5,7 @@ import { useNavigate } from 'react-router-dom'
 import { useEditor } from './store'
 import { chooseTool } from './Tools'
 import { addDefaultSky, removeMarkersOfType } from './actions'
+import { getViewer } from './Viewport'
 import { dataPackStatus } from '../lib/datapack'
 import { mapChecklist, type CheckItem, type Fix } from '../lib/checklist'
 
@@ -29,6 +30,12 @@ export function useApplyFix(onSamples: () => void) {
       case 'select':
         st.select({ kind: 'item', index: fix.index })
         if (st.advanced) st.set({ tab: 'materials' })
+        break
+      case 'marker':
+        st.select({ kind: 'marker', index: fix.index })
+        if (st.advanced) st.set({ tab: 'spawns' })
+        // Once the selection reaches the view, look at it.
+        setTimeout(() => getViewer()?.focusSelection(), 50)
         break
       case 'removeMarkers': removeMarkersOfType(fix.types); break
       case 'sky': void addDefaultSky(); break

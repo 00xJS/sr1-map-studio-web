@@ -274,7 +274,7 @@ function SightAndFlow({ r }: { r: HealthReport }) {
       <span className="small">{Math.round(r.openShare * 100)}% of the floor is wide open (half the map sees it); {Math.round(r.blindShare * 100)}% is hidden from almost everywhere.</span>
       {r.lanes.length > 0 && <span className="small">Longest sight lines: {r.lanes.map((l) => `${l.metres} m`).join(', ')}.</span>}
       {r.unreachable.length > 0 && <span className="small warn">Can't be walked to: {r.unreachable.map((u) => `${u.type.toLowerCase()} at ${u.position.map((v) => Math.round(v)).join(', ')}`).join('; ')}.</span>}
-      <span className="small faint">Traffic comes from {BOTS.bots} bots making {BOTS.trips} runs between spawns, weapons and drop-offs, now and then dying and respawning.</span>
+      <span className="small faint">Traffic comes from {BOTS.bots} bots making {BOTS.trips} runs between spawns, weapons and drop-offs, now and then dying and respawning where the game would put them (never within 5 m of an enemy, likelier the further from one).</span>
     </div>
   )
 }

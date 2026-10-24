@@ -2,7 +2,7 @@
 // game ('needed' blocks Play), and what would make it better ('suggested').
 import { PIMP_EXIT, SPAWN_TYPES, gameSkyWanted, isCustomNative, isGlass, type Project } from './project'
 import { retailChecklist } from './retailModes'
-import { CHAINS_DROPS, DROP_GAP, FFA_SPAWNS, SPAWN_GAP, bunched, freeForAll, unusedModeMarkers } from './levels'
+import { CHAINS_DROPS, DROP_GAP, FFA_SPAWNS, SPAWN_GAP, bunched, crowdedSpawns, crowdedText, freeForAll, unusedModeMarkers } from './levels'
 
 export type Fix =
   | { kind: 'tool'; tool: string; spawn?: string }
@@ -10,6 +10,8 @@ export type Fix =
   | { kind: 'modes' }
   | { kind: 'setup' }
   | { kind: 'select'; index: number }
+  /** Select a marker (and show it). */
+  | { kind: 'marker'; index: number }
   /** Delete every marker of these types (ones only an unselected game mode uses). */
   | { kind: 'removeMarkers'; types: string[]; label: string }
   /** Give the map the default sky picture. */
@@ -75,6 +77,9 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
   add(weapons
     ? { id: 'weapons', state: 'done', text: `${weapons} weapon${weapons === 1 ? '' : 's'} to pick up` }
     : { id: 'weapons', state: 'suggested', text: 'Add weapons to pick up', fix: { kind: 'tool', tool: 'weapon' }, action: 'Place' })
+  // The game skips a spawn while an enemy is within 5 m: weapons and drop-offs (where players gather) keep further off.
+  const crowded = crowdedSpawns(p.markers)
+  if (crowded.length) add({ id: 'crowded-spawns', state: 'suggested', text: crowdedText(p.markers, crowded), fix: { kind: 'marker', index: crowded[0].marker }, action: 'Show' })
 
   if (!modes.length) add({ id: 'modes', state: 'needed', text: 'Choose at least one game mode', fix: { kind: 'modes' }, action: 'Choose' })
 

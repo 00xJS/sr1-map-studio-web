@@ -15,6 +15,7 @@ import { AMBIENCE_OPTIONS } from '../lib/mapFeatures'
 import { faceMiddle } from '../lib/markerPlacer'
 import { loadLibrary, niceName, paintMaterial } from './paint'
 import { spreadSpawns, weaponSpots } from '../lib/markerPlacer'
+import { useHealth } from './health'
 import type { Swatch } from './store'
 
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
@@ -161,7 +162,10 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
         case 'spread_spawns': {
           const viewer = getViewer()
           const which = a.which === 'team' || a.which === 'all' ? a.which : 'shared'
-          const markers = spreadSpawns(currentProject()!, viewer ? (i) => viewer.itemBounds(i) : undefined, which, typeof a.count === 'number' ? a.count : undefined)
+          // The busiest spots from this map's last health check, if there is one: spawns keep 5 m from them too.
+          const health = useHealth.getState()
+          const hotspots = health.report && health.projectId === currentProject()!.id ? health.report.hotspots : []
+          const markers = spreadSpawns(currentProject()!, viewer ? (i) => viewer.itemBounds(i) : undefined, which, typeof a.count === 'number' ? a.count : undefined, hotspots)
           if (!markers) { skipped.push('no open floor to put spawns on'); break }
           st.update('Spread spawns', (d) => { d.markers = markers })
           done++

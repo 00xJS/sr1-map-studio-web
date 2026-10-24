@@ -3,6 +3,7 @@
 // allows, with red's half (−Z) mirrored onto blue's so the map stays fair.
 import { HeightGrid, extentOf, solids, type BoundsFn } from './mapFacts'
 import { SPAWN_TYPES, newMarker, type Marker, type Project, type Vec3 } from './project'
+import { SPAWN_RULES } from './player'
 
 const flip = (p: Vec3): Vec3 => [-p[0], p[1], -p[2]]
 const dist = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[2] - b[2]) + Math.abs(a[1] - b[1]) * 2
@@ -52,12 +53,23 @@ function farthest(pool: Vec3[], keepAway: Vec3[], n: number, ok: (p: Vec3) => bo
 
 export type SpawnSet = 'shared' | 'team' | 'all'
 
+/** Whether a spot (and its mirror twin) is clear of every busy place by the game's spawn distance: 5 m, unless 5 m above or below. */
+function clearOf(busy: Vec3[], scale: number): (q: Vec3) => boolean {
+  const near = SPAWN_RULES.enemyM / scale, dy = SPAWN_RULES.enemyDyM / scale
+  return (q) => [q, flip(q)].every((s) => busy.every((b) => Math.abs(b[1] - s[1]) >= dy || Math.hypot(b[0] - s[0], b[1] - s[1], b[2] - s[2]) >= near))
+}
+
+/** Where players gather: weapon pickups and drop-offs. */
+const busyMarkers = (p: Project) => p.markers.filter((m) => m.type === 'Weapon pickup' || m.type === 'Chains drop-off').map((m) => m.position)
+
 /**
  * The map's markers with its spawns moved: free-for-all spawns spread over the whole floor, team spawns over
  * their own end (red −Z, blue +Z). `count` is the new total of each kind (shared spawns, or spawns per team);
  * by default the map keeps how many it has. Null when there is no open floor to use.
+ * The game won't use a spawn while an enemy is within 5 m of it, so spawns keep that far from weapons, drop-offs
+ * and `hotspots` (the busiest spots from a health check) where the floor allows.
  */
-export function spreadSpawns(p: Project, bounds: BoundsFn | undefined, which: SpawnSet, count?: number): Marker[] | null {
+export function spreadSpawns(p: Project, bounds: BoundsFn | undefined, which: SpawnSet, count?: number, hotspots: Vec3[] = []): Marker[] | null {
   const { spots, depth } = openFloor(p, bounds)
   if (!spots.length) return null
   const shared = which !== 'team', team = which !== 'shared'
@@ -65,15 +77,21 @@ export function spreadSpawns(p: Project, bounds: BoundsFn | undefined, which: Sp
   const has = (type: string) => p.markers.filter((m) => m.type === type).length
   const kept = p.markers.filter((m) => !moving(m))
   const away = kept.filter((m) => SPAWN_TYPES.includes(m.type) || m.type === 'Chains drop-off').map((m) => m.position)
+  const clear = clearOf([...busyMarkers(p), ...hotspots], p.settings.world_scale || 0.5)
   const out = [...kept]
   const add = (type: string, at: Vec3) => { const m = newMarker(type, [at[0], at[1] + 0.1, at[2]]); m.yaw = faceMiddle(at); out.push(m) }
+  /** Clear spots first; if there aren't enough, the rest anywhere allowed. */
+  const choose = (n: number, ok: (q: Vec3) => boolean) => {
+    const first = farthest(spots, away, n, (q) => ok(q) && clear(q))
+    return first.length >= n ? first : [...first, ...farthest(spots, [...away, ...first, ...first.map(flip)], n - first.length, ok)]
+  }
   if (team) {
     const n = Math.max(1, Math.min(16, Math.round(count ?? (has('Red team spawn') || 4))))
-    for (const at of farthest(spots, away, n, (q) => q[2] < -depth * 0.2)) { add('Red team spawn', at); add('Blue team spawn', flip(at)); away.push(at, flip(at)) }
+    for (const at of choose(n, (q) => q[2] < -depth * 0.2)) { add('Red team spawn', at); add('Blue team spawn', flip(at)); away.push(at, flip(at)) }
   }
   if (shared) {
     const n = Math.max(2, Math.min(32, Math.round(count ?? (has('Shared spawn') || 8))))
-    for (const at of farthest(spots, away, Math.ceil(n / 2), redHalf)) { add('Shared spawn', at); add('Shared spawn', flip(at)) }
+    for (const at of choose(Math.ceil(n / 2), redHalf)) { add('Shared spawn', at); add('Shared spawn', flip(at)) }
   }
   return out
 }
@@ -87,8 +105,10 @@ export function weaponSpots(p: Project, bounds: BoundsFn | undefined, n: number,
   const spawns = p.markers.filter((m) => SPAWN_TYPES.includes(m.type)).map((m) => m.position)
   const weapons = p.markers.filter((m) => m.type === 'Weapon pickup').map((m) => m.position)
   const area = where === 'middle' ? (q: Vec3) => Math.abs(q[2]) < depth * 0.18 : where === 'ends' ? (q: Vec3) => q[2] < -depth * 0.25 : () => true
-  const ok = (q: Vec3) => redHalf(q) && area(q) && spawns.every((s) => dist(s, q) > u(4))
+  // At least the game's 5 m from every spawn: someone at a weapon that close stops the spawn being used.
+  const offSpawns = (q: Vec3) => spawns.every((s) => dist(s, q) > u(SPAWN_RULES.enemyM))
+  const ok = (q: Vec3) => redHalf(q) && area(q) && offSpawns(q)
   const picked = farthest(spots, [...weapons, ...spawns], n, ok)
   // Not enough room there: anywhere on the half.
-  return picked.length >= n ? picked : [...picked, ...farthest(spots, [...weapons, ...spawns, ...picked, ...picked.map(flip)], n - picked.length, (q) => redHalf(q) && spawns.every((s) => dist(s, q) > u(4)))]
+  return picked.length >= n ? picked : [...picked, ...farthest(spots, [...weapons, ...spawns, ...picked, ...picked.map(flip)], n - picked.length, (q) => redHalf(q) && offSpawns(q))]
 }

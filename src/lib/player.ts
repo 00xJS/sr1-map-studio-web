@@ -57,6 +57,15 @@ export const GAP = { runM: 2.5, sprintM: 6 }
 export const CROUCH_COVER_M = 1.15
 
 /**
+ * The game's spawn rules: a spawn is skipped while an enemy is within 5 m (and less than 5 m above or below), for
+ * 5 s after someone spawned there, and while someone stands in its 2 m box; the rest are picked at random, weighted
+ * by the distance to the nearest enemy squared.
+ */
+export const SPAWN_RULES = { enemyM: 5, enemyDyM: 5, reuseMs: 5000, boxM: 2 }
+/** After dying you wait 5 s to respawn. */
+export const RESPAWN_DELAY_MS = 5000
+
+/**
  * The sprint meter. `update` each frame with whether the player is trying to sprint; it answers whether they do.
  * Once it runs dry, sprinting waits until the sprint key is let go.
  */

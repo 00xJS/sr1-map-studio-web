@@ -135,7 +135,7 @@ export function finishMap(p: Prepared, counts: SightCounts): HealthReport {
   lap('fairness')
 
   progress(opts, 'Bots playing the map', 0.9, 1)(0)
-  const bots = botPlaytest(g, { spawns: nodes(spawnIdx), weapons: nodes(weaponIdx), drops: nodes(dropIdx) },
+  const bots = botPlaytest(g, { spawns: spawnIdx.map((i) => nodeOf[i]), spawnTeams: spawnIdx.map((i) => teamOf(markers[i].type)), weapons: nodes(weaponIdx), drops: nodes(dropIdx) },
     { bots: opts.bots ?? BOTS.bots, trips: opts.trips ?? BOTS.trips, seed: opts.seed ?? 1, field })
   lap('bots')
 
