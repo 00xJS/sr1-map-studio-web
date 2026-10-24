@@ -67,19 +67,19 @@ const posts = (L: Lf, w: number, d: number, h: number, tex: Tex, s = 0.3, y = 0)
 
 // ---------------- materials ----------------
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0.08, seed }, surface })
+const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.08, seed }, surface })
 const paint = (color: string, seed: number, wear = 0.25, scale = 2): Tex => ({ gen: 'metal_plate', tweak: { color, accent: '#5a3a24', scale, wear, seed }, surface: 15 })
 const OLIVE = paint('#4f5a2e', 600)
 const OLIVE_DARK = paint('#3b4423', 601)
 const CAMO: Tex = { gen: 'dirt', tweak: { color: '#4d5a2c', accent: '#2c3318', scale: 3, wear: 0.8, seed: 603 }, surface: 17 }
-const CANVAS: Tex = { gen: 'tiles', tweak: { color: '#6b6a48', accent: '#5c5b3c', scale: 3, wear: 0.35, seed: 604 }, surface: 17 }
+const CANVAS: Tex = { gen: 'paint', tweak: { color: '#6b6a48', accent: '#5c5b3c', scale: 3, wear: 0.35, seed: 604 }, surface: 17 }
 const SANDBAG: Tex = { gen: 'sand', tweak: { color: '#b49a6a', accent: '#8a7550', scale: 2, seed: 9 } }
 const HESCO: Tex = { gen: 'tiles', tweak: { color: '#b8a57a', accent: '#5e605a', scale: 5, wear: 0.4, seed: 605 }, surface: 14 }
 const WIRE: Tex = { gen: 'metal_plate', tweak: { color: '#7a7e82', accent: '#5a4a3a', scale: 1, wear: 0.4, seed: 606 }, surface: 15 }
 const COIL: Tex = { gen: 'tiles', tweak: { color: '#2a2c2e', accent: '#9a9ea2', scale: 10, wear: 0.3, seed: 607 }, surface: 14 }
 const MESH: Tex = { gen: 'tiles', tweak: { color: '#3a3d40', accent: '#8d9094', scale: 16, wear: 0.2, seed: 430 }, surface: 14 }
 const NETTING: Tex = { gen: 'tiles', tweak: { color: '#2f6a3a', accent: '#1d4a26', scale: 12, wear: 0.1, seed: 608 }, surface: 14 }
-const GLASS: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 407 }, surface: 9 }
+const GLASS: Tex = { gen: 'paint', tweak: { color: '#25313b', accent: '#1a2229', scale: 2, wear: 0, seed: 407 }, surface: 9 }
 const WHITE = solid('#e8e6e0', '#cfccc4', 404)
 const BLACK = solid('#1d1d20', '#141416', 406, 15)
 const RED = solid('#c8302a', '#7a1612', 646)

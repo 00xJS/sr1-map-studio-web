@@ -437,4 +437,4 @@ export function dressStreets(s: Sample, o: StreetOptions): Sample {
   return { ...s, parts }
 }
 
-const WIRE: Tex = { gen: 'tiles', tweak: { color: '#1d1d20', accent: '#141416', scale: 1, wear: 0, seed: 461 }, surface: 15 }
+const WIRE: Tex = { gen: 'paint', tweak: { color: '#1d1d20', accent: '#141416', scale: 2, wear: 0, seed: 461 }, surface: 15 }

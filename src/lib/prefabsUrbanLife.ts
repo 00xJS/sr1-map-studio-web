@@ -6,7 +6,7 @@
 // at y, its front toward local +Z (the way a bench or machine faces), turned
 // by rot. Flat pieces (manholes, drains, puddles, litter) are paint-thin, so
 // players and cars cross them.
-import { PB, blob, box, cyl, lying, organic, ramp, turn, type Part, type Tex } from './sampleKit'
+import { PB, blob, box, cyl, sack, lying, organic, ramp, turn, type Part, type Tex } from './sampleKit'
 import { car, carPaint, group, local, wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
 
 type Lf = (dx: number, dy: number, dz: number) => [number, number, number]
@@ -31,7 +31,7 @@ const sel = (key: string, label: string, options: [string, string][], def: strin
 
 // ---------------- materials ----------------
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0.06, seed }, surface })
+const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface })
 const WHITE = solid('#e8e6e0', '#cfccc4', 460)
 const BLACK = solid('#1d1d20', '#141416', 461, 15)
 const GREY = solid('#7d8288', '#5d6268', 462, 15)
@@ -40,13 +40,13 @@ const SIGN_GREEN = solid('#1f6b3a', '#e8e6e0', 464, 15)
 const SIGN_BLUE = solid('#1f4f9a', '#e8e6e0', 465, 15)
 const SIGN_RED = solid('#c4161c', '#e8e6e0', 466, 15)
 const BRASS = { gen: 'metal_plate', tweak: { color: '#b8923a', accent: '#8a6a22', scale: 1, wear: 0.05, seed: 467 }, surface: 15 } as Tex
-const GLASS: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 330 }, surface: 9 }
-const HEADLIGHT: Tex = { gen: 'tiles', tweak: { color: '#f4f1e2', accent: '#c9c4ad', scale: 1, wear: 0, seed: 333 }, surface: 9 }
-const TAILLIGHT: Tex = { gen: 'tiles', tweak: { color: '#c4161c', accent: '#7a0c10', scale: 1, wear: 0, seed: 334 }, surface: 9 }
-const LAMP_RED: Tex = { gen: 'tiles', tweak: { color: '#e02020', accent: '#801010', scale: 1, wear: 0, seed: 468 }, surface: 17 }
-const LAMP_AMBER: Tex = { gen: 'tiles', tweak: { color: '#f0a020', accent: '#905a10', scale: 1, wear: 0, seed: 469 }, surface: 17 }
-const LAMP_GREEN: Tex = { gen: 'tiles', tweak: { color: '#20d060', accent: '#107030', scale: 1, wear: 0, seed: 470 }, surface: 17 }
-const LAMP_BLUE: Tex = { gen: 'tiles', tweak: { color: '#2050f0', accent: '#102a80', scale: 1, wear: 0, seed: 471 }, surface: 17 }
+const GLASS: Tex = { gen: 'paint', tweak: { color: '#25313b', accent: '#1a2229', scale: 2, wear: 0, seed: 330 }, surface: 9 }
+const HEADLIGHT: Tex = { gen: 'paint', tweak: { color: '#f4f1e2', accent: '#c9c4ad', scale: 2, wear: 0, seed: 333 }, surface: 9 }
+const TAILLIGHT: Tex = { gen: 'paint', tweak: { color: '#c4161c', accent: '#7a0c10', scale: 2, wear: 0, seed: 334 }, surface: 9 }
+const LAMP_RED: Tex = { gen: 'paint', tweak: { color: '#e02020', accent: '#801010', scale: 2, wear: 0, seed: 468 }, surface: 17 }
+const LAMP_AMBER: Tex = { gen: 'paint', tweak: { color: '#f0a020', accent: '#905a10', scale: 2, wear: 0, seed: 469 }, surface: 17 }
+const LAMP_GREEN: Tex = { gen: 'paint', tweak: { color: '#20d060', accent: '#107030', scale: 2, wear: 0, seed: 470 }, surface: 17 }
+const LAMP_BLUE: Tex = { gen: 'paint', tweak: { color: '#2050f0', accent: '#102a80', scale: 2, wear: 0, seed: 471 }, surface: 17 }
 const IRON: Tex = { gen: 'diamond_plate', tweak: { color: '#45474b', accent: '#26282b', scale: 10, wear: 0.4, seed: 472 }, surface: 15 }
 const GRATE: Tex = { gen: 'tiles', tweak: { color: '#1e2022', accent: '#3d4044', scale: 10, wear: 0.3, seed: 473 }, surface: 15 }
 const PUDDLE: Tex = { gen: 'water', tweak: { color: '#3c444c', accent: '#7d8a96', scale: 2, wear: 0, seed: 474 }, surface: 0 }
@@ -60,14 +60,14 @@ const SLEEPER: Tex = { gen: 'wood_planks', tweak: { color: '#4a3a2c', accent: '#
 const NET: Tex = { gen: 'tiles', tweak: { color: '#2e3b2e', accent: '#a0a07a', scale: 18, wear: 0.3, seed: 482 }, surface: 14 }
 const MESH: Tex = { gen: 'tiles', tweak: { color: '#3a3d40', accent: '#8d9094', scale: 16, wear: 0.2, seed: 430 }, surface: 14 }
 const WAX = solid('#f2ead2', '#d8ccaa', 483, 5)
-const FLAME: Tex = { gen: 'tiles', tweak: { color: '#ffc25a', accent: '#ff8a1a', scale: 1, wear: 0, seed: 484 }, surface: 17 }
-const LANTERN_RED: Tex = { gen: 'tiles', tweak: { color: '#e0302a', accent: '#ffb070', scale: 3, wear: 0, seed: 543 }, surface: 17 }
-const LANTERN_GOLD: Tex = { gen: 'tiles', tweak: { color: '#f2b83a', accent: '#fff0b0', scale: 3, wear: 0, seed: 544 }, surface: 17 }
-const LANTERN_WHITE: Tex = { gen: 'tiles', tweak: { color: '#f4ecd8', accent: '#ffffff', scale: 3, wear: 0, seed: 545 }, surface: 17 }
+const FLAME: Tex = { gen: 'paint', tweak: { color: '#ffc25a', accent: '#ff8a1a', scale: 2, wear: 0, seed: 484 }, surface: 17 }
+const LANTERN_RED: Tex = { gen: 'paint', tweak: { color: '#e0302a', accent: '#ffb070', scale: 3, wear: 0, seed: 543 }, surface: 17 }
+const LANTERN_GOLD: Tex = { gen: 'paint', tweak: { color: '#f2b83a', accent: '#fff0b0', scale: 3, wear: 0, seed: 544 }, surface: 17 }
+const LANTERN_WHITE: Tex = { gen: 'paint', tweak: { color: '#f4ecd8', accent: '#ffffff', scale: 3, wear: 0, seed: 545 }, surface: 17 }
 const DARK_WOOD: Tex = { gen: 'wood_planks', tweak: { color: '#4a3324', accent: '#2e1f15', scale: 3, wear: 0.15, seed: 400 }, surface: 21 }
 const CRATE: Tex = { lib: 'weathered_brown_planks', surface: 21 }
 const BOARD = solid('#22382a', '#1a2c20', 485, 5)
-const CHALK: Tex = { gen: 'tiles', tweak: { color: '#2c3a30', accent: '#d8d8c8', scale: 5, wear: 0.4, seed: 486 }, surface: 5 }
+const CHALK: Tex = { gen: 'paint', tweak: { color: '#2c3a30', accent: '#d8d8c8', scale: 5, wear: 0.4, seed: 486 }, surface: 5 }
 /** Striped canvas for café umbrellas and market awnings. */
 const stripes = (color: string, seed: number): Tex => ({ gen: 'hazard', tweak: { color, accent: '#f2efe6', scale: 6, wear: 0.05, seed }, surface: 17 })
 const STRIPES: Record<string, Tex> = { red: stripes('#c8322b', 487), green: stripes('#2f7a3a', 488), blue: stripes('#2a5fc0', 489), yellow: stripes('#e8b81c', 490) }
@@ -230,8 +230,8 @@ const GROUND: Record<string, PrefabDef & { category: string }> = {
   ]) },
   binbags: { category: 'Street', label: 'Trash bags', hint: 'A heap of black bin bags put out for collection', make: pf('Trash bags', (L) => [
     ...[[-0.9, 0, 0, 1.3, 1.0], [0.6, 0, 0.3, 1.2, 1.1], [-0.1, 0, -0.8, 1.1, 0.9], [1.5, 0, -0.6, 1.0, 0.8], [-0.2, 0.85, -0.1, 1.0, 0.8]].map(([x, y, z, s, h], i) =>
-      ({ ...cyl('Trash bag', s, h, L(x, y, z), BAG, BAG, 7, i * 40), taper: 0.55 })),
-    { ...box('Trash bag', [1.4, 0.7, 0.9], L(0.3, 0, 1.0), BAG, BAG, 20), bevel: 0.3 },
+      sack(L(x, y, z), s, h, BAG, i * 40)).flat(),
+    ...sack(L(0.3, 0, 1.0), 1.3, 0.8, BAG, 20),
   ]) },
   bins: { category: 'Street', label: 'Wheelie bins', hint: 'A row of trash and recycling bins, handles to the wall (−Z)', ...pfp('Wheelie bins', [num('n', 'Bins', 1, 5, 3)], (L, p) => [...Array(+p.n)].flatMap((_, i) => {
     const x = (i - (+p.n - 1) / 2) * 1.9, t = [solid('#2f6a3a', '#1f4a28', 531, 17), solid('#2a4f9a', '#1a3a7a', 532, 17), BLACK, solid('#8a6a2a', '#6a4a1a', 533, 17)][i % 4]

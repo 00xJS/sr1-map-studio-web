@@ -41,7 +41,7 @@ const stepsFor = (h: number) => Math.max(2, Math.ceil(h / 0.6 - 1e-6))
 
 // ---------------- materials ----------------
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0.08, seed }, surface })
+const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.08, seed }, surface })
 const SANDBAG: Tex = { gen: 'sand', tweak: { color: '#b49a6a', accent: '#8a7550', scale: 2, seed: 9 } }
 const OLIVE: Tex = { gen: 'metal_plate', tweak: { color: '#4f5a32', accent: '#3a4224', scale: 2, wear: 0.25, seed: 700 }, surface: 15 }
 const CAMO: Tex = { gen: 'grass', tweak: { color: '#4f5a32', accent: '#7a6a42', scale: 3, wear: 0.5, seed: 701 }, surface: 7 }
@@ -51,7 +51,7 @@ const WHITE = solid('#e8e6e0', '#cfccc4', 704)
 const FIRST_AID = solid('#1f9a4a', '#147038', 705)
 const STRAW: Tex = { gen: 'sand', tweak: { color: '#d8b85a', accent: '#a8873a', scale: 6, seed: 706 }, surface: 21 }
 const TARGET: Tex = { gen: 'tiles', tweak: { color: '#f2f2ee', accent: '#c8302a', scale: 3, wear: 0, seed: 707 }, surface: 17 }
-const GLASS: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 708 }, surface: 9 }
+const GLASS: Tex = { gen: 'paint', tweak: { color: '#25313b', accent: '#1a2229', scale: 2, wear: 0, seed: 708 }, surface: 9 }
 const MAT = solid('#2a4a8a', '#1a3060', 709, 18)
 const HOLDS = [PB.red, PB.yellow, PB.green, PB.blue, PB.orange]
 const LEAVES: Tex = { gen: 'grass', tweak: { color: '#2f5e22', accent: '#4c7a2a', scale: 3, wear: 0.2, seed: 84 }, surface: 7 }

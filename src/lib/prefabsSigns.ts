@@ -30,7 +30,7 @@ const WOOD: Tex = { gen: 'wood_planks', tweak: { color: '#4a3324', accent: '#2e1
 /** The rim round a sign's board, by style. */
 const RIM: Record<SignStyle, Tex> = {
   street: metal('#a7adb3', 704), shop: WOOD, plaque: metal('#7a6128', 705), neon: DARK,
-  plain: { gen: 'tiles', tweak: { color: '#d8d5cc', accent: '#c4c0b6', scale: 1, wear: 0.05, seed: 706 }, surface: 17 },
+  plain: { gen: 'paint', tweak: { color: '#d8d5cc', accent: '#c4c0b6', scale: 2, wear: 0.05, seed: 706 }, surface: 17 },
 }
 
 /** The board's face: your words drawn into a generated texture. */
@@ -104,7 +104,7 @@ export const photoAspect = (p: Params) => (SHAPES[String(p.shape)] ?? SHAPES.lan
 
 const FRAMES: Record<string, Tex> = {
   wood: WOOD, black: DARK, gold: metal('#c9a23a', 707),
-  white: { gen: 'tiles', tweak: { color: '#ecebe6', accent: '#dcdad3', scale: 1, wear: 0.03, seed: 708 }, surface: 17 },
+  white: { gen: 'paint', tweak: { color: '#ecebe6', accent: '#dcdad3', scale: 2, wear: 0.03, seed: 708 }, surface: 17 },
 }
 
 function frameParts(L: Lf, p: Params): Part[] {

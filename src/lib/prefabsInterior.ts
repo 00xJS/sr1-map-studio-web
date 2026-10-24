@@ -30,19 +30,19 @@ const yesNo = (key: string, label: string, def: 'yes' | 'no'): ParamDef => sel(k
 
 // ---------------- materials ----------------
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0.06, seed }, surface })
+const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface })
 const DARK_WOOD: Tex = { gen: 'wood_planks', tweak: { color: '#4a3324', accent: '#2e1f15', scale: 3, wear: 0.15, seed: 400 }, surface: 21 }
 const LIGHT_WOOD: Tex = { gen: 'wood_planks', tweak: { color: '#b48a5a', accent: '#8a6640', scale: 4, wear: 0.1, seed: 401 }, surface: 21 }
 const FLOOR_WOOD: Tex = { lib: 'wood_floor', surface: 21 }
-const FABRIC: Tex = { gen: 'tiles', tweak: { color: '#5a3a4a', accent: '#4a2f3d', scale: 6, wear: 0.1, seed: 402 }, surface: 17 }
-const LEATHER: Tex = { gen: 'tiles', tweak: { color: '#3a2620', accent: '#2a1a15', scale: 4, wear: 0.2, seed: 403 }, surface: 17 }
+const FABRIC: Tex = { gen: 'paint', tweak: { color: '#5a3a4a', accent: '#4a2f3d', scale: 6, wear: 0.1, seed: 402 }, surface: 17 }
+const LEATHER: Tex = { gen: 'paint', tweak: { color: '#3a2620', accent: '#2a1a15', scale: 4, wear: 0.2, seed: 403 }, surface: 17 }
 const WHITE = solid('#e8e6e0', '#cfccc4', 404)
 const LINEN = solid('#d9d4c8', '#bdb6a6', 405)
 const BLACK = solid('#1d1d20', '#141416', 406, 15)
-const GLASS: Tex = { gen: 'tiles', tweak: { color: '#25313b', accent: '#1a2229', scale: 1, wear: 0, seed: 407 }, surface: 9 }
+const GLASS: Tex = { gen: 'paint', tweak: { color: '#25313b', accent: '#1a2229', scale: 2, wear: 0, seed: 407 }, surface: 9 }
 const SCREEN: Tex = { gen: 'tiles', tweak: { color: '#14191f', accent: '#18d8ff', scale: 3, wear: 0, seed: 408 }, surface: 15 }
-const FELT: Tex = { gen: 'tiles', tweak: { color: '#1f6b3a', accent: '#1a5a31', scale: 4, wear: 0.05, seed: 409 }, surface: 17 }
-const CHALK: Tex = { gen: 'tiles', tweak: { color: '#1f3a2a', accent: '#2c4a36', scale: 2, wear: 0.3, seed: 410 }, surface: 5 }
+const FELT: Tex = { gen: 'paint', tweak: { color: '#1f6b3a', accent: '#1a5a31', scale: 4, wear: 0.05, seed: 409 }, surface: 17 }
+const CHALK: Tex = { gen: 'paint', tweak: { color: '#1f3a2a', accent: '#2c4a36', scale: 2, wear: 0.3, seed: 410 }, surface: 5 }
 const BLUE_PLASTIC = solid('#2a6fe0', '#1a4a9a', 411)
 const SKIN_GREEN: Tex = { gen: 'grass', tweak: { color: '#2f6e28', accent: '#4c8a2a', scale: 3, wear: 0.2, seed: 412 }, surface: 7 }
 const POT: Tex = { gen: 'concrete', tweak: { color: '#9a5a3a', accent: '#6a3a22', wear: 0.3, seed: 413 } }
@@ -50,8 +50,8 @@ const SHADE: Tex = solid('#f2e6c8', '#d8c8a0', 414)
 const STONE: Tex = { lib: 'medieval_blocks_03', surface: 0 }
 const MARBLE: Tex = { lib: 'marble_01', surface: 13 }
 const HAZARD: Tex = { gen: 'hazard', tweak: { seed: 415 } }
-const RED_LIGHT: Tex = { gen: 'tiles', tweak: { color: '#d02020', accent: '#601010', scale: 1, wear: 0, seed: 416 }, surface: 17 }
-const GREEN_LIGHT: Tex = { gen: 'tiles', tweak: { color: '#20c040', accent: '#106020', scale: 1, wear: 0, seed: 417 }, surface: 17 }
+const RED_LIGHT: Tex = { gen: 'paint', tweak: { color: '#d02020', accent: '#601010', scale: 2, wear: 0, seed: 416 }, surface: 17 }
+const GREEN_LIGHT: Tex = { gen: 'paint', tweak: { color: '#20c040', accent: '#106020', scale: 2, wear: 0, seed: 417 }, surface: 17 }
 const WATER_HULL = solid('#e9ecef', '#2a5d7a', 418)
 
 const WALLS: Record<string, Tex> = { plaster: PB.plaster, brick: PB.brick, concrete: PB.cinder, wood: PB.planks, metal: PB.corrugated, cyber: CY.panel }

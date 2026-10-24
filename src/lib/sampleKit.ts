@@ -84,6 +84,14 @@ export const cyl = (label: string, d: number, h: number, at: Vec3, top: Tex, sid
 /** A cylinder on its side, `len` long along X and `d` across: wheels, logs, pipes. */
 export const lying = (label: string, d: number, len: number, at: Vec3, top: Tex, side: Tex = top, sides = 16, rot = 0): Part =>
   ({ label, kind: 'cylinder', size: [len, d, d], at, top, side, segments: sides, rot, tile: 4, lie: true })
+/** A ball, egg, dome or sack `size` across (w × h × d), standing on its lowest point; `top` paints the upper part. */
+export const ball = (label: string, size: Vec3, at: Vec3, top: Tex, side: Tex = top, rot = 0, steps = 14): Part =>
+  ({ label, kind: 'sphere', size, at, top, side, segments: steps, rot, tile: 4 })
+/** A tied garbage sack `d` across and `h` tall at (x, y, z) in L's frame: a soft lump with a twisted knot on top. */
+export const sack = (at: Vec3, d: number, h: number, t: Tex, rot = 0): Part[] => [
+  ball('Trash bag', [d, h * 0.86, d * 0.88], at, t, t, rot, 12),
+  { ...cyl('Bag knot', d * 0.2, h * 0.2, [at[0], at[1] + h * 0.8, at[2]], t, t, 8, rot), taper: 1.7 },
+]
 /** A ring (donut, tyre, life buoy) `d` across and `thick` through. Flat it takes `top` on its upper half; standing (facing ±Z) on both faces. */
 export const ring = (label: string, d: number, thick: number, at: Vec3, top: Tex, side: Tex = top, stand = false, rot = 0, steps = 24): Part =>
   ({ label, kind: 'torus', size: stand ? [d, d, thick] : [d, thick, d], at, top, side, segments: steps, rot, tile: 4, ...(stand ? { lie: true } : {}) })
@@ -178,8 +186,8 @@ export const mirrorLights = (...ls: [Vec3, Vec3?][]): [Vec3, Vec3?][] => ls.flat
 
 // ---------------- palettes ----------------
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0.08, seed }, surface })
-const neon = (color: string, accent: string, seed: number): Tex => ({ gen: 'tiles', tweak: { color, accent, scale: 1, wear: 0, seed }, surface: 17 })
+const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.08, seed }, surface })
+const neon = (color: string, accent: string, seed: number): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0, seed }, surface: 17 })
 const grid = (accent: string, seed: number, color = '#121219', scale = 4): Tex => ({ gen: 'tiles', tweak: { color, accent, scale, wear: 0, seed }, surface: 15 })
 
 /** Urban paintball: turf, plywood, inflatable-bunker colors, containers, tires. */
