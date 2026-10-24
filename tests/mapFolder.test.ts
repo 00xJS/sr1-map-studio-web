@@ -411,8 +411,10 @@ describe('finding the maps in what was picked', () => {
     expect(info.cts.ptp?.records.some((r) => r.flags.includes('MPTeam1'))).toBe(true)
     expect(info.cts.ambience?.records.filter((r) => r.kind === 'Ambient')).toHaveLength(2)
   })
-  it('lists the game sky as a quick upgrade', () => {
-    expect(MAP_UPGRADES.map((u) => u.key)).toContain('game_sky')
+  it('lists the quick upgrades py/map_upgrade.py has, in the order they run', () => {
+    expect(MAP_UPGRADES.map((u) => u.key)).toEqual(['retail_materials', 'game_sky'])
+    const py = readFileSync(resolve(__dirname, '../py/map_upgrade.py'), 'utf8')
+    for (const u of MAP_UPGRADES) expect(py).toContain(`key = '${u.key}'`)
   })
 })
 

@@ -89,7 +89,50 @@ class GameSky:
         return True
 
 
-UPGRADES = [GameSky()]
+class RetailMaterials:
+    """The game's own material and fade values (retail_records.py) on a map exported before the exporter used
+    them. Only the Beaver Creek template's leftovers change: a material's Self_Illumination of 0.12 (plain) or
+    0.35 (the glow-class alpha one) becomes 0, and a record's donor fade distance (1000 m world, 20 m glass,
+    75 m props) the retail one. Values a map set on purpose, and retail maps', stay as they are."""
+    key = 'retail_materials'
+    order = 50
+    LEFTOVER = (0.12, 0.35)
+
+    def _todo(self, ch, g):
+        import retail_records as rr
+        mats = [M for M in g.mats if rc.U32(M.m, 0) == rr.K_BASE_SHADER
+                and any(abs((rr.self_illumination(M) or 0.0) - v) < 1e-3 for v in self.LEFTOVER)]
+        donor = {'world': 1000.0, 'glass': 20.0, 'prop': 75.0}
+        want = {'world': rr.FADE_WORLD, 'glass': rr.FADE_GLASS, 'prop': rr.FADE_PROP}
+        recs, fades = ch.get('static_records').data, []
+        for r in range(rc.U32(ch.header, 868)):
+            kind = rr.record_kind(rc.U32(recs, 80 * r + rr.FLAGS))
+            if kind in donor and abs(rc.F32(recs, 80 * r + rr.FADE) ** 0.5 - donor[kind]) < 0.5:
+                fades.append((r, want[kind]))
+        return mats, fades
+
+    def status(self, ch, g, ctx):
+        mats, fades = self._todo(ch, g)
+        if not mats and not fades:
+            return 'done', "The map's materials and fade distances are already like the game's own maps."
+        return 'available', ''
+
+    def apply(self, chunk, peg, ctx, log):
+        import retail_records as rr
+        ch, g = _chunk(chunk)
+        mats, fades = self._todo(ch, g)
+        for M in mats:
+            rr.set_self_illumination(M, 0.0)
+        recs = ch.get('static_records').data
+        for r, metres in fades:
+            rc.WrF(recs, 80 * r + rr.FADE, metres ** 2)
+        rc.set_geometry(ch, g)
+        Path(chunk).write_bytes(rc.write_chunk(ch))
+        log(f'Materials: {len(mats)} lit like the game\'s own (Self_Illumination 0); fade distances set on {len(fades)} object(s).')
+        return True
+
+
+UPGRADES = [RetailMaterials(), GameSky()]
 ORDER = sorted(UPGRADES, key=lambda u: u.order)
 
 

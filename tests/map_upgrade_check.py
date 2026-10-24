@@ -8,7 +8,7 @@ folder (SR1_MAPS, or dist/maps beside the packfiles) it copies each installed
 map to a temporary folder, reads it, adds the game's sky (from the player's
 own mp_bac_01) and reads it back: the sky is listed, the map is otherwise
 unchanged, a second try says it's done, and a map without room is left as it
-was. Nothing from the game or the maps is kept.
+was; and the template's material glow and fade distances are cleared. Nothing from the game or the maps is kept.
 """
 import json
 import os
@@ -120,25 +120,31 @@ def installed_maps(game, maps, tmp):
             logs = []
             before = map_upgrade.inspect({'chunk': str(chunk)}, logs.append)
             state = before['upgrades']['game_sky']['state']
+            retail = before['upgrades']['retail_materials']['state']
             # A fresh copy of mp_bac_01's chunk each time: the sky is read from it, then it is deleted.
             spare = w / 'mp_bac_01.bbchunk_xbox2'
             shutil.copy(source / 'mp_bac_01.bbchunk_xbox2', spare)
             if (source / 'native_sky' / 'sky.json').exists():
                 (source / 'native_sky' / 'sky.json').unlink()
-            spec = {'chunk': str(chunk), 'peg': str(texfile), 'upgrades': ['game_sky'], 'game_sky': {'dir': str(source / 'native_sky'), 'chunk': str(spare)}}
+            spec = {'chunk': str(chunk), 'peg': str(texfile), 'upgrades': ['game_sky', 'retail_materials'],
+                    'game_sky': {'dir': str(source / 'native_sky'), 'chunk': str(spare)}}
             old = (chunk.read_bytes(), texfile.read_bytes())
             r = map_upgrade.upgrade(spec, logs.append)
+            ch = rc.read_chunk(chunk.read_bytes())
+            after = map_upgrade.inspect({'chunk': str(chunk)}, logs.append)
+            want = [k for k, st in (('retail_materials', retail), ('game_sky', state)) if st == 'available']
+            check(r['applied'] == want, f'{d.name}: applied {r["applied"]}, in order (materials first, the sky last)')
+            check(after['lights'] == before['lights'] and all(u['state'] != 'available' for u in after['upgrades'].values()), f'{d.name}: lights kept, nothing left to do')
+            if retail == 'available':
+                mats, fades = map_upgrade.RetailMaterials()._todo(ch, rc.chunk_geometry(ch))
+                check(not mats and not fades, f'{d.name}: no template glow or donor fade distance left')
             if state == 'available':
-                ch = rc.read_chunk(chunk.read_bytes())
-                after = map_upgrade.inspect({'chunk': str(chunk)}, logs.append)
                 _, _, entries = peg.parse_peg(texfile)
-                check(r['applied'] == ['game_sky'] and len(native_sky.sky_list(ch)) == 5 and after['upgrades']['game_sky']['state'] == 'done',
-                      f'{d.name}: the game\'s sky goes in and reads back')
-                check(len(entries) == len(peg.parse_peg(p)[2]) + 10 and after['lights'] == before['lights'], f'{d.name}: ten pictures added, lights kept')
+                check(len(native_sky.sky_list(ch)) == 5 and len(entries) == len(peg.parse_peg(p)[2]) + 10, f'{d.name}: the game\'s sky goes in, ten pictures added')
                 again = map_upgrade.upgrade({**spec, 'game_sky': {'dir': str(source / 'native_sky')}}, logs.append)
                 check(again['applied'] == [] and 'already' in again['skipped'].get('game_sky', ''), f'{d.name}: a second time it says it is done')
             else:
-                check(r['applied'] == [] and (chunk.read_bytes(), texfile.read_bytes()) == old, f'{d.name}: no room ({state}), the map is left as it was')
+                check(texfile.read_bytes() == old[1] and not native_sky.sky_list(ch), f'{d.name}: no room for the sky ({state}), its texture file left as it was')
             shutil.rmtree(w)
 
 

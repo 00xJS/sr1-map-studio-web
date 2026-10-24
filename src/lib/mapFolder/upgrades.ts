@@ -31,6 +31,10 @@ async function skySource(ask: boolean): Promise<Record<string, unknown>> {
 
 export const MAP_UPGRADES: MapUpgrade[] = [
   {
+    key: 'retail_materials', title: 'Light it like the game’s own maps',
+    hint: 'Older exports glow a little whatever the light (the map template’s materials); this lights them as the game lights its own maps, and stops far-off parts fading out early.',
+  },
+  {
     key: 'game_sky', title: "Add the game's sky",
     hint: "The sun, moon, stars and moving clouds of the game's own outdoor maps (from mp_bac_01 in your game files), in place of the flat sky picture.",
     prepare: skySource,
