@@ -229,7 +229,8 @@ function MinimapSetting() {
 }
 
 /** Picture shown while the map loads: the 3D view rendered at export, the user's own, or none. */
-function LoadingSetting() {
+/** How the map's loading screen is made: shown in the Export tab and, for Simple mode, in "Your map". */
+export function LoadingSetting() {
   const project = useEditor((s) => s.project!)
   const update = useEditor((s) => s.update)
   const mode = loadingMode(project)
@@ -244,6 +245,18 @@ function LoadingSetting() {
     } finally { setBusy(false) }
   }
   const pick = (m: LoadingMode) => update('Loading screen', (d) => { d.settings.loading_mode = m })
+  // The shot as it is now becomes the map's own picture, so the loading screen no longer depends on the view at export.
+  const keep = async () => {
+    const v = getViewer()
+    if (!v) return
+    setBusy(true)
+    try {
+      const blob = await v.capture(LOADING_SIZE[0], LOADING_SIZE[1])
+      if (!blob) return
+      await act.setProjectFile('loading_image', new File([blob], 'loading_screen.png', { type: 'image/png' }))
+      pick('custom')
+    } catch (e) { toastError(e) } finally { setBusy(false) }
+  }
   return (
     <Field label="Loading screen" hint={mode === 'auto'
       ? 'The 3D view as it is when you export, at 1280×720. Frame a good shot first.'
@@ -254,6 +267,7 @@ function LoadingSetting() {
           <button className={'sm' + (mode === 'custom' ? ' on' : '')} onClick={() => pick('custom')}>My picture</button>
           <button className={'sm' + (mode === 'none' ? ' on' : '')} onClick={() => pick('none')}>None</button>
           {mode === 'auto' && <button className="sm quiet" disabled={busy} onClick={preview}>Preview</button>}
+          {mode === 'auto' && <button className="sm quiet" disabled={busy} onClick={keep} title="Use the view as it is now as this map's loading picture">Keep this view</button>}
         </div>
         {mode === 'custom' && <FileSetting label="Loading picture" hint="16:9 looks best, for example 1280×720 or 1920×1080." k="loading_image" accept="image/*,.tga,.dds" />}
       </div>

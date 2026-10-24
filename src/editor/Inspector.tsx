@@ -23,6 +23,7 @@ import { prefabParams } from '../lib/prefabs'
 import { photoAspect } from '../lib/prefabsSigns'
 import { RoadPanel, TERRAIN_LOOK, TerrainPanel } from './GroundToolOptions'
 import { AMBIENCE_OPTIONS, ambienceHint, waterHint } from '../lib/mapFeatures'
+import { LoadingSetting } from './panels/ExportPanel'
 import { PhysicsPanel } from './PhysicsPanel'
 import { RetailMarkerFields } from './RetailMarkerFields'
 import { openPrefabBrowser } from './PrefabBrowser'
@@ -109,6 +110,11 @@ function MapOverview({ onSamples, onPlay }: { onSamples: () => void; onPlay: () 
           {AMBIENCE_OPTIONS.map((o) => <option key={o.file} value={o.file}>{o.label}</option>)}
         </select>
         <span className="faint small">{ambienceHint(project.settings.ambience)}</span>
+      </div>
+
+      <div className="group">
+        <span className="section-title">Loading screen</span>
+        <LoadingSetting />
       </div>
 
       <AddThings />
