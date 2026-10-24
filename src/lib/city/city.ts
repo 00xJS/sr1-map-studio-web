@@ -3,8 +3,9 @@
 // way the game has them), and scanning an area for spots that look finished but aren't: a floor you'd fall
 // through, a building seen from above with no roof. Pure functions over parsed chunks: the game-objects worker
 // runs them on the player's own packfiles, the tests on a local install. Game coordinates throughout (metres).
-import type { Chunk } from '../gameObjects/chunk'
-import type { ObjectMesh } from '../gameObjects/extract'
+import { dec3n, readUv, type Chunk } from '../gameObjects/chunk'
+import { diffuseOf, lookCache, type ObjectMesh } from '../gameObjects/extract'
+import type { GameLook } from '../gameObjects/material'
 import { NO_COLLISION_FLAGS, solidity } from './collision'
 
 export interface Rect { x0: number; z0: number; x1: number; z1: number }
@@ -40,7 +41,15 @@ export interface Tri {
   /** The instance (in its chunk) that draws it, and whether that instance has a physics shape of its own (a prop). */
   inst: number
   prop: boolean
+  /** Its material (index into the chunk's), and how many UV sets its vertex buffer has. */
+  mat: number
+  uvSets: number
+  /** With `extras`: UV sets 1-3 per corner ((corner * 3 + set) * 2) and stored normals per corner, world frame (zeros when none). */
+  uvx: Float64Array
+  n: Float64Array
 }
+
+export interface TriangleOptions { area?: Rect; extras?: boolean }
 
 const box = (ch: Chunk, mesh: number, P: number[], R: number[]) => {
   const m = ch.meshes[mesh]
@@ -55,13 +64,17 @@ const box = (ch: Chunk, mesh: number, P: number[], R: number[]) => {
 
 const overlaps = (a: Rect, b: Rect) => a.x0 <= b.x1 && b.x0 <= a.x1 && a.z0 <= b.z1 && b.z0 <= a.z1
 
-/** Calls `cb` for every drawn triangle of the chunk (only instances whose box meets `area`, when given). */
-export function forEachTriangle(ch: Chunk, cb: (t: Tri) => void, area?: Rect) {
+/**
+ * Calls `cb` for every drawn triangle of the chunk (only instances whose box meets `area`, when given); with
+ * `extras`, also its other UV sets and stored normals.
+ */
+export function forEachTriangle(ch: Chunk, cb: (t: Tri) => void, opts: Rect | TriangleOptions = {}) {
+  const { area, extras } = 'x0' in opts ? { area: opts, extras: false } : opts
   const sol = solidity(ch)
   const shaped = new Set(ch.records.filter((r) => r.shape >= 0).map((r) => r.instance))
   const dv = new DataView(ch.bytes.buffer, ch.bytes.byteOffset, ch.bytes.byteLength)
-  const t: Tri = { p: new Float64Array(9), uv: new Float64Array(6), ny: 0, area: 0, solid: false, tex: '', inst: 0, prop: false }
-  const texOf = ch.materials.map((m) => m.textures.find((x) => !/\.tgn$/i.test(x)) ?? '')
+  const t: Tri = { p: new Float64Array(9), uv: new Float64Array(6), ny: 0, area: 0, solid: false, tex: '', inst: 0, prop: false, mat: 0, uvSets: 0, uvx: new Float64Array(18), n: new Float64Array(9) }
+  const texOf = ch.materials.map((_, i) => diffuseOf(ch, i))
   for (const [ii, inst] of ch.instances.entries()) {
     const mesh = ch.meshes[inst.mesh]
     if (!mesh) continue
@@ -80,6 +93,8 @@ export function forEachTriangle(ch: Chunk, cb: (t: Tri) => void, area?: Rect) {
         const b = sub.batches[bi]
         if (b.first + b.count > vb.indexCount) continue
         t.tex = texOf[b.material] ?? ''
+        t.mat = b.material
+        t.uvSets = vb.uvSets
         for (let j = 0; j + 2 < b.count; j++) {
           let a = dv.getUint16(vb.indexAt + 2 * (b.first + j)), c1 = dv.getUint16(vb.indexAt + 2 * (b.first + j + 1))
           const c2 = dv.getUint16(vb.indexAt + 2 * (b.first + j + 2))
@@ -93,7 +108,16 @@ export function forEachTriangle(ch: Chunk, cb: (t: Tri) => void, area?: Rect) {
             t.p[3 * k] = P[0] + x * R[0] + y * R[3] + z * R[6]
             t.p[3 * k + 1] = P[1] + x * R[1] + y * R[4] + z * R[7]
             t.p[3 * k + 2] = P[2] + x * R[2] + y * R[5] + z * R[8]
-            if (vb.stride >= 24) { t.uv[2 * k] = dv.getInt16(o + 20) / 1024; t.uv[2 * k + 1] = dv.getInt16(o + 22) / 1024 } else { t.uv[2 * k] = 0; t.uv[2 * k + 1] = 0 }
+            readUv(dv, vb, i, 0, t.uv, 2 * k)
+            if (extras) {
+              for (let s = 0; s < 3; s++) readUv(dv, vb, i, s + 1, t.uvx, (k * 3 + s) * 2)
+              if (vb.lit) {
+                const n = dec3n(dv.getUint32(o + 12))
+                t.n[3 * k] = n[0] * R[0] + n[1] * R[3] + n[2] * R[6]
+                t.n[3 * k + 1] = n[0] * R[1] + n[1] * R[4] + n[2] * R[7]
+                t.n[3 * k + 2] = n[0] * R[2] + n[1] * R[5] + n[2] * R[8]
+              } else t.n.fill(0, 3 * k, 3 * k + 3)
+            }
           }
           if (!ok) continue
           const p = t.p
@@ -118,14 +142,14 @@ export function triangleKey(p: Float64Array): string {
 }
 
 /** forEachTriangle over several chunks, each shared triangle once. */
-export function forEachAreaTriangle(chunks: [string, Chunk][], r: Rect, cb: (t: Tri, chunk: number) => void) {
+export function forEachAreaTriangle(chunks: [string, Chunk][], r: Rect, cb: (t: Tri, chunk: number) => void, extras = false) {
   const seen = new Set<string>()
   chunks.forEach(([, ch], ci) => forEachTriangle(ch, (t) => {
     const k = triangleKey(t.p)
     if (seen.has(k)) return
     seen.add(k)
     cb(t, ci)
-  }, r))
+  }, { area: r, extras }))
 }
 
 /**
@@ -303,21 +327,35 @@ export function pieceName(raw: string): string {
   return words ? words[0].toUpperCase() + words.slice(1) : ''
 }
 
+/** Corner layout of a cut polygon: position, UV0, UV1-3, stored normal. */
+const C_UV = 3, C_UVX = 5, C_N = 11, CORNER = 14
+
 class MeshBuilder {
   pos: number[] = []; uv: number[] = []; tri: number[] = []; mat: number[] = []; piece: number[] = []
+  uvx: number[][] = [[], [], []]; nrm: number[] = []
   add(poly: number[][], m: number, piece = 0) {
     const base = this.pos.length / 3
-    for (const v of poly) { this.pos.push(v[0], v[1], v[2]); this.uv.push(v[3], v[4]) }
+    for (const v of poly) {
+      this.pos.push(v[0], v[1], v[2]); this.uv.push(v[C_UV], v[C_UV + 1])
+      if (v.length >= CORNER) {
+        for (let s = 0; s < 3; s++) this.uvx[s].push(v[C_UVX + 2 * s], v[C_UVX + 2 * s + 1])
+        const l = Math.hypot(v[C_N], v[C_N + 1], v[C_N + 2]) || 1
+        this.nrm.push(v[C_N] / l, v[C_N + 1] / l, v[C_N + 2] / l)
+      } else { for (const u of this.uvx) u.push(0, 0); this.nrm.push(0, 0, 0) }
+    }
     for (let k = 1; k + 1 < poly.length; k++) { this.tri.push(base, base + k, base + k + 1); this.mat.push(m); this.piece.push(piece) }
   }
-  done(materials: string[], shift: [number, number, number]): ObjectMesh {
+  done(materials: string[], shift: [number, number, number], looks?: (GameLook | null)[]): ObjectMesh {
     const p = new Float32Array(this.pos.length)
     for (let i = 0; i < this.pos.length; i++) p[i] = this.pos[i] + shift[i % 3]
-    return { positions: p, uvs: new Float32Array(this.uv), triangles: new Uint32Array(this.tri), triMaterial: new Uint16Array(this.mat), materials }
+    return {
+      positions: p, uvs: new Float32Array(this.uv), triangles: new Uint32Array(this.tri), triMaterial: new Uint16Array(this.mat), materials,
+      ...(looks ? { extraUvs: this.uvx.map((u) => new Float32Array(u)), normals: new Float32Array(this.nrm), looks } : {}),
+    }
   }
 }
 
-/** A triangle (x, y, z, u, v per corner) clipped to the rectangle, as a polygon; empty when it's outside. */
+/** A triangle (x, y, z, then any attributes per corner) clipped to the rectangle, as a polygon; empty when it's outside. */
 export function clip(poly: number[][], r: Rect): number[][] {
   const planes: [number, number, number][] = [[0, 1, r.x0], [0, -1, -r.x1], [2, 1, r.z0], [2, -1, -r.z1]]
   let out = poly
@@ -338,7 +376,8 @@ export function clip(poly: number[][], r: Rect): number[][] {
 /** Cuts the rectangle out of the given chunks. */
 export function cutArea(chunks: [string, Chunk][], r: Rect): CutMeshes {
   const solid = new MeshBuilder(), look = new MeshBuilder()
-  const materials: string[] = [], matChunk: string[] = []
+  const materials: string[] = [], matChunk: string[] = [], looks: (GameLook | null)[] = []
+  const lookOf = chunks.map(([, ch]) => lookCache(ch))
   const matIndex = new Map<string, number>()
   const grid = new Grid(r, 2)
   const floor = new Float32Array(grid.w * grid.h).fill(-Infinity)
@@ -351,7 +390,7 @@ export function cutArea(chunks: [string, Chunk][], r: Rect): CutMeshes {
       const lookOnly = !t.solid
       if (!t.solid && t.ny > 0.7 && t.tex && Math.abs((t.p[1] + t.p[4] + t.p[7]) / 3 - ground) <= STREET_BAND) t.solid = true
       const stem = chunks[ci][0]
-      const corners = [0, 1, 2].map((k) => [t.p[3 * k], t.p[3 * k + 1], t.p[3 * k + 2], t.uv[2 * k], t.uv[2 * k + 1]])
+      const corners = [0, 1, 2].map((k) => [t.p[3 * k], t.p[3 * k + 1], t.p[3 * k + 2], t.uv[2 * k], t.uv[2 * k + 1], ...t.uvx.subarray(6 * k, 6 * k + 6), t.n[3 * k], t.n[3 * k + 1], t.n[3 * k + 2]])
       const inside = corners.every((v) => v[0] >= r.x0 && v[0] <= r.x1 && v[2] >= r.z0 && v[2] <= r.z1)
       // Untextured look-only planes (the sea bed) draw nothing worth keeping.
       if (!t.solid && !t.tex) return
@@ -365,9 +404,9 @@ export function cutArea(chunks: [string, Chunk][], r: Rect): CutMeshes {
         const nx = ey * fz - ez * fy, ny = ez * fx - ex * fz, nz = ex * fy - ey * fx, l = Math.hypot(nx, ny, nz) || 1
         for (const v of poly) { v[0] += (nx / l) * DECAL_LIFT; v[1] += (ny / l) * DECAL_LIFT; v[2] += (nz / l) * DECAL_LIFT }
       }
-      const key = t.tex.toLowerCase()
-      let m = matIndex.get(key)
-      if (m === undefined) { m = materials.length; materials.push(t.tex); matChunk.push(stem); matIndex.set(key, m) }
+      const l = lookOf[ci](t.mat, t.uvSets)
+      let m = matIndex.get(l.key)
+      if (m === undefined) { m = materials.length; materials.push(t.tex); looks.push(l.look); matChunk.push(stem); matIndex.set(l.key, m) }
       const pk = ci + ':' + t.inst
       let pc = pieceIndex.get(pk)
       if (pc === undefined) {
@@ -380,7 +419,7 @@ export function cutArea(chunks: [string, Chunk][], r: Rect): CutMeshes {
         if (t.ny > 0.85) grid.cover(t.p, (i, y) => { if (y > floor[i]) floor[i] = y })
         else if (t.ny < -0.3) grid.cover(t.p, (i, y) => ceiling[i].push(y))
       }
-  })
+  }, true)
   const cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2
   const shift: [number, number, number] = [-cx, -ground, -cz]
   const standable: [number, number, number][] = []
@@ -393,7 +432,7 @@ export function cutArea(chunks: [string, Chunk][], r: Rect): CutMeshes {
     standable.push([x - cx, y - ground, z - cz])
   }
   return {
-    solid: solid.done(materials, shift), look: look.done(materials, shift), matChunk, ground, standable,
+    solid: solid.done(materials, shift, looks), look: look.done(materials, shift, looks), matChunk, ground, standable,
     pieces, solidPiece: new Uint32Array(solid.piece), lookPiece: new Uint32Array(look.piece),
   }
 }

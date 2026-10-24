@@ -53,6 +53,8 @@ export interface SceneItem {
   prefab?: { key: string; params: Record<string, number | string>; defaults: Record<string, string> }
   /** An object from the player's own game files ("From my game"): where it came from, so it can be rebuilt. Never shared. */
   game_object?: import('./gameObjects/place').GameObjectRef
+  /** How the game draws an object from the game (its look file and layer pictures, origin 'game'); the editor's view only. */
+  game_look?: import('./gameObjects/lookFile').GameLookRef
   /** Items with the same group id are selected, moved and copied together. */
   group?: string
   [key: string]: unknown
@@ -250,6 +252,8 @@ export function referencedPaths(p: Project): string[] {
   for (const it of [...p.scene_items, ...p.asset_library]) {
     add(it.path); add(it.native_mesh_obj); add(it.glass_custom_texture)
     Object.values(it.textures || {}).forEach(add)
+    const look = (it as SceneItem).game_look
+    if (look) { add(look.path); look.layers?.forEach(add) }
   }
   // A photo frame keeps its stand-in picture: share links and the Showcase show it in place of the photo.
   for (const it of p.scene_items) { const pic = pictureSlot(it, p.files || {}); if (pic) add(it.prefab!.defaults[pic]) }

@@ -316,6 +316,8 @@ export interface MeshPart {
   /** Stored unit normals and tangents (x, y, z, sign of the bitangent), mesh frame; null when no buffer is lit. */
   normals: Float32Array | null
   tangents: Float32Array | null
+  /** How many UV sets the buffer of each triangle has. */
+  triUvSets: Uint8Array
 }
 
 /** Reads UV set `k` of vertex `i` (stored as SHORT2 / 1024) into `out` at `at`. */
@@ -331,7 +333,7 @@ export function meshTriangles(ch: Chunk, meshIndex: number): MeshPart {
   const mesh = ch.meshes[meshIndex]
   if (!mesh) throw new Error('mesh ' + meshIndex + ' is not in the chunk')
   const dv = new DataView(ch.bytes.buffer, ch.bytes.byteOffset, ch.bytes.byteLength)
-  const pos: number[] = [], uv: number[] = [], tris: number[] = [], mats: number[] = []
+  const pos: number[] = [], uv: number[] = [], tris: number[] = [], mats: number[] = [], triSets: number[] = []
   const usable = (vb: VertexBuffer | undefined): vb is VertexBuffer => !!vb && vb.stride >= 12 && vb.stride % 4 === 0 && vb.stride <= 128 && !!vb.count && vb.vertexBytes >= vb.stride * vb.count
   const subVbs = mesh.subs.map((s) => ch.vbs[s.vb]).filter(usable)
   const nExtra = Math.max(0, ...subVbs.map((v) => v.uvSets - 1))
@@ -373,12 +375,14 @@ export function meshTriangles(ch: Chunk, meshIndex: number): MeshPart {
         if (![va, vbi, vc].every((v) => Number.isFinite(pos[3 * v]) && Number.isFinite(pos[3 * v + 1]) && Number.isFinite(pos[3 * v + 2]))) continue
         tris.push(va, vbi, vc)
         mats.push(b.material)
+        triSets.push(vb.uvSets)
       }
     }
   }
   return {
     positions: new Float32Array(pos), uvs: new Float32Array(uv), triangles: new Uint32Array(tris), triMaterial: new Uint16Array(mats),
     extraUvs: extra.map((e) => new Float32Array(e)), normals: lit ? new Float32Array(nrm) : null, tangents: lit ? new Float32Array(tan) : null,
+    triUvSets: new Uint8Array(triSets),
   }
 }
 

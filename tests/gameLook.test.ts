@@ -9,7 +9,14 @@ import { GAME_TESTS } from './testMode'
 import { buildChunk, vhash, type Spec } from './chunkBuilder'
 import { dec3n, meshTriangles, readChunk } from '../src/lib/gameObjects/chunk'
 import { describeMaterial, lookKey, lookTextures, lookUvSets, namedMaterial, shaderName } from '../src/lib/gameObjects/material'
+import { extractObject } from '../src/lib/gameObjects/extract'
+import { decodeLook, encodeLook, mapLookTextures } from '../src/lib/gameObjects/lookFile'
+import { gameObjectPaths } from '../src/lib/gameObjects/policy'
+import { cutArea } from '../src/lib/city/city'
+import { splitPieces } from '../src/lib/city/build'
+import { newProject, referencedPaths, type SceneItem } from '../src/lib/project'
 import { openVpp } from '../src/lib/sr1char/vpp'
+import { ALWAYS_PEGS, chunkPegNames, findTexture, hasAlpha, indexPeg, type PegIndex } from '../src/lib/gameObjects/textures'
 
 const quad = (uvSets: number) => ({
   verts: [0, 1, 2, 3].map((i) => [i & 1, 0, i >> 1, ...Array.from({ length: 2 * uvSets }, (_, k) => (k + 1) * 0.25 + i * 0.5)]),
@@ -121,6 +128,90 @@ describe('the whole material record', () => {
   })
 })
 
+describe('the layers travel with the object', () => {
+  // The wall twice, with one copy turned 90 degrees, and the same picture under two looks (tinted and not).
+  const two = (): Spec => {
+    const s = spec()
+    s.materials.push({ shader: 'bb-standard_s', slots: [['Diffuse_Map', 0]], consts: [['Diffuse_Color', [1, 1, 1, 1]]] })
+    s.vbs.push(quad(3))
+    s.meshes.push({ subs: [{ vb: 3, batches: [[0, 4, 6]] }] })
+    s.instances.push({ pos: [0, 0, 3], rot: [0, 0, -1, 0, 1, 0, 1, 0, 0], mesh: 3 })
+    s.records.push({ name: 'wall_b', instance: 3 })
+    return s
+  }
+  const ch = readChunk(buildChunk(two()))
+
+  it('a cut-out object keeps UV sets, normals and each material look; same picture, different look stays apart', () => {
+    const m = extractObject(ch, { record: 0, parts: [0, 3] })
+    expect(m.materials).toEqual(['wall_co.tga', 'wall_co.tga'])
+    expect(m.looks!.map((l) => l?.tint.map((v) => +v.toFixed(2)))).toEqual([[0.7, 0.75, 0.8], [1, 1, 1]])
+    expect(m.extraUvs).toHaveLength(2)
+    expect(m.extraUvs![0].length).toBe(m.uvs.length)
+    expect([...m.extraUvs![1].slice(0, 2)]).toEqual([1.25, 1.5])
+    // Normals turn with their part: the second wall's straight-up normal stays up, its tilted one turns about Y.
+    const n = m.normals!
+    expect(+n[1].toFixed(2)).toBe(1)
+    const tilted = [n[3 * 6], n[3 * 6 + 1], n[3 * 6 + 2]].map((v) => +v.toFixed(2) + 0)
+    expect(tilted).toEqual([0, 0.8, -0.6])
+    // The first wall alone: one material, the same as before for a plain one.
+    // The sky: no look, its one picture as before.
+    const plain = extractObject(ch, { record: 2 })
+    expect(plain.looks).toBeUndefined()
+    expect(plain.materials).toEqual(['sky.tga'])
+  })
+
+  it('a look file holds the looks and the vertex data, and reads back', () => {
+    const m = extractObject(ch, { record: 0 })
+    const look = mapLookTextures(m.looks![0]!, (t) => (t === 'sticker_d.tga' ? null : '/work/f/x/' + t))
+    expect(look.decals.map((d) => d.layer.tex)).toEqual(['/work/f/x/grime_d.tga'])
+    const n = m.positions.length / 3
+    const bytes = encodeLook({ mats: { wall: { diffuse: '/work/f/x/wall.png', look } }, vertices: n, uvs: m.extraUvs!, normals: m.normals })
+    const back = decodeLook(bytes)
+    expect(back.vertices).toBe(n)
+    expect(back.mats.wall.look).toEqual(look)
+    expect([...back.uvs[1]]).toEqual([...m.extraUvs![1]])
+    expect([...back.normals!]).toEqual([...m.normals!])
+    expect(() => decodeLook(new Uint8Array(16))).toThrow(/look file/)
+    expect(() => encodeLook({ mats: {}, vertices: 3, uvs: [new Float32Array(2)] })).toThrow(/expected 6/)
+  })
+
+  it('a city cut keeps the layers through clipping, and each piece keeps its own vertices of them', () => {
+    // The wall quad spans x 0..1, z 0..1; cut at x = 0.5.
+    const cut = cutArea([['c', ch]], { x0: -1, z0: -1, x1: 0.5, z1: 2 })
+    const wall = cut.solid.looks!.findIndex((l) => l?.decals.length)
+    expect(wall).toBeGreaterThanOrEqual(0)
+    let checked = 0
+    for (const sm of [cut.solid, cut.look]) {
+      expect(sm.extraUvs).toHaveLength(3)
+      expect(sm.looks).toBe(cut.solid.looks)
+      // Every corner's UV1 lies on the line the quad's own UV1 runs along (u1 - u0 = 0.5 everywhere), clipped corners too.
+      for (let t = 0; t < sm.triMaterial.length; t++) {
+        if (sm.triMaterial[t] !== wall) continue
+        for (const i of sm.triangles.slice(3 * t, 3 * t + 3)) { expect(sm.extraUvs![0][2 * i] - sm.uvs[2 * i]).toBeCloseTo(0.5); checked++ }
+      }
+      for (let i = 0; i < sm.normals!.length; i += 3) { const l = Math.hypot(sm.normals![i], sm.normals![i + 1], sm.normals![i + 2]); expect(l === 0 || Math.abs(l - 1) < 1e-6).toBe(true) }
+    }
+    expect(checked).toBeGreaterThan(3)
+    // The clipped corner at x = 0.5 is halfway along: UV0 u = 0.25 + 0.25.
+    expect([...cut.solid.uvs, ...cut.look.uvs].some((u, i) => i % 2 === 0 && Math.abs(u - 0.5) < 1e-6)).toBe(true)
+    const pieces = splitPieces({ solid: { mesh: cut.solid, textures: [] }, look: { mesh: cut.look, textures: [] }, pieces: cut.pieces, solidPiece: cut.solidPiece, lookPiece: cut.lookPiece })
+    for (const p of pieces) {
+      expect(p.mesh.extraUvs![2].length).toBe(p.mesh.uvs.length)
+      expect(p.mesh.normals!.length).toBe(p.mesh.positions.length)
+      expect(p.mesh.looks).toBe(cut.solid.looks)
+    }
+  })
+
+  it('look files and their pictures are game data: kept by the project, left out of backups', () => {
+    const p = newProject('t')
+    const it = { uid: 'u', name: 'piece', path: '/work/f/a/piece.obj', position: [0, 0, 0], rotation: [0, 0, 0], scale: 1, textures: { m: '/work/f/b/m.png' }, alpha: {}, game_look: { path: '/work/f/c/piece.look', layers: ['/work/f/d/grime.png'] } } as SceneItem
+    p.scene_items.push(it)
+    for (const path of ['/work/f/a/piece.obj', '/work/f/b/m.png', '/work/f/c/piece.look', '/work/f/d/grime.png']) p.files[path] = { hash: path, size: 1, name: path, type: '', origin: 'game' }
+    expect(referencedPaths(p)).toEqual(expect.arrayContaining(['/work/f/c/piece.look', '/work/f/d/grime.png']))
+    expect([...gameObjectPaths(p)].sort()).toEqual(['/work/f/c/piece.look', '/work/f/d/grime.png'])
+  })
+})
+
 const GAME = process.env.SR1_PACKFILES || 'C:/Games/SaintsReborn/dist/game/packfiles'
 const haveGame = existsSync(join(GAME, 'mp_city_stream.vpp_xbox2'))
 
@@ -177,4 +268,36 @@ describe.skipIf(!GAME_TESTS || !haveGame)('materials and vertices of a local gam
       expect(same / p.uvs.length).toBeLessThan(0.9)
     }
   }, 120_000)
+
+  it('a cut of the city keeps its layers, and their pictures decode (decals with soft alpha, normal maps)', async () => {
+    if (!existsSync(join(GAME, 'sr_city_stream.vpp_xbox2'))) return
+    const city = await openVpp(await openAsBlob(join(GAME, 'sr_city_stream.vpp_xbox2')), 'sr_city_stream')
+    const misc = existsSync(join(GAME, 'misc2.vpp_xbox2')) ? await openVpp(await openAsBlob(join(GAME, 'misc2.vpp_xbox2')), 'misc2') : null
+    const stem = 'sr_chunk13'
+    const cut = cutArea([[stem, readChunk(await city.read(stem + '.bbchunk_xbox2'))]], { x0: 20, z0: 690, x1: 80, z1: 750 })
+    const looks = cut.solid.looks!
+    const withDecals = looks.filter((l) => l?.decals.length).length
+    console.log(`${looks.length} materials: ${looks.filter(Boolean).length} with a look, ${withDecals} with decals, ${looks.filter((l) => l?.kind === 'terrain' || l?.kind === 'blend').length} blends, ${looks.filter((l) => l?.normal).length} normal maps`)
+    expect(looks.filter(Boolean).length / looks.length).toBeGreaterThan(0.6)
+    expect(withDecals).toBeGreaterThan(3)
+    // Layers on UV1/UV2 are read: those corners don't all sit at 0.
+    let nonzero = 0
+    for (const v of cut.solid.extraUvs![0]) if (v) nonzero++
+    expect(nonzero).toBeGreaterThan(cut.solid.extraUvs![0].length / 4)
+    const pegs: PegIndex[] = []
+    for (const n of chunkPegNames(stem)) if (city.has(n)) pegs.push(indexPeg(await city.read(n)))
+    if (misc) for (const n of ALWAYS_PEGS) if (misc.has(n)) pegs.push(indexPeg(await misc.read(n)))
+    const decals = [...new Set(looks.flatMap((l) => l?.decals.map((d) => d.layer.tex) ?? []))]
+    const normals = [...new Set(looks.flatMap((l) => (l?.normal ? [l.normal.tex] : [])))]
+    const dec = decals.map((t) => findTexture(t, pegs)).filter(Boolean)
+    const nrm = normals.map((t) => findTexture(t, pegs)).filter(Boolean)
+    expect(dec.length / decals.length).toBeGreaterThan(0.5)
+    expect(dec.filter((img) => hasAlpha(img!)).length / dec.length).toBeGreaterThan(0.5)
+    expect(nrm.length).toBeGreaterThan(0)
+    // Tangent-space normal maps: mostly facing out (blue high).
+    const img = nrm[0]!
+    let blue = 0
+    for (let i = 2; i < img.rgba.length; i += 4) blue += img.rgba[i]
+    expect(blue / (img.rgba.length / 4)).toBeGreaterThan(160)
+  }, 300_000)
 })
