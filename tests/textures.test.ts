@@ -44,8 +44,9 @@ function lineDiff(px: Uint8ClampedArray, size: number, a: number, b: number, ver
 }
 
 /** The wrap from the last column back to the first is no rougher than the roughest step inside. */
-function tiles(px: Uint8ClampedArray, size: number) {
-  for (const vertical of [true, false]) {
+/** `acrossOnly`: only left to right (a sky wraps round the horizon but runs from overhead to the ground). */
+function tiles(px: Uint8ClampedArray, size: number, acrossOnly = false) {
+  for (const vertical of acrossOnly ? [true] : [true, false]) {
     let worst = 0
     for (let i = 0; i < size - 1; i++) worst = Math.max(worst, lineDiff(px, size, i, i + 1, vertical))
     const wrap = lineDiff(px, size, size - 1, 0, vertical)
@@ -63,7 +64,7 @@ describe('generated textures', () => {
       let min = 255, max = 0
       for (let i = 0; i < px.length; i += 4) { min = Math.min(min, px[i]); max = Math.max(max, px[i]) }
       expect(max - min).toBeGreaterThan(10)
-      expect(tiles(px, size)).toBe(true)
+      expect(tiles(px, size, kind === 'sky')).toBe(true)
     })
   }
 })

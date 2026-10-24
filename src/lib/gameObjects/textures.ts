@@ -58,6 +58,27 @@ export function findTexture(name: string, pegs: PegIndex[]): PegImage | null {
   return null
 }
 
+/**
+ * A picture stored as a pointer into pixels another entry of the same file also uses (size 0): decoded in place
+ * with its own size and format, which is how the game reads it. Skipped when those pixels belong to a normal
+ * map (they aren't a colour picture then).
+ */
+export function findShared(name: string, pegs: PegIndex[]): PegImage | null {
+  const key = name.toLowerCase()
+  for (const p of pegs) {
+    const e = p.byName.get(key)
+    if (!e || e.size) continue
+    const owner = p.peg.entries.find((o) => o.size && o.offset <= e.offset && e.offset < o.offset + o.size)
+    if (owner && (/\.tgn$/i.test(owner.name) || owner.format === 603)) continue
+    const img = decodeEntry(p.peg, { ...e, size: 1 })
+    if (img) return img
+  }
+  return null
+}
+
+/** Pictures the game uses for surfaces it doesn't draw (placeholders, stand-in shells): see-through, still solid. */
+export const INVISIBLE_TEXTURE = /^(missing(-alpha)?\.tga|proxy\d*_\w+\.tga)$/i
+
 /** Bytes of a texture file's head that hold its entry table (for a file with `count` entries). */
 export const pegHeadSize = (count: number) => 0x18 + 0x48 * count
 

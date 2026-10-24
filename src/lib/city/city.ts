@@ -134,6 +134,8 @@ export function streetLevel(chunks: [string, Chunk][], r: Rect): number {
   heights.sort((a, b) => a - b)
   return heights.length ? heights[Math.floor(heights.length * 0.1)] : 0
 }
+/** How far (m) look-only pieces are lifted off the surfaces they lie on, so they don't flicker. */
+const DECAL_LIFT = 0.02
 /** Up to this far (m) above or below street level, a surface facing up counts as ground. */
 const STREET_BAND = 1.2
 
@@ -265,6 +267,7 @@ export function cutArea(chunks: [string, Chunk][], r: Rect): CutMeshes {
   const ceiling: number[][] = Array.from({ length: grid.w * grid.h }, () => [])
   const ground = streetLevel(chunks, r)
   forEachAreaTriangle(chunks, r, (t, ci) => {
+      const lookOnly = !t.solid
       if (!t.solid && t.ny > 0.7 && t.tex && Math.abs((t.p[1] + t.p[4] + t.p[7]) / 3 - ground) <= STREET_BAND) t.solid = true
       const stem = chunks[ci][0]
       const corners = [0, 1, 2].map((k) => [t.p[3 * k], t.p[3 * k + 1], t.p[3 * k + 2], t.uv[2 * k], t.uv[2 * k + 1]])
@@ -273,6 +276,14 @@ export function cutArea(chunks: [string, Chunk][], r: Rect): CutMeshes {
       if (!t.solid && !t.tex) return
       const poly = inside ? corners : clip(corners, r)
       if (!poly.length) return
+      // Look-only pieces (road markings, grime, posters) lie right on the surfaces under them; the game draws them
+      // with a depth offset, the export can't, so they're lifted 2 cm off along their facing.
+      if (lookOnly) {
+        const p = t.p
+        const ex = p[3] - p[0], ey = p[4] - p[1], ez = p[5] - p[2], fx = p[6] - p[0], fy = p[7] - p[1], fz = p[8] - p[2]
+        const nx = ey * fz - ez * fy, ny = ez * fx - ex * fz, nz = ex * fy - ey * fx, l = Math.hypot(nx, ny, nz) || 1
+        for (const v of poly) { v[0] += (nx / l) * DECAL_LIFT; v[1] += (ny / l) * DECAL_LIFT; v[2] += (nz / l) * DECAL_LIFT }
+      }
       const key = t.tex.toLowerCase()
       let m = matIndex.get(key)
       if (m === undefined) { m = materials.length; materials.push(t.tex); matChunk.push(stem); matIndex.set(key, m) }

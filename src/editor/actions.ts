@@ -282,6 +282,14 @@ export function removeSelected() {
   if (selection) removeTarget(selection)
 }
 
+/** Gives the map the default sky picture (as new maps get), so the game doesn't draw a black sky. */
+export async function addDefaultSky() {
+  const { skyFile } = await import('../lib/samples')
+  const sky = await skyFile()
+  update('Add a sky', (d) => { d.files[sky.vpath] = sky.ref; d.settings.sky_texture = sky.vpath })
+  log('Added a sky: the game shows it overhead (change it in Export settings, "Fake sky image").')
+}
+
 /** Deletes every marker of the given types, as one undo step (unused game-mode markers). */
 export function removeMarkersOfType(types: string[]) {
   const n = currentProject()?.markers.filter((m) => types.includes(m.type)).length ?? 0

@@ -262,6 +262,13 @@ function storedTexture(t: Tex) {
 
 const seeThrough = (t: Tex) => !('lib' in t) && !!t.alpha
 
+/** The sky new maps get, so the game doesn't show a black sky (a generated picture: shares as a recipe). */
+export const DEFAULT_SKY: Tex = { gen: 'sky', tweak: { seed: 61 } }
+export async function skyFile(t: Tex = DEFAULT_SKY): Promise<{ vpath: string; ref: FileRef }> {
+  const x = await storedTexture(t)
+  return { vpath: x.vpath, ref: x.ref }
+}
+
 export async function materialize(parts: Part[], onProgress?: (t: string) => void): Promise<{ items: SceneItem[]; files: Record<string, FileRef> }> {
   const files: Record<string, FileRef> = {}
   const texture = async (t: Tex) => {
@@ -376,6 +383,9 @@ export async function buildFrom(sample: Sample, onProgress?: (t: string) => void
   })
   project.lights = (sample.lights || []).map(([at, color]): Light => ({ ...newLight(at), ...(color ? { color } : {}), range: lightRange, inner_range: lightRange * 0.35 }))
   project.files = files
+  const sky = await skyFile()
+  project.files[sky.vpath] = sky.ref
+  project.settings.sky_texture = sky.vpath
   project.settings.modes = sample.modes
   if (sample.ambience) project.settings.ambience = sample.ambience
   const base = sample.id.replace(/[^a-z0-9]/g, '').slice(0, 7)

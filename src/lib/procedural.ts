@@ -10,7 +10,7 @@ export type TextureKind =
   | 'facade' | 'storefront' | 'garage_door' | 'hazard' | 'matrix' | 'water'
   | 'chevrons' | 'emblem' | 'screen' | 'scoreboard' | 'banner'
   | 'poster' | 'graffiti' | 'sign'
-  | 'lettering' | 'picture'
+  | 'lettering' | 'picture' | 'sky'
 
 export interface GenParams {
   kind: TextureKind
@@ -63,6 +63,7 @@ export const KINDS: Record<TextureKind, KindInfo> = {
   // Your own words on a board, stretched once over it (scale = its width over its height).
   lettering: { label: 'Text sign', surface: 15, color: '#1f6b3a', accent: '#ffffff', scale: 4, wear: 0, accentLabel: 'Letters', scaleLabel: 'Width ÷ height' },
   // What an empty photo frame shows until you choose a photo.
+  sky: { label: 'Sky', surface: 0, color: '#3f78c4', accent: '#d3dee6', scale: 4, wear: 0.45, accentLabel: 'Horizon', scaleLabel: 'Cloud size' },
   picture: { label: 'Picture', surface: 5, color: '#8fb8de', accent: '#4f7a3f', scale: 1, wear: 0, accentLabel: 'Hills', scaleLabel: 'Unused' },
 }
 
@@ -682,6 +683,15 @@ function pattern(p: GenParams): Pixel {
     }
     case 'banner': return bannerPattern(p, base, accent, s, wear)
     case 'lettering': return letteringPattern(p, base, accent, s, wear)
+    case 'sky': return (u, v) => {
+      // All round the map: deep blue overhead to a pale horizon across the middle, soft clouds above it and a
+      // haze below; it repeats left to right, so it wraps round the sky without a seam.
+      const t = clamp01(v / 0.5)
+      if (v >= 0.5) return mix(accent, [150, 152, 150], clamp01((v - 0.5) * 2.5))
+      const c = mix(base, accent, Math.pow(t, 1.7))
+      const cloud = clamp01((fbm(u, v * 2, n, 5, s) - 0.56 + wear * 0.3) * 3.2) * (1 - t * 0.55)
+      return mix(c, [247, 248, 250], cloud * 0.9)
+    }
     case 'picture': return (u, v) => {
       // A sunny sky over two rows of hills, on a pale card mount (the same all round, so it tiles): "a photo goes here".
       if (u < 0.04 || u > 0.96 || v < 0.04 || v > 0.96) return shade([236, 232, 222], 0.97 + 0.03 * noise(u, v, 64, 64, s))

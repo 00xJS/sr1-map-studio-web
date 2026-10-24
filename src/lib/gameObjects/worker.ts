@@ -7,7 +7,7 @@ import { readChunk, type Chunk } from './chunk'
 import type { PegImage } from '../sr1char/peg'
 import { indexChunk, type Candidate } from './indexer'
 import { extractObject, type ObjectMesh } from './extract'
-import { ALWAYS_PEGS, chunkPegNames, findTexture, hasAlpha, indexPeg, shrink, textureDirectory, type PegIndex, type TextureDirectory } from './textures'
+import { ALWAYS_PEGS, INVISIBLE_TEXTURE, chunkPegNames, findShared, findTexture, hasAlpha, indexPeg, shrink, textureDirectory, type PegIndex, type TextureDirectory } from './textures'
 import { MAP, cutArea, isCityChunk, mapChunk, scanArea, type ChunkSummary, type Hole, type Rect } from '../city/city'
 
 /** A packfile: a File from the player's folder, or (development only) a URL the dev server serves by range. */
@@ -129,6 +129,7 @@ async function texturesFor(p: string, chunk: string, names: string[], max: numbe
   const all = [...own, ...(await alwaysPegs())]
   const out: (ObjectTexture | null)[] = []
   for (const n of names) {
+    if (n && INVISIBLE_TEXTURE.test(n)) { out.push({ width: 8, height: 8, rgba: new Uint8Array(8 * 8 * 4).buffer, alpha: true }); continue }
     let img = n ? findTexture(n, all) : null
     // Not in the usual places (the chunk's own file only points at it): the texture file that really holds it.
     const where = n && !img && texDir ? texDir.names[n.toLowerCase()] : undefined
@@ -137,6 +138,8 @@ async function texturesFor(p: string, chunk: string, names: string[], max: numbe
       const peg = await pegOf(wp, rest.join('/'))
       if (peg) img = findTexture(n, [peg])
     }
+    // Last: a picture that points into pixels it shares with another entry, read where it points.
+    if (n && !img) img = findShared(n, all)
     out.push(img ? small(img, max) : null)
   }
   return out

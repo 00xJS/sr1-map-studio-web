@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useEditor } from './store'
 import { chooseTool } from './Tools'
-import { removeMarkersOfType } from './actions'
+import { addDefaultSky, removeMarkersOfType } from './actions'
 import { dataPackStatus } from '../lib/datapack'
 import { mapChecklist, type CheckItem, type Fix } from '../lib/checklist'
 
@@ -31,6 +31,7 @@ export function useApplyFix(onSamples: () => void) {
         if (st.advanced) st.set({ tab: 'materials' })
         break
       case 'removeMarkers': removeMarkersOfType(fix.types); break
+      case 'sky': void addDefaultSky(); break
       case 'modes':
         st.select(null)
         if (st.advanced) st.set({ tab: 'export' })

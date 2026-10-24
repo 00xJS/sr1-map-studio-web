@@ -66,10 +66,10 @@ describe.skipIf(!haveGame)('the city from a local game install', () => {
     expect(cut.ground).toBeGreaterThan(-8)
     expect(cut.ground).toBeLessThan(0)
     expect(cut.standable.length).toBeGreaterThan(500)
-    // Everything inside the area, centred on it.
+    // Everything inside the area (decals lifted 2 cm may poke out a hair), centred on it.
     for (let i = 0; i < cut.solid.positions.length; i += 3) {
-      expect(Math.abs(cut.solid.positions[i])).toBeLessThanOrEqual(70.01)
-      expect(Math.abs(cut.solid.positions[i + 2])).toBeLessThanOrEqual(70.01)
+      expect(Math.abs(cut.solid.positions[i])).toBeLessThanOrEqual(70.05)
+      expect(Math.abs(cut.solid.positions[i + 2])).toBeLessThanOrEqual(70.05)
     }
     // The scan finds the raised slab beside the street with nothing solid under it.
     const holes = scanArea(chunks, r)

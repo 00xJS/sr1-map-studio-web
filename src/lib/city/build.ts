@@ -3,7 +3,7 @@
 // nobody walks or falls off the cut edge, and spawns and weapons spread over the open street level.
 import { newMarker, newProject, type Marker, type Project, type Vec3 } from '../project'
 import { box, PB, type Part } from '../sampleKit'
-import { materialize } from '../samples'
+import { materialize, skyFile } from '../samples'
 import { catalogs } from '../catalogs'
 import { storeObject } from '../gameObjects/place'
 import { workerCityCut } from '../gameObjects/client'
@@ -78,6 +78,9 @@ export async function cityProject(r: Rect, map: CityMap, onProgress: (t: string)
   const built = await materialize(parts)
   Object.assign(p.files, built.files)
   p.scene_items = [...items, ...built.items]
+  const sky = await skyFile()
+  p.files[sky.vpath] = sky.ref
+  p.settings.sky_texture = sky.vpath
   // Spawns and weapons on open street level, in editor space (the exporter mirrors X back).
   const spots = cut.standable.map(([x, y, z]): Vec3 => [-u(x), u(y), u(z)])
   const spawns = spread(spots, 12)

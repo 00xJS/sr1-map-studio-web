@@ -15,6 +15,8 @@ import { toastError } from '../ui'
 const toGame = (mx: number, my: number): [number, number] => [MAP.x0 + (MAP.size - mx) * MAP.cell, MAP.z0 + my * MAP.cell]
 const toMap = (gx: number, gz: number): [number, number] => [MAP.size - (gx - MAP.x0) / MAP.cell, (gz - MAP.z0) / MAP.cell]
 const NEAR_STREET = 6
+/** Ready-made squares: the game's own multiplayer maps are 45 to 120 m across; 300 m is the most a cut can be. */
+const PRESETS: [number, string][] = [[60, '60 m'], [90, '90 m'], [120, '120 m'], [200, '200 m'], [MAX_SIDE, `${MAX_SIDE} m (largest)`]]
 const SCAN_TILE = 250
 
 function picture(map: CityMap): ImageBitmap | HTMLCanvasElement {
@@ -129,12 +131,20 @@ export default function City() {
           <div className="col" style={{ gap: 12, minWidth: 260, flex: '0 1 340px' }}>
             <div className="card col" style={{ gap: 8 }}>
               <span className="section-title">Area</span>
+              <div className="row wrap" style={{ gap: 6 }} title="A square of this size round the middle of the area (or of the city)">
+                {PRESETS.map(([m, label]) => (
+                  <button key={m} className={'sm' + (sel && size(sel)[0] === m && size(sel)[1] === m ? ' on' : '')} onClick={() => {
+                    const [cx, cz] = sel ? [(sel.x0 + sel.x1) / 2, (sel.z0 + sel.z1) / 2] : [0, 400]
+                    setSel(around(cx, cz, m / 2))
+                  }}>{label}</button>
+                ))}
+              </div>
               {sel ? <>
                 <span>{size(sel).join(' × ')} m</span>
                 {Math.max(...size(sel)) > MAX_SIDE && <span className="small warn">At most {MAX_SIDE} m across: the game's own multiplayer maps are 45 to 120 m.</span>}
                 <button className="primary" disabled={!!progress || Math.max(...size(sel)) > MAX_SIDE} onClick={start}>Start a map from this area</button>
                 <button disabled={!!progress} onClick={() => scan(false)}>Scan this area</button>
-              </> : <span className="small muted">Drag on the map to pick an area (a click picks 120 m around it). Right-drag to move, the wheel to zoom.</span>}
+              </> : <span className="small muted">Drag on the map to draw an area, or pick a size above (a click picks 120 m round it). Drag the area to move it, its edges or corners to resize it. Right-drag to move the map, the wheel to zoom.</span>}
               <button className="quiet" disabled={!!progress} onClick={() => scan(true)} title="Every part of the city, a few minutes">Scan the whole city</button>
               {progress && <span className="small muted row" style={{ gap: 8 }}>{progress}{/Scanning/.test(progress) && <button className="sm" onClick={() => { stop.current = true }}>Stop</button>}</span>}
             </div>
@@ -166,12 +176,18 @@ export default function City() {
   )
 }
 
+type Handle = 'move' | 'l' | 'r' | 't' | 'b' | 'lt' | 'rt' | 'lb' | 'rb'
+const CURSOR: Record<Handle, string> = { move: 'move', l: 'ew-resize', r: 'ew-resize', t: 'ns-resize', b: 'ns-resize', lt: 'nwse-resize', rb: 'nwse-resize', rt: 'nesw-resize', lb: 'nesw-resize' }
+interface ScreenRect { l: number; t: number; r: number; b: number }
+
 function CityCanvas({ map, sel, onSelect, holes }: { map: CityMap; sel: Rect | null; onSelect: (r: Rect | null) => void; holes: Hole[] }) {
   const ref = useRef<HTMLCanvasElement>(null)
   const img = useMemo(() => picture(map), [map])
   const view = useRef({ s: 1, ox: 0, oy: 0 })
-  const drag = useRef<{ kind: 'pan' | 'pick'; x: number; y: number; ox: number; oy: number } | null>(null)
+  const drag = useRef<{ kind: 'pan' | 'pick' | 'edit'; handle?: Handle; from?: ScreenRect; x: number; y: number; ox: number; oy: number } | null>(null)
   const [pick, setPick] = useState<Rect | null>(null)
+  const [editing, setEditing] = useState(false)
+  const [cursor, setCursor] = useState('crosshair')
   const [, redraw] = useState(0)
 
   // Fit the city on first show.
@@ -183,6 +199,31 @@ function CityCanvas({ map, sel, onSelect, holes }: { map: CityMap; sel: Rect | n
     redraw((n) => n + 1)
   }, [map])
 
+  const screen = (gx: number, gz: number): [number, number] => { const { s, ox, oy } = view.current; const [mx, my] = toMap(gx, gz); return [ox + mx * s, oy + my * s] }
+  const screenRect = (r: Rect): ScreenRect => { const [ax, ay] = screen(r.x0, r.z0), [bx, by] = screen(r.x1, r.z1); return { l: Math.min(ax, bx), r: Math.max(ax, bx), t: Math.min(ay, by), b: Math.max(ay, by) } }
+  const local = (e: { clientX: number; clientY: number }): [number, number] => { const b = ref.current!.getBoundingClientRect(); return [e.clientX - b.left, e.clientY - b.top] }
+  const gameAtLocal = (px: number, py: number) => { const { s, ox, oy } = view.current; return toGame((px - ox) / s, (py - oy) / s) }
+  const gameAt = (e: { clientX: number; clientY: number }) => gameAtLocal(...local(e))
+  const rectOf = (a: [number, number], b: [number, number]): Rect => ({ x0: Math.min(a[0], b[0]), z0: Math.min(a[1], b[1]), x1: Math.max(a[0], b[0]), z1: Math.max(a[1], b[1]) })
+  const fromScreen = (q: ScreenRect): Rect => rectOf(gameAtLocal(q.l, q.t), gameAtLocal(q.r, q.b))
+
+  /** Which part of the picked area is under the pointer: an edge or corner to resize, the inside to move. */
+  const handleAt = (px: number, py: number): Handle | null => {
+    if (!sel) return null
+    const q = screenRect(sel), m = 7
+    if (px < q.l - m || px > q.r + m || py < q.t - m || py > q.b + m) return null
+    const l = Math.abs(px - q.l) < m, r = Math.abs(px - q.r) < m, t = Math.abs(py - q.t) < m, b = Math.abs(py - q.b) < m
+    if (l && t) return 'lt'
+    if (r && t) return 'rt'
+    if (l && b) return 'lb'
+    if (r && b) return 'rb'
+    if (l) return 'l'
+    if (r) return 'r'
+    if (t) return 't'
+    if (b) return 'b'
+    return 'move'
+  }
+
   useEffect(() => {
     const c = ref.current!
     const dpr = window.devicePixelRatio || 1
@@ -193,42 +234,68 @@ function CityCanvas({ map, sel, onSelect, holes }: { map: CityMap; sel: Rect | n
     const { s, ox, oy } = view.current
     g.imageSmoothingEnabled = s < 2
     g.drawImage(img as CanvasImageSource, ox, oy, MAP.size * s, MAP.size * s)
-    const screen = (gx: number, gz: number) => { const [mx, my] = toMap(gx, gz); return [ox + mx * s, oy + my * s] }
     for (const h of holes) {
       const [x, y] = screen(h.x, h.z)
       g.fillStyle = h.kind === 'fall' ? '#ff5a5a' : '#ffb02e'
       g.beginPath(); g.arc(x, y, Math.max(2.5, Math.sqrt(h.area) / MAP.cell * s / 2), 0, Math.PI * 2); g.fill()
     }
-    for (const [r, color] of [[sel, '#ff3dd8'], [pick, '#ffffff']] as const) {
-      if (!r) continue
-      const [ax, ay] = screen(r.x0, r.z0), [bx, by] = screen(r.x1, r.z1)
-      g.strokeStyle = color; g.lineWidth = 2
-      g.strokeRect(Math.min(ax, bx), Math.min(ay, by), Math.abs(bx - ax), Math.abs(by - ay))
+    const shown = pick ?? sel
+    if (!shown) return
+    const q = screenRect(shown)
+    const [w, d] = size(shown), big = Math.max(w, d) > MAX_SIDE
+    // While drawing or changing it: the largest area allowed, dashed, round its middle.
+    if (pick || editing) {
+      const lim = screenRect(around((shown.x0 + shown.x1) / 2, (shown.z0 + shown.z1) / 2, MAX_SIDE / 2))
+      g.setLineDash([6, 5]); g.strokeStyle = 'rgba(255,255,255,0.55)'; g.lineWidth = 1.5
+      g.strokeRect(lim.l, lim.t, lim.r - lim.l, lim.b - lim.t)
+      g.setLineDash([])
     }
+    g.fillStyle = big ? 'rgba(255,80,80,0.12)' : 'rgba(255,61,216,0.10)'
+    g.fillRect(q.l, q.t, q.r - q.l, q.b - q.t)
+    g.strokeStyle = big ? '#ff5a5a' : pick ? '#ffffff' : '#ff3dd8'; g.lineWidth = 2
+    g.strokeRect(q.l, q.t, q.r - q.l, q.b - q.t)
+    if (!pick) {
+      g.fillStyle = '#ffffff'
+      for (const [hx, hy] of [[q.l, q.t], [q.r, q.t], [q.l, q.b], [q.r, q.b], [(q.l + q.r) / 2, q.t], [(q.l + q.r) / 2, q.b], [q.l, (q.t + q.b) / 2], [q.r, (q.t + q.b) / 2]]) g.fillRect(hx - 3.5, hy - 3.5, 7, 7)
+    }
+    // Its size, on it.
+    const label = `${w} × ${d} m${big ? ` (over ${MAX_SIDE} m)` : ''}`
+    g.font = '600 12px system-ui, sans-serif'
+    const tw = g.measureText(label).width
+    g.fillStyle = 'rgba(0,0,0,0.65)'; g.fillRect(q.l, q.t - 20, tw + 10, 18)
+    g.fillStyle = big ? '#ff8a8a' : '#ffffff'; g.fillText(label, q.l + 5, q.t - 7)
   })
 
-  const gameAt = (e: { clientX: number; clientY: number }) => {
-    const b = ref.current!.getBoundingClientRect()
-    const { s, ox, oy } = view.current
-    return toGame((e.clientX - b.left - ox) / s, (e.clientY - b.top - oy) / s)
-  }
-  const rectOf = (a: [number, number], b: [number, number]): Rect => ({ x0: Math.min(a[0], b[0]), z0: Math.min(a[1], b[1]), x1: Math.max(a[0], b[0]), z1: Math.max(a[1], b[1]) })
-
   return (
-    <canvas ref={ref} className="city-map"
+    <canvas ref={ref} className="city-map" style={{ cursor }}
       onContextMenu={(e) => e.preventDefault()}
       onPointerDown={(e) => {
         ;(e.target as HTMLElement).setPointerCapture(e.pointerId)
+        const h = e.button === 0 && !e.shiftKey ? handleAt(...local(e)) : null
+        if (h && sel) { drag.current = { kind: 'edit', handle: h, from: screenRect(sel), x: e.clientX, y: e.clientY, ox: 0, oy: 0 }; setEditing(true); return }
         drag.current = { kind: e.button === 0 && !e.shiftKey ? 'pick' : 'pan', x: e.clientX, y: e.clientY, ox: view.current.ox, oy: view.current.oy }
       }}
       onPointerMove={(e) => {
         const d = drag.current
-        if (!d) return
-        if (d.kind === 'pan') { view.current.ox = d.ox + e.clientX - d.x; view.current.oy = d.oy + e.clientY - d.y; redraw((n) => n + 1) } else setPick(rectOf(gameAt({ clientX: d.x, clientY: d.y }), gameAt(e)))
+        if (!d) { const h = handleAt(...local(e)); setCursor(h ? CURSOR[h] : 'crosshair'); return }
+        if (d.kind === 'pan') { view.current.ox = d.ox + e.clientX - d.x; view.current.oy = d.oy + e.clientY - d.y; redraw((n) => n + 1); return }
+        if (d.kind === 'edit' && d.from && d.handle) {
+          const dx = e.clientX - d.x, dy = e.clientY - d.y, q = { ...d.from }, h = d.handle
+          if (h === 'move') { q.l += dx; q.r += dx; q.t += dy; q.b += dy }
+          if (h.includes('l')) q.l += dx
+          if (h.includes('r')) q.r += dx
+          if (h.includes('t')) q.t += dy
+          if (h.includes('b')) q.b += dy
+          // Dragged past the other side: it turns round rather than going inside out.
+          onSelect(fromScreen({ l: Math.min(q.l, q.r), r: Math.max(q.l, q.r), t: Math.min(q.t, q.b), b: Math.max(q.t, q.b) }))
+          return
+        }
+        setPick(rectOf(gameAt({ clientX: d.x, clientY: d.y }), gameAt(e)))
       }}
       onPointerUp={(e) => {
         const d = drag.current
         drag.current = null
+        setEditing(false)
         if (!d || d.kind !== 'pick') return
         setPick(null)
         if (Math.hypot(e.clientX - d.x, e.clientY - d.y) < 5) { const [x, z] = gameAt(e); onSelect(around(x, z, 60)) } else onSelect(rectOf(gameAt({ clientX: d.x, clientY: d.y }), gameAt(e)))

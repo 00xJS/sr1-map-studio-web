@@ -368,6 +368,33 @@ export class Viewer {
     return this.daySky
   }
 
+  /**
+   * What the game will show overhead: the map's sky picture, the game's own sky (a native sky preset), or black
+   * (a map with neither has no sky in game). The picture arrives a moment later; black until then.
+   */
+  private showGameSky() {
+    const s = this.project?.settings
+    this.scene.fog = null
+    if (s?.sky_texture) {
+      this.scene.background = new THREE.Color(0x000000)
+      const path = s.sky_texture
+      textureUrl(this.project, path).then((url) => {
+        if (!url) return
+        this.texLoader.load(url, (t) => {
+          if (!this.walker || this.project?.settings.sky_texture !== path) return
+          t.colorSpace = THREE.SRGBColorSpace
+          t.mapping = THREE.EquirectangularReflectionMapping
+          this.scene.background = t
+          this.scene.fog = new THREE.Fog(0xb9c9d6, 160, 1200)
+          this.requestRender()
+        })
+      })
+    } else if (s?.native_sky) {
+      this.scene.background = this.sky()
+      this.scene.fog = new THREE.Fog(0xb9c9d6, 120, 900)
+    } else this.scene.background = new THREE.Color(0x000000)
+  }
+
   get walking() { return !!this.walker }
 
   /** Solid scene objects the walker bumps into (not ones marked pass-through). */
@@ -387,8 +414,6 @@ export class Viewer {
     const hidden: [THREE.Object3D, boolean][] = [this.grid, this.box, this.lightRoot, this.markerRoot, this.gizmo.getHelper(), this.pivot].map((o) => [o, o.visible])
     hidden.forEach(([o]) => { o.visible = false })
     this.beforeWalk = { pos: this.camera.position.clone(), target: this.orbit.target.clone(), fov: this.camera.fov, hidden, background: this.scene.background, fog: this.scene.fog }
-    this.scene.background = this.sky()
-    this.scene.fog = new THREE.Fog(0xb9c9d6, 120, 900)
     this.orbit.enabled = false
     this.gizmo.enabled = false
     this.camera.fov = 70
@@ -398,6 +423,7 @@ export class Viewer {
     // Props blown away in the physics preview are hidden: the walker no longer bumps into them.
     this.walker = new Walker({ camera: this.camera, scene: this.scene, canvas: this.renderer.domElement, solids: () => solids.filter((o) => o.parent?.visible !== false) }, at, yaw, onExit, this.walkBody)
     this.walker.onState = onState
+    this.showGameSky()
     const walker = this.walker
     // Physics props move in the walk-through (the engine loads only for maps that have some).
     if (this.project?.scene_items.some((it) => presetOf(it))) this.physics = new PhysicsPreview({

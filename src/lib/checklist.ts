@@ -12,6 +12,8 @@ export type Fix =
   | { kind: 'select'; index: number }
   /** Delete every marker of these types (ones only an unselected game mode uses). */
   | { kind: 'removeMarkers'; types: string[]; label: string }
+  /** Give the map the default sky picture. */
+  | { kind: 'sky' }
 
 export interface CheckItem {
   id: string
@@ -62,6 +64,9 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
     if (shared.length < FFA_SPAWNS) add({ id: 'ffa-spawns', state: 'suggested', text: `Gangsta Brawl and Big Ass Chains use Player spawns only: ${shared.length} placed, ${FFA_SPAWNS} or more spread over the map is good`, fix: spawnFix, action: 'Place' })
     else if (bunched(shared, SPAWN_GAP)) add({ id: 'ffa-spawns', state: 'suggested', text: `${bunched(shared, SPAWN_GAP)} Player spawns are within ${SPAWN_GAP / 2} m of another: spread them out so players don't appear together` })
   }
+
+  // No sky picture and no native sky: the game draws a black sky.
+  if (p.scene_items.length && !p.settings.sky_texture && !p.settings.native_sky) add({ id: 'sky', state: 'suggested', text: 'No sky: the game shows black overhead. Add one?', fix: { kind: 'sky' }, action: 'Add sky' })
 
   const weapons = count('Weapon pickup')
   add(weapons
