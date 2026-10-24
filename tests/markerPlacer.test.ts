@@ -2,6 +2,10 @@ import { describe, expect, it } from 'vitest'
 import { newMarker, newProject, uid, type Project, type Vec3 } from '../src/lib/project'
 import { openFloor, spreadSpawns, weaponSpots } from '../src/lib/markerPlacer'
 import { describeEdit } from '../src/lib/aiReview'
+import { lightPatch, lightTargets, markerPatch, markerTargets } from '../src/lib/aiEdits'
+import { describeMap, systemPrompt, modelProfile } from '../src/lib/aiChat'
+import { catalogs } from '../src/lib/catalogs'
+import { newLight } from '../src/lib/project'
 
 /** A 120 × 120 floor with a wall across each half and four spawns bunched in one corner. */
 function map(): Project {
@@ -53,5 +57,48 @@ describe('placing spawns and weapons on open floor', () => {
     }
     expect(describeEdit({ do: 'add_weapons', weapons: ['rpg_launcher', 'spas12'], where: 'middle' })).toBe('Add weapons: rpg_launcher, spas12 (middle)')
     expect(describeEdit({ do: 'spread_spawns', which: 'team', count: 4 })).toBe('Spread out the team spawns (4 per team)')
+  })
+})
+
+describe('everything the assistant can change', () => {
+  const lists = { weapons: catalogs.weapons.map(([, id]) => id), vehicles: catalogs.vehicles.map(([, id]) => id), chars: catalogs.human_char_types, specials: catalogs.special_spawn_types }
+
+  it('picks markers by index, type and area, and checks what it sets against the game lists', () => {
+    const p = map()
+    expect(markerTargets(p, { type: 'Shared spawn' })).toEqual([0, 1, 2, 3])
+    expect(markerTargets(p, { near: [0, 0, 5] })).toEqual([6])
+    expect(markerTargets(p, {})).toEqual([])
+    const ok = markerPatch({ weapon: 'spas12', yaw: 270, radius: 999, volume: 3 }, lists)
+    expect(ok.patch).toMatchObject({ weapon: 'spas12', label: 'spas12', yaw: -90, radius: 200, volume: 1 })
+    expect(markerPatch({ vehicle: 'flying_carpet' }, lists).bad).toEqual(['unknown vehicle "flying_carpet"'])
+  })
+
+  it('picks and changes lights', () => {
+    const p = map()
+    p.lights = [newLight([0, 8, 0]), newLight([40, 8, 40])]
+    expect(lightTargets(p, { all: true })).toEqual([0, 1])
+    expect(lightTargets(p, { near: [40, 40, 5] })).toEqual([1])
+    expect(lightPatch({ color: [2, 0.5, -1], intensity: 3, enabled: false })).toEqual({ color: [1, 0.5, 0], intensity: 3, enabled: false })
+  })
+
+  it('tells the model about walk-through and physics objects, marker details, every light and the settings', () => {
+    const p = map()
+    p.scene_items[1].collision_disabled = true
+    p.scene_items[2].physics_preset = 'heavy'
+    p.markers.push(newMarker('Vehicle spawn', [5, 1, 5]))
+    p.lights = [newLight([0, 8, 0])]
+    p.settings.ambience = 'amb_mp_bac_01'
+    const text = describeMap(p)
+    expect(text).toMatch(/Wall .*walk-through/)
+    expect(text).toMatch(/physics=heavy/)
+    expect(text).toMatch(/Vehicle spawn ×1: #\d+\(5,1,5 car_/)
+    expect(text).toMatch(/#0\(0,8,0\) \[/)
+    expect(text).toMatch(/background sound amb_mp_bac_01/)
+    const prof = modelProfile('google/gemma-4-31b-it')
+    expect(systemPrompt(text, prof, 'swap the cars for police cruisers')).toMatch(/car_4dr_police01 \(/)
+    expect(systemPrompt(text, prof, 'make the crates walk-through')).not.toMatch(/car_4dr_police01 \(/)
+    expect(systemPrompt(text, prof, 'x')).toMatch(/Physics presets \(set_object physics\): light_crate/)
+    expect(describeEdit({ do: 'set_object', name: 'crate', solid: false })).toBe('Change "crate": walk-through')
+    expect(describeEdit({ do: 'set_map', ambience: '' })).toBe('Map settings: sound none')
   })
 })

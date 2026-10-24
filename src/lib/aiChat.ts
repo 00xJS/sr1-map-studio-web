@@ -3,7 +3,7 @@
 // The model is any chat model on NVIDIA's API (build.nvidia.com), called with
 // the user's own key through /api/ai. The key only ever goes in the
 // Authorization header of that call; it is never logged or put in a message.
-import type { Project, Vec3 } from './project'
+import { gameSkyWanted, type Marker, type Project, type Vec3 } from './project'
 import { ALL_PREFABS } from './prefabRegistry'
 import { PREFABS } from './prefabs'
 import { normalize, prefabEntries, stem } from './prefabIndex'
@@ -14,6 +14,8 @@ import { KINDS } from './procedural'
 import { DENSITY, LAYOUTS, SETTINGS } from './mapWizard'
 import { TOPICS } from './mapFacts'
 import { CITY_SIZES, citySide, type CitySize } from './cityGen'
+import { PHYSICS_PRESETS } from './physicsProps'
+import { AMBIENCE_OPTIONS } from './mapFeatures'
 
 /**
  * The chat models marked "Free Endpoint" on build.nvidia.com (its models page, filtered to Free Endpoint),
@@ -64,6 +66,11 @@ export type AiAction =
   | ({ do: 'paint'; texture: string; material?: string; color?: string; accent?: string } & AiTarget)
   | { do: 'spread_spawns'; which?: 'shared' | 'team' | 'all'; count?: number }
   | { do: 'add_weapons'; weapons: string[]; where?: 'middle' | 'spread' | 'ends'; mirror?: boolean }
+  | ({ do: 'set_object'; solid?: boolean; physics?: string; water?: boolean; double_sided?: boolean; rename?: string } & AiTarget)
+  | ({ do: 'edit_marker'; indices?: number[]; type?: string; near?: [number, number, number]; face?: 'middle' } & Record<string, unknown>)
+  | ({ do: 'edit_light'; indices?: number[]; near?: [number, number, number]; all?: boolean; x?: number; y?: number; z?: number } & Record<string, unknown>)
+  | { do: 'delete_lights'; indices?: number[]; near?: [number, number, number]; all?: boolean }
+  | { do: 'set_map'; name?: string; ambience?: string; game_sky?: boolean; sky_picture?: boolean; loading?: 'auto' | 'none' }
   | { do: 'place_line'; item: AiPlaceable; from: [number, number]; to: [number, number]; count: number; face?: 'along' | 'across'; mirror?: boolean }
   | { do: 'place_ring'; item: AiPlaceable; center?: [number, number]; radius: number; count: number; start?: number; face?: 'in' | 'out'; mirror?: boolean }
   | ({ do: 'mirror'; markers?: number[] } & AiTarget)
@@ -71,7 +78,7 @@ export type AiAction =
   | { do: 'set_weather'; clear: boolean }
   | { do: 'generate_map'; setting: string; layout: string; players: number; density?: string; seed?: number; name?: string; then?: AiAction[]; generator?: 'wizard' | 'city'; size?: string }
 
-export const KNOWN_EDITS = new Set(['add_prefab', 'add_shape', 'move', 'turn', 'scale', 'delete', 'duplicate', 'prefab_settings', 'add_marker', 'delete_markers', 'move_marker', 'add_light', 'set_modes', 'rename_map', 'select', 'paint', 'place_line', 'place_ring', 'mirror', 'make_symmetric', 'set_weather', 'generate_map', 'spread_spawns', 'add_weapons'])
+export const KNOWN_EDITS = new Set(['add_prefab', 'add_shape', 'move', 'turn', 'scale', 'delete', 'duplicate', 'prefab_settings', 'add_marker', 'delete_markers', 'move_marker', 'add_light', 'set_modes', 'rename_map', 'select', 'paint', 'place_line', 'place_ring', 'mirror', 'make_symmetric', 'set_weather', 'generate_map', 'spread_spawns', 'add_weapons', 'set_object', 'edit_marker', 'edit_light', 'delete_lights', 'set_map'])
 
 export interface AiReply { reply: string; actions: AiAction[] }
 
@@ -81,6 +88,20 @@ const r1 = (v: number) => Math.round(v * 10) / 10
 const texName = (vpath: string) => (vpath || '').split('/').pop()!.replace(/\.\w+$/, '').replace(/(_\d+)+$/, '') || 'none'
 
 /** What the model knows about the map, kept compact. `bounds` gives an object's box when the 3D view has it. */
+/** What a marker is set to, besides where it is. */
+function markerDetail(m: Marker): string {
+  const d: string[] = []
+  if (m.type === 'Weapon pickup') d.push(m.weapon)
+  if (m.type === 'Vehicle spawn') d.push(m.vehicle)
+  if (/spawn/i.test(m.type) && m.yaw) d.push('yaw ' + r1(m.yaw))
+  if (/npc|human|character|special/i.test(m.type)) d.push(m.special_type || m.char_type)
+  if (m.sound) d.push(`sound ${m.sound}${m.volume !== undefined ? ' ' + m.volume : ''}`)
+  if (m.size) d.push('size ' + m.size.map(r1).join('×'))
+  else if (/zone|trigger|drop-off|sound/i.test(m.type)) d.push('radius ' + r1(m.radius))
+  const shown = d.filter(Boolean)
+  return shown.length ? ' ' + shown.join(' ') : ''
+}
+
 export function describeMap(p: Project, bounds?: (index: number) => [Vec3, Vec3] | null): string {
   const lines: string[] = []
   const s = p.settings
@@ -95,9 +116,12 @@ export function describeMap(p: Project, bounds?: (index: number) => [Vec3, Vec3]
     const pf = it.prefab ? ` [prefab ${it.prefab.key}${Object.keys(it.prefab.params).length ? ' ' + JSON.stringify(it.prefab.params) : ''}]` : ''
     const turn = it.rotation[1] ? ` turn ${r1(it.rotation[1])}` : ''
     const grp = it.group ? ` group ${it.group.slice(0, 8)}` : ''
+    const flags = [it.collision_disabled && 'walk-through', it.physics_preset && `physics=${it.physics_preset}`, it.native_prop_behavior && !it.physics_preset && it.native_prop_behavior,
+      it.swimmable_water && 'swimmable', it.glass_style && 'glass', it.double_sided && 'double-sided'].filter(Boolean)
+    const flag = flags.length ? ` (${flags.join(', ')})` : ''
     const mats = Object.keys(it.textures || {})
     const mat = mats.length ? ` materials ${mats.slice(0, 6).map((m) => `${m}=${texName(it.textures[m])}`).join(',')}` : ''
-    return `${i}: ${it.name}${pf} at ${it.position.map(r1).join(',')}${size}${turn}${grp}${mat}`
+    return `${i}: ${it.name}${pf} at ${it.position.map(r1).join(',')}${size}${turn}${flag}${grp}${mat}`
   })
   if (Number.isFinite(lo[0])) lines.push(`Map extent: x ${r1(lo[0])}..${r1(hi[0])}, z ${r1(lo[2])}..${r1(hi[2])}, height ${r1(lo[1])}..${r1(hi[1])}.`)
   lines.push(`Objects (${objs.length}; index: name at x,y,z):`)
@@ -105,11 +129,13 @@ export function describeMap(p: Project, bounds?: (index: number) => [Vec3, Vec3]
   const byType = new Map<string, string[]>()
   p.markers.forEach((m, i) => {
     const q = m.position
-    byType.set(m.type, [...(byType.get(m.type) ?? []), `#${i}(${r1(q[0])},${r1(q[1])},${r1(q[2])}${m.type === 'Weapon pickup' ? ' ' + m.weapon : ''})`])
+    byType.set(m.type, [...(byType.get(m.type) ?? []), `#${i}(${r1(q[0])},${r1(q[1])},${r1(q[2])}${markerDetail(m)})`])
   })
-  lines.push(`Markers (#index(x,y,z)):`)
+  lines.push(`Markers (#index(x,y,z) and details; yaw 0 faces -Z):`)
   for (const [t, ps] of byType) lines.push(`${t} ×${ps.length}: ${ps.slice(0, 40).join(' ')}${ps.length > 40 ? ' …' : ''}`)
-  lines.push(`Lights: ${p.lights.length} (max ${catalogs.limits.max_lights}).`)
+  lines.push(`Lights (${p.lights.length} of ${catalogs.limits.max_lights}; #index (x,y,z) colour intensity range):${p.lights.length ? '' : ' none'}`)
+  if (p.lights.length) lines.push(p.lights.map((l, i) => `#${i}(${l.position.map(r1).join(',')}) [${l.color.map((c) => +c.toFixed(2)).join(',')}] ${+l.intensity.toFixed(2)} ${r1(l.range)}${l.enabled ? '' : ' off'}`).join(' '))
+  lines.push(`Settings: background sound ${s.ambience || 'none'}; sky: ${s.native_sky ? 'native preset ' + s.native_sky : gameSkyWanted(s) ? "the game's own sky at export" : 'none from the game'}${s.sky_texture ? ', with a fallback sky picture' : ', no fallback sky picture'}; loading picture ${s.loading_mode ?? 'auto'}.`)
   return lines.join('\n')
 }
 
@@ -179,6 +205,10 @@ function reference(profile: ModelProfile, request = ''): string {
     `Shapes: ${Object.keys(SHAPE_PRESETS).join(', ')}.`,
     `Textures for paint: ${textureNames().join(', ')}.`,
     `Marker types: ${catalogs.marker_types.join(', ')}.`,
+    `Physics presets (set_object physics): ${PHYSICS_PRESETS.map((x) => x.key).join(', ')}.`,
+    `Background sounds (set_map ambience): ${AMBIENCE_OPTIONS.map((x) => `${x.file} (${x.label})`).join(', ')}.`,
+    ...(/car|vehicle|truck|bike|van|drive|ride|police|taxi|limo|bus/i.test(request) ? [`Vehicles (id): ${catalogs.vehicles.map(([label, id]) => `${id} (${label})`).join(', ')}.`] : []),
+    ...(/npc|people|person|character|thug|gang|crowd|bouncer|dancer|stripper|guard|cop|civilian|human/i.test(request) ? [`Characters (char_type): ${catalogs.human_char_types.join(', ')}. Special spawns (special_type): ${catalogs.special_spawn_types.join(', ')}.`] : []),
     `Weapon ids: ${catalogs.weapons.map(([, id]) => id).join(', ')} (power weapons: sniper_rifle, rpg_launcher, rpg_laser).`,
     `Game modes: ${GAME_MODES.join(', ')}.`,
     `New map settings: ${Object.keys(SETTINGS).join(', ')}; layouts: ${Object.keys(LAYOUTS).join(', ')}; density: ${Object.keys(DENSITY).join(', ')}; players 2-12.`,
@@ -198,12 +228,17 @@ const EDITS = `{"do":"add_prefab","key":"bench","x":10,"z":-20,"turn":90,"settin
 {"do":"paint","prefab":"office","texture":"concrete","color":"#3b2d4f","accent":"#c9a227"}   (a generated texture in your colours, for a mood or theme)
 {"do":"place_line","item":{"do":"add_prefab","key":"lamp"},"from":[-40,-60],"to":[40,-60],"count":5,"face":"along","mirror":true}
 {"do":"place_ring","item":{"do":"add_shape","shape":"pillar"},"center":[0,0],"radius":25,"count":8,"face":"out"}
-{"do":"add_marker","type":"Shared spawn","x":0,"z":-20,"mirror":true}   (weapons: "type":"Weapon pickup","weapon":"<id>")
+{"do":"add_marker","type":"Shared spawn","x":0,"z":-20,"mirror":true}   (weapons: "type":"Weapon pickup","weapon":"<id>"; also "yaw", "vehicle", "char_type", "special_type", "radius" as in edit_marker)
 {"do":"move_marker","index":12,"x":4,"z":-50}
 {"do":"spread_spawns","which":"shared","count":16}   (moves the spawns onto open floor, as far apart as it allows: "shared" free-for-all spawns, "team" (count is per team, each at its own end) or "all"; leave out count to keep how many there are. Use it for "reshift / spread out / fix the spawns")
 {"do":"add_weapons","weapons":["rpg_launcher","sniper_rifle","spas12"],"where":"spread"}   (finds open floor for each, off the spawns, twin on the other half; "where": middle, spread or ends. Use it for "add these weapons" instead of guessing spots)
 {"do":"delete_markers","type":"Weapon pickup","near":[x,z,radius]}   or {"do":"delete_markers","indices":[12]}
 {"do":"add_light","x":0,"y":8,"z":0,"color":[1,0.8,0.6],"mirror":true}
+{"do":"edit_light","indices":[2],"color":[0.2,0.9,1],"intensity":2,"range":30,"enabled":true,"x":4,"y":9,"z":-10}   (or "near":[x,z,radius], or "all":true; any of the fields)
+{"do":"delete_lights","near":[0,0,20]}   (or "indices", or "all":true)
+{"do":"set_object","name":"crate","solid":false,"physics":"light_crate","water":false,"double_sided":true,"rename":"Supply crate"}   (any target; solid false = players and shots pass through; "physics": a physics preset, or "none" to make it static again; water true = swimmable)
+{"do":"edit_marker","type":"Vehicle spawn","vehicle":"car_4dr_police01"}   (pick by "indices", "type" and/or "near"; fields: yaw (0 faces -Z) or "face":"middle", weapon, vehicle, char_type, special_type, radius, size [w,h,d], delay_ms, label, sound, volume, disabled)
+{"do":"set_map","name":"Rust Belt","ambience":"amb_mp_bac_01","game_sky":true,"sky_picture":true,"loading":"auto"}   (any of: map name, background sound ("" for none), the game's own sky at export, a fallback sky picture, the loading picture "auto" or "none")
 {"do":"mirror","name":"crate"}   (adds missing twins across the middle; any target; markers: {"do":"mirror","markers":[12,13]})
 {"do":"make_symmetric","keep":"red"}   (blue's half becomes a copy of red's; add "only":"objects" or "markers")
 {"do":"set_weather","clear":false}   (false: time of day and weather such as rain change each match)

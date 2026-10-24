@@ -8,7 +8,11 @@ import { catalogs } from '../lib/catalogs'
 import { GAME_MODES, isGlass, newLight, uid, type GameMode, type Vec3 } from '../lib/project'
 import { KINDS, defaultParams, type TextureKind } from '../lib/procedural'
 import type { AiAction } from '../lib/aiChat'
-import { expandPlacement, findMarkerTwin, findTwin, resolveTarget, symmetricPlan, twinItem, twinMarker } from '../lib/aiEdits'
+import { expandPlacement, findMarkerTwin, findTwin, lightPatch, lightTargets, markerPatch, markerTargets, resolveTarget, symmetricPlan, twinItem, twinMarker } from '../lib/aiEdits'
+import { makePhysicsProps } from './physicsActions'
+import { PRESET_BY_KEY } from '../lib/physicsProps'
+import { AMBIENCE_OPTIONS } from '../lib/mapFeatures'
+import { faceMiddle } from '../lib/markerPlacer'
 import { loadLibrary, niceName, paintMaterial } from './paint'
 import { spreadSpawns, weaponSpots } from '../lib/markerPlacer'
 import type { Swatch } from './store'
@@ -16,6 +20,8 @@ import type { Swatch } from './store'
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
 const TWIN_MARKER: Record<string, string> = { 'Red team spawn': 'Blue team spawn', 'Blue team spawn': 'Red team spawn' }
 const weapons = () => new Set(catalogs.weapons.map(([, id]) => id))
+/** The game's lists a marker edit is checked against. */
+const markerLists = () => ({ weapons: catalogs.weapons.map(([, id]) => id), vehicles: catalogs.vehicles.map(([, id]) => id), chars: catalogs.human_char_types, specials: catalogs.special_spawn_types })
 
 /** The surface height under (x, z), or the usual ground height. */
 const floorAt = (x: number, z: number) => getViewer()?.surfaceBelow(x, 1e4, z) ?? 1
@@ -136,7 +142,9 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
           if (a.type === 'Weapon pickup' && !weapons().has(a.weapon ?? '')) { skipped.push(`unknown weapon "${a.weapon}"`); break }
           for (const [x, z, , twin] of spots(num(a.x), num(a.z), 0, a.mirror)) {
             const type = twin ? TWIN_MARKER[a.type] ?? a.type : a.type
-            act.addMarker(type, [x, floorAt(x, z) + 0.1, z], a.type === 'Weapon pickup' ? { weapon: a.weapon } : {}); done++
+            const { patch, bad } = markerPatch(a as unknown as Record<string, unknown>, markerLists())
+            if (bad.length && !twin) skipped.push(...bad)
+            act.addMarker(type, [x, floorAt(x, z) + 0.1, z], { ...patch, ...(twin && patch.yaw !== undefined ? { yaw: ((patch.yaw + 360) % 360) - 180 } : {}) }); done++
           }
           break
         }
@@ -162,6 +170,78 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
             act.addMarker('Weapon pickup', [p[0], p[1] + 0.1, p[2]], { weapon: want[i] }); done++
             if (a.mirror !== false) { act.addMarker('Weapon pickup', [-p[0], p[1] + 0.1, -p[2]], { weapon: want[i] }); done++ }
           })
+          break
+        }
+        case 'set_object': {
+          const ids = resolveTarget(currentProject()!, a)
+          if (!ids.length) { skipped.push('nothing matched'); break }
+          if (typeof a.solid === 'boolean' || typeof a.water === 'boolean' || typeof a.double_sided === 'boolean' || typeof a.rename === 'string') {
+            st.update('Change objects', (d) => {
+              for (const i of ids) {
+                const it = d.scene_items[i]
+                if (typeof a.solid === 'boolean') { if (a.solid) delete it.collision_disabled; else it.collision_disabled = true }
+                if (typeof a.water === 'boolean') { if (a.water) it.swimmable_water = true; else delete it.swimmable_water }
+                if (typeof a.double_sided === 'boolean') it.double_sided = a.double_sided
+                if (typeof a.rename === 'string' && a.rename.trim()) it.name = a.rename.trim().slice(0, 60)
+              }
+            })
+            done += ids.length
+          }
+          if (typeof a.physics === 'string') {
+            if (a.physics === 'none' || a.physics === 'static') {
+              for (const i of ids) if (currentProject()!.scene_items[i].physics_preset || currentProject()!.scene_items[i].native_prop_behavior) { await act.returnStatic(i); done++ }
+            } else if (!PRESET_BY_KEY[a.physics]) skipped.push(`unknown physics preset "${a.physics}"`)
+            else { await makePhysicsProps(ids, a.physics); done += ids.length }
+          }
+          break
+        }
+        case 'edit_marker': {
+          const ids = markerTargets(currentProject()!, a as { indices?: number[]; type?: string; near?: [number, number, number] })
+          if (!ids.length) { skipped.push('no marker matched'); break }
+          const { patch, bad } = markerPatch(a, markerLists())
+          skipped.push(...bad)
+          if (!Object.keys(patch).length && a.face !== 'middle') break
+          st.update('Change markers', (d) => {
+            for (const i of ids) {
+              Object.assign(d.markers[i], patch)
+              if (a.face === 'middle') d.markers[i].yaw = faceMiddle(d.markers[i].position)
+            }
+          })
+          done += ids.length
+          break
+        }
+        case 'edit_light': {
+          const ids = lightTargets(currentProject()!, a as { indices?: number[]; near?: [number, number, number]; all?: boolean })
+          if (!ids.length) { skipped.push('no light matched'); break }
+          const patch = lightPatch(a)
+          const move = ids.length === 1 && (typeof a.x === 'number' || typeof a.y === 'number' || typeof a.z === 'number')
+          st.update('Change lights', (d) => {
+            for (const i of ids) {
+              Object.assign(d.lights[i], patch)
+              if (move) { const q = d.lights[i].position; d.lights[i].position = [num(a.x, q[0]), num(a.y, q[1]), num(a.z, q[2])] }
+            }
+          })
+          done += ids.length
+          break
+        }
+        case 'delete_lights': {
+          const ids = new Set(lightTargets(currentProject()!, a))
+          if (!ids.size) { skipped.push('no light matched'); break }
+          st.update('Remove lights', (d) => { d.lights = d.lights.filter((_, i) => !ids.has(i)) })
+          done += ids.size
+          break
+        }
+        case 'set_map': {
+          const amb = typeof a.ambience === 'string' ? a.ambience.replace(/\.\w+$/, '') : undefined
+          if (amb && !AMBIENCE_OPTIONS.some((o) => o.file === amb)) skipped.push(`unknown background sound "${a.ambience}"`)
+          st.update('Map settings', (d) => {
+            if (typeof a.name === 'string' && a.name.trim()) d.settings.display_name = a.name.trim().slice(0, 40)
+            if (amb === '' || AMBIENCE_OPTIONS.some((o) => o.file === amb)) d.settings.ambience = amb
+            if (typeof a.game_sky === 'boolean') d.settings.game_sky = a.game_sky
+            if (a.loading === 'auto' || a.loading === 'none') d.settings.loading_mode = a.loading
+          })
+          if (a.sky_picture === true && !currentProject()!.settings.sky_texture) await act.addDefaultSky()
+          done++
           break
         }
         case 'delete_markers': {

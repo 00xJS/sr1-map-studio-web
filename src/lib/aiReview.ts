@@ -147,6 +147,11 @@ export function describeEdit(a: AiAction): string {
     case 'place_ring': return `A ring of ${a.count} ${(a.item as { key?: string })?.key ?? (a.item as { shape?: string })?.shape ?? 'things'}`
     case 'set_modes': return `Game modes: ${(a.modes ?? []).join(', ')}`
     case 'spread_spawns': return `Spread out the ${a.which === 'team' ? 'team spawns' : a.which === 'all' ? 'spawns' : 'free-for-all spawns'}${a.count ? ` (${a.count}${a.which === 'team' ? ' per team' : ''})` : ''}`
+    case 'set_object': return `Change ${a.name ? `"${a.name}"` : a.prefab ?? a.shape ?? 'objects'}: ${[a.solid === false && 'walk-through', a.solid === true && 'solid', a.physics && `physics ${a.physics}`, a.water === true && 'swimmable', a.rename && `named "${a.rename}"`].filter(Boolean).join(', ') || 'settings'}`
+    case 'edit_marker': return `Change ${a.type ? String(a.type).toLowerCase() + 's' : 'markers'}${a.vehicle ? ` to ${a.vehicle}` : a.weapon ? ` to ${a.weapon}` : ''}`
+    case 'edit_light': return `Change ${a.all ? 'all lights' : 'lights'}`
+    case 'delete_lights': return a.all ? 'Remove every light' : 'Remove some lights'
+    case 'set_map': return `Map settings: ${[a.name && `name "${a.name}"`, a.ambience !== undefined && `sound ${a.ambience || 'none'}`, a.game_sky !== undefined && (a.game_sky ? "the game's sky" : "no game sky"), a.sky_picture && 'a sky picture', a.loading && `loading picture ${a.loading}`].filter(Boolean).join(', ')}`
     case 'add_weapons': return `Add weapons: ${(a.weapons ?? []).join(', ')}${a.where && a.where !== 'spread' ? ` (${a.where})` : ''}`
     default: return a.do.replace(/_/g, ' ')
   }

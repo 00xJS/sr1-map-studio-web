@@ -2,7 +2,7 @@
 // it can be tested: which objects a target names, where a line or ring of
 // things goes, which object is another's twin across the middle, and what
 // "make it symmetric" keeps and adds.
-import type { Marker, Project, SceneItem } from './project'
+import type { Light, Marker, Project, SceneItem, Vec3 } from './project'
 import type { AiAction, AiPlaceable, AiTarget } from './aiChat'
 
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
@@ -178,4 +178,57 @@ function split(positions: [number, number, number][], keep: 'red' | 'blue', type
     if (onHalf(keep, x, z)) copy.push(i); else drop.push(i)
   })
   return { drop, copy }
+}
+
+// ---------------- markers, lights and map settings the AI can change ----------------
+
+export interface MarkerPick { indices?: number[]; type?: string; near?: [number, number, number] }
+
+/** Markers an edit is for: by index, else by type and/or within `near` [x, z, radius]; nothing given means none. */
+export function markerTargets(p: Project, a: MarkerPick): number[] {
+  if (Array.isArray(a.indices)) return a.indices.filter((i) => Number.isInteger(i) && p.markers[i])
+  if (!a.type && !Array.isArray(a.near)) return []
+  const [x, z, r] = Array.isArray(a.near) ? a.near : [0, 0, Infinity]
+  return p.markers.map((m, i) => [m, i] as const)
+    .filter(([m]) => (!a.type || m.type === a.type) && Math.hypot(m.position[0] - x, m.position[2] - z) <= (r || Infinity)).map(([, i]) => i)
+}
+
+/** Lights an edit is for: by index, within `near`, or all of them. */
+export function lightTargets(p: Project, a: { indices?: number[]; near?: [number, number, number]; all?: boolean }): number[] {
+  if (Array.isArray(a.indices)) return a.indices.filter((i) => Number.isInteger(i) && p.lights[i])
+  if (a.all) return p.lights.map((_, i) => i)
+  if (!Array.isArray(a.near)) return []
+  const [x, z, r] = a.near
+  return p.lights.map((l, i) => [l, i] as const).filter(([l]) => Math.hypot(l.position[0] - x, l.position[2] - z) <= (r || Infinity)).map(([, i]) => i)
+}
+
+const finite = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v)
+
+/** The marker fields an AI edit may set, checked against the game's lists; what it got wrong goes in `bad`. */
+export function markerPatch(a: Record<string, unknown>, lists: { weapons: string[]; vehicles: string[]; chars: string[]; specials: string[] }): { patch: Partial<Marker>; bad: string[] } {
+  const patch: Partial<Marker> = {}, bad: string[] = []
+  if (finite(a.yaw)) patch.yaw = +((((a.yaw + 180) % 360) + 360) % 360 - 180).toFixed(1)
+  if (a.weapon !== undefined) lists.weapons.includes(String(a.weapon)) ? Object.assign(patch, { weapon: String(a.weapon), label: String(a.weapon) }) : bad.push(`unknown weapon "${a.weapon}"`)
+  if (a.vehicle !== undefined) lists.vehicles.includes(String(a.vehicle)) ? Object.assign(patch, { vehicle: String(a.vehicle), label: String(a.vehicle) }) : bad.push(`unknown vehicle "${a.vehicle}"`)
+  if (a.char_type !== undefined) lists.chars.includes(String(a.char_type)) ? (patch.char_type = String(a.char_type)) : bad.push(`unknown character "${a.char_type}"`)
+  if (a.special_type !== undefined) lists.specials.includes(String(a.special_type)) ? (patch.special_type = String(a.special_type)) : bad.push(`unknown special spawn "${a.special_type}"`)
+  if (finite(a.radius)) patch.radius = Math.max(0.1, Math.min(200, a.radius))
+  if (Array.isArray(a.size) && a.size.length === 3 && a.size.every(finite)) patch.size = a.size.map((v) => Math.max(0.1, Math.min(500, v))) as Vec3
+  if (finite(a.delay_ms)) patch.delay_ms = Math.max(0, Math.round(a.delay_ms))
+  if (typeof a.label === 'string') patch.label = a.label.slice(0, 64)
+  if (typeof a.sound === 'string') patch.sound = a.sound.slice(0, 64)
+  if (finite(a.volume)) patch.volume = Math.max(0, Math.min(1, a.volume))
+  if (typeof a.disabled === 'boolean') patch.disabled = a.disabled
+  return { patch, bad }
+}
+
+/** The light fields an AI edit may set (colour 0-1 each). */
+export function lightPatch(a: Record<string, unknown>): Partial<Light> {
+  const out: Partial<Light> = {}
+  if (Array.isArray(a.color) && a.color.length === 3 && a.color.every(finite)) out.color = a.color.map((v) => Math.max(0, Math.min(1, v))) as Vec3
+  if (finite(a.intensity)) out.intensity = Math.max(0, Math.min(20, a.intensity))
+  if (finite(a.range)) out.range = Math.max(0.5, Math.min(200, a.range))
+  if (finite(a.inner_range)) out.inner_range = Math.max(0, Math.min(200, a.inner_range))
+  if (typeof a.enabled === 'boolean') out.enabled = a.enabled
+  return out
 }
