@@ -83,9 +83,28 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
           }
           break
         }
+        case 'fill_game_objects': {
+          const { loadIndex } = await import('../lib/gameObjects/client')
+          const entries = await loadIndex()
+          if (!entries?.length) { skipped.push('the game object library is not loaded (From my game)'); break }
+          const { varietyPick } = await import('../lib/gameObjects/tags')
+          const n = Math.max(1, Math.min(40, Math.round(num(a.count, 12))))
+          const mirror = a.mirror !== false, half = mirror ? Math.ceil(n / 2) : n
+          const picks = varietyPick(entries, Array.isArray(a.tags) ? a.tags.map(String) : [], half, 4)
+          if (!picks.length) { skipped.push(`no game objects tagged ${(a.tags ?? []).join(', ')}`); break }
+          const viewer = getViewer()
+          const at = weaponSpots(currentProject()!, viewer ? (i) => viewer.itemBounds(i) : undefined, picks.length, a.where === 'middle' || a.where === 'ends' ? a.where : 'spread')
+          if (at.length < picks.length) skipped.push(`room for ${at.length} of ${picks.length}`)
+          const { placeGameObject } = await import('./gameObjectActions')
+          for (const [i, p] of at.entries()) {
+            const turn = Math.round(Math.random() * 8) * 45
+            for (const [x, z, rot] of spots(p[0], p[2], turn, mirror)) { await placeGameObject(picks[i].id, [x, 0, z], floorAt(x, z), rot); done++ }
+          }
+          break
+        }
         case 'add_game_object': {
-          const { useGameObjects } = await import('../lib/gameObjects/client')
-          const entries = useGameObjects.getState().entries
+          const { loadIndex } = await import('../lib/gameObjects/client')
+          const entries = await loadIndex()
           if (!entries?.length) { skipped.push('the game object library is not loaded (From my game)'); break }
           const e = entries.find((x) => x.id === a.id) ?? (a.name ? relevantGameObjects(entries, String(a.name), 1)[0] : undefined)
           if (!e) { skipped.push(`no game object "${a.id ?? a.name}"`); break }

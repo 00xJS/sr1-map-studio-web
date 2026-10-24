@@ -9,7 +9,7 @@ const OBJECTS: [RegExp, string][] = [
   [/12pack|sixpack|6pack/, 'Beer pack'], [/beer/, 'Beer bottles'], [/bottle/, 'Bottle'], [/jean|pants|shirt|dress|(^|_)cloth|hoodie|jacket/, 'Clothes'],
   [/artpic|picture|painting|portrait|(^|_)pics/, 'Picture'], [/locker/, 'Locker'], [/(^|_)safe\d*(_|$)/, 'Safe'], [/chandel|chandal/, 'Chandelier'],
   [/(^|_)sink/, 'Sink'], [/cash_?r|register|cashdet/, 'Cash register'], [/drill/, 'Drill press'], [/barb_?wire/, 'Barbed wire'],
-  [/(^|_)trash|alltrash|litter|garbage(?!can)/, 'Trash'],
+  [/(^|_)trash(?!_?can)|alltrash|litter|garbage(?!_?can)/, 'Trash'],
   [/lightceil|ceil_?light|flite/, 'Ceiling light'], [/shamp|haircare/, 'Hair products'], [/ashtr/, 'Ashtray'], [/wrench/, 'Wrenches'],
   [/firehyd|hydrant/, 'Fire hydrant'], [/trashcan|trash_can|garbagecan|trsh|ashcan|_ash_?can/, 'Trash can'], [/dumpster|dump(_|$)/, 'Dumpster'],
   [/picnictable/, 'Picnic table'], [/bench/, 'Bench'], [/planter/, 'Planter'], [/prkblk|parkingblock|parkblock|carstop/, 'Parking block'],

@@ -12,6 +12,7 @@ import type { GameObjectEntry } from '../lib/gameObjects/indexer'
 import { canPickFolder } from '../lib/gameFiles'
 import { missingInProject, rebuildMissing } from './gameObjectActions'
 import { normalize } from '../lib/prefabIndex'
+import { describeEntry, displayName, tagsFor, tagsOf } from '../lib/gameObjects/tags'
 import { AMBIENCE_OPTIONS } from '../lib/mapFeatures'
 import type { MapSummary } from '../lib/gameObjects/indexer'
 
@@ -39,12 +40,12 @@ export interface GameTile { shape: string; label: string; hint: string }
 
 export const tileOf = (e: GameObjectEntry): GameTile => ({
   shape: 'game:' + e.id,
-  label: e.name,
-  hint: `${e.profile ? e.profile + ' · ' : ''}${e.size.map((v) => v.toFixed(v < 10 ? 2 : 1)).join(' × ')} m · ${e.tris.toLocaleString()} triangles · in the game ${e.seen.toLocaleString()}× · ${NOTICE}`,
+  label: displayName(e),
+  hint: `${describeEntry(e)} · ${e.tris.toLocaleString()} triangles · ${NOTICE}`,
 })
 
 /** Its names, the game's own record names and its texture names (so "USPSMailBox" finds the mailbox that wears it). */
-const searchText = (e: GameObjectEntry) => normalize([e.name, ...(e.names ?? []), ...(e.raw ?? []), ...(e.tex ?? []).map((t) => t.replace(/\.\w+$/, '')), e.profile, e.cat, e.chunk].join(' ')) + ' ' + [...(e.raw ?? []), ...(e.tex ?? [])].join(' ').toLowerCase()
+const searchText = (e: GameObjectEntry) => normalize([e.name, ...(e.names ?? []), ...(e.raw ?? []), ...(e.tex ?? []).map((t) => t.replace(/\.\w+$/, '')), e.profile, e.cat, e.chunk, displayName(e), ...tagsOf(e)].join(' ')) + ' ' + [...(e.raw ?? []), ...(e.tex ?? []), ...tagsOf(e)].join(' ').toLowerCase()
 
 const Tile = memo(function Tile({ e, on, onChoose, onHover }: { e: GameObjectEntry; on: boolean; onChoose: (t: GameTile) => void; onHover: (t: GameTile | null) => void }) {
   const t = tileOf(e)
@@ -104,7 +105,9 @@ export function GameObjectsTab({ query, current, onChoose, onHover }: { query: s
   const texts = useMemo(() => new Map((entries ?? []).map((e) => [e.id, searchText(e)])), [entries])
   const list = useMemo(() => {
     const words = normalize(query).split(' ').filter(Boolean)
-    return here.filter((e) => (cat === 'All' || e.cat === cat) && words.every((w) => texts.get(e.id)!.includes(w)))
+    // Everyday words count as the tags they mean ("ghetto" finds run-down things).
+    const tags = tagsFor(query)
+    return here.filter((e) => (cat === 'All' || e.cat === cat) && (words.every((w) => texts.get(e.id)!.includes(w)) || (tags.length > 0 && tags.every((t) => tagsOf(e).includes(t)))))
   }, [here, cat, query, texts])
 
   const head = <p className="faint small game-notice">{NOTICE} Read from your own Saints Reborn install in this browser; nothing is uploaded, and maps that use them can't go on the hub, the Showcase or a share link.</p>

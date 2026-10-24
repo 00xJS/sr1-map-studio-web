@@ -7,6 +7,7 @@ import { gameSkyWanted, type Marker, type Project, type Vec3 } from './project'
 import { ALL_PREFABS } from './prefabRegistry'
 import { PREFABS } from './prefabs'
 import { normalize, prefabEntries, stem } from './prefabIndex'
+import { TAG_GROUPS, tagsFor, textTags } from './gameObjects/tags'
 import { SHAPE_PRESETS } from './shapes'
 import { catalogs } from './catalogs'
 import { GAME_MODES } from './project'
@@ -72,6 +73,7 @@ export type AiAction =
   | { do: 'delete_lights'; indices?: number[]; near?: [number, number, number]; all?: boolean }
   | { do: 'set_map'; name?: string; ambience?: string; game_sky?: boolean; sky_picture?: boolean; loading?: 'auto' | 'none' }
   | { do: 'add_game_object'; id?: string; name?: string; x?: number; z?: number; turn?: number; mirror?: boolean }
+  | { do: 'fill_game_objects'; tags?: string[]; count?: number; where?: 'middle' | 'spread' | 'ends'; mirror?: boolean }
   | { do: 'place_line'; item: AiPlaceable; from: [number, number]; to: [number, number]; count: number; face?: 'along' | 'across'; mirror?: boolean }
   | { do: 'place_ring'; item: AiPlaceable; center?: [number, number]; radius: number; count: number; start?: number; face?: 'in' | 'out'; mirror?: boolean }
   | ({ do: 'mirror'; markers?: number[] } & AiTarget)
@@ -79,7 +81,7 @@ export type AiAction =
   | { do: 'set_weather'; clear: boolean }
   | { do: 'generate_map'; setting: string; layout: string; players: number; density?: string; seed?: number; name?: string; then?: AiAction[]; generator?: 'wizard' | 'city'; size?: string }
 
-export const KNOWN_EDITS = new Set(['add_prefab', 'add_shape', 'move', 'turn', 'scale', 'delete', 'duplicate', 'prefab_settings', 'add_marker', 'delete_markers', 'move_marker', 'add_light', 'set_modes', 'rename_map', 'select', 'paint', 'place_line', 'place_ring', 'mirror', 'make_symmetric', 'set_weather', 'generate_map', 'spread_spawns', 'add_weapons', 'set_object', 'edit_marker', 'edit_light', 'delete_lights', 'set_map', 'add_game_object'])
+export const KNOWN_EDITS = new Set(['add_prefab', 'add_shape', 'move', 'turn', 'scale', 'delete', 'duplicate', 'prefab_settings', 'add_marker', 'delete_markers', 'move_marker', 'add_light', 'set_modes', 'rename_map', 'select', 'paint', 'place_line', 'place_ring', 'mirror', 'make_symmetric', 'set_weather', 'generate_map', 'spread_spawns', 'add_weapons', 'set_object', 'edit_marker', 'edit_light', 'delete_lights', 'set_map', 'add_game_object', 'fill_game_objects'])
 
 export interface AiReply { reply: string; actions: AiAction[] }
 
@@ -173,7 +175,8 @@ const STOP = new Set(('the and for with from into onto add put place make build 
  */
 export function relevantPrefabs(request: string, count = 40): string[] {
   const words = [...new Set(normalize(request).trim().split(' ').filter((w) => w.length > 2 && !STOP.has(w)).map(stem))]
-  if (!words.length) return []
+  const want = tagsFor(request)
+  if (!words.length && !want.length) return []
   const scored: [string, number][] = []
   for (const e of prefabEntries()) {
     if (!e.shape.startsWith('prefab:')) continue
@@ -182,6 +185,7 @@ export function relevantPrefabs(request: string, count = 40): string[] {
     // Whole words (or their plural): "bus" is not "bush".
     const has = (t: string, w: string) => t.includes(' ' + w + ' ') || t.includes(' ' + w + 's ') || t.includes(' ' + w + 'es ')
     for (const w of words) score += has(label, w) ? 4 : has(e.text, w) ? 1.5 : 0
+    if (want.length) { const tags = textTags(e.text); for (const t of want) if (tags.includes(t)) score += 2 }
     if (score) scored.push([e.shape.slice(7), score])
   }
   return scored.sort((a, b) => b[1] - a[1]).slice(0, count).map(([k]) => k)
@@ -218,6 +222,7 @@ function reference(profile: ModelProfile, request = ''): string {
 
 const EDITS = `{"do":"add_prefab","key":"bench","x":10,"z":-20,"turn":90,"settings":{},"mirror":true}
 {"do":"add_game_object","id":"<id from the game object list>","x":4,"z":-12,"turn":90,"mirror":true}   (a real Saints Row object from the player's own game files, when the list below has one; prefer these when the player asks for the game's own objects)
+{"do":"fill_game_objects","tags":["run-down","street"],"count":16,"where":"spread"}   (scatters a varied mix of real game objects with those tags on open floor, twins on the other half; for "fill it with ..." or to make a map feel lived in)
 {"do":"add_shape","shape":"wall","x":0,"z":-30,"turn":0,"size":[12,6,1],"mirror":true}
 {"do":"move","index":3,"x":10,"z":-4}   or relative: {"do":"move","index":3,"dx":2,"dy":0,"dz":0}
 {"do":"turn","index":3,"degrees":90}
@@ -259,7 +264,7 @@ const EXAMPLE = `Example. User: "put a lamp on each side of the middle" ->
 {"reply":"Added a street lamp on each side of the middle.","actions":[{"do":"add_prefab","key":"lamp","x":12,"z":-6,"turn":0,"mirror":true}]}`
 
 /** A library entry as the prompt needs it (see gameObjects/indexer.ts). */
-export interface GameObjectLike { id: string; name: string; names?: string[]; raw?: string[]; tex: string[]; cat: string; size: number[]; where?: string[]; seen: number }
+export interface GameObjectLike { id: string; name: string; names?: string[]; raw?: string[]; tex: string[]; cat: string; size: number[]; where?: string[]; seen: number; tags?: string[] }
 
 /**
  * The player's game objects that fit a request, best first: a word in the name or the game's own names counts
@@ -267,20 +272,24 @@ export interface GameObjectLike { id: string; name: string; names?: string[]; ra
  */
 export function relevantGameObjects<T extends GameObjectLike>(entries: T[] | null | undefined, request: string, count = 24): T[] {
   const words = [...new Set(normalize(request).trim().split(' ').filter((w) => w.length > 2 && !STOP.has(w)).map(stem))]
-  if (!entries?.length || !words.length) return []
+  const want = tagsFor(request)
+  if (!entries?.length || (!words.length && !want.length)) return []
   const scored: [T, number][] = []
   for (const e of entries) {
     const names = ' ' + [e.name, ...(e.names ?? []), ...(e.raw ?? [])].join(' ').toLowerCase() + ' '
     const other = ' ' + [...e.tex, e.cat].join(' ').toLowerCase() + ' '
+    const tags = e.tags ?? []
     let score = 0
     for (const w of words) score += names.includes(w) ? 4 : other.includes(w) ? 1.5 : 0
+    for (const t of want) if (tags.includes(t)) score += 2
     if (score) scored.push([e, score + Math.min(1, Math.log10(1 + e.seen) / 4)])
   }
   return scored.sort((a, b) => b[1] - a[1]).slice(0, count).map(([e]) => e)
 }
 
 const gameList = (list: GameObjectLike[]) => list.length
-  ? `\nObjects from the player's own game files (add_game_object; for their own maps only): ${list.map((e) => `${e.id} ${e.name} (${e.cat}, ${e.size.map((v) => +v.toFixed(1)).join('×')} m${e.where?.length ? ', in ' + e.where.slice(0, 3).join('/') : ''})`).join('; ')}.\n`
+  ? `\nObjects from the player's own game files (add_game_object; for their own maps only): ${list.map((e) => `${e.id} ${e.name} (${e.cat}, ${e.size.map((v) => +v.toFixed(1)).join('×')} m${e.tags?.length ? '; ' + e.tags.slice(0, 6).join(', ') : ''}${e.where?.length ? '; in ' + e.where.slice(0, 3).join('/') : ''})`).join('; ')}.
+To fill a map with many different real game things that fit a theme, use fill_game_objects with tags: ${Object.values(TAG_GROUPS).flat().join(', ')}.\n`
   : ''
 
 export function systemPrompt(map: string, profile: ModelProfile = modelProfile(DEFAULT_MODEL), request = '', game: GameObjectLike[] = []): string {
@@ -353,7 +362,7 @@ The generator makes a fair, point-symmetric map with spawns, weapons and lights 
 Use "then" for what the generator can't do: rain or night, a particular centrepiece, landmarks, signs, colours, more of something. Use "mirror": true for anything off-centre on a wizard map.
 
 Edits:
-${EDITS.split('\n').filter((l) => /"(add_prefab|add_shape|delete|place_line|place_ring|add_marker|add_light|set_weather|set_modes|paint|rename_map|spread_spawns|add_weapons)"/.test(l)).join('\n')}
+${EDITS.split('\n').filter((l) => /"(add_prefab|add_shape|delete|place_line|place_ring|add_marker|add_light|set_weather|set_modes|paint|rename_map|spread_spawns|add_weapons|fill_game_objects)"/.test(l)).join('\n')}
 
 ${reference(profile, request)}
 ${profile.tier === 'reasoning' ? '' : `

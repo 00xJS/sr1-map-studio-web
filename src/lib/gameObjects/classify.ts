@@ -28,7 +28,7 @@ const RULES: [string, RegExp][] = [
   ['Machines', /machine|vend|register|pump|generator|grill|cooler|fridge|washer|dryer|\bac\b|vent|compressor|computer|monitor|\btv\b/],
   ['Nature', /tree|bush|shrub|plant|grass|rock|stone|log\b|timber|flower|hedge|palm|leaf|leaves/],
   ['Doors and windows', /door|window|shutter|garage/],
-  ['Wrecks and vehicles', /car|husk|wreck|truck|boat|plane|bike|cart|trailer/],
+  ['Wrecks and vehicles', /(^|_)car(_|s?$|\d)|husk|wreck|truck|boat|(^|_)plane(_|$)|airplane|bike|(^|_)cart(_|$)|trailer/],
   ['Water and sky', /water|pool|ocean|\bsea\b|river|fountain|sky|cloud|\bsun\b|moon|stars|atmosphere/],
   ['Ground and roads', /^ter_|terrain|ground|road|street|sidewalk|curb|kerb|asphalt|pavement|hwy|hway|highway|freeway|ramp|bridge|dirt|sand|gravel|grass|lawn|parking|crosswalk/],
   ['Building pieces', /wall|roof|floor|stair|step|beam|column|pillar|awning|ledge|trim|facade|duct|chimney|balcony|scaffold|girder|brick|concrete|plaster|tile|panel|frame|pipe|rail|arch|dome|tower|hull|base/],
