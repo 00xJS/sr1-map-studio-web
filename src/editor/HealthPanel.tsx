@@ -5,8 +5,10 @@
 import type { ReactNode } from 'react'
 import { Vector3 } from 'three'
 import { useEditor } from './store'
-import { toast, useBusy } from '../ui'
-import { addStairRamps, isRamps } from './stairActions'
+import { Check, toast, useBusy } from '../ui'
+import { useState } from 'react'
+import { findSlivers, type SliverReport } from '../lib/invisibleWalls'
+import { addStairRamps, isRamps, solidTriangles } from './stairActions'
 import { getViewer } from './Viewport'
 import { runHealthCheck, stopHealthCheck, useHealth, useHealthStale, type OverlayKind } from './health'
 import { MOVE_COLORS, RISK_COLORS } from './healthOverlay'
@@ -133,6 +135,7 @@ export function HealthSection() {
       {report && !running && <button className="sm quiet more" onClick={() => useEditor.getState().set({ advanced: true, tab: 'health' })}>Every spawn and the red vs blue details →</button>}
     </div>
     <StairRamps />
+    <InvisibleWalls />
     </>
   )
 }
@@ -149,6 +152,7 @@ export function HealthPanel() {
         <Controls />
       </div>
       <StairRamps />
+      <InvisibleWalls />
       {report && !running && <>
         <Spawns r={report} />
         <Fairness r={report} />
@@ -216,6 +220,41 @@ function GettingAround({ r }: { r: HealthReport }) {
           </div>
         ))}
       <span className="small faint">From the game’s own numbers: a run jump clears about 2.5 m and a sprint jump 6 m; falls over 4 m hurt and 9 m kills; a jump gets you onto about 1.1 m.</span>
+    </div>
+  )
+}
+
+/** Paper-thin triangles that act as invisible walls in game (lib/invisibleWalls.ts); the export leaves them out of the collision. */
+function InvisibleWalls() {
+  const [run, busy] = useBusy()
+  const [found, setFound] = useState<SliverReport | null>(null)
+  const on = useEditor((s) => s.project?.settings.remove_invisible_walls !== false)
+  const hasMap = useEditor((s) => (s.project?.scene_items.length ?? 0) > 0)
+  const look = (at: [number, number, number]) => {
+    const v = getViewer()
+    if (!v) return
+    const back = v.camera.position.clone().sub(v.orbit.target)
+    v.orbit.target.set(...at)
+    v.camera.position.copy(v.orbit.target).add(back.setLength(25))
+    v.requestRender()
+  }
+  return (
+    <div className="group">
+      <span className="section-title">Invisible walls</span>
+      <span className="small faint">Paper-thin triangles draw nothing, but in game they act as walls through open air: players rub against nothing and the camera gets pushed. Converted and rescaled maps often have them.</span>
+      <Check checked={on} onChange={(v) => useEditor.getState().update('Remove invisible walls', (d) => { d.settings.remove_invisible_walls = v })}>Remove them when exporting</Check>
+      <div><button className="sm" disabled={busy || !hasMap} onClick={() => run(async () => {
+        const p = useEditor.getState().project
+        if (!p) return
+        const input = await solidTriangles(p)
+        const r = findSlivers(input.tris, input.flags)
+        setFound(r)
+        toast(r.count ? `Found ${r.count} invisible wall${r.count === 1 ? '' : 's'}${on ? ': the export leaves them out of the collision.' : '. Turn on "Remove them when exporting" to get rid of them.'}` : 'No invisible walls on this map.', r.count ? 'info' : 'ok', 7000)
+      })}>{busy ? 'Looking…' : 'Find invisible walls'}</button></div>
+      {found && (found.count
+        ? <span className="small">{found.count} found{on ? ', left out of the collision at export' : ', kept at export (switched off above)'}. Look at: {found.places.slice(0, 6).map((pl, i) => <a key={i} href="#" onClick={(e) => { e.preventDefault(); look(pl) }} style={{ marginRight: 6 }}>{i + 1}</a>)}</span>
+        : <span className="small faint">None on this map.</span>)}
+      <span className="small faint">For a finished map folder, Open a game map → Remove invisible walls does the same without exporting again.</span>
     </div>
   )
 }

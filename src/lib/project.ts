@@ -148,6 +148,11 @@ export interface ProjectSettings {
   modes: GameMode[]
   /** Off: the server rolls time of day and weather each match, like retail maps without the flag. */
   always_clear_weather: boolean
+  /**
+   * Leave paper-thin (sliver) triangles out of the collision at export (py/collision_fix.py): they draw nothing
+   * but block players and push the camera from open air. Unset counts as on.
+   */
+  remove_invisible_walls?: boolean
   /** 'auto' renders the minimap from above at every export; 'custom' uses minimap_texture. Unset: custom if an image is set, else auto. */
   minimap_mode?: 'auto' | 'custom'
   /** Set at export: the square the minimap image covers, [minX, minZ, maxX, maxZ] in editor units. */

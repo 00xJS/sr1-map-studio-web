@@ -127,7 +127,7 @@ function MapPanel({ src, onBack, onClose }: { src: MapSource; onBack?: () => voi
                     onChange={(e) => setPicked((p) => (e.target.checked ? [...p, u.key] : p.filter((k) => k !== u.key)))} />
                   <span className="col" style={{ gap: 2 }}>
                     <b>{u.title}{st.state === 'done' ? ' ✓' : ''}</b>
-                    <span className="small muted">{st.state === 'done' ? st.why : st.state === 'unavailable' ? st.why : u.hint}</span>
+                    <span className="small muted">{st.state === 'available' ? (st.why ? `${u.hint} ${st.why}` : u.hint) : st.why}</span>
                   </span>
                 </label>
               )

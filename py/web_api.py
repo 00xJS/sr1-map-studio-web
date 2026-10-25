@@ -39,6 +39,7 @@ import fast_dxt
 import map_features as features
 import regions
 import minimap_region
+import collision_fix
 import retail_features as retail
 import native_sky
 import retail_records
@@ -430,6 +431,8 @@ def _export(s, log):
                            and retail_records.is_decal(it, _dims(_parse(it['path']), it.get('scale', 1), 1)))
     decal_materials = {mid for name, mid in result['bbchunk']['material_ids'].items() if decal_prefixes and name.startswith(decal_prefixes)}
     retail_records.finish_map(chunk, log, decal_materials)
+    if s.get('remove_invisible_walls', True):
+        collision_fix.remove_invisible_walls(chunk, log)
     retail_records.fix_hmap(out / (base + '.hmap_xbox2'), log)
     water_count = 0
     if water:

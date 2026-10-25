@@ -103,6 +103,7 @@ export function ExportPanel() {
             <Check checked={s.mirror_x} onChange={(v) => set('mirror_x', v)} title="Matches the Saints Reborn coordinate conversion. Turn off only for a model already in SR1 handedness.">Mirror X into SR1 space</Check>
             <Check checked={s.flip_obj_v} onChange={(v) => set('flip_obj_v', v)} title="Fixes upside-down textures from direct OBJ/MTL imports.">Flip texture V</Check>
             <Check checked={s.double_sided} onChange={(v) => set('double_sided', v)} title="Exports reversed render-only copies of every triangle. Back sides get no extra collision.">Two-sided everything</Check>
+            <Check checked={s.remove_invisible_walls !== false} onChange={(v) => set('remove_invisible_walls', v)} title="Leaves paper-thin triangles out of the collision. They draw nothing, but in game they act as invisible walls that block players and push the camera from open air (common on converted and rescaled maps).">Remove invisible walls</Check>
           </div>
         </div>
       </div>
