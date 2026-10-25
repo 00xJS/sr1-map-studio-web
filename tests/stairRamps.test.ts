@@ -1,6 +1,6 @@
 // The invisible ramps over tall steps (src/lib/stairRamps.ts), on stairs made here from boxes (editor units).
 import { describe, expect, it } from 'vitest'
-import { findStairs, rampPieces, MAX_RAMP_DEG } from '../src/lib/stairRamps'
+import { findStairs, rampPieces, scaleRuns, MAX_RAMP_DEG } from '../src/lib/stairRamps'
 import { compoundObj, shapeObj } from '../src/lib/shapes'
 import { parseObj } from '../src/lib/geometry'
 import { STEP } from '../src/lib/player'
@@ -128,5 +128,19 @@ describe('ramps travel as recipes', () => {
     expect(validShape(clean.pieces[0].shape)).toBe(true)
     expect(validShape({ ...clean.pieces[0].shape, open: 'yes' })).toBe(false)
     expect(compoundObj(clean.pieces)).toBe(compoundObj(pieces))
+  })
+})
+
+describe('maps with another world scale', () => {
+  it('measures steps in game metres: the same stairs at 0.25 m a unit are found and handed back in its own units', () => {
+    // 0.4 m steps on a map at 0.25 m per unit are 1.6 units tall there; the finder works in 0.5 m units.
+    const k = 0.25 / 0.5
+    const tris = stairs(6, 1.6, 2.4).map((v) => v * k)
+    const runs = scaleRuns(findStairs(tris), 1 / k)
+    expect(runs).toHaveLength(1)
+    expect(runs[0].rise).toBeCloseTo(1.6, 2)
+    expect(runs[0].width).toBeCloseTo(4, 2)
+    // Read as if it were 0.5 m a unit, the same geometry would be 0.8 m steps, too tall to count: missed (the bug this fixes).
+    expect(findStairs(stairs(6, 1.6, 2.4))).toHaveLength(0)
   })
 })

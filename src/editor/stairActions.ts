@@ -9,7 +9,7 @@ import { importImage } from '../lib/importers'
 import { tagRecipe } from '../lib/recipes'
 import { compoundObj } from '../lib/shapes'
 import { collisionFromProject } from '../lib/analysis/collision'
-import { findStairs, rampPieces } from '../lib/stairRamps'
+import { findStairs, rampPieces, scaleRuns } from '../lib/stairRamps'
 import { uid, type SceneItem, type Vec3 } from '../lib/project'
 
 /** The object the ramps go in; adding them again replaces it. */
@@ -28,7 +28,9 @@ export async function addStairRamps(): Promise<number> {
     try { models.set(p, await loadModel(project, p)) } catch { /* missing file: left out, as the checks do */ }
   }))
   const input = collisionFromProject({ ...project, scene_items: items }, (p) => models.get(p))
-  const runs = findStairs(input.tris, input.flags)
+  // The finder measures in the usual editor units (0.5 m each): a map with another world scale is measured in game metres.
+  const k = (project.settings.world_scale || 0.5) / 0.5
+  const runs = scaleRuns(findStairs(k === 1 ? input.tris : input.tris.map((v) => v * k), input.flags), 1 / k)
   const state = useEditor.getState()
   if (!runs.length) {
     state.update('Remove invisible stair ramps', (d) => { d.scene_items = d.scene_items.filter((it) => !isRamps(it)) })
@@ -52,7 +54,7 @@ export async function addStairRamps(): Promise<number> {
     d.scene_items.push(item)
   })
   const steps = runs.reduce((a, r) => a + r.steps, 0)
-  const m = (u: number) => (u / 2).toFixed(2)
+  const m = (u: number) => (u * (project.settings.world_scale || 0.5)).toFixed(2)
   state.log(`Invisible stair ramps: ${runs.length} flight${runs.length === 1 ? '' : 's'} of stairs (${steps} steps, ` +
     `${runs.map((r) => `${m(r.rise)} m high`).join(', ')}) get a ramp players can run up; you won't see them in game. ` +
     `Select "${RAMPS_NAME}" in the scene list to see where they are.`)

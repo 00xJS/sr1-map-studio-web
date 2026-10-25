@@ -201,3 +201,10 @@ export function rampPieces(runs: StairRun[], origin: Vec3, mat: string): Compoun
     return { shape: { kind: 'ramp', size: [run.width, height, depth], tile: 4, open: true }, at: mid, rot: +rot.toFixed(3), top: mat, side: mat }
   })
 }
+
+/** The same runs in units `k` times as big (from the finder's 0.5 m units to a map's own, when its world scale differs). */
+export function scaleRuns(runs: StairRun[], k: number): StairRun[] {
+  if (k === 1) return runs
+  const s = (v: number[]) => v.map((x) => x * k) as Vec3
+  return runs.map((r) => ({ ...r, rise: r.rise * k, tread: r.tread * k, width: r.width * k, from: s(r.from), to: s(r.to) }))
+}
