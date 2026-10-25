@@ -62,6 +62,11 @@ describe('ramps over steps too tall to walk up', () => {
     expect(findStairs(stairs(8, STEP, 0.75, 2))).toHaveLength(0)
     expect(findStairs(stairs(1, 0.9, 2))).toHaveLength(0)
     expect(findStairs(Float32Array.from([...box([-40, -1, -40], [40, 0, 40]), ...box([-5, 0, 3], [5, 6, 4])]))).toHaveLength(0)
+    // Two steps need stair proportions: a bench-like pair (0.5 m steps) and a steep casing (54°) are left alone,
+    // a short flight of real stairs (0.34 m steps, 27°) is not.
+    expect(findStairs(stairs(2, 1.02, 0.86))).toHaveLength(0)
+    expect(findStairs(stairs(2, 0.68, 0.5))).toHaveLength(0)
+    expect(findStairs(stairs(2, 0.68, 1.34))).toHaveLength(1)
     const steep = findStairs(stairs(6, 1.2, 0.6))
     expect(steep.every((r) => r.slopeDeg <= MAX_RAMP_DEG)).toBe(true)
     expect(steep).toHaveLength(0)

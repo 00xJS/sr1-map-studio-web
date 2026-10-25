@@ -26,6 +26,14 @@ export const MIN_TREAD = 0.5
 export const MAX_TREAD = 2.8
 /** Steepest ramp laid: well under what the player walks up (MAX_SLOPE_DEG). */
 export const MAX_RAMP_DEG = Math.min(55, MAX_SLOPE_DEG)
+/**
+ * Two steps alone are weak evidence (a bench, a planter, a machine's casing look the same), so they need stair
+ * proportions: no steeper than this, and steps no taller than SHORT_MAX_RISER (0.45 m). Three or more need only
+ * the limits above. Tried on the installed maps: Dust's and Sanctuary's short flights (18-32°, up to 0.43 m) pass,
+ * Industrial's machine (54°) and a planter in Traverse Town (0.51 m steps) don't.
+ */
+export const SHORT_MAX_DEG = 40
+export const SHORT_MAX_RISER = 0.9
 /** Narrowest stairs given a ramp (1 m: a player is about 0.85 m across). */
 export const MIN_WIDTH = 2
 /** The ramp sits this far above the nosings, so the steps' edges never poke through it. */
@@ -168,6 +176,7 @@ function rampOver(chain: Riser[]): StairRun | null {
   const toe = first.r - (first.yt - first.yb) / slope
   const slopeDeg = (Math.atan(slope) * 180) / Math.PI
   if (slopeDeg > MAX_RAMP_DEG) return null
+  if (chain.length === 2 && (slopeDeg > SHORT_MAX_DEG || chain.some((c) => c.yt - c.yb > SHORT_MAX_RISER))) return null
   const across: [number, number] = [-up[1], up[0]]
   const tm = (t0 + t1) / 2
   const at = (r: number, y: number): Vec3 => [up[0] * r + across[0] * tm, y + LIFT, up[1] * r + across[1] * tm]
