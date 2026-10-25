@@ -28,6 +28,7 @@ import fast_dxt  # noqa: E402
 import native_sky  # noqa: E402
 import map_upgrade  # noqa: E402
 import minimap_region  # noqa: E402
+import collision_fix  # noqa: E402
 import regions  # noqa: E402
 from PIL import Image  # noqa: E402
 
@@ -128,6 +129,8 @@ def installed_maps(game, maps, tmp):
             state = before['upgrades']['game_sky']['state']
             retail = before['upgrades']['retail_materials']['state']
             mm = before['upgrades']['minimap']['state']
+            walls = before['upgrades']['invisible_walls']['state']
+            slivers = collision_fix.count_slivers(rc.read_chunk(chunk.read_bytes()))
             # A fresh copy of mp_bac_01's chunk each time: the sky is read from it, then it is deleted.
             spare = w / 'mp_bac_01.bbchunk_xbox2'
             shutil.copy(source / 'mp_bac_01.bbchunk_xbox2', spare)
@@ -136,15 +139,18 @@ def installed_maps(game, maps, tmp):
             # The picture the editor draws from above (src/lib/mapFolder/minimap.ts), over a 60 m square.
             picture = w / 'minimap.png'
             Image.new('RGBA', (1024, 1024), (40, 120, 200, 255)).save(picture)
-            spec = {'chunk': str(chunk), 'peg': str(texfile), 'upgrades': ['game_sky', 'minimap', 'retail_materials'],
+            spec = {'chunk': str(chunk), 'peg': str(texfile), 'upgrades': ['game_sky', 'minimap', 'retail_materials', 'invisible_walls'],
                     'game_sky': {'dir': str(source / 'native_sky'), 'chunk': str(spare)},
                     'minimap_png': str(picture), 'minimap_box': [-30.0, -20.0, 30.0, 40.0]}
             old = (chunk.read_bytes(), texfile.read_bytes())
             r = map_upgrade.upgrade(spec, logs.append)
             ch = rc.read_chunk(chunk.read_bytes())
             after = map_upgrade.inspect({'chunk': str(chunk)}, logs.append)
-            want = [k for k, st in (('retail_materials', retail), ('minimap', mm), ('game_sky', state)) if st == 'available']
+            want = [k for k, st in (('invisible_walls', walls), ('retail_materials', retail), ('minimap', mm), ('game_sky', state)) if st == 'available']
             check(r['applied'] == want, f'{d.name}: applied {r["applied"]}, in order (materials first, the sky last)')
+            # Invisible walls: every sliver out of the collision, the drawing untouched (collision_fix.py).
+            check((walls == 'available') == (slivers > 0) and collision_fix.count_slivers(rc.read_chunk(chunk.read_bytes())) == 0,
+                  f'{d.name}: {slivers} invisible wall(s) taken out of the collision, none left')
             name = map_upgrade.Minimap.picture_name(c.stem)
             if mm == 'available':
                 d2 = chunk.read_bytes()
@@ -178,7 +184,7 @@ def installed_maps(game, maps, tmp):
                     shutil.copy(c, chunk)
                     shutil.copy(p, texfile)
                     shutil.copy(source / 'mp_bac_01.bbchunk_xbox2', spare)
-                    first = map_upgrade.upgrade({**spec, 'upgrades': ['game_sky', 'retail_materials']}, logs.append)
+                    first = map_upgrade.upgrade({**spec, 'upgrades': ['game_sky', 'retail_materials', 'invisible_walls']}, logs.append)
                     then = map_upgrade.upgrade({**spec, 'upgrades': ['minimap']}, logs.append)
                     ch2 = rc.read_chunk(chunk.read_bytes())
                     check(first['applied'][-1:] == ['game_sky'] and then['applied'] == ['minimap'] and len(native_sky.sky_list(ch2)) == 5
@@ -194,6 +200,8 @@ def installed_maps(game, maps, tmp):
                 check(len(native_sky.sky_list(ch)) == 5 and len(entries) == len(peg.parse_peg(p)[2]) + 10, f'{d.name}: the game\'s sky goes in, ten pictures added')
                 again = map_upgrade.upgrade({**spec, 'game_sky': {'dir': str(source / 'native_sky')}}, logs.append)
                 check(again['applied'] == [] and 'already' in again['skipped'].get('game_sky', ''), f'{d.name}: a second time it says it is done')
+            elif state == 'done':
+                check(len(native_sky.sky_list(ch)) == 5, f'{d.name}: already has the game sky (an export added it), left as it was')
             else:
                 check(texfile.read_bytes() == old[1] and not native_sky.sky_list(ch), f'{d.name}: no room for the sky ({state}), its texture file left as it was')
             shutil.rmtree(w)

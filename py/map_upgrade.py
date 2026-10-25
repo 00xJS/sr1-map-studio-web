@@ -27,6 +27,7 @@ import sr_reborn_core as rc
 import native_sky
 import minimap_region
 import regions
+import collision_fix
 import peg_xbox2_beaver as peg
 
 LIGHT_COUNT = 884  # header offset of the light count (rec136_260 holds the records)
@@ -232,7 +233,25 @@ class Minimap:
         return True
 
 
-UPGRADES = [RetailMaterials(), Minimap(), GameSky()]
+class InvisibleWalls:
+    """Sliver triangles out of the collision (collision_fix.py): they draw nothing, but block players and push the
+    camera from open air. Only the collision changes; the map looks the same."""
+    key = 'invisible_walls'
+    order = 40
+
+    def status(self, ch, g, ctx):
+        n = collision_fix.count_slivers(ch, g)
+        if not n:
+            return 'done', 'No invisible walls in this map.'
+        return 'available', f'{n} paper-thin triangle(s) in the collision.'
+
+    def apply(self, chunk, peg, ctx, log):
+        if not collision_fix.remove_invisible_walls(chunk, log):
+            raise ValueError('No invisible walls to remove.')
+        return True
+
+
+UPGRADES = [InvisibleWalls(), RetailMaterials(), Minimap(), GameSky()]
 ORDER = sorted(UPGRADES, key=lambda u: u.order)
 
 

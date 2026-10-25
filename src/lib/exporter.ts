@@ -61,6 +61,8 @@ export async function runExport(project: Project, onLog: (t: string) => void, on
     ambience: s.ambience || '', loading_image: s.loading_mode === 'none' ? '' : s.loading_image || '',
     // Rain blockers note when there's no rain to block (py/regions.py).
     always_clear_weather: s.always_clear_weather,
+    // Sliver triangles out of the collision (py/collision_fix.py), unless switched off.
+    remove_invisible_walls: s.remove_invisible_walls !== false,
   }
   onLog('Running SR1 map exporter…')
   const result = await py.call<ExportResult>('export_project', JSON.stringify(spec))

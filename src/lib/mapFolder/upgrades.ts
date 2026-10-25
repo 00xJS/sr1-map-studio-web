@@ -47,6 +47,10 @@ async function minimapSource(_ask: boolean, info: MapInfo): Promise<Record<strin
 
 export const MAP_UPGRADES: MapUpgrade[] = [
   {
+    key: 'invisible_walls', title: 'Remove invisible walls',
+    hint: "Paper-thin triangles in the map's collision draw nothing, but in game they act as invisible walls: players rub against open air and the camera gets pushed. This takes them out of the collision; the map looks the same.",
+  },
+  {
     key: 'retail_materials', title: 'Light it like the game’s own maps',
     hint: 'Older exports glow a little whatever the light (the map template’s materials); this lights them as the game lights its own maps, and stops far-off parts fading out early.',
   },

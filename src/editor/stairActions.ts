@@ -10,7 +10,7 @@ import { tagRecipe } from '../lib/recipes'
 import { compoundObj } from '../lib/shapes'
 import { collisionFromProject } from '../lib/analysis/collision'
 import { findStairs, rampPieces, scaleRuns } from '../lib/stairRamps'
-import { uid, type SceneItem, type Vec3 } from '../lib/project'
+import { uid, type Project, type SceneItem, type Vec3 } from '../lib/project'
 
 /** The object the ramps go in; adding them again replaces it. */
 export const RAMPS_NAME = 'Invisible stair ramps'
@@ -18,16 +18,21 @@ const MAT = 'stair_ramp'
 
 export const isRamps = (it: Pick<SceneItem, 'name'>) => it.name === RAMPS_NAME
 
-/** Finds the stairs too tall to walk up and puts a ramp over each. Returns how many ramps (0: none needed). */
-export async function addStairRamps(): Promise<number> {
-  const project = currentProject()
-  if (!project) return 0
-  const items = project.scene_items.filter((it) => !isRamps(it))
+/** The project's solid triangles as the exporter makes them solid (analysis/collision.ts), editor units. */
+export async function solidTriangles(project: Project, keep: (it: SceneItem) => boolean = () => true) {
+  const items = project.scene_items.filter(keep)
   const models = new Map<string, ObjModel>()
   await Promise.all([...new Set(items.filter((it) => !it.collision_disabled).map((it) => it.path))].map(async (p) => {
     try { models.set(p, await loadModel(project, p)) } catch { /* missing file: left out, as the checks do */ }
   }))
-  const input = collisionFromProject({ ...project, scene_items: items }, (p) => models.get(p))
+  return collisionFromProject({ ...project, scene_items: items }, (p) => models.get(p))
+}
+
+/** Finds the stairs too tall to walk up and puts a ramp over each. Returns how many ramps (0: none needed). */
+export async function addStairRamps(): Promise<number> {
+  const project = currentProject()
+  if (!project) return 0
+  const input = await solidTriangles(project, (it) => !isRamps(it))
   // The finder measures in the usual editor units (0.5 m each): a map with another world scale is measured in game metres.
   const k = (project.settings.world_scale || 0.5) / 0.5
   const runs = scaleRuns(findStairs(k === 1 ? input.tris : input.tris.map((v) => v * k), input.flags), 1 / k)
