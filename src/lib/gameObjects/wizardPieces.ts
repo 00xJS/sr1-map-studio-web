@@ -35,6 +35,11 @@ export interface GamePart {
   exact?: boolean
   /** The module or group it belongs to (its name). */
   from?: string
+  /**
+   * Buildings: others that fit the same stand-in, best first. The map builder tries them in turn when this one turns
+   * out see-through at eye height or bigger than its footprint said, before falling back to the site's plain block.
+   */
+  alts?: string[]
 }
 
 /** Building from whole Stilwater modules (wizardModules.ts): the layout's big areas, filled before its own plots. */
@@ -65,6 +70,8 @@ const PROP_PALETTE = 3
 /** Heaviest single model worth placing, in triangles. */
 const MAX_BUILDING_TRIS = 24_000
 const MAX_PROP_TRIS = 4_000
+/** Runner-up buildings each building stand-in carries (GamePart.alts). */
+const ALTS = 6
 /** Tallest building, metres, per setting (a 100 m tower would dwarf a 70 m map). */
 const MAX_HEIGHT: Record<WizardSetting, number> = {
   downtown: 45, industrial: 25, docks: 25, rundown: 25, suburbs: 15, construction: 30, military: 15, paintball: 12, cyber: 30,
@@ -176,7 +183,8 @@ export function prepare(entries: GameObjectEntry[], setting: WizardSetting, base
     if (id.role !== 'building' && id.role !== 'prop' && id.role !== 'fence') continue
     // The name rules stand in for a player's check until there is one.
     if (!l?.ok && !l?.role && (id.role !== 'building' ? PART_NAMES.has(id.name) : NOT_BUILDINGS.has(id.name))) continue
-    if (id.role === 'building' && l?.cover !== undefined && l.cover < SOLID_COVER) continue
+    // Players could see through it at eye height (measured by the player, or when the game files were read).
+    if (id.role === 'building' && (l?.cover ?? e.eye ?? 1) < SOLID_COVER) continue
     const [a, b, h] = id.role === 'building' && id.building ? [...id.building.footprint, id.building.height] : e.size
     // A building is fitted with a margin all round: its footprint can come out a little smaller than the model cut out.
     const pad = id.role === 'building' ? 2 * BUILDING_MARGIN : 0
@@ -411,7 +419,26 @@ export class GamePieces {
       bx += (fx * (rw - ex)) / 2; bz += (fz * (rd - ez)) / 2
     }
     const look = [...site].sort((a, b) => b.size[0] * b.size[1] * b.size[2] - a.size[0] * a.size[1] * a.size[2])[0]
-    return this.standIn(c, 'Game building', [r2(bx), y, r2(bz)], rot % 360, c.long, c.short, ((front - rot) % 360 + 360) % 360, look)
+    const part = this.standIn(c, 'Game building', [r2(bx), y, r2(bz)], rot % 360, c.long, c.short, ((front - rot) % 360 + 360) % 360, look)
+    const alts = this.alternatives(c)
+    if (alts.length) part.game!.alts = alts
+    return part
+  }
+
+  /**
+   * Buildings that fit `c`'s stand-in (no longer, no wider, and filling at least half of it), best first: ones the
+   * map already uses, then ones bringing fewest new textures, then how well they suit the setting.
+   */
+  private alternatives(c: Cand): string[] {
+    const used = this.palettes.get('building') ?? new Set<string>()
+    const fresh = (x: Cand) => x.e.tex.filter((t) => !this.tex.has(t.toLowerCase())).length
+    return this.lib.buildings
+      .filter((x) => x !== c && x.long <= c.long + 0.01 && x.short <= c.short + 0.01 && x.long * x.short >= 0.5 * c.long * c.short
+        && x.e.tris <= Math.max(1.5 * c.e.tris, 4000) && this.loose(x))
+      .map((x) => [x, ((used.has(x.e.id) ? 4 : 1) * x.weight * x.long * x.short) / (1 + fresh(x))] as const)
+      .sort((a, b) => b[1] - a[1] || a[0].e.id.localeCompare(b[0].e.id))
+      .slice(0, ALTS)
+      .map(([x]) => x.e.id)
   }
 
   /** A prop for a spot of this kind that reaches `radius` units from where it stands and is about `height` tall. */

@@ -19,7 +19,7 @@ import { NeedGameFolder, entryById, getObject } from './gameObjects/client'
 import { identify } from './gameObjects/identity'
 import { objectMesh } from './gameObjects/render'
 import { objText, safe, stemOf } from './gameObjects/place'
-import { eyeCover, placedTurn } from './gameObjects/wizardBuild'
+import { eyeCover, mapTextures, placedTurn, standing } from './gameObjects/wizardBuild'
 
 const RAD = Math.PI / 180
 /** Editor units per metre's worth of world scale (the wizard's maps are built at 0.5). */
@@ -103,8 +103,8 @@ export function previewMap(sample: Sample, onUpdate: (p: Preview) => void): () =
   let site: THREE.Object3D | null = null
   const root = new THREE.Group()
   const boxes = new Map<Part, THREE.Mesh>()
-  /** Stand-ins whose model is in, and the turn it stands at. */
-  const placed = new Map<Part, number>()
+  /** Stand-ins whose model is in: the model (its own, or an alternative the map builder would use) and its turn. */
+  const placed = new Map<Part, { id: string; rot: number }>()
 
   let drawing: Promise<void> | null = null, again = false
   const draw = async () => {
@@ -120,6 +120,15 @@ export function previewMap(sample: Sample, onUpdate: (p: Preview) => void): () =
       } while (again && live)
     })().finally(() => { drawing = null })
     return drawing
+  }
+
+  const show = (p: Part, m: Model, s: { id: string; rot: number }) => {
+    const inst = new THREE.Mesh(m.mesh.geometry, m.mesh.material)
+    inst.position.set(p.at[0], p.at[1], p.at[2])
+    inst.rotation.y = s.rot * RAD
+    root.add(inst)
+    root.remove(boxes.get(p)!)
+    placed.set(p, s)
   }
 
   const run = async () => {
@@ -146,18 +155,22 @@ export function previewMap(sample: Sample, onUpdate: (p: Preview) => void): () =
       const front = identify(entryById(id)!).building?.front
       for (const p of game.filter((q) => q.game!.id === id)) {
         const rot = placedTurn(p, m.ex, m.ez, m.cover, front)
-        // The map builder puts the site's plain block in for this one: it stays a box.
+        // Not this model: an alternative below, or the site's plain block (it stays a box).
         if (rot === null) continue
-        const inst = new THREE.Mesh(m.mesh.geometry, m.mesh.material)
-        inst.position.set(p.at[0], p.at[1], p.at[2])
-        inst.rotation.y = rot * RAD
-        root.add(inst)
-        root.remove(boxes.get(p)!)
-        placed.set(p, rot)
+        show(p, m, { id, rot })
       }
       state.models = [state.models[0] + 1, ids.length]
       if (performance.now() - last > 900) { last = performance.now(); void draw() }
     })
+    if (!live) return
+    // Buildings whose own model won't do: the alternative the map builder will use, in the same order it tries them.
+    const tex = mapTextures(game)
+    const measure = (id: string) => modelOf(id).catch(() => null)
+    for (const p of game) {
+      if (placed.has(p) || !p.game!.alts?.length || state.needFolder || !live) continue
+      const s = await standing(p, measure, tex)
+      if (s && s.id !== p.game!.id) show(p, await modelOf(s.id), s)
+    }
     if (!live) return
     await draw()
 
@@ -168,8 +181,8 @@ export function previewMap(sample: Sample, onUpdate: (p: Preview) => void): () =
     const shapes = sampleInput({ parts: plain, markers: sample.markers })
     const project = newProject('preview')
     const byPath = new Map<string, ObjModel>()
-    project.scene_items = [...placed].map(([p, rot], i): SceneItem => {
-      const path = '/preview/' + p.game!.id
+    project.scene_items = [...placed].map(([p, { id, rot }], i): SceneItem => {
+      const path = '/preview/' + id
       return { uid: String(i), name: p.game!.name, path, position: p.at, rotation: [0, rot, 0], scale: 1, textures: {}, alpha: {} }
     })
     // Every model here is already in (the promises above resolve at once).

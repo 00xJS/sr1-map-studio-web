@@ -14,7 +14,8 @@ import { GamePieces, SOLID_COVER, TEXTURE_BUDGET, TRI_BUDGET, fitsStandIn, gameP
 import { wizardSample, type WizardLayout, type WizardSetting } from '../src/lib/mapWizard'
 import { openVpp, type Vpp } from '../src/lib/sr1char/vpp'
 import { turn } from '../src/lib/sampleKit'
-import { eyeCover } from '../src/lib/gameObjects/wizardBuild'
+import { eyeCover, mapTextures, standing } from '../src/lib/gameObjects/wizardBuild'
+import { useGameObjects } from '../src/lib/gameObjects/client'
 import type { GameLabels } from '../src/lib/gameObjects/labels'
 
 const GAME = process.env.SR1_PACKFILES || 'C:/Games/SaintsReborn/dist/game/packfiles'
@@ -98,6 +99,37 @@ describe.skipIf(!GAME_TESTS || !haveGame)('game pieces from a local game install
       report.push(`${setting} ${layout}: ${st.buildings} buildings (${solid} solid at eye height, ${spill.length} over their footprint), ${st.props} props, ${st.lights} lights, ${st.fences} fences from ${st.models} models; ` +
         `${st.kept} kept the site's; ${Math.round(st.triangles / 1000)}k triangles, ${st.textures} textures\n  buildings (eye cover): ${buildings || '-'}\n  props: ${names('prop') || '-'}`)
     }
+    // A player who hasn't measured anything yet: the wizard picks from the name rules alone, and the map builder swaps
+    // a building that turns out see-through or too big for one of its alternatives before falling back to a block.
+    useGameObjects.setState({ entries: lib })
+    const fit = async (id: string) => {
+      const e = byId.get(id)!, mesh = extractObject(await chunk(e), e)
+      let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity
+      for (let i = 0; i < mesh.positions.length; i += 3) {
+        x0 = Math.min(x0, mesh.positions[i]); x1 = Math.max(x1, mesh.positions[i]); z0 = Math.min(z0, mesh.positions[i + 2]); z1 = Math.max(z1, mesh.positions[i + 2])
+      }
+      return { ex: (x1 - x0) * 2, ez: (z1 - z0) * 2, cover: await cover(e) }
+    }
+    let total = 0, blocksBefore = 0, blocksAfter = 0
+    for (const [setting, layout, players] of MAPS) {
+      const o = { setting, layout, players, density: 'packed' as const, seed: 4242 }
+      const game = gameParts(wizardSample(o, new GamePieces(lib, o)))
+      const tex = mapTextures(game)
+      let before = 0, after = 0, n = 0
+      for (const p of game.filter((q) => q.label === 'Game building')) {
+        n++
+        const own = await standing({ ...p, game: { ...p.game!, alts: [] } }, fit, new Set(tex))
+        const s = await standing(p, fit, tex)
+        if (!own) before++
+        if (!s) after++
+        if (s) expect(tex.size, setting).toBeLessThanOrEqual(TEXTURE_BUDGET)
+      }
+      total += n; blocksBefore += before; blocksAfter += after
+      report.push(`${setting} ${layout}, nothing measured yet: ${n} buildings, ${before} would be plain blocks on their own, ${after} with alternatives`)
+    }
     console.log(report.join('\n'))
+    // Most of the buildings that would have been plain blocks get a real one.
+    expect(blocksAfter).toBeLessThanOrEqual(Math.ceil(total * 0.1))
+    expect(blocksAfter).toBeLessThanOrEqual(blocksBefore)
   }, 900_000)
 })

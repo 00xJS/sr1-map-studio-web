@@ -4,6 +4,8 @@
 // are called, so a model copied into many chunks is one entry. Pure functions: the worker runs them on chunks
 // read from the player's own packfiles, and the tests on synthetic and real chunks.
 import { meshIndexCount, meshTextures, meshTriangleCount, type Chunk } from './chunk'
+import { extractObject } from './extract'
+import { eyeCover } from './eyeCover'
 import { baseName, buildingCode, skipName } from './classify'
 import { BUILDINGS, CATEGORIES, buildingKind, chunkDistricts, identify } from './identity'
 import { SITS_LEN, Solid, probeChunk, sitsFrom, type Sits, type Target } from './sits'
@@ -73,6 +75,11 @@ export interface GameObjectEntry {
   belongsTo?: string[]
   /** Buildings: the pieces made only for buildings of this kind (ids), its kit. */
   kit?: string[]
+  /**
+   * Buildings and models the size of one: how solid it is at eye height as cut out (eyeCover.ts, 0..1). Low for
+   * a canopy on posts, a frame, or a building's front whose sides the game keeps elsewhere.
+   */
+  eye?: number
   /**
    * Buildings: every piece the game places on most copies of this building, where (its feet in the building's
    * cut-out frame, game axes, metres) and turned how (radians about +Y): what completes it.
@@ -416,6 +423,14 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string, onPlaces?: (p
   standing(ch, places, out, structure, hosts, boundsOf)
   if (isStudyChunk(pack, chunk)) studyChunk(ch, places, out)
   onPlaces?.(places, out)
+  // How solid each building is at eye height, as the map wizard will see it (editor units: twice the metres).
+  for (const c of out.values()) {
+    if (!buildingKind(c) && !(Math.min(c.size[0], c.size[1]) >= 3 && c.size[2] >= 2.5)) continue
+    try {
+      const m = extractObject(ch, c)
+      c.eye = +eyeCover({ positions: m.positions.map((v) => v * 2), faces: m.triangles }).toFixed(2)
+    } catch { /* left unmeasured */ }
+  }
   return [...out.values()]
 }
 

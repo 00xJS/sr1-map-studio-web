@@ -10,7 +10,11 @@ import { mapLimit } from '../hubRules'
 import { entryById, loadIndex } from './client'
 import { identify } from './identity'
 import { gameObjectItem, objectFiles } from './place'
-import { SOLID_COVER, fitsStandIn, modelTurn } from './wizardPieces'
+import { SOLID_COVER, TEXTURE_BUDGET, fitsStandIn, modelTurn } from './wizardPieces'
+import { setLabels, useGameLabels } from './labels'
+import { eyeCover } from './eyeCover'
+
+export { eyeCover }
 
 /** The model's extents along X and Z as stored (editor units). */
 function extents(m: ObjModel): [number, number] {
@@ -20,44 +24,6 @@ function extents(m: ObjModel): [number, number] {
     z0 = Math.min(z0, m.positions[i + 2]); z1 = Math.max(z1, m.positions[i + 2])
   }
   return [x1 - x0, z1 - z0]
-}
-
-/** Eye height band players look through, editor units above the model's feet (0.3 to 2.5 m). */
-const EYE: [number, number] = [0.6, 5]
-const CELLS = 24
-
-/**
- * How much of the model, seen side-on from X and from Z, is solid at eye height (0..1, the less of the two): a
- * building is nearly 1; a canopy on posts, a billboard frame or a light rig is far less.
- */
-export function eyeCover(m: Pick<ObjModel, 'positions' | 'faces'>): number {
-  const P = m.positions
-  let lo = Infinity
-  for (const axis of [0, 2]) {
-    let a0 = Infinity, a1 = -Infinity
-    for (let i = 0; i < P.length; i += 3) { a0 = Math.min(a0, P[i + axis]); a1 = Math.max(a1, P[i + axis]) }
-    const span = a1 - a0
-    if (!(span > 0)) return 0
-    // Cells across the side view (along `axis`) and up the eye band; a cell is solid when a triangle covers its middle.
-    const hit = new Uint8Array(CELLS * CELLS)
-    const cu = (u: number) => ((u - a0) / span) * CELLS - 0.5, cv = (v: number) => ((v - EYE[0]) / (EYE[1] - EYE[0])) * CELLS - 0.5
-    for (let t = 0; t < m.faces.length; t += 3) {
-      const ia = m.faces[t] * 3, ib = m.faces[t + 1] * 3, ic = m.faces[t + 2] * 3
-      const ax = cu(P[ia + axis]), ay = cv(P[ia + 1]), bx = cu(P[ib + axis]), by = cv(P[ib + 1]), cx = cu(P[ic + axis]), cy = cv(P[ic + 1])
-      const d = (bx - ax) * (cy - ay) - (cx - ax) * (by - ay)
-      if (Math.abs(d) < 1e-9) continue
-      const i0 = Math.max(0, Math.ceil(Math.min(ax, bx, cx))), i1 = Math.min(CELLS - 1, Math.floor(Math.max(ax, bx, cx)))
-      const j0 = Math.max(0, Math.ceil(Math.min(ay, by, cy))), j1 = Math.min(CELLS - 1, Math.floor(Math.max(ay, by, cy)))
-      for (let j = j0; j <= j1; j++) for (let i = i0; i <= i1; i++) {
-        const w1 = ((bx - i) * (cy - j) - (cx - i) * (by - j)) / d, w2 = ((cx - i) * (ay - j) - (ax - i) * (cy - j)) / d
-        if (w1 >= 0 && w2 >= 0 && w1 + w2 <= 1) hit[j * CELLS + i] = 1
-      }
-    }
-    let n = 0
-    for (const h of hit) n += h
-    lo = Math.min(lo, n / hit.length)
-  }
-  return lo
 }
 
 /**
@@ -72,36 +38,88 @@ export function placedTurn(p: Part, ex: number, ez: number, cover: number, front
   return p.label === 'Game building' && !fitsStandIn(ex, ez, p, rot) ? null : rot
 }
 
+/** A model as measured once cut out: its extents as stored (editor units) and eyeCover. */
+export interface Fit { ex: number; ez: number; cover: number }
+
+/** Every game texture the stand-ins' models bring (what the wizard budgeted). */
+export function mapTextures(parts: Part[]): Set<string> {
+  const tex = new Set<string>()
+  for (const p of parts) for (const t of entryById(p.game!.id)?.tex ?? []) tex.add(t.toLowerCase())
+  return tex
+}
+
+/** Alternatives tried per building before it falls back to the site's plain block. */
+const ALT_TRIES = 4
+
 /**
- * Scene items for the stand-ins, in their order. Ones whose model can't be read, and buildings players could see
- * through at eye height, come back in `failed` (the caller builds them as plain blocks).
+ * The model a stand-in becomes and the turn it stands at: its own, or else the first of its alternatives (GamePart.alts)
+ * that is solid at eye height, fits the plot and keeps the map within its texture budget (`tex`, the map's textures,
+ * gets the new ones). Null: the site's plain block goes there.
+ */
+export async function standing(p: Part, measure: (id: string) => Promise<Fit | null>, tex: Set<string>): Promise<{ id: string; rot: number } | null> {
+  const ids = [p.game!.id, ...(p.game!.alts ?? []).slice(0, ALT_TRIES)]
+  for (const [i, id] of ids.entries()) {
+    const e = entryById(id)
+    if (!e) continue
+    const fresh = i ? e.tex.map((t) => t.toLowerCase()).filter((t) => !tex.has(t)) : []
+    if (tex.size + new Set(fresh).size > TEXTURE_BUDGET) continue
+    const r = await measure(id)
+    const rot = r ? placedTurn(p, r.ex, r.ez, r.cover, identify(e).building?.front) : null
+    if (rot === null) continue
+    for (const t of fresh) tex.add(t)
+    return { id, rot }
+  }
+  return null
+}
+
+/**
+ * Scene items for the stand-ins, in their order. A building that turns out see-through at eye height or too big for
+ * its plot is swapped for one of its alternatives; ones still without a model come back in `failed` (the caller
+ * builds them as plain blocks). Every building measured is remembered in the player's labels, so later maps leave
+ * out the see-through ones from the start.
  */
 export async function placeGameParts(parts: Part[], ws: number, onProgress?: (t: string) => void): Promise<{ items: SceneItem[]; files: Record<string, FileRef>; failed: Part[] }> {
   await loadIndex()
   const ids = [...new Set(parts.map((p) => p.game!.id))]
-  const ready = new Map<string, { ex: number; ez: number; cover: number } | null>()
-  let done = 0
+  const ready = new Map<string, Promise<Fit | null>>()
   // Each model is cut out and stored once, however many times the map uses it.
+  const measure = (id: string) => {
+    let r = ready.get(id)
+    if (!r) {
+      r = (async () => {
+        const e = entryById(id)
+        if (!e) return null
+        const s = await objectFiles(e, ws)
+        const m = await peekModel(s.path)
+        if (!m) return null
+        const [ex, ez] = extents(m)
+        return { ex, ez, cover: eyeCover(m) }
+      })().catch(() => null)
+      ready.set(id, r)
+    }
+    return r
+  }
+  let done = 0
   await mapLimit(ids, 3, async (id) => {
-    const e = entryById(id)
-    try {
-      if (!e) throw new Error('not in the library')
-      const s = await objectFiles(e, ws)
-      const m = await peekModel(s.path)
-      if (!m) throw new Error('no model')
-      const [ex, ez] = extents(m)
-      ready.set(id, { ex, ez, cover: eyeCover(m) })
-    } catch { ready.set(id, null) }
+    await measure(id)
     onProgress?.(`Bringing in models from your game (${++done}/${ids.length})…`)
   })
+  const tex = mapTextures(parts)
   const items: SceneItem[] = [], files: Record<string, FileRef> = {}, failed: Part[] = []
   for (const p of parts) {
-    const e = entryById(p.game!.id), r = ready.get(p.game!.id)
-    const rot = e && r ? placedTurn(p, r.ex, r.ez, r.cover, identify(e).building?.front) : null
-    if (rot === null) { failed.push(p); continue }
-    const placed = await gameObjectItem(e!, [p.at[0], p.at[1], p.at[2]], rot, ws)
+    const s = await standing(p, measure, tex)
+    if (!s) { failed.push(p); continue }
+    const placed = await gameObjectItem(entryById(s.id)!, [p.at[0], p.at[1], p.at[2]], s.rot, ws)
     Object.assign(files, placed.files)
     items.push(placed.item)
   }
+  // How solid each building measured is, for the wizard's next maps (as "Check game pieces" measures it).
+  const known = useGameLabels.getState().labels, covers: Record<string, { cover: number }> = {}
+  const buildings = new Set(parts.filter((p) => p.label === 'Game building').flatMap((p) => [p.game!.id, ...(p.game!.alts ?? [])]))
+  for (const [id, r] of ready) {
+    const fit = await r
+    if (fit && buildings.has(id) && known[id]?.cover === undefined) covers[id] = { cover: +fit.cover.toFixed(3) }
+  }
+  if (Object.keys(covers).length) await setLabels(covers).catch(() => {})
   return { items, files, failed }
 }
