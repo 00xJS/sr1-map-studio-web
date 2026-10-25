@@ -798,8 +798,8 @@ export function cutOne(city: City, b: Spot): { m: CityModule; score: number } | 
       if (e.kitOf === fam) layer = 'kit'
       else if (id.role === 'fence') layer = 'fence'
       else if (id.role === 'piece') {
-        // A piece standing away from the building is part of something else (an el track, an overpass).
-        if (!onThis(s, 1.5)) continue
+        // A piece standing away from the building, or bigger than it, is part of something else (an el track, an overpass).
+        if (!onThis(s, 1.5) || Math.max(e.size[0], e.size[1]) > Math.max(b.ext[0], b.ext[1]) + 2 || e.size[2] > b.h + 5) continue
         layer = 'detail'
       } else {
         const onWall = Math.abs(Math.abs(s.at[0] - b.at[0]) - hx) < 0.8 || Math.abs(Math.abs(s.at[2] - b.at[2]) - hz) < 0.8
