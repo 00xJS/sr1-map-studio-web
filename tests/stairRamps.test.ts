@@ -1,6 +1,6 @@
 // The invisible ramps over tall steps (src/lib/stairRamps.ts), on stairs made here from boxes (editor units).
 import { describe, expect, it } from 'vitest'
-import { findStairs, rampPieces, scaleRuns, MAX_RAMP_DEG } from '../src/lib/stairRamps'
+import { findStairs, rampPieces, scaleRuns, MAX_RAMP_DEG, SINGLE_DEG, SINGLE_MAX_RISER } from '../src/lib/stairRamps'
 import { compoundObj, shapeObj } from '../src/lib/shapes'
 import { parseObj } from '../src/lib/geometry'
 import { STEP } from '../src/lib/player'
@@ -56,11 +56,10 @@ describe('ramps over steps too tall to walk up', () => {
     expect(r[0].up[1]).toBeCloseTo(Math.cos(Math.PI / 6), 2)
   })
 
-  it('leaves alone steps the player walks up, a single ledge, a wall and ladder-steep steps', () => {
+  it('leaves alone steps the player walks up, a wall and ladder-steep steps', () => {
     expect(findStairs(stairs(8, STEP * 0.7, 1))).toHaveLength(0)
     // Exactly a step (0.28 m), as the site's own stairs are built: walked up, no ramp.
     expect(findStairs(stairs(8, STEP, 0.75, 2))).toHaveLength(0)
-    expect(findStairs(stairs(1, 0.9, 2))).toHaveLength(0)
     expect(findStairs(Float32Array.from([...box([-40, -1, -40], [40, 0, 40]), ...box([-5, 0, 3], [5, 6, 4])]))).toHaveLength(0)
     // Two steps need stair proportions: a bench-like pair (0.5 m steps) and a steep casing (54°) are left alone,
     // a short flight of real stairs (0.34 m steps, 27°) is not.
@@ -70,6 +69,23 @@ describe('ramps over steps too tall to walk up', () => {
     const steep = findStairs(stairs(6, 1.2, 0.6))
     expect(steep.every((r) => r.slopeDeg <= MAX_RAMP_DEG)).toBe(true)
     expect(steep).toHaveLength(0)
+  })
+
+  it('gives a single step too tall to walk up a wedge on each open side, and a ledge too tall for one none', () => {
+    // One 0.45 m step up to a raised floor (a doorstep, a terrace): front, back and both sides.
+    const one = findStairs(stairs(1, 0.9, 2))
+    expect(one).toHaveLength(4)
+    for (const r of one) {
+      expect(r.steps).toBe(1)
+      expect(r.slopeDeg).toBe(SINGLE_DEG)
+      expect(r.to[1] - r.from[1]).toBeCloseTo(0.9, 2)
+    }
+    const front = one.find((r) => r.up[1] > 0.9)!
+    expect(front.from[2]).toBeCloseTo(-0.9 / Math.tan((SINGLE_DEG * Math.PI) / 180), 2)
+    // Taller than a step can be (0.7 m): a ledge to jump, no wedge.
+    expect(findStairs(stairs(1, SINGLE_MAX_RISER + 0.1, 2))).toHaveLength(0)
+    // Too narrow for a player, or no floor on top: none.
+    expect(findStairs(stairs(1, 0.9, 2, 1.5))).toHaveLength(0)
   })
 
   it("finds the editor's own Stairs shape once it's scaled up past a step, and not before", () => {

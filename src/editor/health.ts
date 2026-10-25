@@ -9,6 +9,8 @@ import { analyzeProject, cancelAnalysis } from '../lib/analysis/client'
 import type { HealthReport } from '../lib/analysis/types'
 import { buildOverlay, type Overlay, type OverlayKind } from './healthOverlay'
 import { textureBudget } from '../lib/textureBudget'
+import { findStairs, scaleRuns } from '../lib/stairRamps'
+import { isRamps, solidTriangles } from './stairActions'
 import { db } from '../lib/db'
 
 export type { OverlayKind }
@@ -47,6 +49,9 @@ export async function runHealthCheck(overlay?: OverlayKind) {
   try {
     const report = await analyzeProject(project, { onProgress: (text, done) => useHealth.setState({ progress: { text, done } }) })
     // Its textures as the exporter will store them: a map whose textures don't fit the game's memory loads black.
+    // Steps too tall to walk up (a flight, a doorstep, a terrace) that have no invisible ramp yet: players stop at each.
+    const stairs = await tallSteps(project).catch(() => 0)
+    if (stairs) report.findings.push(`${stairs} step${stairs === 1 ? '' : 's'} or flight${stairs === 1 ? '' : 's'} too tall to walk up (over about 0.28 m a step): players stop at each. Stairs too tall to run up → Add invisible ramps.`)
     const tex = await textureBudget(project, pictureSize).catch(() => null)
     if (tex) {
       report.textures = tex
@@ -62,6 +67,15 @@ export async function runHealthCheck(overlay?: OverlayKind) {
   } catch (err) {
     useHealth.setState({ running: false, progress: null, error: (err as Error).message })
   }
+}
+
+/** How many flights and single steps too tall to walk up the map has without a ramp over them. */
+async function tallSteps(project: Parameters<typeof solidTriangles>[0]): Promise<number> {
+  const input = await solidTriangles(project)
+  const k = (project.settings.world_scale || 0.5) / 0.5
+  const runs = scaleRuns(findStairs(k === 1 ? input.tris : input.tris.map((v) => v * k), input.flags), 1 / k)
+  // With the map's ramps in place, the steps under them are covered.
+  return project.scene_items.some(isRamps) ? 0 : runs.length
 }
 
 const sizes = new Map<string, Promise<[number, number] | null>>()
