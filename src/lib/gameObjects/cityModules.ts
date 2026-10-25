@@ -15,6 +15,7 @@
 import type { Vec3 } from '../project'
 import type { WizardSetting } from '../mapWizard'
 import type { GameObjectEntry } from './indexer'
+import { placementRule, type Library } from './placement'
 
 /** A side of a module or group in its own frame. */
 export type Side = '+x' | '-x' | '+z' | '-z'
@@ -103,6 +104,8 @@ export interface PlacementRule {
   reach?: 'stairs' | 'ramp' | 'ladder'
   /** What may vary when it is placed (turned, mirrored, a colour variant, nudged); everything else stays as the game has it. */
   mayVary: ('turn' | 'mirror' | 'variant' | 'nudge')[]
+  /** Wall and hanging things: how high the game mostly has their feet above the ground (metres). */
+  mountHeight?: number
   /** For cover and sight: how high it is and whether players can see or shoot through it. */
   coverHeight?: number
   seeThrough?: boolean
@@ -118,7 +121,12 @@ export function groups(_entries: GameObjectEntry[]): CityGroup[] {
   return []
 }
 
-/** A model's placement rule (phase B). Until it is filled in: stands on the ground, may turn. */
-export function placementOf(_entry: GameObjectEntry): PlacementRule {
-  return { attach: 'ground', mayVary: ['turn'] }
+/**
+ * A model's placement rule, from how the game stands it in the city and what identify() says about it
+ * (placement.ts). Pass the library by id (`lib`) so a part is checked against its whole and variants are found;
+ * placementRules(entries) in placement.ts answers for every model at once. The player's corrections go on top
+ * with withPlacementLabels (labels.ts).
+ */
+export function placementOf(entry: GameObjectEntry, lib?: Library): PlacementRule {
+  return placementRule(entry, lib)
 }

@@ -6,6 +6,7 @@
 import { meshIndexCount, meshTextures, meshTriangleCount, type Chunk } from './chunk'
 import { baseName, buildingCode, skipName } from './classify'
 import { BUILDINGS, CATEGORIES, buildingKind, chunkDistricts, identify } from './identity'
+import { SITS_LEN, Solid, probeChunk, sitsFrom, type Sits, type Target } from './sits'
 
 export type Vec3 = [number, number, number]
 
@@ -75,6 +76,8 @@ export interface GameObjectEntry {
    * cut-out frame, game axes, metres) and turned how (radians about +Y): what completes it.
    */
   layout?: GamePart[]
+  /** How the game stands it (on the ground, on a wall, on a roof, hanging), from a few of its placements per chunk (sits.ts). */
+  sits?: Sits
 }
 
 export interface GamePart { id: string; at: Vec3; yaw: number; share: number }
@@ -120,7 +123,7 @@ export function summarizeChunk(ch: Chunk, chunk: string): MapSummary {
  * next to its placements (by id, offset and turn: [count, summed x, y, z, turn]); `around` how many of its
  * placements have each model within NEAR metres.
  */
-export interface Candidate extends GameObjectEntry { key: string; up: number; close?: Record<string, number[]>; around?: Record<string, number>; on?: Record<string, number>; onAt?: Record<string, number[]> }
+export interface Candidate extends GameObjectEntry { key: string; up: number; close?: Record<string, number[]>; around?: Record<string, number>; on?: Record<string, number>; onAt?: Record<string, number[]>; sitSums?: number[]; sitCover?: number }
 
 /** Smaller than this across is a speck nobody could place. */
 const MIN_SIDE = 0.03
@@ -204,7 +207,7 @@ const NEAR = 6
 const TOUCH = 0.15
 
 /** One placed model: where its feet stand, its turn, half its long side across and its height. */
-interface Placement { key: string; at: Vec3; yaw: number; half: number; h: number; ext: [number, number] }
+interface Placement { key: string; at: Vec3; yaw: number; half: number; h: number; ext: [number, number]; inst?: number }
 
 /** Counts, for each placement, what stands at the same spot and what stands around it (see Candidate). */
 function relate(places: Placement[], out: Map<string, Candidate>) {
@@ -261,6 +264,8 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
 
   const districts = chunkDistricts(ch.records.map((r) => r.name))
   const places: Placement[] = []
+  // The instances that are a building's parts (solid walls and floors for sits.ts).
+  const structure = new Set<number>()
   const named = new Set<number>()
   ch.records.forEach((rec, i) => {
     named.add(rec.instance)
@@ -319,6 +324,7 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
       const size: Vec3 = [r2(Math.max(ext[0], ext[2])), r2(Math.min(ext[0], ext[2])), r2(ext[1])]
       const key = `b|${members.length}|${idx}|${ext.map((v) => Math.round(v * 10)).join(',')}`
       const parts = members.map((m) => recs[m]).sort((a, b) => a - b)
+      for (const m of members) structure.add(ch.records[recs[m]].instance)
       places.push({ key, at: [(min[0] + max[0]) / 2, min[1], (min[2] + max[2]) / 2], yaw: 0, half: Math.max(ext[0], ext[2]) / 2, h: ext[1], ext: [ext[0], ext[2]] })
       const prev = out.get(key)
       if (prev) { prev.seen++; continue }
@@ -349,7 +355,7 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
     const tex = meshTextures(ch, mesh)
     const key = `o|${meshIndexCount(mesh)}|${ext.map((v) => Math.round(v * 100)).join(',')}|${(tex[0] ?? '').toLowerCase()}`
     const name = rec ? baseName(rec.name) : textureName(tex[0] ?? '') || 'piece'
-    places.push({ key, ...anchorOf(b, inst.position, inst.rotation), half: size[0] / 2, h: size[2] })
+    places.push({ key, ...anchorOf(b, inst.position, inst.rotation), half: size[0] / 2, h: size[2], inst: rec ? rec.instance : -i - 1 })
     const prev = out.get(key)
     if (prev) {
       prev.seen++
@@ -392,7 +398,28 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
     const v = ((c.onAt ??= {})[`${id}|${at.map((x) => Math.round(x * 4)).join(',')}|${Math.round(t / (Math.PI / 12))}`] ??= [0, 0, 0, 0, 0])
     v[0]++; v[1] += at[0]; v[2] += at[1]; v[3] += at[2]; v[4] += t
   }
+  standing(ch, places, out, structure, hosts, boundsOf)
   return [...out.values()]
+}
+
+/** How the chunk stands each model that isn't a building, the ground or never drawn (sits.ts): onto the candidates. */
+function standing(ch: Chunk, places: Placement[], out: Map<string, Candidate>, structure: Set<number>, hosts: Placement[], boundsOf: (m: number) => Box | null) {
+  const kinds = new Map<number, Solid>()
+  for (const n of structure) kinds.set(n, Solid.Structure)
+  const targets: Target[] = []
+  for (const p of places) {
+    if (p.inst === undefined) continue
+    const c = out.get(p.key)!, role = identify(c).role
+    kinds.set(p.inst, role === 'skip' ? Solid.None : role === 'ground' ? Solid.Ground : role === 'prop' ? Solid.Prop : Solid.Structure)
+    if (role !== 'skip' && role !== 'ground' && !buildingKind(c)) targets.push({ inst: p.inst, key: p.key, at: p.at, yaw: p.yaw, ext: p.ext, h: p.h })
+  }
+  if (!targets.length) return
+  const inside = (q: Vec3) => hosts.some((h) => Math.abs(q[0] - h.at[0]) <= h.ext[0] / 2 + 0.5 && Math.abs(q[2] - h.at[2]) <= h.ext[1] / 2 + 0.5 && q[1] >= h.at[1] - 1 && q[1] <= h.at[1] + h.h + 1)
+  for (const [key, r] of probeChunk(ch, targets, (n) => kinds.get(n) ?? Solid.None, boundsOf, inside)) {
+    const c = out.get(key)!
+    c.sitSums = r.sums
+    if (r.cover !== undefined) c.sitCover = r.cover
+  }
 }
 
 /** At least this share of a model's placements have the other at the same spot: one assembled thing. */
@@ -540,7 +567,7 @@ export const textureName = (t: string) => t.replace(/\.\w+$/, '').replace(/_(tm|
  * how often the game uses it.
  */
 export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
-  const by = new Map<string, { copies: Candidate[]; seen: number; names: Map<string, number>; ups: Map<number, number>; raw: Set<string>; where: Set<string>; districts: Set<string>; close: Map<string, number[]>; around: Map<string, number>; on: Map<string, number>; onAt: Map<string, number[]> }>()
+  const by = new Map<string, { copies: Candidate[]; seen: number; names: Map<string, number>; ups: Map<number, number>; raw: Set<string>; where: Set<string>; districts: Set<string>; close: Map<string, number[]>; around: Map<string, number>; on: Map<string, number>; onAt: Map<string, number[]>; sits?: number[]; cover?: number }>()
   // How many different objects each chunk holds: copies are taken from as few chunks as possible, so drawing a
   // page of pictures reads few chunks.
   const perChunk = new Map<string, number>()
@@ -554,6 +581,8 @@ export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
     for (const [k, n] of Object.entries(c.around ?? {})) g.around.set(k, (g.around.get(k) ?? 0) + n)
     for (const [k, n] of Object.entries(c.on ?? {})) g.on.set(k, (g.on.get(k) ?? 0) + n)
     for (const [k, v] of Object.entries(c.onAt ?? {})) { const t = g.onAt.get(k); if (t) for (let i = 0; i < 5; i++) t[i] += v[i]; else g.onAt.set(k, [...v]) }
+    if (c.sitSums) { const t = (g.sits ??= new Array(SITS_LEN).fill(0)); for (let i = 0; i < SITS_LEN; i++) t[i] += c.sitSums[i] ?? 0 }
+    if (c.sitCover !== undefined) g.cover ??= c.sitCover
     g.copies.push(c)
     g.seen += c.seen
     for (const n of [c.name, ...(c.names ?? [])]) g.names.set(n, (g.names.get(n) ?? 0) + (n === c.name ? c.seen : 1))
@@ -568,7 +597,7 @@ export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
     const upBest = [...g.ups.entries()].sort((a, b) => b[1] - a[1])[0][0]
     const score = (c: Candidate) => (c.up === upBest ? 1e9 : 0) + (perChunk.get(c.pack + '/' + c.chunk) ?? 0)
     const best = g.copies.reduce((a, b) => (score(b) > score(a) ? b : a))
-    const { key: _k, up: _u, names: _n, raw: _r, districts: _d, close: _c, around: _a, on: _o, onAt: _oa, ...e } = best
+    const { key: _k, up: _u, names: _n, raw: _r, districts: _d, close: _c, around: _a, on: _o, onAt: _oa, sitSums: _s, sitCover: _sc, ...e } = best
     const names = [...g.names.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n)
     const entry: GameObjectEntry = { ...e, name: names[0] ?? e.name, seen: g.seen }
     if (names.length > 1) entry.names = names.slice(1, 5)
@@ -576,6 +605,7 @@ export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
     if (g.raw.size) entry.raw = [...g.raw]
     entry.where = [...g.where].sort()
     if (g.districts.size) entry.districts = [...g.districts].sort()
+    if (g.sits) entry.sits = sitsFrom(g.sits, g.cover)
     entries.push(entry)
     rel.set(entry.id, g)
   }

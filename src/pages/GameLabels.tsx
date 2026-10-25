@@ -8,6 +8,7 @@ import * as THREE from 'three'
 import { buildIndex, getObject, useGameObjects } from '../lib/gameObjects/client'
 import type { GameObjectEntry } from '../lib/gameObjects/indexer'
 import { identify, type GameRole } from '../lib/gameObjects/identity'
+import { snapshot } from '../lib/gameObjects/compose'
 
 const KEY = 'sr1:gameLabels'
 type Mark = { role: boolean; category: boolean; name: boolean; note?: string; truth?: GameRole }
@@ -30,27 +31,7 @@ export function labelSample(entries: GameObjectEntry[], pool: number, count: num
 }
 
 /** A bigger picture than the library's tiles (for counting a building's storeys), from the 3/4 view or straight at a side. */
-async function bigPicture(obj: THREE.Object3D, px: number, side?: string): Promise<string> {
-  const box = new THREE.Box3().setFromObject(obj)
-  const scene = new THREE.Scene()
-  scene.add(new THREE.HemisphereLight(0xffffff, 0x3a2a38, 2.2))
-  const sun = new THREE.DirectionalLight(0xffffff, 1.6)
-  sun.position.set(-0.4, 1, 0.7)
-  scene.add(sun, obj)
-  const c = box.getCenter(new THREE.Vector3()), size = box.getSize(new THREE.Vector3()), r = size.length() / 2 || 1
-  // The editor mirrors X: the game's +x side is the editor's -x.
-  const dir = side ? new THREE.Vector3(side[1] === 'x' ? (side[0] === '+' ? -1 : 1) : 0, 0.15, side[1] === 'z' ? (side[0] === '+' ? 1 : -1) : 0).normalize() : new THREE.Vector3(1, 0.8, 1.2).normalize()
-  const cam = new THREE.OrthographicCamera(-r, r, r, -r, 0.01, r * 8)
-  cam.position.copy(c).addScaledVector(dir, r * 4)
-  cam.lookAt(c)
-  const ren = new THREE.WebGLRenderer({ antialias: true, preserveDrawingBuffer: true })
-  ren.setSize(px, px)
-  ren.setClearColor(0x202028)
-  ren.render(scene, cam)
-  const url = ren.domElement.toDataURL('image/png')
-  ren.dispose()
-  return url
-}
+const bigPicture = (obj: THREE.Object3D, px: number, side?: string) => snapshot(obj, px, side)
 
 /** A building with every piece of its layout put where the game puts it (for checking layouts). */
 async function composed(e: GameObjectEntry, all: GameObjectEntry[]): Promise<THREE.Object3D> {
