@@ -154,10 +154,14 @@ def _split(data):
 MAP_REGION_FLAGS = 0
 
 
+COVER_SLACK = 0.01  # metres: the chunk stores 32-bit floats, so 59.52 reads back as 59.5199996
+
+
 def covered(chunk_bytes, x0, x1, z0, z1):
-    """Whether a region of the chunk covers the whole of x0..x1, z0..z1 (game metres)."""
+    """Whether a region of the chunk covers the whole of x0..x1, z0..z1 (game metres, to the centimetre)."""
+    e = COVER_SLACK
     for lo, hi, _ in read_regions(chunk_bytes):
-        if lo[0] <= x0 and hi[0] >= x1 and lo[2] <= z0 and hi[2] >= z1:
+        if lo[0] <= x0 + e and hi[0] >= x1 - e and lo[2] <= z0 + e and hi[2] >= z1 - e:
             return True
     return False
 

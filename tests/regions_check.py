@@ -78,6 +78,15 @@ if pack:
     check(inside and struct.unpack_from('>2I', new_blocks[2], 0) == (6, 6), 'map region: six planes, a point in the middle is inside')
     plain = regions.with_map_region(original, -80, 80, -70, 90, -20, 60)
     check(len(regions.read_regions(plain)) == 1, 'map region on a map without regions')
+    # Edges that 32-bit floats can't hold exactly (59.52 reads back as 59.5199996): it still reads back as covering them.
+    odd = (-109.52, 109.52, -101.03, 117.77, -50.0, 112.774)
+    try:
+        awkward = regions.with_map_region(original, *odd)
+        ok = regions.covered(awkward, *odd[:4])
+    except RuntimeError as exc:
+        ok = False
+        print('     ', exc)
+    check(ok, 'map region with edges a 32-bit float rounds (the export failure Slime hit)')
 else:
     print('skip template round trip (set SR1_DATA_PACK to run it)')
 

@@ -156,7 +156,7 @@ def full_export(pack, tmp, source):
         logs = []
         spec = dict(job=job, scene_items=[ground], markers=markers, lights=[], base_name='skytest', world_scale=0.5, mirror_x=True,
                     flip_obj_v=True, double_sided=False, sky_texture=sky_texture, native_sky_source=sky_source,
-                    minimap_texture=minimap, minimap_rect=[-40, -30, 40, 50])
+                    minimap_texture=minimap, minimap_rect=[-40.37, -30.11, 39.93, 50.19])
         r = json.loads(web_api.export_project(json.dumps(spec), logs.append))
         check(r['ok'], f'export {job}: runs' + ('' if r['ok'] else ': ' + r['error'] + '\n' + r.get('trace', '')))
         return r.get('value'), logs
@@ -177,10 +177,10 @@ def full_export(pack, tmp, source):
         _, ch, _ = read(v)
         check(v['summary']['game_sky'] == 0 and not native_sky.sky_list(ch) and fake_sky_draws(ch), 'export: without game files the fake sky stays')
         plain = (Path(v['out_dir']) / 'skytest.bbchunk_xbox2').read_bytes()
-        # The minimap region (minimap_region.py): the rect, in editor units, becomes 40 x 40 game metres.
+        # The minimap region (minimap_region.py): the rect, in editor units, becomes 40.15 x 40.15 game metres (edges a 32-bit float rounds).
         at = minimap_region.find(plain, 'skytest.tga')
         centre, size, pause = minimap_region.floor(plain, at) if at >= 0 else ((0, 0, 0), (0, 0, 0), 0)
-        check(at >= 0 and pause and abs(size[0] - 40) < 1e-3 and abs(size[2] - 40) < 1e-3 and minimap_region.find(plain) < 0,
+        check(at >= 0 and pause and abs(size[0] - 40.15) < 1e-3 and abs(size[2] - 40.15) < 1e-3 and minimap_region.find(plain) < 0,
               f'export: the minimap region names skytest.tga over the rendered area, pause map on ({size[0]:.1f} x {size[2]:.1f} m)')
         x0, z0 = centre[0] - size[0] / 2, centre[2] - size[2] / 2
         check(regions.covered(plain, x0, x0 + size[0], z0, z0 + size[2]) and regions.read_regions(plain)[-1][2] == regions.MAP_REGION_FLAGS,
