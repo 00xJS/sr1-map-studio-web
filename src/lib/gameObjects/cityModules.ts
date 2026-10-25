@@ -30,6 +30,8 @@ export interface ModulePart {
   /** Turn about the vertical, degrees. */
   yaw: number
   layer: PartLayer
+  /** Its size across x and z in its own (cut-out) frame, metres: what it covers before it is turned. */
+  ext?: [number, number]
 }
 
 /** What a module's edge is, so modules join where they make sense (street to street, back to back). */

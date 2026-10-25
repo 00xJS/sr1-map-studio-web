@@ -340,6 +340,8 @@ export class City {
   spots: Spot[]
   chunks: ChunkSpots[]
   buildings: Spot[]
+  /** Each model's size across in its own (cut-out) frame. */
+  foot = new Map<string, [number, number]>()
   private ids = new Map<string, GameIdentity>()
   private all: Grid
   private walls: Grid
@@ -360,6 +362,7 @@ export class City {
       seen.add(k)
       return true
     })
+    for (const s of this.spots) if (!this.foot.has(s.id)) this.foot.set(s.id, [r2(s.ext[0]), r2(s.ext[1])])
     this.buildings = this.spots.filter((s) => s.site && this.role(s) === 'building' && buildingKind(this.entry(s)) === 'whole')
     this.all = new Grid(16)
     this.spots.forEach((s, i) => this.all.add(i, s.at[0], s.at[2]))
@@ -613,7 +616,7 @@ function makeGroup(city: City, a: string, members: { id: string; at: Vec3; t: nu
   }
   const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2
   const y0 = Math.min(...raw.map((p) => p.at[1]))
-  const parts: ModulePart[] = raw.map((p) => ({ id: p.id, at: [r2(p.at[0] - cx), r2(p.at[1] - y0), r2(p.at[2] - cz)], yaw: deg(p.t), layer: 'prop' as PartLayer }))
+  const parts: ModulePart[] = raw.map((p) => ({ id: p.id, at: [r2(p.at[0] - cx), r2(p.at[1] - y0), r2(p.at[2] - cz)], yaw: deg(p.t), layer: 'prop' as PartLayer, ...(city.foot.has(p.id) ? { ext: city.foot.get(p.id)! } : {}) }))
   // Where it stands: against a building's wall (and which of its sides backs onto it), on a roof, or on open ground.
   let wall = 0, roof = 0
   const backs = new Map<Side, number>()
@@ -777,7 +780,7 @@ export function cutOne(city: City, b: Spot): { m: CityModule; score: number } | 
   const inRect = (x: number, z: number, pad = 0) => x >= rect[0] - pad && x <= rect[2] + pad && z >= rect[1] - pad && z <= rect[3] + pad
   const onThis = (s: Spot, pad: number) => Math.abs(s.at[0] - b.at[0]) <= hx + pad && Math.abs(s.at[2] - b.at[2]) <= hz + pad && s.at[1] >= base - 1 && s.at[1] <= base + b.h + 1
   const fam = familyOf(be)
-  const parts: ModulePart[] = [{ id: b.id, at: [r2(b.at[0] - cx), 0, r2(b.at[2] - cz)], yaw: 0, layer: 'shell' }]
+  const parts: ModulePart[] = [{ id: b.id, at: [r2(b.at[0] - cx), 0, r2(b.at[2] - cz)], yaw: 0, layer: 'shell', ext: [r2(b.ext[0]), r2(b.ext[1])] }]
   const climbs: Climb[] = [...(b.site?.climbs ?? [])]
   const fences: Spot[] = [], blockers: Spot[] = []
   let tris = be.tris, props = 0
@@ -787,10 +790,10 @@ export function cutOne(city: City, b: Spot): { m: CityModule; score: number } | 
     if (id.role === 'building' || id.role === 'skip') continue
     let layer: PartLayer
     if (id.role === 'ground') {
-      // A ground tile belongs when it lies inside, give or take a few metres (tiles are big: 20-60 m).
+      // A ground tile belongs when it lies inside (tiles are big, 20-60 m: one sticking out is left to the map).
       const [l, w] = s.ext, co = Math.abs(Math.cos(s.yaw)), si = Math.abs(Math.sin(s.yaw))
       const ex = (l * co + w * si) / 2, ez = (l * si + w * co) / 2
-      if (!inRect(s.at[0], s.at[2]) || !inRect(s.at[0] - ex, s.at[2] - ez, 4) || !inRect(s.at[0] + ex, s.at[2] + ez, 4) || Math.abs(s.at[1] - base) > 3) continue
+      if (!inRect(s.at[0], s.at[2]) || !inRect(s.at[0] - ex, s.at[2] - ez, 0.5) || !inRect(s.at[0] + ex, s.at[2] + ez, 0.5) || Math.abs(s.at[1] - base) > 3) continue
       layer = 'ground'
     } else {
       if (!inRect(s.at[0], s.at[2]) || s.at[1] < base - 3 || s.at[1] > base + b.h + 2) continue
@@ -813,7 +816,7 @@ export function cutOne(city: City, b: Spot): { m: CityModule; score: number } | 
       climbs.push({ kind, at: [r2(s.at[0] - b.at[0]), r2(s.at[1] - base), r2(s.at[2] - b.at[2])], top: r2(s.at[1] - base + s.h) })
     }
     tris += e.tris
-    parts.push({ id: s.id, at: [r2(s.at[0] - cx), r2(s.at[1] - base), r2(s.at[2] - cz)], yaw: deg(s.yaw), layer })
+    parts.push({ id: s.id, at: [r2(s.at[0] - cx), r2(s.at[1] - base), r2(s.at[2] - cz)], yaw: deg(s.yaw), layer, ext: [r2(s.ext[0]), r2(s.ext[1])] })
   }
   // Edges and where players pass: along each side's outer line, a metre at a time, what blocks the way.
   const edges: ModuleEdge[] = sides.map(({ side, kind }) => {
