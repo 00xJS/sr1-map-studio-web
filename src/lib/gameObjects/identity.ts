@@ -7,7 +7,7 @@
 // One rule table (RULES) decides role, category, name and prop kind together, from the model's record names, the
 // game's own names for it, its physics profile and textures, its size and shape and where it is placed. Only rules
 // live here, no lists of the game's names.
-import type { GameObjectEntry } from './indexer'
+import type { GameObjectEntry, GamePart } from './indexer'
 import type { WizardSetting } from '../mapWizard'
 
 export type GameRole =
@@ -56,6 +56,17 @@ export interface GameIdentity {
   settings: WizardSetting[]
   /** Buildings only. */
   building?: BuildingFacts
+  /**
+   * The other models that make this one whole, where each stands in this one's frame (a lamp's base and foot, a
+   * fence panel's feet, a container's doors): place them with it. See GameObjectEntry.assembly.
+   */
+  assembly?: GamePart[]
+  /** It is one of those parts of a bigger model (its id): placed with that one, not alone. */
+  partOf?: string
+  /** A second copy of another model at the same spot (its id): place one or the other, never both. */
+  copyOf?: string
+  /** The models the game most often stands near this one (ids, most telling first), for placing things where they belong. */
+  near?: string[]
 }
 
 // ---------------- categories ----------------
@@ -375,6 +386,8 @@ function factsOf(e: GameObjectEntry): Facts {
   if (!loose) names.add(clean(e.name))
   for (const n of e.names ?? []) if (!loose) names.add(clean(n))
   for (const r of e.raw ?? []) names.add(clean(r))
+  // A copy with no names of its own goes by the names of the model it copies.
+  if (!names.size) for (const n of e.copyNames ?? []) names.add(clean(n))
   const profile = e.profile && !PLAIN_PROFILE.test(e.profile.trim()) ? [e.profile.toLowerCase().trim().replace(/[\s'"-]+/g, '_')] : []
   const [a, b, h] = e.size
   // Variant letters at the end ("platea", "chairpatiob") hide the word: the name without them too.
@@ -672,6 +685,12 @@ export function identify(e: GameObjectEntry): GameIdentity {
     if (c.role !== 'skip' && d.length > 0 && d.length <= 2) for (const x of d) for (const s of DISTRICT_SETTINGS[x] ?? []) settings.add(s)
     id = { ...c, settings: [...settings] }
   }
+  // What it is placed with (indexer.ts works it out from where the game puts things).
+  if (e.partOf && id.role === 'prop') { id.role = 'piece'; delete id.kind }
+  if (e.assembly?.length) id.assembly = e.assembly
+  if (e.partOf) id.partOf = e.partOf
+  if (e.copyOf) id.copyOf = e.copyOf
+  if (e.near?.length) id.near = e.near.map((n) => n.id)
   memo.set(e, id)
   return id
 }

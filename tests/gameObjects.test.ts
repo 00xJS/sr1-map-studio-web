@@ -119,6 +119,56 @@ describe('library index', () => {
   })
 })
 
+describe('what the game places together', () => {
+  // A street: lamp posts on their bases (two copies turned), each with a bench 2 m along its own +x, a second copy
+  // of each bench at its spot (placed without a record), and one lone crate.
+  const street = (): Spec => {
+    const spots = [[0, 0, 0, 0], [40, 0, 0, 90], [0, 0, 40, 180], [40, 0, 40, 0]]
+    const instances: Spec['instances'] = [], records: Spec['records'] = []
+    spots.forEach(([x, y, z, yaw], i) => {
+      const t = (yaw * Math.PI) / 180
+      // The bench stands 2 m along the lamp's own x axis, wherever the lamp is turned.
+      const bx = x + 2 * Math.cos(t), bz = z - 2 * Math.sin(t)
+      records.push({ name: `lamppoststa0${i}`, instance: instances.length }); instances.push({ pos: [x, y + 0.5, z], rot: yawRot(yaw), mesh: 0 })
+      records.push({ name: `lamppostbsea0${i}`, instance: instances.length }); instances.push({ pos: [x, y, z], rot: yawRot(yaw), mesh: 1 })
+      records.push({ name: `benchparka0${i}`, instance: instances.length, profile: 'Park Bench' }); instances.push({ pos: [bx, y, bz], rot: yawRot(yaw), mesh: 2 })
+      instances.push({ pos: [bx, y, bz], rot: yawRot(yaw), mesh: 3 })
+    })
+    records.push({ name: 'crate01', instance: instances.length }); instances.push({ pos: [100, 0, 100], mesh: 4 })
+    return {
+      strings: ['lamp_me.tga', 'conc_co.tga', 'bench_wo.tga', 'benchbroken_wo.tga', 'crate_wo.tga'],
+      vbs: [box(0.4, 6, 0.4), box(0.8, 0.5, 0.8), box(2, 0.9, 0.7), box(1.8, 0.8, 0.7), box(1, 1, 1)],
+      materials: [[0], [1], [2], [3], [4]],
+      meshes: [0, 1, 2, 3, 4].map((v) => ({ subs: [{ vb: v, batches: [[0, 10, v]] }] })),
+      instances, records,
+    }
+  }
+
+  it('finds the parts that make one whole thing, copies at the same spot, and neighbours', () => {
+    const lib = mergeCandidates(indexChunk(readChunk(buildChunk(street())), 'sr_city_stream', 'sr_chunk01'))
+    const by = (n: string) => lib.find((e) => e.name === n)!
+    const lamp = by('lamppoststa'), base = by('lamppostbsea'), bench = by('benchparka')
+    const copy = lib.find((e) => e.record < 0)!
+    // The base is part of the lamp, at its feet, however each copy is turned.
+    expect(lamp.assembly).toHaveLength(1)
+    expect(lamp.assembly![0]).toMatchObject({ id: base.id, yaw: 0, share: 1 })
+    expect(lamp.assembly![0].at.map((v) => Math.round(v * 10) / 10)).toEqual([0, -0.5, 0])
+    expect(base.partOf).toBe(lamp.id)
+    // The bench is no part of the lamp (they don't touch), but it stands near it.
+    expect(bench.partOf ?? lamp.partOf ?? bench.assembly).toBeUndefined()
+    expect(lamp.near?.map((n) => n.id)).toContain(bench.id)
+    // The record-less mesh at every bench's spot is a copy of the bench and takes its names.
+    expect(copy.copyOf).toBe(bench.id)
+    expect(identify(copy)).toMatchObject({ name: 'Bench', copyOf: bench.id })
+    expect(lamp.near?.map((n) => n.id)).not.toContain(copy.id)
+    // The lone crate has no companions.
+    expect(by('crate').assembly ?? by('crate').near ?? by('crate').partOf).toBeUndefined()
+    // identify() hands all of it on.
+    expect(identify(lamp)).toMatchObject({ assembly: lamp.assembly, near: expect.arrayContaining([bench.id]) })
+    expect(identify(base)).toMatchObject({ role: 'piece', partOf: lamp.id })
+  })
+})
+
 describe('cutting an object out', () => {
   const ch = readChunk(buildChunk(world()))
 
@@ -284,6 +334,21 @@ describe.skipIf(!GAME_TESTS || !haveGame)('the library from a local game install
     expect(buildings.every(([, id]) => /^(\d+-storey|Single-storey|Large|Small|[A-Z][a-z]+) /.test(id.name) && id.building!.storeys >= 1 && id.settings.length > 0)).toBe(true)
     expect(buildings.filter(([, id]) => id.building!.front).length).toBeGreaterThan(150)
     expect(buildings.filter(([, id]) => id.building!.districts?.length).length).toBeGreaterThan(buildings.length * 0.8)
+
+    // What the game places together: assemblies point at real models (never at copies), parts know their whole,
+    // and most of the street furniture placed more than a couple of times has neighbours.
+    const byId = new Map(lib.map((e) => [e.id, e]))
+    const assembled = lib.filter((e) => e.assembly)
+    console.log(`together: ${assembled.length} assemblies, ${lib.filter((e) => e.partOf).length} parts, ${lib.filter((e) => e.copyOf).length} copies, ${lib.filter((e) => e.near).length} with neighbours`)
+    expect(assembled.length).toBeGreaterThan(1000)
+    for (const e of assembled) for (const p of e.assembly!) {
+      expect(byId.get(p.id)?.copyOf, e.name).toBeUndefined()
+      expect(byId.get(p.id)!.partOf).toBeDefined()
+      expect(Math.hypot(...p.at)).toBeLessThan(Math.max(...e.size) + Math.max(...byId.get(p.id)!.size) + 1)
+    }
+    expect(lib.filter((e) => e.copyOf).every((e) => byId.get(e.copyOf!) && !byId.get(e.copyOf!)!.copyOf)).toBe(true)
+    const street = ids.filter(([e, id]) => id.category === 'Street furniture' && id.role === 'prop' && e.seen >= 3)
+    expect(street.filter(([e]) => e.near?.length).length).toBeGreaterThan(street.length * 0.8)
 
     // For tests/game_objects_check.py (a full export of a game object through the Python exporter).
     const out = process.env.SR1_GAME_OBJECT_OUT
