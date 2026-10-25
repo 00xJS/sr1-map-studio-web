@@ -4,7 +4,8 @@
 import { describe, expect, it } from 'vitest'
 import type { GameObjectEntry } from '../src/lib/gameObjects/indexer'
 import type { GameIdentity } from '../src/lib/gameObjects/identity'
-import { GamePieces, TEXTURE_BUDGET, TRI_BUDGET, gameParts, modelTurn } from '../src/lib/gameObjects/wizardPieces'
+import { GamePieces, TEXTURE_BUDGET, TRI_BUDGET, footprint, gameParts, modelTurn, prepare } from '../src/lib/gameObjects/wizardPieces'
+import { withLabels, type GameLabels } from '../src/lib/gameObjects/labels'
 import { wizardLayout, wizardSample, type WizardOptions } from '../src/lib/mapWizard'
 
 type Fake = Partial<GameObjectEntry> & { id: string; who: Omit<GameIdentity, 'category' | 'name'> & { name?: string } }
@@ -157,5 +158,56 @@ describe('game pieces: whole maps', () => {
     expect(ids(21)).not.toBe(ids(22))
     const differ = new Set([31, 32, 33, 34, 35, 36].map((seed) => pieces(opts({ seed })).building(0, -40, 30, 24)!.game!.id))
     expect(differ.size).toBeGreaterThan(1)
+  })
+})
+
+describe('game pieces: bigger plots', () => {
+  it('lets a building spread into the room round a plot too small for any', () => {
+    const gp = pieces(opts())
+    expect(gp.building(0, -40, 10, 8)).toBeNull()
+    const p = gp.building(0, -40, 10, 8, 1, 0, 2, [], { w: 30, d: 24 })!
+    expect(role(p.game!.id)).toBe('building')
+    const [fx, fz] = footprint(p)
+    expect(fx).toBeLessThanOrEqual(30)
+    expect(fz).toBeLessThanOrEqual(24)
+    // At least half the plot it was asked for.
+    expect(fx * fz).toBeGreaterThanOrEqual(0.5 * 10 * 8)
+  })
+
+  it('stands against the street edge of its room when asked', () => {
+    const gp = pieces(opts())
+    const p = gp.building(0, -40, 26, 12, 1, 0, 2, [], { w: 26, d: 30, toFront: true })!
+    const [, fz] = footprint(p)
+    // Its front (+Z) edge on the room's front edge.
+    expect(p.at[2] + fz / 2).toBeCloseTo(-40 + 15, 5)
+  })
+})
+
+describe('game pieces: the player\'s labels', () => {
+  const lib = (o: Partial<WizardOptions>, labels: GameLabels) => prepare(entries, (o.setting ?? 'downtown'), identify, labels, 1)
+  const ids = (cs: { e: GameObjectEntry }[]) => cs.map((c) => c.e.id)
+
+  it('follows the roles, kinds and settings the player gave', () => {
+    const base = withLabels({}, identify)
+    expect(base(entries.find((e) => e.id === 'tree')!).kind).toBe('nature')
+    const l = withLabels({ tree: { role: 'skip' }, crate: { role: 'building' }, bags: { kind: 'street' }, shed_any: { settings: ['rundown'] } }, identify)
+    expect(l(entries.find((e) => e.id === 'tree')!).role).toBe('skip')
+    const crate = l(entries.find((e) => e.id === 'crate')!)
+    expect(crate.role).toBe('building')
+    expect(crate.building?.footprint).toEqual([1.2, 1.2])
+    expect(l(entries.find((e) => e.id === 'bags')!).kind).toBe('street')
+    expect(l(entries.find((e) => e.id === 'shed_any')!).settings).toEqual(['rundown'])
+    // The wizard's lists follow them.
+    const p = lib({}, { tree: { role: 'skip' }, bags: { kind: 'street' } })
+    expect(ids(p.props.get('nature') ?? [])).not.toContain('tree')
+    expect(ids(p.props.get('street') ?? [])).toContain('bags')
+  })
+
+  it('leaves out buildings measured as see-through and favours ones the player checked', () => {
+    expect(ids(lib({}, { shop_down: { cover: 0.2 } }).buildings)).not.toContain('shop_down')
+    expect(ids(lib({}, { shop_down: { cover: 0.95 } }).buildings)).toContain('shop_down')
+    const plain = lib({}, {}).buildings.find((c) => c.e.id === 'shed_any')!
+    const ok = lib({}, { shed_any: { ok: true } }).buildings.find((c) => c.e.id === 'shed_any')!
+    expect(ok.weight).toBeCloseTo(plain.weight * 3, 5)
   })
 })

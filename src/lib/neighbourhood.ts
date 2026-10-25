@@ -105,29 +105,44 @@ export function neighbourhood(c: HoodContext): HoodResult {
     half.push(box('Lot', [bw, WALK_H, bd], [cx, 1, (b.z0 + b.z1) / 2], tex.lot, PB.concrete, 0, 6))
     const fd = Math.max(12, Math.min(20, Math.round(bd * 0.42)))
     const fz = b.z1 - 1 - fd / 2
+    // Game pieces: a building may reach back into the yard (leaving a few metres of it), standing on the street.
+    const deep = Math.max(fd, Math.min(bd - 12, Math.round(fd * 2.2)))
+    const room = (w: number) => ({ w, d: deep, z: b.z1 - 1 - deep / 2 })
+    // How deep the street front reaches from the front edge.
+    let used = fd
+    const reach = (p: Part) => { if (p.game) used = Math.max(used, b.z1 - 1 - (p.at[2] - ((p.rot ?? 0) % 180 === 90 ? p.size[0] : p.size[2]) / 2)) }
     // Street front: two buildings with an alley between them, or one with room round it.
     const fronts: [number, number][] = bw >= 34 ? (() => { const w = Math.floor((bw - 2 - 6) / 2); return [[b.x0 + 1 + w / 2, w], [b.x1 - 1 - w / 2, w]] })() : [[cx, bw - 8]]
+    // Game pieces: one big game building across the whole front, when one fits.
+    const whole = c.pieces?.any ? block(cx, fz, fronts[0][1], fd, 'S', room(bw - 2)) : []
+    if (whole[0]?.game) { half.push(...whole); reach(whole[0]); weapons.push([r.pick(['pump_action_shotgun', 'ak47', 'tec9']), [cx, LOT_Y, Math.round(b.z1 - 0.5)]]) }
     const walkInAt = r.chance(o.setting === 'cyber' || o.setting === 'paintball' ? 0.25 : 0.45) ? r.int(0, fronts.length - 1) : -1
-    fronts.forEach(([x, w], k) => {
+    if (!whole[0]?.game) fronts.forEach(([x, w], k) => {
       if (k === walkInAt) {
         const key = fd >= 14 && w >= 14 ? r.pick(['twostory', 'room']) : 'room'
         const made = c.walkIn(key, x, fz, w, fd, { style: r.pick(['brick', 'plaster', 'concrete']) }, LOT_Y)
         // Game pieces: a game building instead (players can't go in), its weapon on the doorstep.
-        const game = made.length ? c.pieces?.building(x, fz, w, fd, LOT_Y, 0, 2, made) : null
-        if (made.length) { half.push(...(game ? [game] : made)); weapons.push([r.pick(['pump_action_shotgun', 'ak47', 'tec9']), [x, LOT_Y, game ? Math.round(b.z1 - 0.5) : fz]]); return }
+        const rm = room(w)
+        const game = made.length ? c.pieces?.building(x, rm.z, w, fd, LOT_Y, 0, 2, made, { ...rm, toFront: true }) : null
+        if (made.length) {
+          half.push(...(game ? [game] : made)); if (game) reach(game)
+          weapons.push([r.pick(['pump_action_shotgun', 'ak47', 'tec9']), [x, LOT_Y, game ? Math.round(b.z1 - 0.5) : fz]])
+          return
+        }
       }
-      half.push(...block(x, fz, w, fd, 'S'))
+      const made = block(x, fz, w, fd, 'S', room(w))
+      half.push(...made); if (made[0]) reach(made[0])
     })
-    if (fronts.length === 2) {
+    if (fronts.length === 2 && !whole[0]?.game) {
       // The alley: a dumpster against one wall, light clutter.
       const ax = (b.x0 + b.x1) / 2
       half.push(...dumpster(ax, fz - fd / 2 + 4, 90, LOT_Y))
     }
     // Back row facing the back street, if the block is deep enough; a yard between.
-    const yardFrom = b.z0, yardTo = b.z1 - 2 - fd
+    const yardFrom = b.z0, yardTo = b.z1 - 2 - used
     let yardZ = (yardFrom + yardTo) / 2
-    if (back && bd - fd - 2 >= 26) {
-      const bd2 = Math.min(16, bd - fd - 14)
+    if (back && bd - used - 2 >= 26) {
+      const bd2 = Math.min(16, bd - used - 14)
       const w2 = Math.round(bw * 0.55)
       half.push(...block(cx + r.pick([-1, 1]) * (bw - w2) / 2 * 0.6, b.z0 + 1 + bd2 / 2, w2, bd2, 'N'))
       yardZ = (b.z0 + 2 + bd2 + yardTo) / 2
@@ -144,13 +159,14 @@ export function neighbourhood(c: HoodContext): HoodResult {
   }
 
   /** One building: a detailed facade in town, the setting's own structure elsewhere. */
-  function block(x: number, z: number, w: number, d: number, front: 'S' | 'N'): Part[] {
+  function block(x: number, z: number, w: number, d: number, front: 'S' | 'N', room?: { w: number; d: number; z: number }): Part[] {
     const h = c.height()
     // The site's building is always made, so the layout's random numbers stay the same with game pieces.
     const site = o.setting === 'downtown' ? building({ x, z, w, d, h, y: LOT_Y, style: r.pick(DOWNTOWN_STYLES), front })
       : o.setting === 'industrial' && r.chance(0.5) ? building({ x, z, w, d, h: Math.max(8, Math.min(h, 14)), y: LOT_Y, style: 'warehouse', front })
         : look.structure(r, x, z, w, d, h)
-    const game = c.pieces?.building(x, z, w, d, LOT_Y, front === 'S' ? 0 : 180, 2, site)
+    // Game pieces: in its plot, or the room round it (on the street side) when given.
+    const game = c.pieces?.building(x, room?.z ?? z, w, d, LOT_Y, front === 'S' ? 0 : 180, 2, site, room && { ...room, toFront: true })
     return game ? [game] : site
   }
 

@@ -254,6 +254,8 @@ const LOOKS: Record<WizardSetting, Look> = {
 
 interface Rect { x: number; z: number; w: number; d: number }
 const DECK = [3, 6] as const
+/** How much wider and deeper than its plot a game building may spread. */
+const GROW = 1.6
 
 class Half {
   parts: Part[] = []
@@ -274,10 +276,28 @@ class Half {
     if (!this.fits(q)) return false
     // The site's building is always made, so the layout's random numbers (and the rest of the map) stay the same.
     const site = this.look.structure(this.r, q.x, q.z, q.w, q.d, h)
-    const game = this.pieces?.building(q.x, q.z, q.w, q.d, 1, 0, 2, site)
+    // A game building may spread into the free ground round its plot (the game's buildings are mostly bigger).
+    const game = this.pieces?.building(q.x, q.z, q.w, q.d, 1, 0, 2, site, this.room(q))
     this.parts.push(...(game ? [game] : site))
-    this.take(q)
+    if (!game) this.take(q)
+    else {
+      const turned = (game.rot ?? 0) % 180 === 90
+      this.take({ x: game.at[0], z: game.at[2], w: turned ? game.size[2] : game.size[0], d: turned ? game.size[0] : game.size[2] })
+    }
     return true
+  }
+
+  /** The most room round a plot, same centre, up to GROW times as wide and deep, clear of everything placed. */
+  room(q: Rect): Rect {
+    let r = q
+    for (let grew = true; grew;) {
+      grew = false
+      for (const k of ['w', 'd'] as const) {
+        const t = { ...r, [k]: r[k] + 2 }
+        if (t[k] <= q[k] * GROW && this.fits(t)) { r = t; grew = true }
+      }
+    }
+    return r
   }
 
   /** A raised deck with a ramp up one side; a weapon waits on top. */

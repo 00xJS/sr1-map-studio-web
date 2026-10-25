@@ -10,11 +10,12 @@ import { readChunk, type Chunk } from '../src/lib/gameObjects/chunk'
 import { indexChunk, mergeCandidates, type Candidate, type GameObjectEntry } from '../src/lib/gameObjects/indexer'
 import { extractObject } from '../src/lib/gameObjects/extract'
 import { identify } from '../src/lib/gameObjects/identity'
-import { GamePieces, TEXTURE_BUDGET, TRI_BUDGET, gameParts, modelTurn } from '../src/lib/gameObjects/wizardPieces'
+import { GamePieces, SOLID_COVER, TEXTURE_BUDGET, TRI_BUDGET, gameParts, modelTurn, prepare } from '../src/lib/gameObjects/wizardPieces'
 import { wizardSample, type WizardLayout, type WizardSetting } from '../src/lib/mapWizard'
 import { openVpp, type Vpp } from '../src/lib/sr1char/vpp'
 import { turn } from '../src/lib/sampleKit'
-import { SOLID_COVER, eyeCover } from '../src/lib/gameObjects/wizardBuild'
+import { eyeCover } from '../src/lib/gameObjects/wizardBuild'
+import type { GameLabels } from '../src/lib/gameObjects/labels'
 
 const GAME = process.env.SR1_PACKFILES || 'C:/Games/SaintsReborn/dist/game/packfiles'
 const haveGame = existsSync(join(GAME, 'sr_city_stream.vpp_xbox2'))
@@ -45,9 +46,18 @@ describe.skipIf(!GAME_TESTS || !haveGame)('game pieces from a local game install
     const byId = new Map(lib.map((e) => [e.id, e]))
     const report: string[] = []
     const covers = new Map<string, number>()
+    const cover = async (e: GameObjectEntry) => {
+      if (!covers.has(e.id)) { const m = extractObject(await chunk(e), e); covers.set(e.id, eyeCover({ positions: m.positions.map((v) => v * 2), faces: m.triangles })) }
+      return covers.get(e.id)!
+    }
+    // Every building the wizard could pick, measured as "Check game pieces" measures them: the player's labels.
+    const labels: GameLabels = {}
+    for (const setting of new Set(MAPS.map(([s]) => s))) for (const c of prepare(lib, setting).buildings) labels[c.e.id] = { cover: await cover(c.e) }
+    const open = Object.values(labels).filter((l) => l.cover! < SOLID_COVER).length
+    report.push(`${Object.keys(labels).length} buildings the wizard could pick, ${open} see-through at eye height`)
     for (const [setting, layout, players] of MAPS) {
       const o = { setting, layout, players, density: 'packed' as const, seed: 4242 }
-      const gp = new GamePieces(lib, o)
+      const gp = new GamePieces(lib, { ...o, labels, labelsVersion: 1 })
       const s = wizardSample(o, gp)
       const game = gameParts(s)
       expect(game.length, setting).toBeGreaterThan(0)
@@ -76,6 +86,8 @@ describe.skipIf(!GAME_TESTS || !haveGame)('game pieces from a local game install
       }
       const built = game.filter((p) => p.label === 'Game building')
       const solid = built.filter((p) => covers.get(p.game!.id)! >= SOLID_COVER).length
+      // With the measurements as labels, no see-through building is picked.
+      expect(solid, setting).toBe(built.length)
       const buildings = [...new Set(built.map((p) => `${p.game!.name} [${byId.get(p.game!.id)!.name}] ${covers.get(p.game!.id)!.toFixed(2)}`))].join(', ')
       const names = (role: string) => [...new Set(game.filter((p) => identify(byId.get(p.game!.id)!).role === role).map((p) => p.game!.name))].slice(0, 6).join(', ')
       report.push(`${setting} ${layout}: ${st.buildings} buildings (${solid} solid at eye height), ${st.props} props, ${st.lights} lights, ${st.fences} fences from ${st.models} models; ` +

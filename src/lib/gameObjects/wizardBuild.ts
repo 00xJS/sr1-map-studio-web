@@ -10,7 +10,7 @@ import { mapLimit } from '../hubRules'
 import { entryById, loadIndex } from './client'
 import { identify } from './identity'
 import { gameObjectItem, objectFiles } from './place'
-import { modelTurn } from './wizardPieces'
+import { SOLID_COVER, modelTurn } from './wizardPieces'
 
 /** The model's extents along X and Z as stored (editor units). */
 function extents(m: ObjModel): [number, number] {
@@ -59,8 +59,6 @@ export function eyeCover(m: Pick<ObjModel, 'positions' | 'faces'>): number {
   }
   return lo
 }
-/** Least eye-height cover for a building: below it players see (and shoot) through it, so the plain block goes in. */
-export const SOLID_COVER = 0.7
 
 /**
  * Scene items for the stand-ins, in their order. Ones whose model can't be read, and buildings players could see

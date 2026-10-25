@@ -6,6 +6,8 @@ import { mapSize } from '../lib/sampleScale'
 import type { Sample } from '../lib/sampleKit'
 import { NeedGameFolder, buildIndex, connect, loadIndex, useGameObjects } from '../lib/gameObjects/client'
 import { GamePieces, gamePiecesSuit } from '../lib/gameObjects/wizardPieces'
+import { loadLabels, useGameLabels } from '../lib/gameObjects/labels'
+import { Link } from 'react-router-dom'
 import { toastError } from '../ui'
 
 const PLAYERS = [4, 6, 8, 10, 12]
@@ -73,12 +75,14 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
   const [useGame, setUseGame] = useState(false)
   const entries = useGameObjects((s) => s.entries)
   // The library is read from this browser when there is one (no game files needed for that).
-  useEffect(() => { void loadIndex().catch(() => {}) }, [])
+  // The player's own labels for the models (Check game pieces) are picked by too.
+  const { labels, version } = useGameLabels()
+  useEffect(() => { void loadIndex().catch(() => {}); void loadLabels() }, [])
   const gameOn = useGame && !!entries && gamePiecesSuit(o.setting)
   const { sample, pieces } = useMemo(() => {
-    const pieces = gameOn ? new GamePieces(entries!, o) : undefined
+    const pieces = gameOn ? new GamePieces(entries!, { ...o, labels, labelsVersion: version }) : undefined
     return { sample: wizardSample(o, pieces), pieces }
-  }, [o, gameOn, entries])
+  }, [o, gameOn, entries, labels, version])
   const create = async () => {
     // Placing the models needs the game files open (the browser may ask for the folder once).
     if (pieces) try { await connect(true) } catch (e) { toastError(e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder so the wizard can bring in the models from your game.') : e); return }
@@ -184,6 +188,7 @@ function GamePiecesChoice({ on, setOn, suits, pieces }: { on: boolean; setOn: (v
         <span className="small" style={{ color: 'var(--warn, #e0b050)' }}>
           Built from models in your own game files, kept on this device: you can export this map to your game, but it can't be shared, put on the Showcase or synced.
           {st && <span className="faint"> {st.buildings} buildings, {st.props} props, {st.lights} lights and {st.fences} fence pieces from {st.models} models ({Math.round(st.triangles / 1000)}k triangles, {st.textures} textures){st.kept ? `; ${st.kept} spots keep the site's piece where nothing fitted` : ''}.</span>}
+          {' '}<Link to="/game-pieces" className="small">Check which models it picks →</Link>
         </span>
       )}
     </div>

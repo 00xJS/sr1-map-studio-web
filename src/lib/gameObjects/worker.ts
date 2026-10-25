@@ -285,7 +285,8 @@ self.onmessage = async (e: MessageEvent<Request>) => {
     } else if (m.type === 'object') {
       const ch = await chunkOf(m.pack, m.chunk)
       const mesh = extractObject(ch, m)
-      const textures = await texturesFor(m.pack, m.chunk, mesh.materials, m.texSize)
+      // texSize 0: the shape only (measuring it), no pictures.
+      const textures = m.texSize > 0 ? await texturesFor(m.pack, m.chunk, mesh.materials, m.texSize) : mesh.materials.map(() => null)
       const layers: Record<string, ObjectTexture | null> = {}
       if (m.layers) await layersFor(m.pack, m.chunk, mesh, mesh.materials.map((_, i) => i), m.texSize, layers)
       const transfer: Transferable[] = meshBuffers(mesh)

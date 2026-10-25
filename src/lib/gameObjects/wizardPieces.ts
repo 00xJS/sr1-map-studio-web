@@ -16,6 +16,7 @@ import { rng, type Rng, type WizardSetting } from '../mapWizard'
 import { UNITS_PER_M } from '../player'
 import { identify, type BuildingFacts, type GameIdentity, type PropKind } from './identity'
 import type { GameObjectEntry } from './indexer'
+import { withLabels, type GameLabels } from './labels'
 
 /** What a stand-in stands for. */
 export interface GamePart {
@@ -62,6 +63,8 @@ const PART_NAMES = new Set(['Wall', 'Window', 'Door', 'Trim', 'Grass', 'Ground',
 const MIN_HEIGHT = 5
 /** Least share of its plot a building covers, for the same reason. */
 const MIN_FILL = 0.5
+/** Least eye-height cover for a building (see wizardBuild.ts eyeCover): below it players see and shoot through it. */
+export const SOLID_COVER = 0.7
 /** Settings the option is offered for: the cyber grid has nothing like it in the game. */
 export const gamePiecesSuit = (s: WizardSetting) => s !== 'cyber'
 
@@ -93,7 +96,7 @@ export const SPOTS: Record<string, Spot> = {
 const M = UNITS_PER_M
 const r2 = (v: number) => +v.toFixed(2)
 
-interface Cand {
+export interface Cand {
   e: GameObjectEntry
   id: GameIdentity
   /** Metres: long side, short side, height. */
@@ -102,7 +105,7 @@ interface Cand {
   weight: number
 }
 
-interface Prepared {
+export interface Prepared {
   buildings: Cand[]
   fences: Cand[]
   props: Map<PropKind, Cand[]>
@@ -111,23 +114,30 @@ interface Prepared {
 const prepared = new WeakMap<GameObjectEntry[], Map<string, Prepared>>()
 type Identify = (e: GameObjectEntry) => GameIdentity
 
-/** The library sorted into what the wizard can use for one setting (kept per library and setting). */
-function prepare(entries: GameObjectEntry[], setting: WizardSetting, ident: Identify): Prepared {
+/**
+ * The library sorted into what the wizard can use for one setting, best first (kept per library, setting and
+ * labels). The player's labels (labels.ts) come first: a role or settings they gave, a building measured as one
+ * players see through left out, a model they checked likelier to be picked.
+ */
+export function prepare(entries: GameObjectEntry[], setting: WizardSetting, base: Identify = identify, labels?: GameLabels, labelsVersion = 0): Prepared {
   let bySetting = prepared.get(entries)
   if (!bySetting) prepared.set(entries, bySetting = new Map())
   // A custom identify (the tests') is never cached.
-  const key = ident === identify ? setting : ''
+  const key = base === identify ? `${setting}:${labels ? labelsVersion : '-'}` : ''
   const hit = key ? bySetting.get(key) : undefined
   if (hit) return hit
+  const ident = labels ? withLabels(labels, base) : base
   const out: Prepared = { buildings: [], fences: [], props: new Map() }
   for (const e of entries) {
-    const id = ident(e)
+    const id = ident(e), l = labels?.[e.id]
     if (id.role !== 'building' && id.role !== 'prop' && id.role !== 'fence') continue
-    if (id.role !== 'building' ? PART_NAMES.has(id.name) : NOT_BUILDINGS.has(id.name)) continue
+    // The name rules stand in for a player's check until there is one.
+    if (!l?.ok && !l?.role && (id.role !== 'building' ? PART_NAMES.has(id.name) : NOT_BUILDINGS.has(id.name))) continue
+    if (id.role === 'building' && l?.cover !== undefined && l.cover < SOLID_COVER) continue
     const [a, b, h] = id.role === 'building' && id.building ? [...id.building.footprint, id.building.height] : e.size
     const long = Math.max(a, b), short = Math.min(a, b)
     const suits = id.settings.includes(setting) ? 2 : id.settings.length ? 0.3 : 1
-    const c: Cand = { e, id, long, short, h, weight: suits * (1 + Math.log10(1 + e.seen) / 2) }
+    const c: Cand = { e, id, long, short, h, weight: suits * (1 + Math.log10(1 + e.seen) / 2) * (l?.ok || l?.role ? 3 : 1) }
     if (id.role === 'building') {
       // Not a pole or a mast: no taller than four times its long side.
       if (short >= 3 && h >= MIN_HEIGHT && h <= MAX_HEIGHT[setting] && h <= 4 * long && e.tris <= MAX_BUILDING_TRIS) out.buildings.push(c)
@@ -218,13 +228,15 @@ export interface PiecesOptions {
   seed: number
   /** The model identity to choose by (the tests pass their own). */
   identify?: Identify
+  /** The player's labels, and their version (labels.ts). */
+  labels?: GameLabels
+  labelsVersion?: number
 }
 
 /** Picks game models for one wizard map; a new one per map (it keeps the palettes and the budget). */
 export class GamePieces {
   private readonly lib: Prepared
   private readonly r: Rng
-  private readonly ident: Identify
   private tris = 0
   private readonly tex = new Set<string>()
   private readonly palettes = new Map<string, Set<string>>()
@@ -233,8 +245,7 @@ export class GamePieces {
   readonly stats: GamePiecesStats = { buildings: 0, props: 0, lights: 0, fences: 0, kept: 0, triangles: 0, textures: 0, models: 0 }
 
   constructor(entries: GameObjectEntry[], o: PiecesOptions) {
-    this.ident = o.identify ?? identify
-    this.lib = prepare(entries, o.setting, this.ident)
+    this.lib = prepare(entries, o.setting, o.identify ?? identify, o.labels, o.labelsVersion)
     // Its own random numbers, so the layout stays the one the same seed gives without game pieces.
     this.r = rng((o.seed ^ 0x5bd1e995) >>> 0)
   }
@@ -289,21 +300,33 @@ export class GamePieces {
    * `front`: the heading the front should face (0 = +Z, the middle of the map from red's half). `copies`: how many
    * times the map will hold it (2 when the plot is mirrored for the other team). `site`: the site's building for
    * the plot, whose look the stand-in keeps (a model players can see through is built as that plain block instead).
+   * `room`: the free ground round the plot, same centre, a game building may take (most of the game's buildings are
+   * bigger than the site's plots); with `toFront` it stands against the room's front edge rather than in its middle.
    */
-  building(x: number, z: number, w: number, d: number, y = 1, front = 0, copies = 2, site: Part[] = []): Part | null {
-    const pl = Math.max(w, d) / M, ps = Math.min(w, d) / M
+  building(x: number, z: number, w: number, d: number, y = 1, front = 0, copies = 2, site: Part[] = [], room?: { w: number; d: number; toFront?: boolean }): Part | null {
+    const rw = Math.max(w, room?.w ?? 0), rd = Math.max(d, room?.d ?? 0)
+    const rl = Math.max(rw, rd) / M, rs = Math.min(rw, rd) / M
+    const plot = (w * d) / (M * M)
     const c = this.choose(this.lib.buildings, 'building', (c) => {
-      if (c.long > pl || c.short > ps) return 0
-      const fill = (c.long * c.short) / (pl * ps)
+      const area = c.long * c.short
+      if (c.long > rl || c.short > rs || area < MIN_FILL * plot) return 0
       // Bigger and taller blocks more sight lines.
-      return fill < MIN_FILL ? 0 : fill * fill * Math.min(1, c.h / 10)
+      const fill = area / (rl * rs)
+      return fill * fill * Math.min(1, c.h / 10)
     }, copies, TRI_BUDGET * BUILDING_SHARE)
     if (!c) { this.stats.kept++; return null }
     this.stats.buildings += copies
-    // Long side along the plot's long side; turned round now and then, unless the front decides.
-    const rot = (w >= d ? 0 : 90) + (this.r.chance(0.5) ? 180 : 0)
+    // Long side along the room's long side; turned round now and then, unless the front decides.
+    const rot = (rw >= rd ? 0 : 90) + (this.r.chance(0.5) ? 180 : 0)
+    // Against the front edge: moved toward the front by the room the model leaves on that side.
+    let [bx, bz] = [x, z]
+    if (room?.toFront) {
+      const t = (front * Math.PI) / 180, fx = Math.round(Math.sin(t)), fz = Math.round(Math.cos(t))
+      const [ex, ez] = rw >= rd ? [c.long * M, c.short * M] : [c.short * M, c.long * M]
+      bx += (fx * (rw - ex)) / 2; bz += (fz * (rd - ez)) / 2
+    }
     const look = [...site].sort((a, b) => b.size[0] * b.size[1] * b.size[2] - a.size[0] * a.size[1] * a.size[2])[0]
-    return this.standIn(c, 'Game building', [r2(x), y, r2(z)], rot % 360, c.long, c.short, ((front - rot) % 360 + 360) % 360, look)
+    return this.standIn(c, 'Game building', [r2(bx), y, r2(bz)], rot % 360, c.long, c.short, ((front - rot) % 360 + 360) % 360, look)
   }
 
   /** A prop for a spot of this kind that reaches `radius` units from where it stands and is about `height` tall. */
@@ -401,6 +424,9 @@ export class GamePieces {
     }
   }
 }
+
+/** A stand-in's footprint across X and Z (units), as it stands. */
+export const footprint = (p: Pick<Part, 'size' | 'rot'>): [number, number] => ((p.rot ?? 0) % 180 === 90 ? [p.size[2], p.size[0]] : [p.size[0], p.size[2]])
 
 /** The stand-ins in a map, by model, for the build and the tests. */
 export const gameParts = (s: Pick<Sample, 'parts'>) => s.parts.filter((p) => p.game)

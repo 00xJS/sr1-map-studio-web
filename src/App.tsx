@@ -14,6 +14,7 @@ const Account = lazy(() => import('./pages/Account'))
 const Catalog = lazy(() => import('./pages/Catalog'))
 const Play = lazy(() => import('./play/PlayPage'))
 const City = lazy(() => import('./pages/City'))
+const GamePiecesCheck = lazy(() => import('./pages/GamePiecesCheck'))
 const OpenMapHost = lazy(() => import('./pages/OpenMapDialog'))
 
 /** The "Open a game map" dialog, loaded when a map folder is first opened. */
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="/" element={<Shell><Home /></Shell>} />
           <Route path="/maps" element={<Shell><Catalog /></Shell>} />
           <Route path="/city" element={<Shell><ErrorBoundary label="The city page hit an error"><Suspense fallback={null}><City /></Suspense></ErrorBoundary></Shell>} />
+          <Route path="/game-pieces" element={<Shell><ErrorBoundary label="The game pieces page hit an error"><Suspense fallback={null}><GamePiecesCheck /></Suspense></ErrorBoundary></Shell>} />
           <Route path="/setup" element={<Shell><Setup /></Shell>} />
           <Route path="/about" element={<Shell><About /></Shell>} />
           <Route path="/showcase" element={<Shell>{hubEnabled ? <Hub /> : <HubOff />}</Shell>} />

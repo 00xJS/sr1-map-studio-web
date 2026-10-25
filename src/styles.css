@@ -330,6 +330,12 @@ button.big { padding: 12px; font-size: 15px; }
 .prefab-section h4 { margin: 8px 2px 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
 .prefab-section { content-visibility: auto; contain-intrinsic-size: auto 400px; }
 .prefab-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(84px, 1fr)); gap: 6px; }
+/* Check game pieces: one model per tile, its picture beside what it is and the buttons to label it. */
+.label-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(330px, 1fr)); gap: 10px; }
+.label-tile { display: grid; grid-template-columns: 120px 1fr; gap: 10px; padding: 8px; background: #1b141e; border: 1px solid var(--line); border-radius: 10px; }
+.label-tile.ok { border-color: #2f7a4a; }
+.label-tile.fixed { border-color: #8d2c72; }
+@media (max-width: 420px) { .label-grid { grid-template-columns: 1fr; } .label-tile { grid-template-columns: 88px 1fr; } }
 .prefab-tile { position: relative; }
 .prefab-pick { width: 100%; height: 100%; display: flex; flex-direction: column; align-items: stretch; gap: 3px; padding: 4px 4px 5px; background: #1b141e; border: 1px solid var(--line); border-radius: 8px; color: var(--text); text-align: center; white-space: normal; overflow-wrap: anywhere; justify-content: flex-start; }
 button.prefab-pick:hover { background: var(--bg-hover); border-color: var(--accent); }
