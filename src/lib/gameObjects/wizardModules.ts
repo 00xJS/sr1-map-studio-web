@@ -639,7 +639,9 @@ export class GameCity implements CityHooks {
     return parts.map((q) => {
       const [dx, dz] = gamePoint(q.at[0], q.at[2], rot)
       // The box only stands in for the model in the passes that follow; the model itself goes exactly here.
-      return exactStandIn(this.lib.get(q.id)!, 'Stilwater ' + q.layer, [x + dx, y + q.at[1] * M, z + dz], rot + q.yaw, from)
+      // The part's own size across, where the study gives it (ModulePart.ext, newer than this contract's first shape).
+      const ext = (q as ModulePart & { ext?: [number, number] }).ext
+      return exactStandIn(this.lib.get(q.id)!, 'Stilwater ' + q.layer, [x + dx, y + q.at[1] * M, z + dz], rot + q.yaw, from, ext)
     })
   }
 }

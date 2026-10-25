@@ -121,12 +121,13 @@ const M = UNITS_PER_M
 const r2 = (v: number) => +v.toFixed(2)
 
 /**
- * A stand-in for a model placed exactly: at `at` (units, its feet), turned `rot`, its box the model's own extents
- * (the long side along the axis the library says, X when it doesn't).
+ * A stand-in for a model placed exactly: at `at` (units, its feet), turned `rot`, its box the model's own extents:
+ * `ext` (metres across its own X and Z) when known, else the long side along the axis the library says (X when it
+ * doesn't).
  */
-export function exactStandIn(e: Pick<GameObjectEntry, 'id' | 'name' | 'size' | 'long'>, label: string, at: Vec3, rot: number, from?: string): Part {
+export function exactStandIn(e: Pick<GameObjectEntry, 'id' | 'name' | 'size' | 'long'>, label: string, at: Vec3, rot: number, from?: string, ext?: [number, number]): Part {
   const [l, s, h] = e.size
-  const [sx, sz] = e.long === 'z' ? [s, l] : [l, s]
+  const [sx, sz] = ext ?? (e.long === 'z' ? [s, l] : [l, s])
   const part = box(label, [r2(Math.max(0.1, sx) * M), r2(Math.max(0.05, h) * M), r2(Math.max(0.1, sz) * M)], at.map(r2) as Vec3, PB.concrete, PB.concrete, ((rot % 360) + 360) % 360)
   return { ...part, game: { id: e.id, name: e.name, exact: true, ...(from ? { from } : {}) } }
 }

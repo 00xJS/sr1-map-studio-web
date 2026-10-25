@@ -307,6 +307,17 @@ describe('city modules: other layouts, settings and limits', () => {
     expect(s.parts.some((p) => p.label.startsWith('Stilwater'))).toBe(false)
   })
 
+  it('sizes a part\'s stand-in by its own size across when the study gives it', () => {
+    // A fence 6 m along its own Z: without `ext` the box would lie along X (the library's long side default).
+    const fenced = mod('yardfence', [16, 14], [edge('+z', 'street', [0, 6]), edge('-z', 'wall'), edge('+x', 'wall'), edge('-x', 'wall')],
+      { parts: [{ id: 'shop', at: [0, 0, -2], yaw: 0, layer: 'shell' }, { id: 'walk', at: [7, 0, 0], yaw: 0, layer: 'fence', ext: [0.2, 6] } as CityModule['parts'][number]] })
+    const o = opts(), c = city(o, { modules: [fenced] })
+    const s = wizardSample(o, c.pieces)
+    const walk = gameParts(s).filter((p) => p.game!.id === 'walk' && p.label === 'Stilwater fence')
+    expect(walk.length).toBeGreaterThan(0)
+    for (const p of walk) expect([p.size[0], p.size[2]]).toEqual([0.4, 12])
+  })
+
   it('stops at the triangle budget and says so', () => {
     const heavy = MODULES.map((m) => ({ ...m, tris: 40_000 }))
     const o = opts({ players: 12, busy: 100 }), c = city(o, { modules: heavy })
