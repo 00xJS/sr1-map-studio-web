@@ -15,6 +15,7 @@
 import type { Vec3 } from '../project'
 import type { WizardSetting } from '../mapWizard'
 import type { GameObjectEntry } from './indexer'
+import { placementRule, type Library } from './placement'
 
 /** A side of a module or group in its own frame. */
 export type Side = '+x' | '-x' | '+z' | '-z'
@@ -30,6 +31,8 @@ export interface ModulePart {
   /** Turn about the vertical, degrees. */
   yaw: number
   layer: PartLayer
+  /** Its size across x and z in its own (cut-out) frame, metres: what it covers before it is turned. */
+  ext?: [number, number]
 }
 
 /** What a module's edge is, so modules join where they make sense (street to street, back to back). */
@@ -53,8 +56,11 @@ export interface CityModule {
   /** The Stilwater district it was cut from, and the new-map settings it suits. */
   district: string
   settings: WizardSetting[]
-  /** Where it was cut from: packfile, chunk and the rectangle (game metres, [minX, minZ, maxX, maxZ]). */
-  source: { pack: string; chunk: string; rect: [number, number, number, number] }
+  /**
+   * Where it was cut from: packfile, chunk and the rectangle (game metres, [minX, minZ, maxX, maxZ]); `y`: the height
+   * in the game of the module's floor (its own y = 0, the building's feet).
+   */
+  source: { pack: string; chunk: string; rect: [number, number, number, number]; y?: number }
   /** Across (x) and deep (z), metres, in its own frame; floor height range. */
   size: [number, number]
   floor: [number, number]
@@ -85,6 +91,12 @@ export interface CityGroup {
   /** How many times the game places it, and a few of them (pack, chunk, where), to look at. */
   seen: number
   examples: { pack: string; chunk: string; at: Vec3 }[]
+  /**
+   * 'fixed' (or absent): the game places the parts at these spots and turns every time. 'varies': the same things
+   * stand together, but where each stands varies (a bus stop's sign at one end or the other); the parts are one
+   * real example.
+   */
+  arrangement?: 'fixed' | 'varies'
 }
 
 /** What a single model needs to stand right, and what about it can't change. */
@@ -103,22 +115,35 @@ export interface PlacementRule {
   reach?: 'stairs' | 'ramp' | 'ladder'
   /** What may vary when it is placed (turned, mirrored, a colour variant, nudged); everything else stays as the game has it. */
   mayVary: ('turn' | 'mirror' | 'variant' | 'nudge')[]
+  /** Wall and hanging things: how high the game mostly has their feet above the ground (metres). */
+  mountHeight?: number
   /** For cover and sight: how high it is and whether players can see or shoot through it. */
   coverHeight?: number
   seeThrough?: boolean
 }
 
-/** The city's modules, from the library and the city chunks (phase A). Empty until it is filled in. */
-export function cityModules(_entries: GameObjectEntry[]): CityModule[] {
-  return []
+/**
+ * The city's modules (phase A): each building of Stilwater's streets cut out with what stands on and around it,
+ * as the library found them while reading the city chunks (cityStudy.ts). Only modules whose every part is in
+ * `entries` are given; empty for a library built before the study.
+ */
+export function cityModules(entries: GameObjectEntry[]): CityModule[] {
+  const have = new Set(entries.map((e) => e.id))
+  return entries.flatMap((e) => e.modules ?? []).filter((m) => m.parts.every((p) => have.has(p.id)))
 }
 
-/** The city's recurring groups (phase A). Empty until it is filled in. */
-export function groups(_entries: GameObjectEntry[]): CityGroup[] {
-  return []
+/** The city's recurring groups (phase A), most seen first; see cityStudy.ts findGroups(). Only groups whose every part is in `entries`. */
+export function groups(entries: GameObjectEntry[]): CityGroup[] {
+  const have = new Set(entries.map((e) => e.id))
+  return entries.flatMap((e) => e.groups ?? []).filter((g) => g.parts.every((p) => have.has(p.id))).sort((a, b) => b.seen - a.seen)
 }
 
-/** A model's placement rule (phase B). Until it is filled in: stands on the ground, may turn. */
-export function placementOf(_entry: GameObjectEntry): PlacementRule {
-  return { attach: 'ground', mayVary: ['turn'] }
+/**
+ * A model's placement rule, from how the game stands it in the city and what identify() says about it
+ * (placement.ts). Pass the library by id (`lib`) so a part is checked against its whole and variants are found;
+ * placementRules(entries) in placement.ts answers for every model at once. The player's corrections go on top
+ * with withPlacementLabels (labels.ts).
+ */
+export function placementOf(entry: GameObjectEntry, lib?: Library): PlacementRule {
+  return placementRule(entry, lib)
 }

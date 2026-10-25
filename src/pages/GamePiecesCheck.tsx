@@ -1,14 +1,17 @@
 // "Check game pieces": the models from the player's own game the map wizard builds with, best first for a setting,
 // a group at a time. The player marks what is right and fixes what isn't (a light rig the rules call a building, a
 // wall panel called a prop, the settings a model suits), and can measure how solid each building is at eye height.
-// The labels stay in this browser (labels.ts); the wizard picks by them.
+// Further tabs (CityReview.tsx) show each model's placement rule and the city's groups and modules to check and
+// correct. The labels stay in this browser (labels.ts); the wizard picks by them.
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toast, toastError } from '../ui'
 import { SETTINGS, type WizardSetting } from '../lib/mapWizard'
 import { NeedGameFolder, buildIndex, connect, getObject, loadIndex, useGameObjects } from '../lib/gameObjects/client'
 import { identify, type GameRole, type PropKind } from '../lib/gameObjects/identity'
-import { loadLabels, setLabels, useGameLabels, withLabels, type GameLabel } from '../lib/gameObjects/labels'
+import { loadCityLabels, loadLabels, setLabels, useCityLabels, useGameLabels, withLabels, type GameLabel } from '../lib/gameObjects/labels'
+import { placementOf } from '../lib/gameObjects/cityModules'
+import { CityView, PlacementView } from './CityReview'
 import { SOLID_COVER, gamePiecesSuit, prepare, type Cand } from '../lib/gameObjects/wizardPieces'
 import { eyeCover } from '../lib/gameObjects/wizardBuild'
 import { mapLimit } from '../lib/hubRules'
@@ -26,6 +29,8 @@ const ROLES: [GameRole, string][] = [['building', 'A whole building'], ['prop', 
 const KINDS: PropKind[] = ['cover', 'clutter', 'street', 'nature', 'light', 'vehicle', 'sign', 'furniture', 'machine']
 const SETTING_KEYS = (Object.keys(SETTINGS) as WizardSetting[]).filter(gamePiecesSuit)
 const PAGE = 48
+type Tab = 'pieces' | 'placement' | 'groups' | 'modules'
+const TABS: [Tab, string][] = [['pieces', 'Wizard pieces'], ['placement', 'Placement rules'], ['groups', 'Groups'], ['modules', 'Modules']]
 
 /** How solid a model is at eye height, cut out of the player's game (its shape only, no pictures). */
 async function measure(e: GameObjectEntry): Promise<number> {
@@ -36,6 +41,8 @@ async function measure(e: GameObjectEntry): Promise<number> {
 export default function GamePiecesCheck() {
   const { entries, status, progress, connected } = useGameObjects()
   const { labels, version } = useGameLabels()
+  const city = useCityLabels()
+  const [tab, setTab] = useState<Tab>(() => { const t = new URLSearchParams(location.search).get('tab'); return TABS.some(([k]) => k === t) ? (t as Tab) : 'pieces' })
   const [setting, setSetting] = useState<WizardSetting>('downtown')
   const [group, setGroup] = useState<Group>('building')
   const [show, setShow] = useState<'all' | 'todo' | 'done'>('all')
@@ -43,7 +50,7 @@ export default function GamePiecesCheck() {
   const [measuring, setMeasuring] = useState<{ done: number; total: number } | null>(null)
   // Models changed here stay in view (with their new label) until the page is left, so a change can be undone.
   const [touched, setTouched] = useState<string[]>([])
-  useEffect(() => { void loadIndex().catch(() => {}); void loadLabels() }, [])
+  useEffect(() => { void loadIndex().catch(() => {}); void loadLabels(); void loadCityLabels() }, [])
   useEffect(() => setShown(PAGE), [setting, group, show])
 
   const lib = useMemo(() => (entries ? prepare(entries, setting, identify, labels, version) : null), [entries, setting, labels, version])
@@ -60,6 +67,7 @@ export default function GamePiecesCheck() {
   }, [lib, group, show, labels, touched, byId])
 
   const checked = Object.values(labels).filter(isChecked).length
+  const anyLabels = Object.keys(labels).length + Object.keys(city.groups).length + Object.keys(city.modules).length
   const label = (id: string, l: GameLabel | null) => {
     setTouched((t) => (t.includes(id) ? t : [id, ...t]))
     void setLabels({ [id]: l })
@@ -89,7 +97,9 @@ export default function GamePiecesCheck() {
     toast(`Measured ${Object.keys(found).length} buildings: ${open} can be seen through at eye height and won't be picked.`, 'info')
   }
   const download = () => {
-    const out = Object.entries(labels).map(([id, l]) => { const e = byId.get(id); return { id, name: e?.name, raw: e?.raw?.[0], cat: e?.cat, size: e?.size, rules: e ? identify(e).role : undefined, ...l } })
+    // Models (with the rules' answers next to the corrections), then the corrected groups and modules.
+    const out: object[] = Object.entries(labels).map(([id, l]) => { const e = byId.get(id); return { type: 'model', id, name: e?.name, raw: e?.raw?.[0], cat: e?.cat, size: e?.size, rules: e ? identify(e).role : undefined, ...(e && l.place ? { placement: placementOf(e, byId) } : {}), ...l } })
+    for (const [which, list] of [['group', city.groups], ['module', city.modules]] as const) for (const [id, l] of Object.entries(list)) out.push({ type: which, id, ...l })
     const a = document.createElement('a')
     a.href = URL.createObjectURL(new Blob([JSON.stringify(out, null, 1)], { type: 'application/json' }))
     a.download = 'game-piece-labels.json'
@@ -102,9 +112,9 @@ export default function GamePiecesCheck() {
       <div className="col" style={{ gap: 6 }}>
         <h1 style={{ margin: 0 }}>Check game pieces</h1>
         <p className="muted" style={{ margin: 0, maxWidth: 820 }}>
-          The models from your own game that the <b>map wizard</b> builds with when you pick <b>🎮 Game pieces</b>, best first for a setting.
-          Mark the right ones, fix the wrong ones, and measure buildings to leave out the ones players could see through. Your labels stay in this browser
-          and the wizard follows them straight away.
+          The models from your own game that the <b>map wizard</b> builds with when you pick <b>🎮 Game pieces</b>, best first for a setting, how each
+          one is placed, and the groups and pieces of Stilwater maps are built from. Mark the right ones, fix the wrong ones, and measure buildings to leave
+          out the ones players could see through. Your labels stay in this browser and the wizard follows them straight away.
         </p>
       </div>
       {!entries ? (
@@ -115,6 +125,15 @@ export default function GamePiecesCheck() {
         </div>
       ) : (
         <>
+          <div className="row wrap">
+            {TABS.map(([k, name]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => { setTab(k); history.replaceState(null, '', k === 'pieces' ? location.pathname : `?tab=${k}`) }}>{name}</button>)}
+            <span className="grow" />
+            {!connected && <button className="sm" onClick={() => void openFiles()} title="The pictures are drawn from your game files">Show pictures</button>}
+            <button className="sm quiet" disabled={!anyLabels} onClick={download} title="Your labels and corrections as a file (model names and sizes from your game, kept on your device)">Download my labels</button>
+          </div>
+          {tab === 'placement' && <div className="col" style={{ gap: 10 }} key={connected ? 'pictures' : 'none'}><PlacementView entries={entries} /></div>}
+          {(tab === 'groups' || tab === 'modules') && <div className="col" style={{ gap: 10 }} key={tab + (connected ? 'pictures' : 'none')}><CityView which={tab} entries={entries} /></div>}
+          {tab === 'pieces' && <>
           <div className="col" style={{ gap: 10 }}>
             <div className="row wrap">
               {SETTING_KEYS.map((k) => <button key={k} className={'sm' + (setting === k ? ' on' : '')} onClick={() => setSetting(k)}>{SETTINGS[k].icon} {SETTINGS[k].label}</button>)}
@@ -125,11 +144,9 @@ export default function GamePiecesCheck() {
             <div className="row wrap" style={{ alignItems: 'center' }}>
               {(['all', 'todo', 'done'] as const).map((k) => <button key={k} className={'sm quiet' + (show === k ? ' on' : '')} onClick={() => setShow(k)}>{{ all: 'All', todo: 'Not checked', done: 'Checked' }[k]}</button>)}
               <span className="grow small muted">{list.length} models · {checked} checked by you</span>
-              {!connected && <button className="sm" onClick={() => void openFiles()} title="The pictures are drawn from your game files">Show pictures</button>}
               {group === 'building' && <button className="sm" disabled={!!measuring} onClick={() => void measureAll()}
                 title="Cuts out each building in the list and measures how much of it is solid at eye height; ones players could see through won't be picked">
                 {measuring ? `Measuring ${measuring.done}/${measuring.total}…` : `Measure ${list.filter((e) => labels[e.id]?.cover === undefined).length} buildings`}</button>}
-              <button className="sm quiet" disabled={!checked && !Object.keys(labels).length} onClick={download} title="Your labels as a file (model names and sizes from your game, kept on your device)">Download my labels</button>
             </div>
           </div>
           {list.length === 0 ? <p className="muted">Nothing here for this setting.</p> : (
@@ -139,6 +156,7 @@ export default function GamePiecesCheck() {
             </div>
           )}
           {list.length > shown && <button style={{ alignSelf: 'center' }} onClick={() => setShown((n) => n + PAGE)}>Show {Math.min(PAGE, list.length - shown)} more</button>}
+          </>}
           <p className="faint small">Back to the <Link to="/">map wizard</Link> (Start a map → Map wizard → Build with: Game pieces).</p>
         </>
       )}
@@ -146,7 +164,7 @@ export default function GamePiecesCheck() {
   )
 }
 
-const isChecked = (l?: GameLabel) => !!l && (!!l.ok || !!l.role || !!l.kind || !!l.settings)
+const isChecked = (l?: GameLabel) => !!l && (!!l.ok || !!l.role || !!l.kind || !!l.settings || !!l.place)
 
 function Tile({ e, id, rules, l, group, onLabel }: { e: GameObjectEntry; id: ReturnType<typeof identify>; rules: ReturnType<typeof identify>; l?: GameLabel; group: Group; onLabel: (l: GameLabel | null) => void }) {
   const size = e.size.map((v) => +v.toFixed(1)).join(' × ')
