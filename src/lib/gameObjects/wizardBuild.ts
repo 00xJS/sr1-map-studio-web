@@ -61,6 +61,18 @@ export function eyeCover(m: Pick<ObjModel, 'positions' | 'faces'>): number {
 }
 
 /**
+ * The turn a model stands at in place of its stand-in, or null when the site's plain block goes there instead (a
+ * building players would see through at eye height, or one bigger than its plot). `ex`, `ez`: the model's extents
+ * as stored (editor units); `cover`: eyeCover. Parts of Stilwater modules and groups go exactly as their stand-in.
+ */
+export function placedTurn(p: Part, ex: number, ez: number, cover: number, front?: '+x' | '-x' | '+z' | '-z'): number | null {
+  if (p.game!.exact) return p.rot ?? 0
+  if (p.label === 'Game building' && cover < SOLID_COVER) return null
+  const rot = modelTurn(ex, ez, p, front)
+  return p.label === 'Game building' && !fitsStandIn(ex, ez, p, rot) ? null : rot
+}
+
+/**
  * Scene items for the stand-ins, in their order. Ones whose model can't be read, and buildings players could see
  * through at eye height, come back in `failed` (the caller builds them as plain blocks).
  */
@@ -85,19 +97,9 @@ export async function placeGameParts(parts: Part[], ws: number, onProgress?: (t:
   const items: SceneItem[] = [], files: Record<string, FileRef> = {}, failed: Part[] = []
   for (const p of parts) {
     const e = entryById(p.game!.id), r = ready.get(p.game!.id)
-    // A building players would see through is built as the site's plain block in its place.
-    if (!e || !r || (p.label === 'Game building' && r.cover < SOLID_COVER)) { failed.push(p); continue }
-    // A part of a Stilwater module or group (or a prop placed by its rule) goes exactly where the game had it.
-    if (p.game!.exact) {
-      const placed = await gameObjectItem(e, [p.at[0], p.at[1], p.at[2]], p.rot ?? 0, ws)
-      Object.assign(files, placed.files)
-      items.push(placed.item)
-      continue
-    }
-    const rot = modelTurn(r.ex, r.ez, p, identify(e).building?.front)
-    // A building bigger than its footprint said would reach off its plot: the plain block instead.
-    if (p.label === 'Game building' && !fitsStandIn(r.ex, r.ez, p, rot)) { failed.push(p); continue }
-    const placed = await gameObjectItem(e, [p.at[0], p.at[1], p.at[2]], rot, ws)
+    const rot = e && r ? placedTurn(p, r.ex, r.ez, r.cover, identify(e).building?.front) : null
+    if (rot === null) { failed.push(p); continue }
+    const placed = await gameObjectItem(e!, [p.at[0], p.at[1], p.at[2]], rot, ws)
     Object.assign(files, placed.files)
     items.push(placed.item)
   }

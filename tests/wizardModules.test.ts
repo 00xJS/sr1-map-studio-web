@@ -274,6 +274,12 @@ describe('city modules: a downtown map built from them', () => {
 
   it('places spawns and weapons round the modules, and the same seed builds the same map', () => {
     expect(s.markers.filter(([t]) => t === 'Red team spawn').length).toBeGreaterThan(2)
+    // Never inside a module (on either half): its stand-ins only roughly match the game's models.
+    for (const [type, [x, , z]] of s.markers) for (const p of c.placed) for (const k of [1, -1]) {
+      const inside = k * x > p.x0 + 0.5 && k * x < p.x1 - 0.5 && k * z > p.z0 + 0.5 && k * z < p.z1 - 0.5
+      expect(inside, `${type} at ${x},${z} in ${p.m.id} ${[p.x0, p.x1, p.z0, p.z1]} k${k}`).toBe(false)
+    }
+    expect(s.parts.some((p) => /Keep out/.test(p.label))).toBe(false)
     const again = wizardSample(o, city(o).pieces)
     expect(again.parts.map((p) => [p.label, p.at, p.game?.id])).toEqual(s.parts.map((p) => [p.label, p.at, p.game?.id]))
   })

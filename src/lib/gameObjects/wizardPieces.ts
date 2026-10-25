@@ -43,6 +43,11 @@ export interface CityHooks {
   readonly ready: boolean
   /** Fills red's half's big areas with modules and groups; false when there is nothing to build from (the layout's own plots then). */
   fill(h: Half, o: WizardOptions): boolean
+  /**
+   * Boxes over what was filled, both halves, kept out of while the map is dressed and its spawns and weapons placed
+   * (the stand-ins only roughly match the game's models there), then taken away again. Empty when nothing was.
+   */
+  keepOut(): Part[]
 }
 
 /**

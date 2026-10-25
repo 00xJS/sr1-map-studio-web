@@ -109,6 +109,9 @@ export function rng(seed: number) {
 }
 export type Rng = ReturnType<typeof rng>
 
+/** The label of the boxes Game pieces keeps the dressing and the spawns out of (CityHooks.keepOut). */
+export const KEEP_OUT = 'Keep out (Stilwater module)'
+
 export const newSeed = () => Math.floor(Math.random() * 2 ** 31)
 
 // ---------------- the look of each setting ----------------
@@ -580,6 +583,10 @@ export function wizardSample(o: WizardOptions, pieces?: GamePieces): Sample {
     drops: 4,
     lights: o.setting === 'cyber' ? 28 : 22,
   }
-  const dressed = dress(detailize(wizardLayout(o, pieces)), busyness(busyOf(o)).dress)
-  return populate(pieces ? pieces.swap(dressed) : dressed, targets)
+  // Stilwater modules are kept out of while props, spawns and weapons go in round them (their stand-ins are rough).
+  const laid = wizardLayout(o, pieces)
+  const keep = pieces?.city?.keepOut() ?? []
+  const dressed = dress(detailize(keep.length ? { ...laid, parts: [...laid.parts, ...keep] } : laid), busyness(busyOf(o)).dress)
+  const done = populate(pieces ? pieces.swap(dressed) : dressed, targets)
+  return keep.length ? { ...done, parts: done.parts.filter((p) => p.label !== KEEP_OUT) } : done
 }

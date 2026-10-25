@@ -10,8 +10,8 @@
 // weapons, lights) work round them; the map builder puts each model exactly where its stand-in says
 // (wizardBuild.ts). Until the Stilwater study fills cityModules(), there is nothing to build from and the wizard
 // falls back to single game models in the layout's own plots (wizardPieces.ts), as before.
-import { turn, type Part } from '../sampleKit'
-import { busyness, busyOf, rng, type Half, type Rng, type WizardOptions, type WizardSetting } from '../mapWizard'
+import { PB, box, mirror, turn, type Part } from '../sampleKit'
+import { KEEP_OUT, busyness, busyOf, rng, type Half, type Rng, type WizardOptions, type WizardSetting } from '../mapWizard'
 import { UNITS_PER_M } from '../player'
 import { cityModules, groups as cityGroups, placementOf, type CityGroup, type CityModule, type EdgeKind, type ModuleEdge, type ModulePart, type PlacementRule, type Side } from './cityModules'
 import type { GameObjectEntry } from './indexer'
@@ -19,6 +19,7 @@ import { GamePieces, TEXTURE_BUDGET, TRI_BUDGET, exactStandIn, type CityHooks, t
 
 const M = UNITS_PER_M
 const EPS = 0.05
+const r2 = (v: number) => +v.toFixed(2)
 
 /** Narrowest gap (units) players can use between two modules that don't join: an alley. */
 export const ALLEY = 3 * M
@@ -346,6 +347,11 @@ export class GameCity implements CityHooks {
     let fresh = 0
     for (const t of tex) if (!this.pieces.hasTexture(t)) fresh++
     return st.textures + fresh <= TEXTURE_BUDGET
+  }
+
+  keepOut(): Part[] {
+    if (!this.used) return []
+    return mirror(...this.placed.map((p) => box(KEEP_OUT, [r2(p.x1 - p.x0), 8, r2(p.z1 - p.z0)], [r2(p.x), 1, r2(p.z)], PB.concrete)))
   }
 
   // ---- filling the layout ----

@@ -10,6 +10,7 @@ import { GameCity } from '../lib/gameObjects/wizardModules'
 import { loadLabels, useGameLabels } from '../lib/gameObjects/labels'
 import { Link } from 'react-router-dom'
 import { toastError } from '../ui'
+import type { Preview } from '../lib/wizardPreview'
 
 const PLAYERS = [4, 6, 8, 10, 12]
 const GROUND_COLORS: Record<string, string> = {
@@ -146,6 +147,7 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
         </div>
       </div>
       <div className="col" style={{ gap: 6, flex: '1 1 300px', alignItems: 'stretch', minWidth: 0 }}>
+        <MapPreview sample={sample} busy={busy} onReroll={() => set({ seed: newSeed() })} onCreate={() => void create()} />
         <Sketch s={sample} />
         <span className="small muted">
           {size.widthM} × {size.depthM} m · about {size.players} players · {count('Red team spawn', 'Blue team spawn', 'Shared spawn')} spawns · {count('Weapon pickup')} weapons
@@ -203,6 +205,57 @@ function GamePiecesChoice({ on, setOn, suits, city }: { on: boolean; setOn: (v: 
       {on && city?.used && city.problems.length > 0 && (
         <span className="small" style={{ color: 'var(--warn, #e0b050)' }}>Found while building it: {city.problems.join(' ')} Reroll for another, or fix it in the editor.</span>
       )}
+    </div>
+  )
+}
+
+/**
+ * The map as it will be built, at a 3/4 angle and from above: the site's shapes and the game models' boxes first,
+ * then each game model as it comes in, then the checks the editor runs once it is open (wizardPreview.ts).
+ */
+function MapPreview({ sample, busy, onReroll, onCreate }: { sample: Sample; busy: boolean; onReroll: () => void; onCreate: () => void }) {
+  const [p, setP] = useState<Preview | null>(null)
+  const [on, setOn] = useState(true)
+  const [tries, setTries] = useState(0)
+  useEffect(() => {
+    if (!on) return
+    let stop: (() => void) | null = null, gone = false
+    // The last pictures stay up until the new ones come; its checks don't.
+    setP((q) => q && { angle: q.angle, top: q.top, stage: 'shells', models: [0, 0] })
+    // A moment's pause, so dragging the busy slider doesn't start a preview per step.
+    const t = setTimeout(() => void import('../lib/wizardPreview').then((m) => { if (!gone) stop = m.previewMap(sample, setP) }), 350)
+    return () => { gone = true; clearTimeout(t); stop?.() }
+  }, [sample, on, tries])
+  const openFolder = async () => {
+    try { await connect(true); setTries((n) => n + 1) } catch (e) { toastError(e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder to see the models from your game.') : e) }
+  }
+  if (!on) return <button className="link small" style={{ alignSelf: 'flex-start' }} onClick={() => setOn(true)}>Show the 3D preview</button>
+  const status = !p ? 'Drawing…'
+    : p.stage === 'shells' ? 'Drawing the shapes…'
+      : p.stage === 'models' ? `Bringing in models from your game (${p.models[0]}/${p.models[1]})…`
+        : p.stage === 'checks' ? 'Checking it the way the editor will…' : ''
+  return (
+    <div className="col" style={{ gap: 6 }}>
+      <div style={{ position: 'relative', background: '#101014', borderRadius: 8, aspectRatio: '1', overflow: 'hidden' }}>
+        {p?.angle && <img src={p.angle} alt="The map at a 3/4 angle" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />}
+        {p?.top && <img src={p.top} alt="The map from above" title="From above" style={{ position: 'absolute', right: 6, bottom: 6, width: '32%', aspectRatio: '1', background: '#0b0b0e', borderRadius: 6, border: '1px solid #2a2a30' }} />}
+        {status && <span className="small faint" style={{ position: 'absolute', left: 8, top: 6 }}>{status}</span>}
+      </div>
+      {p?.needFolder && <span className="small faint">The game models show as boxes until this tab can read your game files: <button className="link small" onClick={() => void openFolder()}>choose your Saints Reborn folder</button>.</span>}
+      {(p?.health !== undefined || p?.stairs !== undefined) && (
+        <span className="small">
+          {p.health !== undefined && <b style={{ color: p.health >= 70 ? 'var(--ok, #6c6)' : p.health >= 50 ? 'var(--warn, #e0b050)' : 'var(--bad, #e06060)' }}>Health {p.health}/100</b>}
+          {p.findings?.length ? <span className="faint"> · {p.findings.join(' ')}</span> : null}
+          {p.stairs ? <span> · {p.stairs} flight{p.stairs === 1 ? '' : 's'} of stairs too tall to run up (invisible ramps go in when it opens)</span> : null}
+          {p.walls ? <span> · {p.walls} invisible wall{p.walls === 1 ? '' : 's'} (left out of the collision at export)</span> : null}
+        </span>
+      )}
+      {p?.error && <span className="small faint">The checks couldn't run here ({p.error}); they run again once the map is open.</span>}
+      <div className="row wrap" style={{ gap: 6 }}>
+        <button className="sm" onClick={onReroll} disabled={busy} title="Same choices, a different map">🎲 Reroll</button>
+        <button className="sm primary" onClick={onCreate} disabled={busy}>Create this map</button>
+        <button className="link small" onClick={() => setOn(false)} title="Stop drawing previews (quicker rerolls)">hide preview</button>
+      </div>
     </div>
   )
 }

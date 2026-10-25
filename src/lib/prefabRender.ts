@@ -21,12 +21,12 @@ const VIEW = new THREE.Vector3(0.75, 0.62, 1).normalize()
 export interface ThumbBundle { items: SceneItem[]; files: Record<string, FileRef> }
 
 let renderer: THREE.WebGLRenderer | null = null
-function getRenderer(): THREE.WebGLRenderer {
-  if (renderer && !renderer.getContext().isContextLost()) return renderer
+function getRenderer(w = THUMB_PX, h = w): THREE.WebGLRenderer {
+  if (renderer && !renderer.getContext().isContextLost()) { renderer.setSize(w, h, false); return renderer }
   renderer?.dispose()
   const r = new THREE.WebGLRenderer({ canvas: document.createElement('canvas'), antialias: true, alpha: true, preserveDrawingBuffer: true })
   r.setPixelRatio(1)
-  r.setSize(THUMB_PX, THUMB_PX, false)
+  r.setSize(w, h, false)
   r.outputColorSpace = THREE.SRGBColorSpace
   r.setClearColor(0x000000, 0)
   return (renderer = r)
@@ -156,21 +156,32 @@ function contactShadow(box: THREE.Box3): THREE.Mesh {
   return m
 }
 
-/** Renders the object at the fixed 3/4 angle, fitted to the picture, as a WebP (PNG where WebP can't be written). */
-async function shoot(obj: THREE.Object3D): Promise<Blob | null> {
+export interface ViewOptions {
+  /** Picture size (default the thumbnail's). */
+  px?: number
+  /** Straight down, +X right and +Z down like the minimap, instead of the 3/4 view. */
+  top?: boolean
+  /** Leave the object's geometry and materials alive (it is drawn again). */
+  keep?: boolean
+}
+
+/** Renders the object at the fixed 3/4 angle (or from above), fitted to the picture, as a WebP (PNG where WebP can't be written). */
+async function shoot(obj: THREE.Object3D, o: ViewOptions = {}): Promise<Blob | null> {
   const box = new THREE.Box3().setFromObject(obj)
   if (box.isEmpty()) return null
   const scene = new THREE.Scene()
   scene.add(new THREE.HemisphereLight(0xffffff, 0x3a2a38, 2.2))
   const sun = new THREE.DirectionalLight(0xffffff, 1.6)
   sun.position.set(-0.4, 1, 0.7)
-  scene.add(sun, obj, contactShadow(box))
+  const shadow = contactShadow(box)
+  scene.add(sun, obj, shadow)
 
   // Orthographic, so the fit is exact: the box's corners as seen from the view direction.
   const center = box.getCenter(new THREE.Vector3())
   const radius = box.getSize(new THREE.Vector3()).length() / 2 || 1
   const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.01, radius * 8)
-  cam.position.copy(center).addScaledVector(VIEW, radius * 4)
+  if (o.top) cam.up.set(0, 0, -1)
+  cam.position.copy(center).addScaledVector(o.top ? new THREE.Vector3(0, 1, 0) : VIEW, radius * 4)
   cam.lookAt(center)
   cam.updateMatrixWorld()
   const lo = new THREE.Vector2(Infinity, Infinity), hi = new THREE.Vector2(-Infinity, -Infinity)
@@ -183,19 +194,23 @@ async function shoot(obj: THREE.Object3D): Promise<Blob | null> {
   Object.assign(cam, { left: cx - half, right: cx + half, top: cy + half, bottom: cy - half })
   cam.updateProjectionMatrix()
 
-  const r = getRenderer()
+  const r = getRenderer(o.px)
   r.render(scene, cam)
   const blob = await new Promise<Blob | null>((ok) => r.domElement.toBlob(ok, 'image/webp', 0.86))
-  scene.traverse((o) => {
-    if (!(o instanceof THREE.Mesh)) return
-    o.geometry.dispose()
-    for (const m of [o.material].flat()) m.dispose()
+  scene.remove(obj)
+  for (const gone of o.keep ? [shadow] : [obj, shadow]) gone.traverse((m) => {
+    if (!(m instanceof THREE.Mesh)) return
+    m.geometry.dispose()
+    for (const x of [m.material].flat()) x.dispose()
   })
   return blob
 }
 
 /** Any object, drawn like the prefabs (the "From my game" library uses it). */
 export const drawObject = (obj: THREE.Object3D) => shoot(obj)
+
+/** An object drawn bigger, at the 3/4 angle or from above (the map wizard's preview). */
+export const drawView = (obj: THREE.Object3D, o: ViewOptions) => shoot(obj, o)
 
 export async function drawParts(parts: Part[]): Promise<Blob | null> {
   return parts.length ? shoot(await partsObject(parts)) : null
