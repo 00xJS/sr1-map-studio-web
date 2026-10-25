@@ -30,8 +30,7 @@ import { FileButton, toast, toastError } from '../ui'
 import { openMapFiles } from '../lib/mapFolder/store'
 import { onQueued, queueEdits, takeEdits, type PendingEdits } from '../lib/pendingEdits'
 import { runAiActions } from './aiActions'
-import { addStairRamps } from './stairActions'
-import { runHealthCheck } from './health'
+import { runMapChecks } from './mapChecks'
 import { useChat } from './aiSession'
 
 const CloudButton = lazy(() => import('./CloudButton').then((m) => ({ default: m.CloudButton })))
@@ -153,12 +152,9 @@ function usePendingEdits(openChat: () => void) {
         await new Promise((r) => setTimeout(r, 200))
       }
       if (!live) { queueEdits(id, job); return }
-      if (job.checks) {
-        // Game models bring their own stairs: ramps over any too tall to run up, then the health check.
-        await addStairRamps().catch(toastError)
-        if (useEditor.getState().advanced) useEditor.getState().set({ tab: 'health' })
-        void runHealthCheck()
-      }
+      // Game models bring their own stairs and slivers: ramps over stairs too tall to run up, the invisible walls,
+      // then the health check, summed up with what the wizard found.
+      if (job.checks) void runMapChecks(job.summary)
       if (!job.actions.length) return
       const { done, skipped } = await runAiActions(job.actions, job.label)
       const chat = useChat.getState()

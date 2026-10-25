@@ -5,7 +5,8 @@ import { DENSITY, LAYOUTS, SETTINGS, busyLabel, busyOf, densityFor, newSeed, wiz
 import { mapSize } from '../lib/sampleScale'
 import type { Sample } from '../lib/sampleKit'
 import { NeedGameFolder, buildIndex, connect, loadIndex, useGameObjects } from '../lib/gameObjects/client'
-import { GamePieces, gamePiecesSuit } from '../lib/gameObjects/wizardPieces'
+import { gamePiecesSuit } from '../lib/gameObjects/wizardPieces'
+import { GameCity } from '../lib/gameObjects/wizardModules'
 import { loadLabels, useGameLabels } from '../lib/gameObjects/labels'
 import { Link } from 'react-router-dom'
 import { toastError } from '../ui'
@@ -79,14 +80,15 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
   const { labels, version } = useGameLabels()
   useEffect(() => { void loadIndex().catch(() => {}); void loadLabels() }, [])
   const gameOn = useGame && !!entries && gamePiecesSuit(o.setting)
-  const { sample, pieces } = useMemo(() => {
-    const pieces = gameOn ? new GamePieces(entries!, { ...o, labels, labelsVersion: version }) : undefined
-    return { sample: wizardSample(o, pieces), pieces }
+  // Game pieces: whole Stilwater modules and groups where the game library has them, single game models otherwise.
+  const { sample, city } = useMemo(() => {
+    const city = gameOn ? new GameCity(entries!, { ...o, labels, labelsVersion: version }) : undefined
+    return { sample: wizardSample(o, city?.pieces), city }
   }, [o, gameOn, entries, labels, version])
   const create = async () => {
     // Placing the models needs the game files open (the browser may ask for the folder once).
-    if (pieces) try { await connect(true) } catch (e) { toastError(e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder so the wizard can bring in the models from your game.') : e); return }
-    onCreate({ ...sample, name: name.trim() || sample.name })
+    if (city) try { await connect(true) } catch (e) { toastError(e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder so the wizard can bring in the models from your game.') : e); return }
+    onCreate({ ...sample, name: name.trim() || sample.name, ...(city?.used && city.problems.length ? { problems: city.problems } : {}) })
   }
   const size = mapSize(sample)
   const level = busyOf(o)
@@ -132,7 +134,7 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
             <span className="row faint small" style={{ justifyContent: 'space-between' }}><span>Open</span><span>Packed</span><span>3× packed</span></span>
           </label>
         </div>
-        <GamePiecesChoice on={useGame} setOn={setUseGame} suits={gamePiecesSuit(o.setting)} pieces={pieces} />
+        <GamePiecesChoice on={useGame} setOn={setUseGame} suits={gamePiecesSuit(o.setting)} city={city} />
         <label className="col" style={{ gap: 6 }}>
           <span className="section-title">Name</span>
           <input value={name} placeholder={sample.name} onChange={(e) => setName(e.target.value)} maxLength={40} />
@@ -158,14 +160,14 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
 }
 
 /** "What to build with": the site's own shapes and prefabs, or models from the player's own game. */
-function GamePiecesChoice({ on, setOn, suits, pieces }: { on: boolean; setOn: (v: boolean) => void; suits: boolean; pieces?: GamePieces }) {
+function GamePiecesChoice({ on, setOn, suits, city }: { on: boolean; setOn: (v: boolean) => void; suits: boolean; city?: GameCity }) {
   const { entries, status, progress } = useGameObjects()
   const [loading, setLoading] = useState(false)
   const load = async () => {
     setLoading(true)
     try { await buildIndex(true); setOn(true) } catch (e) { toastError(e) } finally { setLoading(false) }
   }
-  const st = pieces?.stats
+  const st = city?.pieces.stats, cs = city?.stats
   return (
     <div className="col" style={{ gap: 6 }}>
       <span className="section-title">Build with</span>
@@ -187,9 +189,19 @@ function GamePiecesChoice({ on, setOn, suits, pieces }: { on: boolean; setOn: (v
       {on && entries && suits && (
         <span className="small" style={{ color: 'var(--warn, #e0b050)' }}>
           Built from models in your own game files, kept on this device: you can export this map to your game, but it can't be shared, put on the Showcase or synced.
-          {st && <span className="faint"> {st.buildings} buildings, {st.props} props, {st.lights} lights and {st.fences} fence pieces from {st.models} models ({Math.round(st.triangles / 1000)}k triangles, {st.textures} textures){st.kept ? `; ${st.kept} spots keep the site's piece where nothing fitted` : ''}.</span>}
+          {city?.used && cs && st && <span className="faint">
+            {' '}Built from {cs.modules} pieces of Stilwater as the game has them ({cs.names.slice(0, 3).join(', ')}{cs.names.length > 3 ? ` and ${cs.names.length - 3} more` : ''}), {cs.groups} groups
+            {cs.wallProps ? `, ${cs.wallProps} wall things` : ''}, {st.props} props and {st.lights} lights ({Math.round(st.triangles / 1000)}k triangles, {st.textures} textures){cs.open ? `; ${cs.open} block${cs.open === 1 ? '' : 's'} left as open lots` : ''}.
+          </span>}
+          {city && !city.used && st && <span className="faint">
+            {' '}{city.ready ? 'No piece of Stilwater fits this layout' : "Pieces of Stilwater aren't ready in your library yet"}, so single models go in the layout's plots:{' '}
+            {st.buildings} buildings, {st.props} props, {st.lights} lights and {st.fences} fence pieces from {st.models} models ({Math.round(st.triangles / 1000)}k triangles, {st.textures} textures){st.kept ? `; ${st.kept} spots keep the site's piece where nothing fitted` : ''}.
+          </span>}
           {' '}<Link to="/game-pieces" className="small">Check which models it picks →</Link>
         </span>
+      )}
+      {on && city?.used && city.problems.length > 0 && (
+        <span className="small" style={{ color: 'var(--warn, #e0b050)' }}>Found while building it: {city.problems.join(' ')} Reroll for another, or fix it in the editor.</span>
       )}
     </div>
   )

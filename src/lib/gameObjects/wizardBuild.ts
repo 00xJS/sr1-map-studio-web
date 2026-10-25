@@ -87,6 +87,13 @@ export async function placeGameParts(parts: Part[], ws: number, onProgress?: (t:
     const e = entryById(p.game!.id), r = ready.get(p.game!.id)
     // A building players would see through is built as the site's plain block in its place.
     if (!e || !r || (p.label === 'Game building' && r.cover < SOLID_COVER)) { failed.push(p); continue }
+    // A part of a Stilwater module or group (or a prop placed by its rule) goes exactly where the game had it.
+    if (p.game!.exact) {
+      const placed = await gameObjectItem(e, [p.at[0], p.at[1], p.at[2]], p.rot ?? 0, ws)
+      Object.assign(files, placed.files)
+      items.push(placed.item)
+      continue
+    }
     const rot = modelTurn(r.ex, r.ez, p, identify(e).building?.front)
     // A building bigger than its footprint said would reach off its plot: the plain block instead.
     if (p.label === 'Game building' && !fitsStandIn(r.ex, r.ez, p, rot)) { failed.push(p); continue }

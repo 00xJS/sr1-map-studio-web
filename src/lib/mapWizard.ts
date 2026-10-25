@@ -257,7 +257,8 @@ const DECK = [3, 6] as const
 /** How much wider and deeper than its plot a game building may spread. */
 const GROW = 1.6
 
-class Half {
+/** Red's half while it is laid out: what is placed, and the ground taken. */
+export class Half {
   parts: Part[] = []
   weapons: [string, Vec3][] = []
   taken: Rect[] = []
@@ -327,7 +328,8 @@ class Half {
 const WEAPONS_HIGH = ['sniper_rifle', 'rpg_launcher']
 const CYBER_HIGH = ['sniper_rifle', 'rpg_laser']
 
-function lay(h: Half, o: WizardOptions) {
+/** Lays out red's half; true when its big areas were filled with Stilwater modules (wizardModules.ts). */
+function lay(h: Half, o: WizardOptions): boolean {
   const { W, D, r } = h
   const fill = busyness(busyOf(o)).fill
   const high = o.setting === 'cyber' ? CYBER_HIGH : WEAPONS_HIGH
@@ -335,7 +337,11 @@ function lay(h: Half, o: WizardOptions) {
   const centreClear = Math.min(W, D) * (o.layout === 'plaza' ? 0.22 : 0.1)
   h.take({ x: 0, z: 0, w: centreClear * 2, d: centreClear * 2 })
 
-  if (o.layout === 'blocks') {
+  // Game pieces from whole modules: the layout gives the streets, the modules fill the blocks between them.
+  const city = !!h.pieces?.city?.fill(h, o)
+  // Nothing fitted a neighbourhood: the caller lays out the site's own streets instead, untouched.
+  if (!city && o.layout === 'neighbourhood') return false
+  if (city) { /* the layout's own plots stay empty */ } else if (o.layout === 'blocks') {
     // A grid fitted to red's half between the spawn strip and the middle; streets run between the cells.
     const C = o.setting === 'downtown' ? 38 : 30
     const cols = Math.max(2, Math.round((W - 6) / C)), rows = Math.max(1, Math.round((D / 2 - h.strip - 2) / C))
@@ -462,8 +468,8 @@ function lay(h: Half, o: WizardOptions) {
     const s = r.int(10, 16)
     if (h.deck({ x: r.range(-W / 2 + 12, W / 2 - 12), z: r.range(-D / 2 + h.strip + 10, -10), w: s, d: s }, o.layout === 'heights' ? r.pick([3, 6, 6]) : r.pick(DECK), r.pick(high))) placed++
   }
-  // Open ground stays open on the maze and the cover field.
-  const extra = o.layout === 'maze' || o.layout === 'scatter' ? 0 : Math.round(fill * (o.layout === 'heights' ? 4 : 6))
+  // Open ground stays open on the maze and the cover field (and between modules: groups fill it).
+  const extra = city || o.layout === 'maze' || o.layout === 'scatter' ? 0 : Math.round(fill * (o.layout === 'heights' ? 4 : 6))
   for (let k = 0, placed = 0; k < 60 && placed < extra; k++) {
     const q = { x: r.range(-W / 2 + 10, W / 2 - 10), z: r.range(-D / 2 + h.strip + 8, -8), w: r.int(8, 18), d: r.int(8, 18) }
     if (h.structure(q, o.layout === 'heights' ? r.pick([4, 5]) : height())) placed++
@@ -476,6 +482,7 @@ function lay(h: Half, o: WizardOptions) {
     const ps = h.look.extras(r, q.x, q.z, rot + r.pick([0, 180]))
     if (ps.length) { h.parts.push(...ps); h.take(q); placed++ }
   }
+  return city
 }
 
 /** A point-symmetric centrepiece: a raised middle with two ramps, or a themed prefab. */
@@ -507,9 +514,10 @@ export function wizardLayout(o: WizardOptions, pieces?: GamePieces): Sample {
   const look = LOOKS[o.setting]
   const [W, D] = wizardSize(o.players, o.layout)
   const strip = 14
-  if (o.layout === 'neighbourhood') return neighbourhoodSample(o, look, r, W, D, strip, pieces)
+  // A neighbourhood from modules is laid out like city blocks (its streets plain ground: modules bring their own sidewalks).
+  if (o.layout === 'neighbourhood' && !pieces?.city?.ready) return neighbourhoodSample(o, look, r, W, D, strip, pieces)
   const h = new Half(W, D, strip, look, r, pieces)
-  lay(h, o)
+  if (!lay(h, o) && o.layout === 'neighbourhood') return neighbourhoodSample(o, look, rng(o.seed), W, D, strip, pieces)
   const mid = centre(o, look, r)
   const gTex = r.pick(look.ground)
   // Red's spawn strip: four spots across the end of the map.

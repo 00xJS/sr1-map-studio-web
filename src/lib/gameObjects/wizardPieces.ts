@@ -12,11 +12,13 @@
 import type { Vec3 } from '../project'
 import { PB, box, type Part, type Sample } from '../sampleKit'
 import { turn } from '../sampleKit'
-import { rng, type Rng, type WizardSetting } from '../mapWizard'
+import { over } from '../sampleScale'
+import { rng, type Half, type Rng, type WizardOptions, type WizardSetting } from '../mapWizard'
 import { UNITS_PER_M } from '../player'
 import { identify, type BuildingFacts, type GameIdentity, type PropKind } from './identity'
 import type { GameObjectEntry } from './indexer'
 import { withLabels, type GameLabels } from './labels'
+import type { PlacementRule, Side } from './cityModules'
 
 /** What a stand-in stands for. */
 export interface GamePart {
@@ -26,6 +28,21 @@ export interface GamePart {
   name: string
   /** Buildings: the heading (degrees, 0 = the stand-in's own +Z) the model's front should face. */
   front?: number
+  /**
+   * Placed exactly where and as turned as the stand-in is (a part of a Stilwater module or group, wizardModules.ts,
+   * or a prop placed by its rule): never turned to fit, nor swapped for a plain block.
+   */
+  exact?: boolean
+  /** The module or group it belongs to (its name). */
+  from?: string
+}
+
+/** Building from whole Stilwater modules (wizardModules.ts): the layout's big areas, filled before its own plots. */
+export interface CityHooks {
+  /** Anything to build from. */
+  readonly ready: boolean
+  /** Fills red's half's big areas with modules and groups; false when there is nothing to build from (the layout's own plots then). */
+  fill(h: Half, o: WizardOptions): boolean
 }
 
 /**
@@ -97,6 +114,24 @@ export const SPOTS: Record<string, Spot> = {
 
 const M = UNITS_PER_M
 const r2 = (v: number) => +v.toFixed(2)
+
+/**
+ * A stand-in for a model placed exactly: at `at` (units, its feet), turned `rot`, its box the model's own extents
+ * (the long side along the axis the library says, X when it doesn't).
+ */
+export function exactStandIn(e: Pick<GameObjectEntry, 'id' | 'name' | 'size' | 'long'>, label: string, at: Vec3, rot: number, from?: string): Part {
+  const [l, s, h] = e.size
+  const [sx, sz] = e.long === 'z' ? [s, l] : [l, s]
+  const part = box(label, [r2(Math.max(0.1, sx) * M), r2(Math.max(0.05, h) * M), r2(Math.max(0.1, sz) * M)], at.map(r2) as Vec3, PB.concrete, PB.concrete, ((rot % 360) + 360) % 360)
+  return { ...part, game: { id: e.id, name: e.name, exact: true, ...(from ? { from } : {}) } }
+}
+
+/** Which way (editor X, Z) a side of a model faces once it stands turned `rot`. */
+export function facingVec(side: Side, rot: number): [number, number] {
+  const [gx, gz] = ({ '+x': [1, 0], '-x': [-1, 0], '+z': [0, 1], '-z': [0, -1] } as const)[side]
+  // The game's +X is the editor's −X.
+  return turn(-gx, gz, rot)
+}
 
 export interface Cand {
   e: GameObjectEntry
@@ -244,6 +279,8 @@ export interface PiecesOptions {
   /** The player's labels, and their version (labels.ts). */
   labels?: GameLabels
   labelsVersion?: number
+  /** What each model needs to stand right (cityModules.ts placementOf): single props go only where it allows. */
+  rule?: (e: GameObjectEntry) => PlacementRule
 }
 
 /** Picks game models for one wizard map; a new one per map (it keeps the palettes and the budget). */
@@ -256,15 +293,43 @@ export class GamePieces {
   /** Pairs of spots on both halves get the same model. */
   private readonly twins = new Map<string, Cand | null>()
   readonly stats: GamePiecesStats = { buildings: 0, props: 0, lights: 0, fences: 0, kept: 0, triangles: 0, textures: 0, models: 0 }
+  /** Whole Stilwater modules for the layout's big areas (wizardModules.ts GameCity), when there are any. */
+  city?: CityHooks
+  private readonly rule?: (e: GameObjectEntry) => PlacementRule
+  private readonly byId = new Map<string, GameObjectEntry>()
 
   constructor(entries: GameObjectEntry[], o: PiecesOptions) {
     this.lib = prepare(entries, o.setting, o.identify ?? identify, o.labels, o.labelsVersion)
+    this.rule = o.rule
+    if (o.rule) for (const e of entries) this.byId.set(e.id, e)
     // Its own random numbers, so the layout stays the one the same seed gives without game pieces.
     this.r = rng((o.seed ^ 0x5bd1e995) >>> 0)
   }
 
   /** Everything usable at all: false when the library has nothing for this setting. */
   get any() { return this.lib.buildings.length + this.lib.fences.length + [...this.lib.props.values()].reduce((a, l) => a + l.length, 0) > 0 }
+
+  /** Triangles and textures spent on modules and groups (wizardModules.ts), from the same budget. */
+  spend(tris: number, tex: Iterable<string>) {
+    this.tris += tris
+    for (const t of tex) this.tex.add(t.toLowerCase())
+    this.stats.triangles = this.tris
+    this.stats.textures = this.tex.size
+  }
+
+  hasTexture(t: string) { return this.tex.has(t.toLowerCase()) }
+
+  /**
+   * Whether a model may go in on its own, standing on the ground: its rule says so, it isn't a kit piece for one
+   * building, and whatever it needs comes with it (the parts the game always places with it).
+   */
+  private loose(c: Cand): boolean {
+    const rl = this.rule?.(c.e)
+    if (!rl) return true
+    if (rl.attach !== 'ground' || rl.onlyOn?.length) return false
+    const has = new Set((c.e.assembly ?? []).map((a) => a.id))
+    return (rl.needs ?? []).every((id) => has.has(id) && this.byId.has(id))
+  }
 
   /** A model from `list`: a fitting one (fit > 0), the ones already in use far likelier, within the budget. Null when none. */
   private choose(list: Cand[], palette: string, fit: (c: Cand) => number, copies: number | ((c: Cand) => number), limit = TRI_BUDGET): Cand | null {
@@ -275,7 +340,7 @@ export class GamePieces {
     let total = 0
     for (const c of list) {
       const f = fit(c)
-      if (f <= 0 || this.tris + c.e.tris * times(c) > limit) continue
+      if (f <= 0 || this.tris + c.e.tris * times(c) > limit || !this.loose(c)) continue
       const mine = used.has(c.e.id)
       if (!mine) {
         if (used.size >= cap) continue
@@ -404,8 +469,11 @@ export class GamePieces {
         else this.stats.props += copies
       }
       if (!c) continue
+      const made = this.placeLoose(c, spot.role === 'fence' ? 'Game fence' : 'Game prop', p.at, p.rot, s.parts, p.parts)
+      // No way to stand it as its rule asks here: the site's piece stays.
+      if (!made) { this.stats.kept++; continue }
       p.parts.forEach((q) => drop.add(q))
-      add.push(this.standIn(c, spot.role === 'fence' ? 'Game fence' : 'Game prop', p.at, p.rot, c.long, c.short))
+      add.push(...made)
     }
     const lamps = this.lamps(s.parts)
     lamps.drop.forEach((q) => drop.add(q))
@@ -413,6 +481,49 @@ export class GamePieces {
     if (!drop.size) return s
     const parts = s.parts.filter((q) => !drop.has(q)).map((q) => (lamps.roads.has(q) ? { ...q, prefab: { ...q.prefab!, params: { ...q.prefab!.params, lamps: 0 } } } : q))
     return { ...s, parts: [...parts, ...add] }
+  }
+
+  /**
+   * Stand-ins for a single model at a site piece's spot, as its rule asks: turned only if it may be, the floor in
+   * front of it clear, and the models it needs placed with it, where the game places them. Null when it can't stand
+   * there. `parts`: the map so far; `own`: the site piece it replaces (not in the way).
+   */
+  private placeLoose(c: Cand, label: string, at: Vec3, rot: number, parts: Part[], own: Part[]): Part[] | null {
+    const rl = this.rule?.(c.e)
+    if (!rl || (!rl.needs?.length && !rl.clearFront)) return [this.standIn(c, label, at, rot, c.long, c.short)]
+    const turns = rl.mayVary.includes('turn') ? [0, 90, 180, 270] : [0]
+    for (const t of turns) {
+      const r = (rot + t) % 360
+      if (rl.clearFront && !this.clearAhead(c.e, rl, at, r, parts, own)) continue
+      const out = [exactStandIn(c.e, label, at, r)]
+      for (const id of rl.needs ?? []) {
+        const a = c.e.assembly!.find((q) => q.id === id)!, e = this.byId.get(id)!
+        const [dx, dz] = turn(-a.at[0] * M, a.at[2] * M, r)
+        out.push(exactStandIn(e, label, [at[0] + dx, at[1] + a.at[1] * M, at[2] + dz], r + (a.yaw * 180) / Math.PI))
+        this.spend(e.tris, e.tex)
+      }
+      return out
+    }
+    return null
+  }
+
+  /** Clear floor `clearFront` metres out from the model's front (every side, when its rule doesn't say which is the front). */
+  private clearAhead(e: GameObjectEntry, rl: PlacementRule, at: Vec3, rot: number, parts: Part[], own: Part[]): boolean {
+    const [l, s] = e.size
+    const [hx, hz] = e.long === 'z' ? [s / 2, l / 2] : [l / 2, s / 2]
+    const mine = new Set(own)
+    const sides: Side[] = rl.facing ? [rl.facing] : ['+x', '-x', '+z', '-z']
+    for (const side of sides) {
+      const [fx, fz] = facingVec(side, rot)
+      // Across the front: the model's own width that way.
+      const half = (side === '+x' || side === '-x' ? hz : hx) * M, reach = (side === '+x' || side === '-x' ? hx : hz) * M
+      const [ax, az] = [-fz, fx]
+      for (let d = reach + 0.5; d <= reach + (rl.clearFront ?? 0) * M; d += 1) for (let w = -half; w <= half + 1e-6; w += Math.max(0.5, half)) {
+        const x = at[0] + fx * d + ax * w, z = at[2] + fz * d + az * w
+        if (parts.some((q) => !mine.has(q) && q.at[1] < at[1] + 3.4 && q.at[1] + q.size[1] > at[1] + 0.35 && over(q, x, z, 0))) return false
+      }
+    }
+    return true
   }
 
   /** A road's lamp posts become one game street light, standing where each lamp stood. */
@@ -432,7 +543,7 @@ export class GamePieces {
     this.stats.lights += bases.length
     return {
       drop: posts,
-      add: bases.map((b) => this.standIn(c, 'Game light', b.at, b.rot ?? 0, c.long, c.short)),
+      add: bases.flatMap((b) => this.placeLoose(c, 'Game light', b.at, b.rot ?? 0, parts, posts) ?? []),
       roads: new Set(road.filter((q) => !posts.includes(q))),
     }
   }

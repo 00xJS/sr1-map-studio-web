@@ -34,7 +34,7 @@ export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project,
     setProgress('Starting…')
     try {
       // A map built from game models gets the map's checks once it is open (its stairs are the game's).
-      const job = typeof id !== 'string' && id.parts.some((p) => p.game) ? { ...(edits ?? { actions: [], label: 'Game pieces' }), checks: true } : edits
+      const job = typeof id !== 'string' && id.parts.some((p) => p.game) ? { ...(edits ?? { actions: [], label: 'Game pieces' }), checks: true, ...(id.problems?.length ? { summary: id.problems } : {}) } : edits
       await props.onBuilt(await (typeof id === 'string' ? buildSample(id, setProgress, { compact: small }) : buildFrom(id, setProgress)), job)
       props.onClose()
     } catch (e) {

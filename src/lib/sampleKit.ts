@@ -58,6 +58,8 @@ export type MarkerSpec = [string, Vec3, Partial<Marker>?]
 export interface Sample {
   id: string
   name: string
+  /** What the wizard found wrong while building it (a module players can't get into), for the map's checks once it is open. */
+  problems?: string[]
   icon: string
   theme: Theme
   description: string
