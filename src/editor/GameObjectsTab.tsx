@@ -50,6 +50,8 @@ function companions(e: GameObjectEntry): string {
   if (id.assembly?.length) out.push('comes with ' + [...new Set(id.assembly.map((p) => name(p.id)).filter(Boolean))].join(', '))
   if (id.partOf) out.push('part of a ' + name(id.partOf))
   if (id.copyOf) out.push('a second copy of a ' + name(id.copyOf) + ' at the same spot')
+  if (id.belongsTo?.length) out.push(`made for ${id.belongsTo.length > 1 ? 'buildings like the' : 'the'} ${name(id.belongsTo[0])} (${id.kitOf}) only`)
+  if (id.layout?.length) out.push(`completed by ${id.layout.length} pieces of its own`)
   if (id.near?.length) out.push('usually near ' + [...new Set(id.near.slice(0, 4).map(name).filter(Boolean))].join(', '))
   return out.length ? ' · ' + out.join(' · ') : ''
 }

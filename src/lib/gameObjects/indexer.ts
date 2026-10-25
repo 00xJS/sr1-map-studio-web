@@ -5,7 +5,7 @@
 // read from the player's own packfiles, and the tests on synthetic and real chunks.
 import { meshIndexCount, meshTextures, meshTriangleCount, type Chunk } from './chunk'
 import { baseName, buildingCode, skipName } from './classify'
-import { BUILDINGS, CATEGORIES, chunkDistricts, identify } from './identity'
+import { BUILDINGS, CATEGORIES, buildingKind, chunkDistricts, identify } from './identity'
 
 export type Vec3 = [number, number, number]
 
@@ -61,6 +61,20 @@ export interface GameObjectEntry {
   copyNames?: string[]
   /** Models the game most often stands within a few metres of this one, most telling first, with how often. */
   near?: { id: string; n: number }[]
+  /**
+   * A piece only ever used on one kind of building (its windows, doors, trims and corners made for it): that
+   * building's code ("bsad2a"), and the library's buildings of that kind it stands on (ids, most used first).
+   * Kit pieces are not to be mixed onto other buildings.
+   */
+  kitOf?: string
+  belongsTo?: string[]
+  /** Buildings: the pieces made only for buildings of this kind (ids), its kit. */
+  kit?: string[]
+  /**
+   * Buildings: every piece the game places on most copies of this building, where (its feet in the building's
+   * cut-out frame, game axes, metres) and turned how (radians about +Y): what completes it.
+   */
+  layout?: GamePart[]
 }
 
 export interface GamePart { id: string; at: Vec3; yaw: number; share: number }
@@ -106,7 +120,7 @@ export function summarizeChunk(ch: Chunk, chunk: string): MapSummary {
  * next to its placements (by id, offset and turn: [count, summed x, y, z, turn]); `around` how many of its
  * placements have each model within NEAR metres.
  */
-export interface Candidate extends GameObjectEntry { key: string; up: number; close?: Record<string, number[]>; around?: Record<string, number> }
+export interface Candidate extends GameObjectEntry { key: string; up: number; close?: Record<string, number[]>; around?: Record<string, number>; on?: Record<string, number>; onAt?: Record<string, number[]> }
 
 /** Smaller than this across is a speck nobody could place. */
 const MIN_SIDE = 0.03
@@ -171,7 +185,7 @@ export function yawOf(R: number[], up: number) {
  * Where a single object's feet stand in the world when cut out the way extract.ts cuts it (its turn about the
  * vertical taken out, centred across, feet at the bottom), and that turn.
  */
-function anchorOf(b: Box, pos: number[], R: number[]): { at: Vec3; yaw: number } {
+function anchorOf(b: Box, pos: number[], R: number[]): { at: Vec3; yaw: number; ext: [number, number] } {
   const yaw = yawOf(R, upAxis(R)), c = Math.cos(yaw), s = Math.sin(yaw)
   const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]
   for (let k = 0; k < 8; k++) {
@@ -181,7 +195,7 @@ function anchorOf(b: Box, pos: number[], R: number[]): { at: Vec3; yaw: number }
     for (let j = 0; j < 3; j++) { min[j] = Math.min(min[j], u[j]); max[j] = Math.max(max[j], u[j]) }
   }
   const ux = (min[0] + max[0]) / 2, uz = (min[2] + max[2]) / 2
-  return { at: [pos[0] + ux * c - uz * s, pos[1] + min[1], pos[2] + ux * s + uz * c], yaw }
+  return { at: [pos[0] + ux * c - uz * s, pos[1] + min[1], pos[2] + ux * s + uz * c], yaw, ext: [max[0] - min[0], max[2] - min[2]] }
 }
 
 /** How far around a placement its neighbours are counted (metres, across). */
@@ -190,7 +204,7 @@ const NEAR = 6
 const TOUCH = 0.15
 
 /** One placed model: where its feet stand, its turn, half its long side across and its height. */
-interface Placement { key: string; at: Vec3; yaw: number; half: number; h: number }
+interface Placement { key: string; at: Vec3; yaw: number; half: number; h: number; ext: [number, number] }
 
 /** Counts, for each placement, what stands at the same spot and what stands around it (see Candidate). */
 function relate(places: Placement[], out: Map<string, Candidate>) {
@@ -305,7 +319,7 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
       const size: Vec3 = [r2(Math.max(ext[0], ext[2])), r2(Math.min(ext[0], ext[2])), r2(ext[1])]
       const key = `b|${members.length}|${idx}|${ext.map((v) => Math.round(v * 10)).join(',')}`
       const parts = members.map((m) => recs[m]).sort((a, b) => a - b)
-      places.push({ key, at: [(min[0] + max[0]) / 2, min[1], (min[2] + max[2]) / 2], yaw: 0, half: Math.max(ext[0], ext[2]) / 2, h: ext[1] })
+      places.push({ key, at: [(min[0] + max[0]) / 2, min[1], (min[2] + max[2]) / 2], yaw: 0, half: Math.max(ext[0], ext[2]) / 2, h: ext[1], ext: [ext[0], ext[2]] })
       const prev = out.get(key)
       if (prev) { prev.seen++; continue }
       out.set(key, {
@@ -355,6 +369,29 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
   // What stands with what: never-drawn copies and the ground say nothing about it.
   const counted = (p: Placement) => { const id = identify(out.get(p.key)!); return id.role !== 'skip' && id.role !== 'ground' }
   relate(places.filter(counted), out)
+  // Which building each piece stands on (the smallest whose footprint, a little larger, holds its feet), and
+  // where on it, in the building's own frame.
+  const hosts = places.filter((p) => buildingKind(out.get(p.key)!) === 'whole')
+  for (const p of places) {
+    const c = out.get(p.key)!
+    if (buildingKind(c) || !hosts.length) continue
+    let best: Placement | null = null, area = Infinity, at: number[] = []
+    for (const h of hosts) {
+      const d = [p.at[0] - h.at[0], p.at[1] - h.at[1], p.at[2] - h.at[2]]
+      if (Math.abs(d[0]) > h.half + 1 || Math.abs(d[2]) > h.half + 1) continue
+      const co = Math.cos(h.yaw), si = Math.sin(h.yaw)
+      const o = [d[0] * co + d[2] * si, d[1], -d[0] * si + d[2] * co]
+      if (Math.abs(o[0]) > h.ext[0] / 2 + 0.5 || Math.abs(o[2]) > h.ext[1] / 2 + 0.5 || o[1] < -1 || o[1] > h.h + 1) continue
+      const a = h.ext[0] * h.ext[1]
+      if (a < area) { area = a; best = h; at = o }
+    }
+    if (!best) continue
+    const id = keyId(best.key)
+    ;(c.on ??= {})[id] = (c.on[id] ?? 0) + 1
+    let t = (p.yaw - best.yaw) % (2 * Math.PI); if (t > Math.PI) t -= 2 * Math.PI; if (t <= -Math.PI) t += 2 * Math.PI
+    const v = ((c.onAt ??= {})[`${id}|${at.map((x) => Math.round(x * 4)).join(',')}|${Math.round(t / (Math.PI / 12))}`] ??= [0, 0, 0, 0, 0])
+    v[0]++; v[1] += at[0]; v[2] += at[1]; v[3] += at[2]; v[4] += t
+  }
   return [...out.values()]
 }
 
@@ -423,6 +460,74 @@ function together(entries: GameObjectEntry[], rel: Map<string, { close: Map<stri
   }
 }
 
+/** At least this share of a piece's placements stand on buildings of one kind: it is made for that kind. */
+const KIT = 0.8
+
+/** A building's kind: its code without the shell suffix ("bsad2a_hull" -> "bsad2a"). */
+const familyOf = (e: GameObjectEntry) => e.name.toLowerCase().replace(/_hull\d*$/, '')
+/** The building code a part's own name starts with ("bsad2a_medfront" -> "bsad2a"), or null. */
+const partCode = (name: string) => name.toLowerCase().match(/^(?:[a-z0-9]{1,6}_|[a-z]{1,3}\d+)?([a-z]{2,10}\d+[a-z]{1,2})_[a-z]/)?.[1] ?? null
+
+/**
+ * The building kits (GameObjectEntry.kitOf, belongsTo, kit): a piece whose placements nearly all stand on
+ * buildings of one kind, or whose own name carries a building's code, is made for that kind of building.
+ */
+function kits(entries: GameObjectEntry[], rel: Map<string, { on: Map<string, number>; onAt: Map<string, number[]> }>) {
+  const byId = new Map(entries.map((e) => [e.id, e]))
+  const families = new Map<string, GameObjectEntry[]>()
+  for (const e of entries) if (buildingKind(e) === 'whole') { const f = familyOf(e); (families.get(f) ?? families.set(f, []).get(f)!).push(e) }
+  // Building texture sets ("B11_" in "B11_window1_gs.tga") used by one kind of building only.
+  const setOf = (t: string) => t.toLowerCase().match(/^([a-z]{1,2}\d{2}[a-z]?)_/)?.[1] ?? null
+  const setFamilies = new Map<string, Set<string>>()
+  for (const [f, bs] of families) for (const b of bs) for (const t of b.tex) { const k = setOf(t); if (k) (setFamilies.get(k) ?? setFamilies.set(k, new Set()).get(k)!).add(f) }
+  const familyFor = (code: string) => (families.has(code) ? code : [...families.keys()].find((f) => f.length >= 5 && (code.endsWith(f) || f.endsWith(code))) ?? null)
+  for (const e of entries) {
+    if (buildingKind(e)) continue
+    const on = [...rel.get(e.id)!.on].filter(([id]) => buildingKind(byId.get(id)!) === 'whole').sort((a, b) => b[1] - a[1])
+    const total = on.reduce((s, [, n]) => s + n, 0)
+    const kinds = new Set(on.map(([id]) => familyOf(byId.get(id)!)))
+    // Its own name says which building it is a part of; failing that, where it stands; failing that, its pictures.
+    const code = [e.name, ...(e.raw ?? [])].map(partCode).find(Boolean)
+    let family = code ? familyFor(code) : null
+    if (!family && total >= KIT * e.seen && kinds.size === 1) family = [...kinds][0]
+    else if (!family && !total) {
+      // (A piece placed without a record, wearing only pictures of one kind of building's set.)
+      if (e.record < 0 && e.tex.length) {
+        const fams = e.tex.map(setOf).map((k) => (k ? setFamilies.get(k) : undefined))
+        if (fams.every((f) => f?.size === 1) && new Set(fams.map((f) => [...f!][0])).size === 1) family = [...fams[0]!][0]
+      }
+    }
+    if (!family) continue
+    e.kitOf = family
+    const ids = on.map(([id]) => id)
+    e.belongsTo = (ids.length ? ids : families.get(family)!.map((b) => b.id)).slice(0, 8)
+  }
+  // A kit piece's own parts (its base, its copy) belong to the same building.
+  for (const e of entries) for (const other of buildingKind(e) ? [] : [e.partOf, e.copyOf]) {
+    const m = other ? byId.get(other) : undefined
+    if (m?.kitOf && !e.kitOf) { e.kitOf = m.kitOf; if (m.belongsTo) e.belongsTo = m.belongsTo }
+  }
+  // Each building's layout: the pieces at a spot on it on at least half its copies (never copies or the
+  // never-drawn: their roles are left to identify(), so only what an entry is known not to be is left out here).
+  const r2 = (v: number) => Math.round(v * 100) / 100
+  const layouts = new Map<string, GamePart[]>()
+  for (const e of entries) {
+    if (buildingKind(e) || e.copyOf) continue
+    for (const [bin, v] of rel.get(e.id)!.onAt) {
+      const b = byId.get(bin.slice(0, bin.indexOf('|')))
+      if (!b || v[0] < Math.max(1, b.seen / 2)) continue
+      const n = v[0], copies = Math.max(1, Math.round(n / b.seen))
+      const part: GamePart = { id: e.id, at: [r2(v[1] / n), r2(v[2] / n), r2(v[3] / n)], yaw: r2(v[4] / n), share: r2(Math.min(1, n / (b.seen * copies))) }
+      ;(layouts.get(b.id) ?? layouts.set(b.id, []).get(b.id)!).push(part)
+    }
+  }
+  for (const [id, parts] of layouts) byId.get(id)!.layout = parts.sort((a, b) => a.at[1] - b.at[1] || a.id.localeCompare(b.id)).slice(0, 400)
+  for (const [f, bs] of families) {
+    const kit = entries.filter((e) => e.kitOf === f).map((e) => e.id)
+    if (kit.length) for (const b of bs) b.kit = kit.slice(0, 200)
+  }
+}
+
 /** Building part names that face the street: doors, shop fronts and windows, canopies, porches. */
 const FRONT_PART = /front|door|entr|display|marq|canop|porch|shop|awn/
 
@@ -435,18 +540,20 @@ export const textureName = (t: string) => t.replace(/\.\w+$/, '').replace(/_(tm|
  * how often the game uses it.
  */
 export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
-  const by = new Map<string, { copies: Candidate[]; seen: number; names: Map<string, number>; ups: Map<number, number>; raw: Set<string>; where: Set<string>; districts: Set<string>; close: Map<string, number[]>; around: Map<string, number> }>()
+  const by = new Map<string, { copies: Candidate[]; seen: number; names: Map<string, number>; ups: Map<number, number>; raw: Set<string>; where: Set<string>; districts: Set<string>; close: Map<string, number[]>; around: Map<string, number>; on: Map<string, number>; onAt: Map<string, number[]> }>()
   // How many different objects each chunk holds: copies are taken from as few chunks as possible, so drawing a
   // page of pictures reads few chunks.
   const perChunk = new Map<string, number>()
   for (const c of all) {
     let g = by.get(c.key)
-    if (!g) by.set(c.key, (g = { copies: [], seen: 0, names: new Map(), ups: new Map(), raw: new Set(), where: new Set(), districts: new Set(), close: new Map(), around: new Map() }))
+    if (!g) by.set(c.key, (g = { copies: [], seen: 0, names: new Map(), ups: new Map(), raw: new Set(), where: new Set(), districts: new Set(), close: new Map(), around: new Map(), on: new Map(), onAt: new Map() }))
     g.where.add(isMpChunk(c.pack, c.chunk) ? c.chunk.toLowerCase().replace(/_al$/, '') : 'city')
     for (const r of c.raw ?? []) if (g.raw.size < 8) g.raw.add(r)
     for (const d of c.districts ?? []) g.districts.add(d)
     for (const [k, v] of Object.entries(c.close ?? {})) { const t = g.close.get(k); if (t) for (let i = 0; i < 5; i++) t[i] += v[i]; else g.close.set(k, [...v]) }
     for (const [k, n] of Object.entries(c.around ?? {})) g.around.set(k, (g.around.get(k) ?? 0) + n)
+    for (const [k, n] of Object.entries(c.on ?? {})) g.on.set(k, (g.on.get(k) ?? 0) + n)
+    for (const [k, v] of Object.entries(c.onAt ?? {})) { const t = g.onAt.get(k); if (t) for (let i = 0; i < 5; i++) t[i] += v[i]; else g.onAt.set(k, [...v]) }
     g.copies.push(c)
     g.seen += c.seen
     for (const n of [c.name, ...(c.names ?? [])]) g.names.set(n, (g.names.get(n) ?? 0) + (n === c.name ? c.seen : 1))
@@ -455,13 +562,13 @@ export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
     perChunk.set(ck, (perChunk.get(ck) ?? 0) + 1)
   }
   const entries: GameObjectEntry[] = []
-  const rel = new Map<string, { close: Map<string, number[]>; around: Map<string, number> }>()
+  const rel = new Map<string, { close: Map<string, number[]>; around: Map<string, number>; on: Map<string, number>; onAt: Map<string, number[]> }>()
   for (const g of by.values()) {
     // A copy that stands the way most copies do, from the busiest chunk.
     const upBest = [...g.ups.entries()].sort((a, b) => b[1] - a[1])[0][0]
     const score = (c: Candidate) => (c.up === upBest ? 1e9 : 0) + (perChunk.get(c.pack + '/' + c.chunk) ?? 0)
     const best = g.copies.reduce((a, b) => (score(b) > score(a) ? b : a))
-    const { key: _k, up: _u, names: _n, raw: _r, districts: _d, close: _c, around: _a, ...e } = best
+    const { key: _k, up: _u, names: _n, raw: _r, districts: _d, close: _c, around: _a, on: _o, onAt: _oa, ...e } = best
     const names = [...g.names.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n)
     const entry: GameObjectEntry = { ...e, name: names[0] ?? e.name, seen: g.seen }
     if (names.length > 1) entry.names = names.slice(1, 5)
@@ -473,6 +580,7 @@ export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
     rel.set(entry.id, g)
   }
   together(entries, rel)
+  kits(entries, rel)
   // What each is, now that every name, map, district and companion it has is known (one rule table: identity.ts).
   for (const e of entries) e.cat = identify(e).category
   const rank = (c: string) => { const i = CATEGORIES.indexOf(c); return i < 0 ? CATEGORIES.length : i }

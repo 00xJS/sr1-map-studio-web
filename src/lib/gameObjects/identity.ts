@@ -67,6 +67,20 @@ export interface GameIdentity {
   copyOf?: string
   /** The models the game most often stands near this one (ids, most telling first), for placing things where they belong. */
   near?: string[]
+  /**
+   * A piece made for one kind of building (its own windows, doors, trims, corners): that building's code, and
+   * the buildings of that kind it stands on (ids). Use it only with those buildings, never mixed onto others.
+   */
+  kitOf?: string
+  belongsTo?: string[]
+  /** Buildings: the pieces made only for buildings of this kind (ids). */
+  kit?: string[]
+  /**
+   * Buildings: every piece the game places on most copies of this one (windows, doors, signs, roof units...),
+   * where and turned how in the building's own frame (see GameObjectEntry.layout); placing them all completes
+   * it. Leave out the parts identify() calls 'skip'.
+   */
+  layout?: GamePart[]
 }
 
 // ---------------- categories ----------------
@@ -102,6 +116,8 @@ interface Facts {
   profile: string[]
   /** Its record names are a building's part names ("abcd1a_medfront"): a piece of a building, whatever it shows. */
   part: boolean
+  /** The game's own names mark it a decal ("DEC_..."). */
+  decal?: boolean
   /** Its texture names, lower case, no file type. */
   tex: string[]
   /** Long side, short side, height (metres). */
@@ -141,8 +157,26 @@ const post = (f: Facts) => f.size[0] < 0.5 && f.size[2] > Math.max(0.8, f.size[0
 /** First match wins. Word starts matter: "street" is no tree. */
 const RULES: Rule[] = [
   // Lights and signals.
+  // A thing's own door ("boxcardr1a", "portapottydoora"): a piece of it.
+  R(/(?<!out|in)[a-z]door[a-d]?$|(box_?car|husk|potty|truck|van)_?(door|dr)/, 'Door', OPENINGS),
+  R(/husk_?tire|husk_?wheel/, 'Tire', CONTAINERS, { kind: 'clutter' }),
+  R(/head_?stone|grave_?stone|(^|_)tomb/, 'Gravestone', STREET),
+  R(/tree_?(gate|guard)/, 'Tree guard', STREET),
+  R(/anchor/, 'Anchor', STREET, { on: 'name' }),
+  R(/water_?tower_?(spt|sup|brc|brace|leg|bse|base|x)/, 'Water tower support', PIECES),
+  R(/(^|_)substn|substation/, 'Substation equipment', MACHINES, { on: 'name' }),
+  R(/el(evator)?_?pan(el)?$|elevator_?(button|panel)|(^|_)elpan/, 'Elevator panel', PIECES),
+  R(/sec_?gate|grille|security_?bars?/, 'Security grille', OPENINGS),
+  R(/pillow|cushion/, 'Pillow', FURNITURE, { kind: 'clutter' }),
+  R(/floor_?mat|door_?mat/, 'Rug', FURNITURE, { kind: 'clutter' }),
+  R(/dart|arrow_?(a|b)?$/, 'Dart', SMALL, { on: 'name' }),
+  R(/tattoo/, 'Tattoo gear', SMALL),
+  R(/(^|_)cds?(_|$|stack|rack|case|jewel)|(^|_)dvds?|cd_?jewel/, 'CDs', SMALL),
+  R(/luggage|baggage|conveyor/, 'Conveyor', MACHINES),
+  R(/lift_?engine|engine_?hoist|(^|_)hoist|(^|_)engine/, 'Engine hoist', MACHINES),
+  R(/pop_?mach|soda_?mach|vend/, 'Vending machine', MACHINES),
   R(/lightdecal|lightpool|light_?glow|(^|_)glow|lightfade|lightcone|lightbeam|(^|_)flare|corona|godray/, 'Light glow', HIDDEN),
-  R(/trafficsig|trafficlight|stoplight|traffic_?signal|(^|_)signal|siglmp|(^|_)sig_?(bse|base)|trfclt/, 'Traffic light', LIGHTS),
+  R(/trafficsig|traffic_?light|stoplight|traffic_?signal|(^|_)signal|siglmp|(^|_)sig_?(bse|base)|trfclt/, 'Traffic light', LIGHTS),
   R(/sconce|walllight|wall_?lamp|(^|_)wlamp/, 'Wall lamp', LIGHTS, { role: 'piece' }),
   R(/lightceil|ceil_?(ing)?_?light|flite|fluorescent|florescent|chandel|chandal|ceilingfan|hanglamp|pendant/, 'Ceiling light', LIGHTS, { role: 'piece' }),
   R(/neon/, 'Neon sign', SIGNS),
@@ -155,7 +189,7 @@ const RULES: Rule[] = [
   R(/poster|flyer|(^|_)ad_|advert|motivation/, 'Poster', SIGNS),
   R(/trfcsgn|trafficsign|stopsign|streetsign|signpost|roadsign|(^|_)strsign|yieldsign|onewaysign/, 'Street sign', SIGNS, { kind: 'street' }),
   R(/marquee|marq(ui)?e?(_|$)|marquie/, 'Marquee', SIGNS),
-  R(/banner(?!pole)|(^|_)flag(s|_|$)/, 'Banner', SIGNS),
+  R(/banner(?!pole)|(^|_)flags?(_|$)/, 'Banner', SIGNS),
   R(/(^|_)sign|sign(_|$|s$|[a-d]$)|logo|letters?(_|$)/, 'Sign', SIGNS),
   R(/artpic|picture|painting|portrait|(^|_)pics|picfram|frame_?pic/, 'Picture', SMALL),
   // Fences and barriers.
@@ -187,12 +221,12 @@ const RULES: Rule[] = [
   R(/parking_?block|prk_?blk|park_?block|carstop|(^|_)p_?block|wheelstop|curbstop/, 'Parking block', STREET),
   R(/fire_?hyd|hydrant/, 'Fire hydrant', STREET),
   R(/mail_?box|mailbx|postbox|(^|_)usps/, 'Mailbox', STREET),
-  R(/news_?stand|newsbox|news_?(side|rack|paper)|(^|_)news/, 'Newspaper box', STREET),
+  R(/news_?stand|newsbox|news_?(side|rack|paper)|(^|_)news/, 'Newspaper box', STREET, { on: 'name' }),
   R(/phone_?booth|pay_?phone/, 'Payphone', STREET),
   R(/park(ing)?_?meter|(^|_)meter(_|$|[a-d]$)/, 'Parking meter', STREET),
   R(/trash_?can|garbage_?can|(^|_)trsh|(^|_)s?trash$|ash_?can|waste_?bin|litter_?bin|(^|_)bin(_|$)/, 'Trash can', STREET),
   R(/trash_?bag|garbage_?bag|bin_?bag/, 'Trash bags', STREET, { kind: 'clutter' }),
-  R(/(^|_)trash(?!_?can)|alltrash|litter|garbage(?!_?can)|debris|rubble|(^|_)junk(?!mattress)/, 'Trash', STREET, { kind: 'clutter' }),
+  R(/(^|_)trash(?!_?can)|alltrash|street_?trash|litter|garbage(?!_?can)|debris|rubble|(^|_)junk(?!mattress|comp|car|tv|pc)/, 'Trash', STREET, { kind: 'clutter' }),
   R(/picnic/, 'Picnic table', STREET),
   R(/bench/, 'Bench', STREET),
   R(/planter|plntr|flower_?box|flowerpot|(^|_)pot_?plant/, 'Planter', STREET),
@@ -200,7 +234,8 @@ const RULES: Rule[] = [
   R(/utility_?pole|tele_?pole|power_?pole|phone_?pole|(^|_)telpole/, 'Utility pole', STREET),
   R(/tele_?wire|power_?line|(^|_)wires?(_|$)|p_wire|(^|_)cables?(_|$)/, 'Power lines', STREET, { role: 'piece' }),
   R(/manhole|drain_?cover|sewer/, 'Manhole cover', GROUND),
-  R(/grate|(^|_)drain/, 'Drain grate', GROUND),
+  R(/grate|(^|_)drain/, 'Drain grate', GROUND, { when: (f) => f.size[2] < 0.5 }),
+  R(/grate/, 'Grate', PIECES),
   R(/porta_?(potty|john|loo)|(^|_)toilet|(^|_)urinal/, 'Toilet', STREET),
   R(/bike_?rack/, 'Bike rack', STREET),
   R(/(^|_)swing|slide_?play|playground|seesaw|jungle_?gym|go_?round|merry/, 'Playground swing', STREET),
@@ -214,28 +249,28 @@ const RULES: Rule[] = [
   R(/(^|_)boat|yacht|dinghy|(^|_)ship(_|$)/, 'Boat', VEHICLES),
   R(/(^|_)plane(_|$)|airplane|jet(_|$)|helicop/, 'Aircraft', VEHICLES),
   R(/(^|_)car(_|s?$|\d)|(^|_)truck|(^|_)van(_|$)|(^|_)bus(_|$)|(^|_)cart(_|$)|golf_?cart|motorcycle|(^|_)bike(_|$)|bicycle/, 'Vehicle', VEHICLES),
-  R(/(^|_)tire|(^|_)tyre|tire_?(stack|pile)|(^|_)wheel/, 'Tire', CONTAINERS, { kind: 'clutter' }),
+  R(/husk_?tire|(^|_)tire|(^|_)tyre|tire_?(stack|pile)|(^|_)wheel/, 'Tire', CONTAINERS, { kind: 'clutter' }),
   // Containers and crates.
   R(/dumpster|dump(_|$)|(^|_)skip_?bin/, 'Dumpster', CONTAINERS),
   R(/card_?b(oar)?d|cardb|(^|_)cb_?box/, 'Cardboard box', CONTAINERS),
   R(/shoe_?box|boxshoe/, 'Shoe box', SMALL),
   R(/box_?bullet|ammo_?box|bulletbox|(^|_)ammo/, 'Ammo box', SMALL),
   R(/shipping_?container|container|cargo_?cont|(^|_)cntnr|reefer/, 'Shipping container', CONTAINERS, { when: (f) => f.size[0] >= 4 }),
-  R(/container|canister/, 'Container', SMALL),
+  R(/container|canister|(^|_)jars?(_|$|[a-d]$)/, 'Container', SMALL),
   R(/barrel|(^|_)drum|oil_?drum|keg/, 'Barrel', CONTAINERS),
   R(/crate/, 'Crate', CONTAINERS),
   R(/pallet|palate|palette/, 'Pallet', CONTAINERS),
   R(/lumber|plank_?stack|wood_?pile|(^|_)2_?x_?4|(^|_)x4_|(^|_)beams?_?stack/, 'Lumber', CONTAINERS, { kind: 'clutter' }),
   R(/plywood|(^|_)board(_|$|[a-d]$)|wood_?board/, 'Plywood sheet', CONTAINERS, { kind: 'clutter' }),
-  R(/cinder|breeze_?block|(^|_)cblock/, 'Cinder block', CONTAINERS, { kind: 'clutter' }),
+  R(/cinder|breeze_?block|(^|_)cblock/, 'Cinder block', CONTAINERS, { kind: 'clutter', when: small }),
   R(/sand_?bag/, 'Sandbags', CONTAINERS),
   R(/spool|cable_?reel/, 'Cable spool', CONTAINERS),
   R(/bucket|(^|_)pail|paint_?can|gallon|(^|_)jug/, 'Bucket', SMALL),
-  R(/propane|gas_?tank|(^|_)cylinder|gas_?bottle/, 'Gas cylinder', CONTAINERS),
+  R(/propane|gas_?tank|gas_?cyl|gas_?bottle/, 'Gas cylinder', CONTAINERS),
   R(/(^|_)tank(_|$|s$|[a-d]$)|water_?tower|silo/, 'Tank', CONTAINERS, { kind: 'machine' }),
   R(/dolly|hand_?truck|wheel_?barrow/, 'Hand truck', CONTAINERS, { kind: 'clutter' }),
   R(/(^|_)bags?(_|$|[a-d]$)|sack/, 'Bag', CONTAINERS, { kind: 'clutter' }),
-  R(/(^|_)box|box(es)?(_|$|[a-d]$)/, 'Box', CONTAINERS, { when: (f) => f.size[0] < 3 }),
+  R(/(^|_)box|box(es)?(_|$|[a-d]$)/, 'Box', CONTAINERS, { when: (f) => f.size[0] < 3 && f.size[2] < 2.5 }),
   // Machines.
   R(/vend|soda_?mach|snack_?mach/, 'Vending machine', MACHINES),
   R(/cash_?r(eg)?|register|cashdet|cashbody|(^|_)till/, 'Cash register', MACHINES, { kind: 'clutter' }),
@@ -252,7 +287,7 @@ const RULES: Rule[] = [
   R(/computer|monitor|(^|_)pc(_|$)|(^|_)mouse|keyboard|laptop|printer|copier/, 'Computer', SMALL),
   R(/crane|hoist|gantry/, 'Crane', MACHINES),
   R(/compressor|machine|wet_?vac|(^|_)motor|turbine|conveyor|press(_|$)|drill_?press|lathe|intcontrol|intcntrl|control_?panel/, 'Machine', MACHINES),
-  R(/(^|_)guns?(_|$)|gun_?(holder|case|rack)|rifle|pistol|shotgun|glock|spas|(^|_)mac(_|$)|(^|_)ak(_|\d)|hgun|(^|_)gsa_?p|tec_?9|(^|_)mp5|(^|_)smg|revolver|magnum|(^|_)colt|weapon|(^|_)uzi|(^|_)ak_?47/, 'Gun', SMALL),
+  R(/(^|_)guns?(_|$)|gun_?(holder|case|rack)|rifle|pistol|shotgun|glock|spear|sword|machete|(^|_)knife|spas|(^|_)mac(_|$)|(^|_)ak(_|\d)|hgun|(^|_)gsa_?p|tec_?9|(^|_)mp5|(^|_)smg|revolver|magnum|(^|_)colt|weapon|(^|_)uzi|(^|_)ak_?47/, 'Gun', SMALL),
   R(/(^|_)bricks?(_|$)/, 'Brick', CONTAINERS, { kind: 'clutter', on: 'name', when: small }),
   R(/drill|wrench|(^|_)tools?(_|$)|toolbox|hammer/, 'Tools', SMALL),
   // Furniture.
@@ -261,8 +296,8 @@ const RULES: Rule[] = [
   R(/chair|stool|(^|_)seat/, 'Chair', FURNITURE),
   R(/bed_?side|night_?stand/, 'Cabinet', FURNITURE),
   R(/(^|_)table|desk/, 'Table', FURNITURE),
-  R(/(^|_)beds?(_|$|[a-d]$)|bunk/, 'Bed', FURNITURE),
-  R(/shel(f|ves)|bookcase|pegboard|(^|_)rack|display_?case|showcase/, 'Shelves', FURNITURE),
+  R(/(^|_)beds?(_|$|[a-d]$|jail)|bunk|jail_?bed/, 'Bed', FURNITURE),
+  R(/shel(f|ves)|bookcase|pegboard|(^|_)rack|(?<!t)rack[a-d]?$|display_?case|showcase/, 'Shelves', FURNITURE),
   R(/cabinet|dresser|nightstand|wardrobe|(^|_)drawer|filing/, 'Cabinet', FURNITURE),
   R(/locker/, 'Locker', FURNITURE),
   R(/(^|_)safe\d*(_|$)/, 'Safe', FURNITURE),
@@ -282,7 +317,7 @@ const RULES: Rule[] = [
   R(/ashtr/, 'Ashtray', SMALL),
   R(/light_?switch|(^|_)outlet|(^|_)socket|elec_?socket/, 'Light switch', SMALL, { role: 'piece' }),
   R(/(^|_)books?(_|$|[a-d]$)|magazine|newspaper|(^|_)papers?(_|$)|clipboard|folder/, 'Books and papers', SMALL),
-  R(/(^|_)cups?(_|$|[a-d]$)|(^|_)mug|(^|_)plates?(_|$)|(^|_)dish|(^|_)bowl|(^|_)tray|(^|_)cans?(_|$|[a-d]$)|soda|(^|_)jar/, 'Dishes', SMALL),
+  R(/(^|_)cups?(_|$|[a-d]$)|(^|_)mug|(^|_)plates?(_|$)|(^|_)dish|(^|_)bowl|(^|_)tray|(^|_)cans?(_|$|[a-d]$)|soda/, 'Dishes', SMALL),
   R(/necklace|ncklce|jewel|(^|_)ring(_|$)|(^|_)watch(_|$)/, 'Jewelry', SMALL),
   R(/popcorn|candy|snack|food|burger|pizza|(^|_)chips/, 'Food', SMALL),
   R(/(^|_)phone/, 'Phone', SMALL),
@@ -305,7 +340,7 @@ const RULES: Rule[] = [
   // Nature.
   R(/(^|_)lill?y|lilypad|water_?lily/, 'Lily pad', NATURE),
   R(/(^|_)trees?(_|$|[a-d]$)|palm(_|tree|$|[a-d]$)|(^|_)oak|(^|_)pine|(^|_)birch|(^|_)maple|(^|_)willow|tree_?trunk|treebase/, 'Tree', NATURE),
-  R(/bush|shrub|hedge|(^|_)leaf_|greenleaf|ivy|fern|(^|_)plants?[a-d]?(_|$)|flower|(^|_)weed|cactus|bonsai/, 'Bush', NATURE),
+  R(/bush|shrub|hedge|(^|_)leaf_|greenleaf|ivy|fern|plant(?!er|ation|_?(power|chem))|flower|(^|_)weed|cactus|bonsai/, 'Bush', NATURE),
   R(/cliff|rock_?face|mountain|(^|_)hill/, 'Cliff', GROUND, { variant: true, when: big }),
   R(/(^|_)rocks?(_|$|[a-h]$)|rock\d|boulder|(^|_)stones?(_|$|[a-h]$)|cliff/, 'Rock', NATURE),
   R(/(^|_)logs?(_|$|[a-d]$)|stump|driftwood/, 'Log', NATURE),
@@ -321,8 +356,10 @@ const RULES: Rule[] = [
   R(/(^|_)win(dow|lit|_|s?$|[a-d]$|\d)|window|(^|_)glass|_gl$|_gh$|_gm$|pane(_|s?$)|blinds?(_|$)|curtain/, 'Window', OPENINGS),
   // Water and sky.
   R(/(^|_)sky|(^|_)sun(_|$)|(^|_)moon(_|$)|(^|_)stars?(_|$)|(^|_)clouds?(_|$)|atmosph/, 'Sky', SKY),
-  R(/water(?!_?(meter|pipe|tank|tower|cool|jug|fountain|heater|bottle|pole|twr|shrw))|ocean|(^|_)waves?(_|$)|(^|_)sea(_|$)|(^|_)river|watermesh|(^|_)pool(_|$)/, 'Water', SKY),
+  R(/water(?!_?(meter|pipe|tank|tower|cool|jug|fountain|heater|bottle|pole|twr))|shore|ocean|(^|_)waves?(_|$)|(^|_)sea(_|$)|(^|_)river|watermesh|(^|_)pool(_|$)/, 'Water', SKY),
   // Ground and roads.
+  R(/(el|track|train).*(sup|sprt|supprt|foot)|supportfoot|(^|_)el_?s(u)?p(p)?(o)?rt|elsprt/, 'El track support', GROUND, { role: 'piece' }),
+  R(/train_?tr(a)?ck|rail_?track|frt_?train|(^|_)rail_?road/, 'Rail track', GROUND),
   R(/(^|_)el_?track|eltrack|eltrain|(^|_)el_?(small)?_?s(u)?p(p)?(o)?rt|(^|_)elsprt|supportfoot|el_?support/, 'El track', GROUND, { role: 'piece' }),
   R(/(^|_)pier|dock_?(plank|floor|deck)|boardwalk|jetty|(^|_)wharf/, 'Pier', GROUND),
   R(/dock_?pole|piling|mooring|(^|_)bollard_?dock|ropeguide|rope_?guide|cleat/, 'Dock post', STREET),
@@ -344,13 +381,13 @@ const RULES: Rule[] = [
   R(/scaffold/, 'Scaffolding', PIECES),
   R(/stair|steps|(^|_)step(_|$|[a-d]$)/, 'Stairs', PIECES),
   R(/chimney/, 'Chimney', PIECES),
-  R(/pillar|column|(^|_)pil(_|$)|wall_?c?_?pos(_|$)|post(s?(_|$)|[a-d]$)|support|suprt|sprt|(^|_)pole/, 'Post', PIECES, { generic: true }),
+  R(/pillar|column|(^|_)pil(_|$)|pill(_|$|[a-d]$)|(^|_)posts?|wall_?c?_?pos(_|$)|post(s?(_|$)|[a-d]$)|support|suprt|sprt|(^|_)pole/, 'Post', PIECES, { generic: true }),
   R(/roof|shingle|(^|_)tar_/, 'Roof', PIECES, { generic: true }),
-  R(/(^|_)pipes?(_|$|[a-d]$)|pipe_|duct|gutter|downspout|drain_?pipe|pipeline/, 'Pipe', PIECES),
+  R(/pipes?(_|$|[a-d]$)|pipe_|duct|gutter|downspout|drain_?pipe|pipeline/, 'Pipe', PIECES),
   R(/girder|i_?beam|(^|_)beams?(_|$|[a-d]$)|truss|catwalk/, 'Girder', PIECES),
   
   R(/ornament|(^|_)deco|crest|gargoyle|medallion/, 'Ornament', PIECES),
-  R(/trim|ledge|cornice|molding|moulding|(^|_)sill|lintel|frieze|border/, 'Trim', PIECES),
+  R(/trim|ledge|cornice|molding|moulding|(^|_)sill|lintel|frieze|border/, 'Trim', PIECES, { generic: true }),
   R(/(^|_)floor|(^|_)ceiling|(^|_)tiles?(_|$)|_tile/, 'Floor', PIECES),
   R(/(^|_)hull|bldg|building|facade|walls?(_|$|[a-d]$)|wall_|brick|stucco|plaster|siding|(^|_)conc(rete)?|beton|cement|marble|(^|_)stone|_co$|_ma$|_ce$/, 'Wall', PIECES, { generic: true }),
   R(/(^|_)metal|steel|(^|_)iron|(^|_)tin(_|$)|corrug|galv|alu(_|$|min)|_me$|_tm$/, 'Metal panel', PIECES, { generic: true }),
@@ -363,7 +400,7 @@ const PLAIN_PROFILE = /^(default|.*object.*|bounce|static|none)$/i
 /** Invisible pictures: blockers, collision and placeholders. */
 export const INVISIBLE_TEXTURE = /missing-alpha|(^|_)missing(_|$)|missing\.|norender|(^|_)proxy\d*(_|$)|invisible|(^|_)collision|nodraw|occlud/
 /** Names of copies that are never drawn as they are: shadows, blockers, occluders, lower-detail and far copies. */
-const SKIP_NAME = /sdw(?!lk|alk)|shdw|shadow|(^|_|hull|\d)shd|blocker|occluder|(^|_)lod|lod(\d*|_?[a-z])$|_lod|proxy|(^|_)al$|_al\d*$|(^|_)coll(ision)?(_|$)|(^|_)nav(mesh)?(_|$)|invisible/
+const SKIP_NAME = /sdw(?!lk|alk)|shdw|shadow|(^|_|hull|\d)shd|blocker|occluder|(^|_)lod|lod(\d*|_?[a-z])$|_lod|proxy|(^|_)al$|_al[a-d]?\d*$|(^|_)coll(ision)?(_|$)|(^|_)nav(mesh)?(_|$)|invisible/
 /** Decals: pictures laid on a surface. */
 const DECAL = /decal|(^|_)dcl|dcl(_|$)|(^|_)dec(_|$|[a-d]$)|graffiti|(^|_)graf(_|$)|(^|_)tag_|stain|puddle|skid|splat|blood|(^|_)oil_?spill|(^|_)crack|floatingdecal|(^|_)floater/
 
@@ -386,15 +423,19 @@ function factsOf(e: GameObjectEntry): Facts {
   if (!loose) names.add(clean(e.name))
   for (const n of e.names ?? []) if (!loose) names.add(clean(n))
   for (const r of e.raw ?? []) names.add(clean(r))
+  // (Raw names as written keep the short tags clean() takes off: "DEC_floordirt" is a decal.)
+  const decal = (e.raw ?? []).some((r) => /^\d*dec_/i.test(r))
   // A copy with no names of its own goes by the names of the model it copies.
   if (!names.size) for (const n of e.copyNames ?? []) names.add(clean(n))
   const profile = e.profile && !PLAIN_PROFILE.test(e.profile.trim()) ? [e.profile.toLowerCase().trim().replace(/[\s'"-]+/g, '_')] : []
   const [a, b, h] = e.size
   // Variant letters at the end ("platea", "chairpatiob") hide the word: the name without them too.
   for (const n of [...names]) { const m = n.match(/^(.*[a-z]{3})[a-h]$/); if (m && !names.has(m[1])) names.add(m[1]) }
+  // So do copy numbers with variant letters ("exitsignsign02ba", "plant01b").
+  for (const n of [...names]) { const m = n.match(/^(.*[a-z]{3})\d+[a-z]{1,2}$/); if (m && !names.has(m[1])) names.add(m[1]) }
   const list = [...names].filter(Boolean)
   const part = list.length > 0 && PART_NAME.test(list[0])
-  return { names: list, profile, part, tex: e.tex.map(texStem).filter(Boolean), size: [Math.max(a, b), Math.min(a, b), h], loose }
+  return { names: list, profile, part, decal, tex: e.tex.map(texStem).filter(Boolean), size: [Math.max(a, b), Math.min(a, b), h], loose }
 }
 
 const hit = (rule: Rule, f: Facts, words: string[]) => words.some((w) => rule.re.test(w)) && (f.sizeless ? !rule.variant : !rule.when || rule.when(f))
@@ -409,7 +450,7 @@ export function whyIdentity(e: GameObjectEntry): { rule: string; word: string } 
 function matchRule(f: Facts): Rule | null {
   // A building's part says what it is by its part name ("medfront", "lrgmarquee") or its pictures, and is one
   // of a building's kinds of piece whatever the words say (its "B26_stones" are a wall, not a rock).
-  const rules = f.part ? PART_RULES : RULES
+  const rules = RULES
   const words = f.part ? f.names.map((n) => n.replace(PART_NAME, '')) : f.names
   const first = (list: string[], on: 'name' | 'tex') => (list.length ? rules.find((r) => r.on !== (on === 'name' ? 'tex' : 'name') && hit(r, f, list)) ?? null : null)
   // Its own (most used) name first, then the others the same model goes by, then its physics profile; a word
@@ -423,14 +464,19 @@ function matchRule(f: Facts): Rule | null {
   // A fence's own pictures (chain-link, hinges) anywhere in the list say more than its frame's metal.
   if (!byName && !f.part && (!byTex || byTex.generic)) { const fence = first(f.tex.slice(2).filter((t) => FENCE_TEXTURE.test(t)), 'tex'); if (fence) return fence }
   if (byName && byTex?.generic) return byName
+  // A big piece of ground or wall wearing a picture of something small (a sidewalk with a news-stand texture) is still ground.
+  if (byName && byTex && !f.sizeless && f.size[0] > 6 && !LARGE_CATS.has(byTex.cat)) return byName
   return byTex ?? byName
 }
+
+/** Categories whose things can be big. */
+const LARGE_CATS = new Set([GROUND, PIECES, OPENINGS, HIDDEN, SKY, FENCES, VEHICLES, BUILDINGS])
 
 /** Pictures only fences wear. */
 const FENCE_TEXTURE = /chain_?link|barb_?wire|endandhinge|fence/
 
 /** A building's part name: its building's code, then what part ("abcd1a_medfront", "bstsr1a_lrgcornrc"). */
-const PART_NAME = /^(?:[a-z0-9]{1,6}_|[a-z]{1,3}\d+)?[a-z]{2,10}\d+[a-z]_/
+const PART_NAME = /^(?:[a-z0-9]{1,6}_|[a-z]{1,3}\d+)?[a-z]{2,10}\d+[a-z]{1,2}_/
 /** The categories a building's part can be in. */
 const PART_CATS = new Set([PIECES, OPENINGS, SIGNS, LIGHTS, FENCES, HIDDEN, SKY])
 const PART_RULES = RULES.filter((r) => PART_CATS.has(r.cat))
@@ -460,7 +506,7 @@ function classify(f: Facts): { role: GameRole; category: string; name: string; k
     const shadow = texts.some((t) => /sdw|shd|shadow/.test(t))
     return { role: 'skip', category: HIDDEN, name: shadow ? 'Shadow copy' : texts.some((t) => INVISIBLE_TEXTURE.test(t) || /proxy|blocker|occluder|coll/.test(t)) ? 'Invisible blocker' : 'Low-detail copy' }
   }
-  if (f.names.some((n) => DECAL.test(n)) || (f.tex[0] && DECAL.test(f.tex[0]) && Math.min(...f.size) < 0.05)) return { role: 'skip', category: HIDDEN, name: 'Decal' }
+  if (f.decal || f.names.some((n) => DECAL.test(n)) || (f.tex[0] && DECAL.test(f.tex[0]) && Math.min(...f.size) < 0.05 && !(named && !named.generic))) return { role: 'skip', category: HIDDEN, name: 'Decal' }
   const rule = matchRule(f)
   // A sheet with no thickness that isn't a sign or a picture: a decal.
   if (flat(f) && f.size[1] < 0.02 && !(rule && [SIGNS, GROUND, SMALL, FURNITURE, OPENINGS].includes(rule.cat))) return { role: 'skip', category: HIDDEN, name: 'Decal' }
@@ -473,6 +519,11 @@ function classify(f: Facts): { role: GameRole; category: string; name: string; k
     if (rule.generic && category === PIECES && !f.part && runLike(f) && f.size[1] < 0.5 && f.size[2] >= 0.8 && f.size[2] <= 3.2 && f.tex[0] && !BUILDING_TEXTURE.test(f.tex[0]) && /panel/.test(name)) {
       return { role: 'fence', category: FENCES, name: name === 'Wood panel' ? 'Wooden fence' : 'Metal fence' }
     }
+    // A lone beam or pillar only named by its material.
+    if (rule.generic && category === PIECES && !f.part && !small(f)) {
+      if (f.size[0] > 3 && f.size[1] < 0.6 && f.size[2] < 0.6) return { role: 'piece', category: PIECES, name: 'Girder' }
+      if (f.size[0] <= 1.5 && f.size[2] >= 2 * f.size[0]) return { role: 'piece', category: PIECES, name: 'Post' }
+    }
     // A building's part or a small lump only named by its material: what it is made of says too little.
     if (rule.generic && category === PIECES && (f.part || small(f))) {
       return { role: 'piece', category: PIECES, name: f.part ? 'Building detail' : post(f) ? 'Post' : MATERIAL_PIECE[name] ?? 'Building detail' }
@@ -482,7 +533,7 @@ function classify(f: Facts): { role: GameRole; category: string; name: string; k
     if (f.names.some((n) => BASE.test(n)) && small(f) && !['Barrel', 'Crate', 'Box', 'Pallet', 'Bench'].includes(name) && category !== GROUND) {
       return { role: 'piece', category, name: / base$/.test(name) ? name : (name === 'Fence post' ? 'Fence' : name.replace(/ post$/, '')) + ' base' }
     }
-    if (f.names.some((n) => LID.test(n)) && small(f)) return { role: 'piece', category, name: name + ' lid' }
+    if (f.names.some((n) => LID.test(n)) && Math.max(...f.size) < 3) return { role: 'piece', category, name: name + ' lid' }
     // Props too small to matter as cover are clutter; huge "props" are part of something.
     if (role === 'prop' && kind === 'cover' && (f.size[2] < 0.6 || f.size[0] < 0.5)) kind = 'clutter'
     if (role === 'fence' && !runLike(f) && name !== 'Barbed wire' && name !== 'Gate') {
@@ -566,10 +617,11 @@ const BUILDING_TYPES: [RegExp, string, WizardSetting[]][] = [
   [/^(hngr)/, 'hangar', ['industrial', 'military']], [/^(rdr)/, 'control tower', ['industrial', 'military']], [/^(mainap|scap|fpap|msc)/, 'terminal', ['industrial']],
   [/^cship/, 'cargo ship', ['docks']], [/^(tky|tyre)/, 'yard building', ['industrial']], [/^(mc|il)/, 'garage', ['industrial', 'rundown']],
   [/^prk/, 'parking garage', ['downtown']], [/^(sc|uc)/, 'school', ['suburbs']],
+  [/garage/, 'garage', ['industrial', 'suburbs']], [/shed|shack|(^|[^c])hut|cabin/, 'shed', ['industrial', 'rundown']], [/house/, 'house', ['suburbs']],
 ]
 
 /** Building types without floors to count: halls, sheds and landmarks. */
-const UNFLOORED = new Set(['warehouse', 'factory', 'hangar', 'church', 'museum', 'arena', 'cinema', 'mall', 'terminal', 'cargo ship', 'yard building', 'garage', 'gas station', 'control tower', 'parking garage'])
+const UNFLOORED = new Set(['shed', 'warehouse', 'factory', 'hangar', 'church', 'museum', 'arena', 'cinema', 'mall', 'terminal', 'cargo ship', 'yard building', 'garage', 'gas station', 'control tower', 'parking garage'])
 
 /** Main wall materials, by words in the building's pictures: a word anywhere in them first, then the surface code of the most used. */
 const MATERIAL_WORDS: [RegExp, string][] = [
@@ -659,6 +711,25 @@ const SETTING_WORDS: [RegExp, WizardSetting[]][] = [
 
 const memo = new WeakMap<GameObjectEntry, GameIdentity>()
 
+/**
+ * Whether a model is a building: 'whole' (a building to place), 'far' (a building's low-detail copy), 'detail'
+ * (a group of a building's parts too small to stand alone), or null (not a building at all).
+ */
+export function buildingKind(e: GameObjectEntry): 'whole' | 'far' | 'detail' | null {
+  const group = e.cat === BUILDINGS || (e.parts?.length ?? 0) >= 3
+  // A building's shell placed on its own ("abcd1a_hull") is a whole building too.
+  const shell = !e.parts && /^[a-z]{2,10}\d+[a-z]_hull$/.test(e.name) && Math.min(e.size[0], e.size[1]) >= 5 && e.size[2] >= 4
+  // A record that names a small building and is the size of one (a lock-up garage, a shed).
+  const named = !e.parts && e.record >= 0 && /garage(?!_?(door|rail))|(^|_)shed|shack|(^|_)hut(_|$)|cabin|kiosk|bldg|building|warehouse|hangar/.test(e.name)
+    && Math.min(e.size[0], e.size[1]) >= 4 && e.size[2] >= 2.5 && Math.max(e.size[0], e.size[1]) <= 150
+  const whole = Math.max(e.size[0], e.size[1]) >= 5 && Math.min(e.size[0], e.size[1]) >= 2.5 && e.size[2] >= 2.5
+  if (group && !whole) return 'detail'
+  if (!group && !shell && !named) return null
+  // A building put together from its far, low-detail copy is not one to place.
+  if (e.tex.length && e.tex.every((t) => /_al\d*\.\w+$/i.test(t) || INVISIBLE_TEXTURE.test(texStem(t)))) return 'far'
+  return 'whole'
+}
+
 /** The model's identity. */
 export function identify(e: GameObjectEntry): GameIdentity {
   const hitMemo = memo.get(e)
@@ -668,15 +739,11 @@ export function identify(e: GameObjectEntry): GameIdentity {
   const fromWords = new Set<WizardSetting>()
   for (const [re, s] of SETTING_WORDS) if (words.some((w) => re.test(w))) s.forEach((x) => fromWords.add(x))
   let id: GameIdentity
-  // A building's shell placed on its own ("abcd1a_hull") is a whole building too.
-  const shell = !e.parts && /^[a-z]{2,10}\d+[a-z]_hull$/.test(e.name) && Math.min(e.size[0], e.size[1]) >= 5 && e.size[2] >= 4
-  // A group of a building's parts too small to stand alone (a sign and its brackets) is a piece of it.
-  const whole = Math.max(e.size[0], e.size[1]) >= 5 && Math.min(e.size[0], e.size[1]) >= 2.5 && e.size[2] >= 2.5
-  if ((e.cat === BUILDINGS || (e.parts?.length ?? 0) >= 3) && !whole) id = { role: 'piece', category: PIECES, name: 'Building detail', settings: [] }
-  else if (e.cat === BUILDINGS || (e.parts?.length ?? 0) >= 3 || shell) {
-    // A building put together from its far, low-detail copy is not one to place.
-    if (e.tex.length && e.tex.every((t) => /_al\d*\.\w+$/i.test(t) || INVISIBLE_TEXTURE.test(texStem(t)))) id = { role: 'skip', category: HIDDEN, name: 'Low-detail copy', settings: [] }
-    else id = buildingIdentity(e, [...fromWords])
+  const kind = buildingKind(e)
+  if (kind === 'detail') id = { role: 'piece', category: PIECES, name: 'Building detail', settings: [] }
+  else if (kind === 'far') id = { role: 'skip', category: HIDDEN, name: 'Low-detail copy', settings: [] }
+  else if (kind === 'whole') {
+    id = buildingIdentity(e, [...fromWords])
   } else {
     const c = classify(f)
     const settings = new Set(c.role === 'skip' ? [] : fromWords)
@@ -691,6 +758,9 @@ export function identify(e: GameObjectEntry): GameIdentity {
   if (e.partOf) id.partOf = e.partOf
   if (e.copyOf) id.copyOf = e.copyOf
   if (e.near?.length) id.near = e.near.map((n) => n.id)
+  if (e.kitOf) { id.kitOf = e.kitOf; if (e.belongsTo?.length) id.belongsTo = e.belongsTo }
+  if (e.kit?.length) id.kit = e.kit
+  if (e.layout?.length) id.layout = e.layout
   memo.set(e, id)
   return id
 }

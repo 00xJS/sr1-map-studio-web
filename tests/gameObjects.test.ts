@@ -169,6 +169,43 @@ describe('what the game places together', () => {
   })
 })
 
+describe('building kits', () => {
+  it('ties the pieces made for one kind of building to it', () => {
+    // A building of three parts, a window placed without a record inside it, and one of its parts on its own far away.
+    const spec: Spec = {
+      strings: ['b11_wall_co.tga', 'b11_window_gl.tga', 'bench_wo.tga'],
+      vbs: [box(6, 6, 0.3), box(1, 1.2, 0.1), box(2, 0.9, 0.7)],
+      materials: [[0], [1], [2]],
+      meshes: [0, 1, 2].map((v) => ({ subs: [{ vb: v, batches: [[0, 10, v]] }] })),
+      instances: [
+        { pos: [0, 0, 0], mesh: 0 }, { pos: [0, 0, 5.8], mesh: 0 }, { pos: [3, 0, 3], rot: yawRot(90), mesh: 0 },
+        { pos: [0.5, 2, 5.9], mesh: 1 },
+        { pos: [80, 0, 80], mesh: 0 },
+        { pos: [40, 0, 0], mesh: 2 },
+      ],
+      records: [
+        { name: 'abcd1a_walla', instance: 0 }, { name: 'abcd1a_wallb', instance: 1 }, { name: 'abcd1a_wallc', instance: 2 },
+        { name: 'abcd1a_signa', instance: 4 }, { name: 'benchparka', instance: 5, profile: 'Park Bench' },
+      ],
+    }
+    const lib = mergeCandidates(indexChunk(readChunk(buildChunk(spec)), 'sr_city_stream', 'sr_chunk01'))
+    const building = lib.find((e) => e.cat === BUILDINGS)!
+    const window = lib.find((e) => e.record < 0)!, sign = lib.find((e) => e.name === 'abcd1a_signa')!, bench = lib.find((e) => e.name === 'benchparka')!
+    // Inside it every time: made for it. Named after it: made for it too, wherever it stands.
+    expect(window).toMatchObject({ kitOf: 'abcd1a', belongsTo: [building.id] })
+    expect(sign.kitOf).toBe('abcd1a')
+    expect(bench.kitOf).toBeUndefined()
+    expect(building.kit?.sort()).toEqual([window.id, sign.id].sort())
+    expect(identify(window)).toMatchObject({ kitOf: 'abcd1a', belongsTo: [building.id] })
+    expect(identify(building).kit).toHaveLength(2)
+    // Its layout puts the window where the game does: in its frame, within its footprint, off the ground.
+    expect(building.layout?.map((p) => p.id)).toEqual([window.id])
+    const at = building.layout![0].at
+    expect(Math.abs(at[0]) <= building.size[0] / 2 + 0.5 && Math.abs(at[2]) <= building.size[0] / 2 + 0.5 && at[1] > 1).toBe(true)
+    expect(identify(building).layout).toEqual(building.layout)
+  })
+})
+
 describe('cutting an object out', () => {
   const ch = readChunk(buildChunk(world()))
 
@@ -347,6 +384,22 @@ describe.skipIf(!GAME_TESTS || !haveGame)('the library from a local game install
       expect(Math.hypot(...p.at)).toBeLessThan(Math.max(...e.size) + Math.max(...byId.get(p.id)!.size) + 1)
     }
     expect(lib.filter((e) => e.copyOf).every((e) => byId.get(e.copyOf!) && !byId.get(e.copyOf!)!.copyOf)).toBe(true)
+    // Building kits: every kit names a library building of its kind, and its buildings list it back.
+    const kitted = lib.filter((e) => e.kitOf)
+    console.log(`kits: ${kitted.length} pieces made for ${new Set(kitted.map((e) => e.kitOf)).size} kinds of building`)
+    expect(kitted.length).toBeGreaterThan(3000)
+    for (const e of kitted) {
+      expect(e.cat, e.name).not.toBe(BUILDINGS)
+      for (const b of e.belongsTo ?? []) expect(byId.get(b)?.cat).toBe(BUILDINGS)
+    }
+    expect(lib.filter((e) => e.kit).every((b) => b.kit!.every((id) => byId.get(id)?.kitOf))).toBe(true)
+    // Layouts: most buildings have one, and every piece in it stands on the building.
+    const laid = lib.filter((e) => e.layout)
+    expect(laid.length).toBeGreaterThan(lib.filter((e) => e.cat === BUILDINGS).length * 0.7)
+    for (const b of laid) for (const p of b.layout!) {
+      expect(byId.get(p.id)?.cat).not.toBe(BUILDINGS)
+      expect(Math.hypot(p.at[0], p.at[2])).toBeLessThan(Math.hypot(b.size[0], b.size[1]) / 2 + 1.5)
+    }
     const street = ids.filter(([e, id]) => id.category === 'Street furniture' && id.role === 'prop' && e.seen >= 3)
     expect(street.filter(([e]) => e.near?.length).length).toBeGreaterThan(street.length * 0.8)
 

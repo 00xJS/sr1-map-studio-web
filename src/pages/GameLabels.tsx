@@ -52,6 +52,24 @@ async function bigPicture(obj: THREE.Object3D, px: number, side?: string): Promi
   return url
 }
 
+/** A building with every piece of its layout put where the game puts it (for checking layouts). */
+async function composed(e: GameObjectEntry, all: GameObjectEntry[]): Promise<THREE.Object3D> {
+  const { objectMesh } = await import('../lib/gameObjects/render')
+  const g = new THREE.Group()
+  g.add(objectMesh(await getObject(e, 128), 1))
+  const by = new Map(all.map((x) => [x.id, x]))
+  for (const p of e.layout ?? []) {
+    const part = by.get(p.id)
+    if (!part || identify(part).role === 'skip') continue
+    const m = objectMesh(await getObject(part, 64), 1)
+    // Editor space mirrors the game's X: the part's turn and offset are mirrored with it.
+    m.rotation.y = p.yaw
+    m.position.set(-p.at[0], p.at[1], p.at[2])
+    g.add(m)
+  }
+  return g
+}
+
 function Picture({ e, big }: { e: GameObjectEntry; big?: number }) {
   const [url, setUrl] = useState<string | null>(null)
   const id = identify(e)
@@ -59,6 +77,8 @@ function Picture({ e, big }: { e: GameObjectEntry; big?: number }) {
     let off = false, made = ''
     void (async () => {
       const [r, { objectMesh }, { drawObject }] = await Promise.all([getObject(e, big ? 256 : 128), import('../lib/gameObjects/render'), import('../lib/prefabRender')])
+      const compose = new URLSearchParams(location.search).get('compose')
+      if (big && compose) { const all = useGameObjects.getState().entries ?? []; const u = await bigPicture(compose === 'bare' ? objectMesh(r, 1) : await composed(e, all), big); if (!off) setUrl(u); return }
       if (big) { const u = await bigPicture(objectMesh(r, 1), big, new URLSearchParams(location.search).get('side') === 'front' ? id.building?.front : undefined); if (!off) setUrl(u); return }
       const blob = await drawObject(objectMesh(r, 1))
       if (blob && !off) setUrl((made = URL.createObjectURL(blob)))
@@ -85,9 +105,11 @@ export default function GameLabels() {
   }, [])
   const sample = useMemo(() => {
     if (!entries) return []
+    const kitOf = q.get('kit')
+    if (kitOf) return entries.filter((e) => e.kitOf === kitOf || (e.cat === 'Buildings' && e.name.replace(/_hull\d*$/, '') === kitOf)).sort((a, b) => (b.cat === 'Buildings' ? 1 : 0) - (a.cat === 'Buildings' ? 1 : 0) || b.seen - a.seen).slice(0, count)
     if (find) { const re = new RegExp(find, 'i'); return entries.filter((e) => [e.name, ...(e.raw ?? []), ...e.tex, identify(e).name].some((s) => re.test(s))).sort((a, b) => b.seen - a.seen).slice(0, count) }
     return labelSample(entries, pool, count, seed)
-  }, [entries, pool, count, seed, find])
+  }, [entries, pool, count, seed, find, q.get('kit')])
   const set = (id: string, m: Partial<Mark>) => setMarks((all) => { const next = { ...all, [id]: { ...{ role: true, category: true, name: true }, ...all[id], ...m } }; save(next); return next })
 
   // For marking from the console: __gameLabels.mark(n, { name: false, truth: 'piece' }) marks the n-th model (1-based).
