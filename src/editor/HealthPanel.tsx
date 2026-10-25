@@ -5,7 +5,7 @@
 import type { ReactNode } from 'react'
 import { Vector3 } from 'three'
 import { useEditor } from './store'
-import { useBusy } from '../ui'
+import { toast, useBusy } from '../ui'
 import { addStairRamps, isRamps } from './stairActions'
 import { getViewer } from './Viewport'
 import { runHealthCheck, stopHealthCheck, useHealth, useHealthStale, type OverlayKind } from './health'
@@ -229,7 +229,11 @@ function StairRamps() {
     <div className="group">
       <span className="section-title">Stairs too tall to run up</span>
       <span className="small faint">The game’s player only steps up about 0.28 m without jumping, so taller steps (often on converted or scaled-up maps) stop you at every one. This finds those stairs and lays a see-through ramp over each: you run up it in game and never see it.</span>
-      <div><button className="sm" disabled={busy || !hasMap} onClick={() => run(() => addStairRamps())}>{has ? 'Find stairs again' : 'Add invisible ramps over tall steps'}</button></div>
+      <div><button className="sm" disabled={busy || !hasMap} onClick={() => run(async () => {
+        const n = await addStairRamps()
+        toast(n ? `Done: ${n} invisible ramp${n === 1 ? '' : 's'} added over tall stairs (they're in the scene list as "Invisible stair ramps").`
+          : 'Done: no stairs on this map have steps too tall to walk up, so no ramps were needed.', n ? 'ok' : 'info', 8000)
+      })}>{busy ? 'Finding stairs…' : has ? 'Find stairs again' : 'Add invisible ramps over tall steps'}</button></div>
     </div>
   )
 }
