@@ -6,6 +6,8 @@
 import { meshIndexCount, meshTextures, meshTriangleCount, type Chunk } from './chunk'
 import { baseName, buildingCode, skipName } from './classify'
 import { BUILDINGS, CATEGORIES, buildingKind, chunkDistricts, identify } from './identity'
+import { cityData, isStudyChunk, studyChunk, studyCity, type Cover, type Site } from './cityStudy'
+import type { CityGroup, CityModule } from './cityModules'
 
 export type Vec3 = [number, number, number]
 
@@ -75,6 +77,10 @@ export interface GameObjectEntry {
    * cut-out frame, game axes, metres) and turned how (radians about +Y): what completes it.
    */
   layout?: GamePart[]
+  /** The groups of things the city keeps placing with this one, this one their anchor (cityStudy.ts; cityModules.ts groups()). */
+  groups?: CityGroup[]
+  /** Buildings: this building cut out of the city with what stands on and around it (cityStudy.ts; cityModules.ts cityModules()). */
+  modules?: CityModule[]
 }
 
 export interface GamePart { id: string; at: Vec3; yaw: number; share: number }
@@ -120,7 +126,14 @@ export function summarizeChunk(ch: Chunk, chunk: string): MapSummary {
  * next to its placements (by id, offset and turn: [count, summed x, y, z, turn]); `around` how many of its
  * placements have each model within NEAR metres.
  */
-export interface Candidate extends GameObjectEntry { key: string; up: number; close?: Record<string, number[]>; around?: Record<string, number>; on?: Record<string, number>; onAt?: Record<string, number[]> }
+export interface Candidate extends GameObjectEntry {
+  key: string; up: number; close?: Record<string, number[]>; around?: Record<string, number>; on?: Record<string, number>; onAt?: Record<string, number[]>
+  /**
+   * City chunks (the Stilwater study, cityStudy.ts): where each copy stands (x, y, z, turn), its size across in its
+   * own frame, a building's sites (one per copy) and a piece of ground's cover.
+   */
+  spots?: number[]; foot?: [number, number]; sites?: Site[]; cover?: Cover
+}
 
 /** Smaller than this across is a speck nobody could place. */
 const MIN_SIDE = 0.03
@@ -204,7 +217,7 @@ const NEAR = 6
 const TOUCH = 0.15
 
 /** One placed model: where its feet stand, its turn, half its long side across and its height. */
-interface Placement { key: string; at: Vec3; yaw: number; half: number; h: number; ext: [number, number] }
+export interface Placement { key: string; at: Vec3; yaw: number; half: number; h: number; ext: [number, number]; inst: number[] }
 
 /** Counts, for each placement, what stands at the same spot and what stands around it (see Candidate). */
 function relate(places: Placement[], out: Map<string, Candidate>) {
@@ -252,7 +265,7 @@ export function keyId(key: string): string {
 }
 
 /** The distinct objects and buildings of one chunk. */
-export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] {
+export function indexChunk(ch: Chunk, pack: string, chunk: string, onPlaces?: (places: Placement[], byKey: Map<string, Candidate>) => void): Candidate[] {
   const bounds = new Map<number, Box | null>()
   const boundsOf = (m: number) => { if (!bounds.has(m)) bounds.set(m, meshBounds(ch, m)); return bounds.get(m)! }
   const out = new Map<string, Candidate>()
@@ -319,7 +332,7 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
       const size: Vec3 = [r2(Math.max(ext[0], ext[2])), r2(Math.min(ext[0], ext[2])), r2(ext[1])]
       const key = `b|${members.length}|${idx}|${ext.map((v) => Math.round(v * 10)).join(',')}`
       const parts = members.map((m) => recs[m]).sort((a, b) => a - b)
-      places.push({ key, at: [(min[0] + max[0]) / 2, min[1], (min[2] + max[2]) / 2], yaw: 0, half: Math.max(ext[0], ext[2]) / 2, h: ext[1], ext: [ext[0], ext[2]] })
+      places.push({ key, at: [(min[0] + max[0]) / 2, min[1], (min[2] + max[2]) / 2], yaw: 0, half: Math.max(ext[0], ext[2]) / 2, h: ext[1], ext: [ext[0], ext[2]], inst: members.map((m) => ch.records[recs[m]].instance) })
       const prev = out.get(key)
       if (prev) { prev.seen++; continue }
       out.set(key, {
@@ -349,7 +362,7 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
     const tex = meshTextures(ch, mesh)
     const key = `o|${meshIndexCount(mesh)}|${ext.map((v) => Math.round(v * 100)).join(',')}|${(tex[0] ?? '').toLowerCase()}`
     const name = rec ? baseName(rec.name) : textureName(tex[0] ?? '') || 'piece'
-    places.push({ key, ...anchorOf(b, inst.position, inst.rotation), half: size[0] / 2, h: size[2] })
+    places.push({ key, ...anchorOf(b, inst.position, inst.rotation), half: size[0] / 2, h: size[2], inst: [rec ? rec.instance : -i - 1] })
     const prev = out.get(key)
     if (prev) {
       prev.seen++
@@ -392,6 +405,8 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
     const v = ((c.onAt ??= {})[`${id}|${at.map((x) => Math.round(x * 4)).join(',')}|${Math.round(t / (Math.PI / 12))}`] ??= [0, 0, 0, 0, 0])
     v[0]++; v[1] += at[0]; v[2] += at[1]; v[3] += at[2]; v[4] += t
   }
+  if (isStudyChunk(pack, chunk)) studyChunk(ch, places, out)
+  onPlaces?.(places, out)
   return [...out.values()]
 }
 
@@ -568,7 +583,7 @@ export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
     const upBest = [...g.ups.entries()].sort((a, b) => b[1] - a[1])[0][0]
     const score = (c: Candidate) => (c.up === upBest ? 1e9 : 0) + (perChunk.get(c.pack + '/' + c.chunk) ?? 0)
     const best = g.copies.reduce((a, b) => (score(b) > score(a) ? b : a))
-    const { key: _k, up: _u, names: _n, raw: _r, districts: _d, close: _c, around: _a, on: _o, onAt: _oa, ...e } = best
+    const { key: _k, up: _u, names: _n, raw: _r, districts: _d, close: _c, around: _a, on: _o, onAt: _oa, spots: _s, foot: _f, sites: _si, cover: _cv, ...e } = best
     const names = [...g.names.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n)
     const entry: GameObjectEntry = { ...e, name: names[0] ?? e.name, seen: g.seen }
     if (names.length > 1) entry.names = names.slice(1, 5)
@@ -583,6 +598,8 @@ export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
   kits(entries, rel)
   // What each is, now that every name, map, district and companion it has is known (one rule table: identity.ts).
   for (const e of entries) e.cat = identify(e).category
+  // How the city is put together: its recurring groups and its buildings cut out as modules.
+  studyCity(entries, cityData([...by.values()].flatMap((g) => g.copies)))
   const rank = (c: string) => { const i = CATEGORIES.indexOf(c); return i < 0 ? CATEGORIES.length : i }
   return entries.sort((a, b) => rank(a.cat) - rank(b.cat) || b.seen - a.seen || a.name.localeCompare(b.name))
 }
