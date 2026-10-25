@@ -10,7 +10,7 @@ import { mapLimit } from '../hubRules'
 import { entryById, loadIndex } from './client'
 import { identify } from './identity'
 import { gameObjectItem, objectFiles } from './place'
-import { SOLID_COVER, modelTurn } from './wizardPieces'
+import { SOLID_COVER, fitsStandIn, modelTurn } from './wizardPieces'
 
 /** The model's extents along X and Z as stored (editor units). */
 function extents(m: ObjModel): [number, number] {
@@ -88,6 +88,8 @@ export async function placeGameParts(parts: Part[], ws: number, onProgress?: (t:
     // A building players would see through is built as the site's plain block in its place.
     if (!e || !r || (p.label === 'Game building' && r.cover < SOLID_COVER)) { failed.push(p); continue }
     const rot = modelTurn(r.ex, r.ez, p, identify(e).building?.front)
+    // A building bigger than its footprint said would reach off its plot: the plain block instead.
+    if (p.label === 'Game building' && !fitsStandIn(r.ex, r.ez, p, rot)) { failed.push(p); continue }
     const placed = await gameObjectItem(e, [p.at[0], p.at[1], p.at[2]], rot, ws)
     Object.assign(files, placed.files)
     items.push(placed.item)

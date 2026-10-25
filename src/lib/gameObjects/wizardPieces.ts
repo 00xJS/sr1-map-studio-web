@@ -63,6 +63,8 @@ const PART_NAMES = new Set(['Wall', 'Window', 'Door', 'Trim', 'Grass', 'Ground',
 const MIN_HEIGHT = 5
 /** Least share of its plot a building covers, for the same reason. */
 const MIN_FILL = 0.5
+/** Metres kept free round a building's footprint when fitting it to a plot (the stand-in includes it). */
+export const BUILDING_MARGIN = 0.3
 /** Least eye-height cover for a building (see wizardBuild.ts eyeCover): below it players see and shoot through it. */
 export const SOLID_COVER = 0.7
 /** Settings the option is offered for: the cyber grid has nothing like it in the game. */
@@ -135,7 +137,9 @@ export function prepare(entries: GameObjectEntry[], setting: WizardSetting, base
     if (!l?.ok && !l?.role && (id.role !== 'building' ? PART_NAMES.has(id.name) : NOT_BUILDINGS.has(id.name))) continue
     if (id.role === 'building' && l?.cover !== undefined && l.cover < SOLID_COVER) continue
     const [a, b, h] = id.role === 'building' && id.building ? [...id.building.footprint, id.building.height] : e.size
-    const long = Math.max(a, b), short = Math.min(a, b)
+    // A building is fitted with a margin all round: its footprint can come out a little smaller than the model cut out.
+    const pad = id.role === 'building' ? 2 * BUILDING_MARGIN : 0
+    const long = Math.max(a, b) + pad, short = Math.min(a, b) + pad
     const suits = id.settings.includes(setting) ? 2 : id.settings.length ? 0.3 : 1
     const c: Cand = { e, id, long, short, h, weight: suits * (1 + Math.log10(1 + e.seen) / 2) * (l?.ok || l?.role ? 3 : 1) }
     if (id.role === 'building') {
@@ -175,6 +179,15 @@ export interface GamePiecesStats {
  * and Z as placed (editor space). Its long side goes the way the stand-in's long side goes; when its front is known
  * and the stand-in asks for one, it is turned round (never across) so the front faces that way.
  */
+/**
+ * Whether a model with extents `ex` × `ez` (editor units, as stored), turned `rot`, stays inside its stand-in's
+ * footprint. The map builder puts the site's plain block in for one that doesn't, so nothing spills off its plot.
+ */
+export function fitsStandIn(ex: number, ez: number, part: Pick<Part, 'size' | 'rot'>, rot: number): boolean {
+  const [ax, az] = turn(ex, ez, rot - (part.rot ?? 0)).map(Math.abs)
+  return ax <= part.size[0] + 0.02 && az <= part.size[2] + 0.02
+}
+
 export function modelTurn(ex: number, ez: number, part: Pick<Part, 'size' | 'rot' | 'game'>, front?: BuildingFacts['front']): number {
   let rot = part.rot ?? 0
   const square = Math.abs(ex - ez) <= 0.05 * Math.max(ex, ez)
