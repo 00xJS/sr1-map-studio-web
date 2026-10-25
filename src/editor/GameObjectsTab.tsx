@@ -7,6 +7,7 @@ import { useEditor } from './store'
 import { PrefabThumb } from './PrefabThumb'
 import { toast, toastError, useBusy } from '../ui'
 import { buildIndex, forgetIndex, loadIndex, NeedGameFolder, connect, useGameObjects } from '../lib/gameObjects/client'
+import { identify } from '../lib/gameObjects/identity'
 import { CATEGORIES } from '../lib/gameObjects/classify'
 import type { GameObjectEntry } from '../lib/gameObjects/indexer'
 import { canPickFolder } from '../lib/gameFiles'
@@ -38,10 +39,27 @@ export const NOTICE = 'From your game files: usable in your own maps, not sharea
 
 export interface GameTile { shape: string; label: string; hint: string }
 
+/** What the game places it with (identify(): its parts, the whole it belongs to, its usual neighbours), in words. */
+const indexes = new WeakMap<GameObjectEntry[], Map<string, GameObjectEntry>>()
+function companions(e: GameObjectEntry): string {
+  const all = useGameObjects.getState().entries ?? []
+  let by = indexes.get(all)
+  if (!by) indexes.set(all, (by = new Map(all.map((x) => [x.id, x]))))
+  const name = (id: string) => { const o = by!.get(id); return o ? displayName(o).toLowerCase() : '' }
+  const id = identify(e), out: string[] = []
+  if (id.assembly?.length) out.push('comes with ' + [...new Set(id.assembly.map((p) => name(p.id)).filter(Boolean))].join(', '))
+  if (id.partOf) out.push('part of a ' + name(id.partOf))
+  if (id.copyOf) out.push('a second copy of a ' + name(id.copyOf) + ' at the same spot')
+  if (id.belongsTo?.length) out.push(`made for ${id.belongsTo.length > 1 ? 'buildings like the' : 'the'} ${name(id.belongsTo[0])} (${id.kitOf}) only`)
+  if (id.layout?.length) out.push(`completed by ${id.layout.length} pieces of its own`)
+  if (id.near?.length) out.push('usually near ' + [...new Set(id.near.slice(0, 4).map(name).filter(Boolean))].join(', '))
+  return out.length ? ' · ' + out.join(' · ') : ''
+}
+
 export const tileOf = (e: GameObjectEntry): GameTile => ({
   shape: 'game:' + e.id,
   label: displayName(e),
-  hint: `${describeEntry(e)} · ${e.tris.toLocaleString()} triangles · ${NOTICE}`,
+  hint: `${describeEntry(e)}${companions(e)} · ${e.tris.toLocaleString()} triangles · ${NOTICE}`,
 })
 
 /** Its names, the game's own record names and its texture names (so "USPSMailBox" finds the mailbox that wears it). */

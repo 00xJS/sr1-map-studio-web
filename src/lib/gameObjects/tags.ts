@@ -4,7 +4,7 @@
 // belong and what they're good for. Rules only, no lists of the game's names; computed when needed, so a library
 // built before this existed gets tags too.
 import type { GameObjectEntry } from './indexer'
-import { objectName } from '../city/names'
+import { identify } from './identity'
 
 /** Tag words, by what they mean. */
 export const TAG_GROUPS = {
@@ -51,10 +51,6 @@ const cache = new Map<string, string[]>()
 /** Categories whose chest-high things make cover. */
 const COVER_CATS = new Set(['Containers and crates', 'Furniture', 'Street furniture', 'Machines', 'Wrecks and vehicles', 'Fences and barriers', 'Nature'])
 
-/** Decals, look-only sheets and placeholders: not things to scatter. */
-const NOT_SCATTER = /dcl|decal|grime|proxy|shdw|shadow|_al(_|$)|wave|watermesh|static|piece$|invisible/
-/** Display names that are parts of a building or the ground, not things to scatter. */
-const NOT_SCATTER_NAMES = new Set(['Building', 'Wall', 'Window', 'Door', 'Trim', 'Grass', 'Ground', 'Road', 'Sidewalk', 'Kerb', 'Roof', 'Invisible blocker', 'Metal panel', 'Wood panel', 'Post', 'Highway', 'Tiles'])
 
 /** The object's tags, most telling first. */
 export function tagsOf(e: GameObjectEntry): string[] {
@@ -87,11 +83,8 @@ export function textTags(text: string): string[] {
   return [...out]
 }
 
-/** A readable name for a library object: "trashcand" -> "Trash can", "lamppostorna" -> "Street lamp"; its own name when the rules don't know it. */
-export function displayName(e: Pick<GameObjectEntry, 'name' | 'raw' | 'tex' | 'names'>): string {
-  const n = objectName(e.name, e.tex[0] ?? '') || objectName(e.raw?.[0] ?? '', '')
-  return n && !/ piece$/.test(n) ? n : e.name
-}
+/** A readable name for a library object ("trashcand" -> "Trash can"): the one identify() gives, so the library and the wizard agree. */
+export const displayName = (e: GameObjectEntry): string => identify(e).name
 
 /** One line about an object, for the AI and tooltips: "Mailbox: street furniture; metal, small (0.7 × 0.5 × 1.3 m); street, outdoor; used 120× in the game". */
 export function describeEntry(e: GameObjectEntry): string {
@@ -128,7 +121,8 @@ export function tagsFor(request: string): string[] {
  */
 export function varietyPick(entries: GameObjectEntry[], tags: string[], count: number, maxSide = 6): GameObjectEntry[] {
   const want = new Set(tags)
-  const fits = entries.filter((e) => Math.max(...e.size) <= maxSide && Math.max(...e.size) >= 0.3 && Math.min(...e.size) >= 0.05 && !['Buildings', 'Building pieces', 'Ground and roads', 'Water and sky', 'Other'].includes(e.cat) && !NOT_SCATTER.test(e.name.toLowerCase()) && !NOT_SCATTER_NAMES.has(displayName(e)) && e.seen >= 2)
+  // Only stand-alone props (identify(): no building pieces, ground, fence runs, decals or blockers).
+  const fits = entries.filter((e) => Math.max(...e.size) <= maxSide && Math.max(...e.size) >= 0.3 && Math.min(...e.size) >= 0.05 && identify(e).role === 'prop' && e.cat !== 'Other' && e.seen >= 2)
   const scored = fits.map((e) => {
     const t = tagsOf(e)
     return { e, score: (want.size ? t.filter((x) => want.has(x)).length : 1) + Math.min(1, Math.log10(1 + e.seen) / 3) }

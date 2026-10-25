@@ -4,7 +4,7 @@
 // game's own (metres, its handedness); see place.ts for the editor's. Each material keeps how the game draws it
 // (material.ts) and the mesh keeps the UV sets and normals its layers need.
 import { meshTriangles, type Chunk } from './chunk'
-import { upAxis } from './indexer'
+import { upAxis, yawOf } from './indexer'
 import { describeMaterial, lookKey, type GameLook } from './material'
 
 export interface ObjectMesh {
@@ -29,12 +29,6 @@ export interface ObjectRef { chunk: string; record: number; parts?: number[] }
 
 /** The picture earlier versions placed for a material: its first that isn't a normal map. */
 export const diffuseOf = (ch: Chunk, mi: number) => ch.materials[mi]?.textures.find((x) => !/\.tgn$/i.test(x)) ?? ''
-
-/** The vertical turn of an instance: the angle its first level axis makes with +X, about +Y. */
-function yawOf(R: number[], up: number) {
-  const h = [0, 1, 2].find((k) => k !== up)!
-  return Math.atan2(R[3 * h + 2], R[3 * h])
-}
 
 /** A chunk material's look for geometry with `uvSets` UV sets, worked out once per pair. */
 export function lookCache(ch: Chunk) {
