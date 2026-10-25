@@ -11,6 +11,8 @@ import type { GenParams, TextureKind } from './procedural'
 export type Tex = { gen: TextureKind; tweak?: Partial<GenParams>; surface?: number; alpha?: boolean } | { lib: string; surface: number }
   /** An image already stored in the browser (a photo); `alpha` keeps its see-through parts. */
   | { file: string; ref: import('./project').FileRef; surface?: number; alpha?: boolean }
+  /** A texture from the player's own game (gameObjects/frame.ts): `tex` as a library model `game` carries it. A game file. */
+  | { game: string; tex: string; surface?: number }
 
 export interface Part {
   label: string

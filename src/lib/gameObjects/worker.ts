@@ -8,7 +8,7 @@ import type { PegImage } from '../sr1char/peg'
 import { indexChunk, type Candidate, isMpChunk, summarizeChunk, type MapSummary } from './indexer'
 import { extractObject, type ObjectMesh } from './extract'
 import { lookTextures } from './material'
-import { ALWAYS_PEGS, INVISIBLE_TEXTURE, chunkPegNames, findShared, findTexture, hasAlpha, indexPeg, shrink, textureDirectory, type PegIndex, type TextureDirectory } from './textures'
+import { ALWAYS_PEGS, INVISIBLE_TEXTURE, chunkPegNames, findShared, findTexture, hasAlpha, indexPeg, shrink, textureDirectory, textureSize, type PegIndex, type TextureDirectory } from './textures'
 import { MAP, cutArea, isCityChunk, mapChunk, scanArea, type ChunkSummary, type CutPiece, type Hole, type Rect } from '../city/city'
 
 /** A packfile: a File from the player's folder, or (development only) a URL the dev server serves by range. */
@@ -29,6 +29,7 @@ export type Request =
   | { id: number; type: 'cityMap' }
   | { id: number; type: 'cityCut'; rect: Rect; stems: string[]; texSize: number }
   | { id: number; type: 'cityScan'; rect: Rect; stems: string[] }
+  | { id: number; type: 'cityTextures'; rect: Rect; stems: string[] }
 
 export type Reply =
   | { id: number; ok: true; value: unknown }
@@ -245,6 +246,31 @@ async function areaChunks(stems: string[]) {
   return out
 }
 
+/** The different pictures a cut of the area would bring: name, width, height, alpha (sizes from the entry tables). */
+async function cityTextures(m: Extract<Request, { type: 'cityTextures' }>): Promise<[string, number, number, boolean][]> {
+  const cut = cutArea(await areaChunks(m.stems), m.rect)
+  const byChunk = new Map<string, string[]>()
+  cut.matChunk.forEach((c, i) => { const l = byChunk.get(c); if (l) l.push(cut.solid.materials[i]); else byChunk.set(c, [cut.solid.materials[i]]) })
+  const out = new Map<string, [string, number, number, boolean]>()
+  for (const [c, names] of byChunk) {
+    const own: PegIndex[] = []
+    for (const n of chunkPegNames(c)) { const x = await pegOf('sr_city_stream', n); if (x) own.push(x) }
+    const all = [...own, ...(await alwaysPegs())]
+    for (const n of names) {
+      if (!n || out.has(n.toLowerCase()) || INVISIBLE_TEXTURE.test(n)) continue
+      let wh = textureSize(n, all)
+      const where = !wh && texDir ? texDir.names[n.toLowerCase()] : undefined
+      if (where !== undefined) {
+        const [wp, ...rest] = texDir!.pegs[where].split('/')
+        const peg = await pegOf(wp, rest.join('/'))
+        if (peg) wh = textureSize(n, [peg])
+      }
+      out.set(n.toLowerCase(), [n, wh?.[0] ?? 256, wh?.[1] ?? 256, wh?.[2] ?? false])
+    }
+  }
+  return [...out.values()]
+}
+
 async function cityCut(m: Extract<Request, { type: 'cityCut' }>): Promise<CityCut> {
   const cut = cutArea(await areaChunks(m.stems), m.rect)
   // Pictures: each material's from the chunk it was first met in.
@@ -273,6 +299,7 @@ self.onmessage = async (e: MessageEvent<Request>) => {
       const v = await cityMap(m.id)
       post({ id: m.id, ok: true, value: v }, [v.top.buffer, v.kind.buffer])
     } else if (m.type === 'cityScan') post({ id: m.id, ok: true, value: scanArea(await areaChunks(m.stems), m.rect) satisfies Hole[] })
+    else if (m.type === 'cityTextures') post({ id: m.id, ok: true, value: await cityTextures(m) })
     else if (m.type === 'cityCut') {
       const v = await cityCut(m)
       // Both meshes share the pictures: send them once (the look mesh's list is the same objects).

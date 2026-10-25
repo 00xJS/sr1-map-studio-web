@@ -11,7 +11,7 @@ import type { Part, Sample, Tex } from './sampleKit'
 import { CY, PB } from './sampleKit'
 import { ROAD_SURFACES, U } from './urbanKit'
 import { bench, building, car, dumpster, group, tagPrefab, type Style } from './prefabs'
-import { box, lying } from './sampleKit'
+import { box, lying, turn } from './sampleKit'
 import { Space, corners, turnBy } from './sampleSpace'
 import { facadeLife } from './prefabsUrbanLife'
 
@@ -136,5 +136,61 @@ export function detailize(s: Sample): Sample {
     }
     parts.push(p)
   }
-  return { ...s, parts }
+  return { ...s, parts: openLandings(parts) }
+}
+
+/** Low walls round a raised floor that stairs or a ramp may arrive at. */
+const LIPS = /^(Parapet|Railing|Rail|Guard rail|Low wall)$/
+
+/**
+ * Where stairs or a ramp arrive at a raised floor (a roof, a deck), the parapet or railing in the way gets a gap a
+ * little wider than they are: a roof reached by stairs is one players can step onto, not one behind a wall too tall
+ * to jump (spawns and weapons up there would be stuck: camp or fall).
+ */
+export function openLandings(parts: Part[]): Part[] {
+  const ways = parts.filter((p) => p.kind === 'stairs' || p.kind === 'ramp')
+  if (!ways.length) return parts
+  const cuts = new Map<Part, [number, number][]>()
+  for (const w of ways) {
+    const top = w.at[1] + w.size[1]
+    // Stairs and ramps rise toward their own −Z: the landing is just past that end, as wide as they are and a bit.
+    const [dx, dz] = turn(0, -w.size[2] / 2 - 0.6, w.rot ?? 0)
+    const lx = w.at[0] + dx, lz = w.at[2] + dz, r = w.size[0] / 2 + 1
+    for (const q of parts) {
+      if (q.kind !== 'box' || !LIPS.test(q.label) || Math.round(q.rot ?? 0) % 90 !== 0) continue
+      // Standing on (or just under) the floor the stairs reach.
+      if (q.at[1] > top + 0.6 || q.at[1] + q.size[1] < top - 0.2) continue
+      const turned = Math.round((q.rot ?? 0) / 90) % 2 !== 0
+      const [sx, sz] = turned ? [q.size[2], q.size[0]] : [q.size[0], q.size[2]]
+      const alongX = sx >= sz
+      const [c, across, len, thick] = alongX ? [q.at[0], q.at[2], sx, sz] : [q.at[2], q.at[0], sz, sx]
+      const [pc, pa] = alongX ? [lx, lz] : [lz, lx]
+      if (Math.abs(pa - across) > thick / 2 + 1.2 || pc + r < c - len / 2 || pc - r > c + len / 2) continue
+      cuts.set(q, [...(cuts.get(q) ?? []), [pc - r, pc + r]])
+    }
+  }
+  if (!cuts.size) return parts
+  return parts.flatMap((q) => {
+    const gaps = cuts.get(q)
+    if (!gaps) return [q]
+    const turned = Math.round((q.rot ?? 0) / 90) % 2 !== 0
+    const alongX = (turned ? q.size[2] : q.size[0]) >= (turned ? q.size[0] : q.size[2])
+    const c = alongX ? q.at[0] : q.at[2], len = alongX ? (turned ? q.size[2] : q.size[0]) : (turned ? q.size[0] : q.size[2])
+    // What's left of the wall either side of the gaps.
+    let runs: [number, number][] = [[c - len / 2, c + len / 2]]
+    for (const [a, b] of gaps) {
+      const next: [number, number][] = []
+      for (const [u, v] of runs) {
+        if (b <= u || a >= v) { next.push([u, v]); continue }
+        if (a - u > 0.3) next.push([u, a])
+        if (v - b > 0.3) next.push([b, v])
+      }
+      runs = next
+    }
+    return runs.map(([u, v]): Part => {
+      const mid = (u + v) / 2, l = v - u
+      const size: [number, number, number] = alongX === !turned ? [l, q.size[1], q.size[2]] : [q.size[0], q.size[1], l]
+      return { ...q, size, at: alongX ? [mid, q.at[1], q.at[2]] : [q.at[0], q.at[1], mid] }
+    })
+  })
 }

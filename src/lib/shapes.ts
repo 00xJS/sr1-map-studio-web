@@ -6,6 +6,9 @@
 import type { Vec3 } from './project'
 import { terrainFaces, terrainObj } from './terrain'
 
+/** Tallest step stairs are built with (editor units, 0.25 m): under the player's step, so a flight is walked up, not jumped. */
+export const MAX_RISER = 0.5
+
 export type ShapeKind = 'box' | 'ramp' | 'stairs' | 'cylinder' | 'roof' | 'blob' | 'terrain' | 'torus' | 'sphere'
 
 export interface Shape {
@@ -202,7 +205,8 @@ export function faces(s: Shape): Face[] {
       return (s.open ? polys.slice(0, 1) : polys).map(([pts, top]) => ({ pts: outward(pts, c), top }))
     }
     case 'stairs': {
-      const n = Math.max(1, Math.min(64, Math.round(s.segments ?? 8)))
+      // Never a step taller than the game's player walks up (STEP, about 0.28 m): more steps, the same flight.
+      const n = Math.max(1, Math.min(64, Math.max(Math.round(s.segments ?? 8), Math.ceil(h / MAX_RISER))))
       const out: Face[] = []
       for (let i = 0; i < n; i++) {
         const za = z1 - (d * i) / n, zb = z1 - (d * (i + 1)) / n

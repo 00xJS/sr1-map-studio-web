@@ -8,7 +8,7 @@ import * as THREE from 'three'
 import type { Part, Sample } from './sampleKit'
 import { drawView, partsObject } from './prefabRender'
 import { parseObj, type ObjModel } from './geometry'
-import { newProject, type SceneItem } from './project'
+import { newProject, type SceneItem, type Vec3 } from './project'
 import { mapLimit } from './hubRules'
 import { sampleInput } from './analysis/sampleInput'
 import { collisionFromProject } from './analysis/collision'
@@ -19,7 +19,7 @@ import { NeedGameFolder, entryById, getObject } from './gameObjects/client'
 import { identify } from './gameObjects/identity'
 import { objectMesh } from './gameObjects/render'
 import { objText, safe, stemOf } from './gameObjects/place'
-import { eyeCover, mapTextures, placedTurn, standing } from './gameObjects/wizardBuild'
+import { buildingParts, eyeCover, mapTextures, placedTurn, standing } from './gameObjects/wizardBuild'
 
 const RAD = Math.PI / 180
 /** Editor units per metre's worth of world scale (the wizard's maps are built at 0.5). */
@@ -105,6 +105,8 @@ export function previewMap(sample: Sample, onUpdate: (p: Preview) => void): () =
   const boxes = new Map<Part, THREE.Mesh>()
   /** Stand-ins whose model is in: the model (its own, or an alternative the map builder would use) and its turn. */
   const placed = new Map<Part, { id: string; rot: number }>()
+  /** The parts that come with each building placed (its porch, steps, side pieces), as the map builder adds them. */
+  const extra: { id: string; at: Vec3; rot: number }[] = []
 
   let drawing: Promise<void> | null = null, again = false
   const draw = async () => {
@@ -129,7 +131,19 @@ export function previewMap(sample: Sample, onUpdate: (p: Preview) => void): () =
     root.add(inst)
     root.remove(boxes.get(p)!)
     placed.set(p, s)
+    if (p.label !== 'Game building') return
+    for (const bp of buildingParts(p, entryById(s.id)!, p.at, s.rot, WS)) {
+      extra.push({ id: bp.e.id, at: bp.at, rot: bp.rot })
+      wholes.push(modelOf(bp.e.id).then((pm) => {
+        if (!live) return
+        const inst = new THREE.Mesh(pm.mesh.geometry, pm.mesh.material)
+        inst.position.set(...bp.at)
+        inst.rotation.y = bp.rot * RAD
+        root.add(inst)
+      }, () => { extra.splice(extra.findIndex((x) => x.id === bp.e.id && x.at === bp.at), 1) }))
+    }
   }
+  const wholes: Promise<void>[] = []
 
   const run = async () => {
     site = await partsObject(sample.parts.filter((p) => !p.game))
@@ -171,6 +185,7 @@ export function previewMap(sample: Sample, onUpdate: (p: Preview) => void): () =
       const s = await standing(p, measure, tex)
       if (s && s.id !== p.game!.id) show(p, await modelOf(s.id), s)
     }
+    await Promise.all(wholes)
     if (!live) return
     await draw()
 
@@ -181,10 +196,8 @@ export function previewMap(sample: Sample, onUpdate: (p: Preview) => void): () =
     const shapes = sampleInput({ parts: plain, markers: sample.markers })
     const project = newProject('preview')
     const byPath = new Map<string, ObjModel>()
-    project.scene_items = [...placed].map(([p, { id, rot }], i): SceneItem => {
-      const path = '/preview/' + id
-      return { uid: String(i), name: p.game!.name, path, position: p.at, rotation: [0, rot, 0], scale: 1, textures: {}, alpha: {} }
-    })
+    project.scene_items = [...[...placed].map(([p, { id, rot }]) => ({ id, at: p.at, rot, name: p.game!.name })), ...extra.map((x) => ({ ...x, name: x.id }))]
+      .map(({ id, at, rot, name }, i): SceneItem => ({ uid: String(i), name, path: '/preview/' + id, position: at, rotation: [0, rot, 0], scale: 1, textures: {}, alpha: {} }))
     // Every model here is already in (the promises above resolve at once).
     const ms = await Promise.all(project.scene_items.map((it) => modelOf(it.path.slice('/preview/'.length))))
     project.scene_items.forEach((it, i) => { byPath.set(it.path, ms[i].obj); it.alpha = ms[i].alpha })

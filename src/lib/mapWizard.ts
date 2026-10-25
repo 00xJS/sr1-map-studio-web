@@ -14,6 +14,7 @@ import { dress, type DressOptions } from './sampleDress'
 import { populate, type PopulateTargets } from './samplePopulate'
 import { neighbourhood } from './neighbourhood'
 import type { GamePieces } from './gameObjects/wizardPieces'
+import { gameOnly } from './gameObjects/frame'
 
 export type WizardSetting = 'downtown' | 'industrial' | 'paintball' | 'cyber' | 'suburbs' | 'docks' | 'construction' | 'military' | 'rundown'
 export type WizardLayout = 'blocks' | 'plaza' | 'lanes' | 'arena' | 'heights' | 'neighbourhood' | 'crossroads' | 'compounds' | 'maze' | 'scatter'
@@ -265,6 +266,8 @@ export class Half {
   parts: Part[] = []
   weapons: [string, Vec3][] = []
   taken: Rect[] = []
+  /** Ground taken only to keep it open (the middle, the crossroads' streets): no solid there, and cover may go in. */
+  kept: Rect[] = []
   constructor(readonly W: number, readonly D: number, readonly strip: number, readonly look: Look, readonly r: Rng, readonly pieces?: GamePieces) {}
 
   /** Inside red's half, clear of the spawn strip and the middle, and `gap` away from everything placed. */
@@ -276,12 +279,17 @@ export class Half {
 
   take(q: Rect) { this.taken.push(q) }
 
+  /** Keeps ground open for the layout (nothing built there) without anything solid standing on it. */
+  keep(q: Rect) { this.taken.push(q); this.kept.push(q) }
+
   structure(q: Rect, h: number) {
     if (!this.fits(q)) return false
     // The site's building is always made, so the layout's random numbers (and the rest of the map) stay the same.
     const site = this.look.structure(this.r, q.x, q.z, q.w, q.d, h)
     // A game building may spread into the free ground round its plot (the game's buildings are mostly bigger).
     const game = this.pieces?.building(q.x, q.z, q.w, q.d, 1, 0, 2, site, this.room(q))
+    // Game pieces: no game building fits this plot, so it stays open ground (the site's never stands in).
+    if (!game && this.pieces?.any) return false
     this.parts.push(...(game ? [game] : site))
     if (!game) this.take(q)
     else {
@@ -302,6 +310,48 @@ export class Half {
       }
     }
     return r
+  }
+
+  /**
+   * Game cover on the most open ground, one at a time, each across the longest clear run where it stands, until no
+   * spot is that open or `count` are placed: what breaks the long sight lines between buildings and over the spawns.
+   */
+  cover(count: number) {
+    const { W, D, strip } = this
+    const RUN = 60, OPEN = 28, MIDDLE = 14
+    const solid = () => this.taken.filter((t) => !this.kept.includes(t))
+    const inside = (t: Rect, x: number, z: number, m = 0) => Math.abs(t.x - x) * 2 < t.w + 2 * m && Math.abs(t.z - z) * 2 < t.d + 2 * m
+    let solids = solid()
+    const blocked = (x: number, z: number) => Math.abs(x) > W / 2 - 2 || z < -D / 2 + 1 || z > D / 2 - 1 || solids.some((t) => inside(t, x, z))
+    // Room for it: clear of everything solid by a few metres, off the spawn strip's own spots, out of the very middle (its centrepiece).
+    const free = (x: number, z: number) => Math.abs(x) <= W / 2 - 8 && z <= -6 && Math.hypot(x, z) > MIDDLE && !solids.some((t) => inside(t, x, z, 6))
+    // How far it is clear from a spot along a heading (units, up to RUN); the map's other half is the same turned round.
+    const run = (x: number, z: number, a: number) => {
+      const dx = Math.sin(a), dz = Math.cos(a)
+      for (let d = 2; d <= RUN; d += 2) if (blocked(x + dx * d, z + dz * d)) return d
+      return RUN
+    }
+    const HEADINGS = [0, 45, 90, 135].map((g) => (g * Math.PI) / 180)
+    for (let k = 0; k < count; k++) {
+      let best: { x: number; z: number; open: number; across: number } | null = null
+      for (let x = -W / 2 + 8; x <= W / 2 - 8; x += 4) for (let z = -D / 2 + strip / 2; z <= -6; z += 4) {
+        if (!free(x, z)) continue
+        // The longest clear line through the spot (both ways along a heading).
+        let open = 0, across = 0
+        for (const a of HEADINGS) {
+          const l = run(x, z, a) + run(x, z, a + Math.PI)
+          if (l > open) { open = l; across = (a * 180) / Math.PI }
+        }
+        if (open >= OPEN && (!best || open > best.open)) best = { x, z, open, across }
+      }
+      if (!best) return
+      const game = this.pieces?.cover(best.x, best.z, 10, best.across)
+      if (!game) return
+      this.parts.push(game)
+      const turned = (game.rot ?? 0) % 180 === 90
+      this.take({ x: game.at[0], z: game.at[2], w: turned ? game.size[2] : game.size[0], d: turned ? game.size[0] : game.size[2] })
+      solids = solid()
+    }
   }
 
   /** A raised deck with a ramp up one side; a weapon waits on top. */
@@ -338,7 +388,7 @@ function lay(h: Half, o: WizardOptions): boolean {
   const high = o.setting === 'cyber' ? CYBER_HIGH : WEAPONS_HIGH
   const height = () => r.pick(h.look.heights)
   const centreClear = Math.min(W, D) * (o.layout === 'plaza' ? 0.22 : 0.1)
-  h.take({ x: 0, z: 0, w: centreClear * 2, d: centreClear * 2 })
+  h.keep({ x: 0, z: 0, w: centreClear * 2, d: centreClear * 2 })
 
   // Game pieces from whole modules: the layout gives the streets, the modules fill the blocks between them.
   const city = !!h.pieces?.city?.fill(h, o)
@@ -403,8 +453,8 @@ function lay(h: Half, o: WizardOptions): boolean {
   } else if (o.layout === 'crossroads') {
     // Two wide streets crossing in the middle of the map; a block in each corner (two per side), split by alleys.
     const S = 8
-    h.take({ x: 0, z: -D / 4, w: 2 * S, d: D / 2 })
-    h.take({ x: 0, z: 0, w: W, d: 2 * S })
+    h.keep({ x: 0, z: -D / 4, w: 2 * S, d: D / 2 })
+    h.keep({ x: 0, z: 0, w: W, d: 2 * S })
     for (const sx of [-1, 1]) {
       const x0 = sx < 0 ? -W / 2 + 6 : S + 4, x1 = sx < 0 ? -S - 4 : W / 2 - 6
       const z0 = -D / 2 + h.strip + 4, z1 = -S - 4
@@ -477,6 +527,8 @@ function lay(h: Half, o: WizardOptions): boolean {
     const q = { x: r.range(-W / 2 + 10, W / 2 - 10), z: r.range(-D / 2 + h.strip + 8, -8), w: r.int(8, 18), d: r.int(8, 18) }
     if (h.structure(q, o.layout === 'heights' ? r.pick([4, 5]) : height())) placed++
   }
+  // Game pieces: the game's own cover on the most open ground (the site's extras below are left out on those maps).
+  if (h.pieces?.any && o.layout !== 'maze') h.cover(Math.round(((W / 2) * (D / 2) / 4) / 260 * (0.6 + fill)))
   // Parked cars and the like in the gaps.
   if (h.look.extras && o.layout !== 'maze') for (let k = 0, placed = 0; k < 80 && placed < 3 + Math.round(fill * 6); k++) {
     const rot = r.pick([0, 90])
@@ -537,8 +589,8 @@ export function wizardLayout(o: WizardOptions, pieces?: GamePieces): Sample {
       ...perimeter(W, D, look.wallH, look.wall, look.wallTop),
       ...mid.parts,
       ...mirror(...h.parts),
-      // Low kerbs mark each team's spawn strip.
-      ...mirror(box('Kerb', [W - 8, 0.3, 1], [0, 1, -D / 2 + strip], PB.concrete)),
+      // Low kerbs mark each team's spawn strip (not on Game pieces maps: the game's own pieces only).
+      ...(pieces?.any ? [] : mirror(box('Kerb', [W - 8, 0.3, 1], [0, 1, -D / 2 + strip], PB.concrete))),
       ...(o.setting === 'cyber' ? mirror(cyl('Neon pillar', 2, 8, [-W / 2 + 4, 1, -D / 2 + 4], CY.dark, r.pick(NEON), 6)) : []),
     ],
     markers: teamMarkers({ red, shared: [], weapons, drops: [], pimp: [0, 1, sz] }),
@@ -582,11 +634,16 @@ export function wizardSample(o: WizardOptions, pieces?: GamePieces): Sample {
     weapons: Math.max(12, Math.min(26, p + 10)),
     drops: 4,
     lights: o.setting === 'cyber' ? 28 : 22,
+    shelter: true,
   }
   // Stilwater modules are kept out of while props, spawns and weapons go in round them (their stand-ins are rough).
   const laid = wizardLayout(o, pieces)
   const keep = pieces?.city?.keepOut() ?? []
   const dressed = dress(detailize(keep.length ? { ...laid, parts: [...laid.parts, ...keep] } : laid), busyness(busyOf(o)).dress)
-  const done = populate(pieces ? pieces.swap(dressed) : dressed, targets)
+  // Game pieces: the site's props become the game's where one fits, and whatever is left of the site's goes (its
+  // ground, walls, decks and streets stay, in the game's own surfaces).
+  const swapped = pieces ? pieces.swap(dressed) : dressed
+  const only = pieces?.any ? { ...swapped, parts: gameOnly(swapped.parts, pieces.frame, (p) => p.label === KEEP_OUT) } : swapped
+  const done = populate(only, targets)
   return keep.length ? { ...done, parts: done.parts.filter((p) => p.label !== KEEP_OUT) } : done
 }

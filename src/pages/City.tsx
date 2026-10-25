@@ -5,7 +5,8 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { db, requestPersistence } from '../lib/db'
 import { downloadBlob } from '../lib/exporter'
-import { buildCityMap, connectCity, loadCityMap, NeedGameFolder, workerCityScan } from '../lib/gameObjects/client'
+import { buildCityMap, connectCity, loadCityMap, NeedGameFolder, workerCityScan, workerCityTextures } from '../lib/gameObjects/client'
+import { SAFE_PEG_MB, TEMPLATE_PEG_BYTES, pictureBytes } from '../lib/textureBudget'
 import type { CityMap } from '../lib/gameObjects/worker'
 import { MAP, chunksIn, type Hole, type Rect } from '../lib/city/city'
 import { MAX_SIDE, cityProject } from '../lib/city/build'
@@ -102,6 +103,15 @@ function extent(map: CityMap): [number, number, number, number] {
 }
 
 const size = (r: Rect) => [Math.round(r.x1 - r.x0), Math.round(r.z1 - r.z0)]
+const rectKey = (r: Rect) => [r.x0, r.z0, r.x1, r.z1].map((v) => v.toFixed(1)).join(',')
+
+/** An area's textures as the exported map will store them (each picture once): MB, and how many pictures. */
+async function areaTextures(map: CityMap, r: Rect): Promise<{ mb: number; pictures: number }> {
+  const stems = chunksIn(map.summaries, r)
+  const pics = stems.length ? await workerCityTextures(r, stems) : []
+  const bytes = pics.reduce((a, [, w, h, alpha]) => a + pictureBytes(w, h, alpha), TEMPLATE_PEG_BYTES)
+  return { mb: +(bytes / 1e6).toFixed(1), pictures: pics.length }
+}
 const around = (x: number, z: number, half: number): Rect => ({ x0: x - half, z0: z - half, x1: x + half, z1: z + half })
 
 export default function City() {
@@ -111,8 +121,46 @@ export default function City() {
   const [sel, setSel] = useState<Rect | null>(null)
   const [holes, setHoles] = useState<Hole[] | null>(null)
   const [nearStreet, setNearStreet] = useState(true)
+  /** The picked area's textures (for the area it was measured on), or why it couldn't be measured yet. */
+  const [tex, setTex] = useState<{ key: string; mb: number; pictures: number } | { key: string; checking: true } | { key: string; folder: true } | null>(null)
   const stop = useRef(false)
   useEffect(() => { loadCityMap().then(setMap).catch(() => setMap(null)) }, [])
+  // The area's textures, once the player stops moving it (a map whose textures don't fit the game's memory loads black).
+  const measure = async (r: Rect, ask: boolean) => {
+    if (!map) return
+    const key = rectKey(r)
+    setTex({ key, checking: true })
+    try {
+      await connectCity(ask, map)
+      const t = await areaTextures(map, r)
+      setTex((cur) => (cur?.key === key ? { key, ...t } : cur))
+    } catch (e) {
+      setTex((cur) => (cur?.key === key ? { key, folder: true } : cur))
+      if (ask && !(e instanceof NeedGameFolder)) toastError(e)
+    }
+  }
+  useEffect(() => {
+    if (!sel || !map || Math.max(...size(sel)) > MAX_SIDE) { setTex(null); return }
+    const t = setTimeout(() => void measure(sel, false), 700)
+    return () => clearTimeout(t)
+  }, [sel && rectKey(sel), map])
+  /** Shrinks the area round its middle until its textures fit (pictures roughly follow the area). */
+  const shrink = () => sel && map && run('Shrinking the area to fit…', async () => {
+    await connectCity(true, map)
+    let r = sel, t = await areaTextures(map, r)
+    for (let k = 0; k < 6 && t.mb > 24; k++) {
+      const base = TEMPLATE_PEG_BYTES / 1e6
+      const f = Math.max(0.5, Math.min(0.95, Math.sqrt((SAFE_PEG_MB * 0.85 - base) / Math.max(0.1, t.mb - base))))
+      const cx = (r.x0 + r.x1) / 2, cz = (r.z0 + r.z1) / 2, hw = ((r.x1 - r.x0) / 2) * f, hd = ((r.z1 - r.z0) / 2) * f
+      r = { x0: cx - hw, z0: cz - hd, x1: cx + hw, z1: cz + hd }
+      setProgress(`Shrinking the area to fit: ${size(r).join(' × ')} m, textures about ${t.mb} MB…`)
+      t = await areaTextures(map, r)
+    }
+    setSel(r)
+    setTex({ key: rectKey(r), ...t })
+  })
+  const texNow = sel && tex?.key === rectKey(sel) ? tex : null
+  const over = !!texNow && 'mb' in texNow && texNow.mb > SAFE_PEG_MB
 
   const run = async (label: string, job: () => Promise<void>) => {
     setProgress(label)
@@ -182,7 +230,14 @@ export default function City() {
               {sel ? <>
                 <span>{size(sel).join(' × ')} m</span>
                 {Math.max(...size(sel)) > MAX_SIDE && <span className="small warn">At most {MAX_SIDE} m across: the game's own multiplayer maps are 45 to 120 m.</span>}
-                <button className="primary" disabled={!!progress || Math.max(...size(sel)) > MAX_SIDE} onClick={start}>Start a map from this area</button>
+                {texNow && 'checking' in texNow && <span className="small muted">Measuring its textures…</span>}
+                {texNow && 'folder' in texNow && <span className="small muted">Its textures aren't measured yet: <button className="link small" onClick={() => void measure(sel, true)}>measure them</button> (asks for your game folder).</span>}
+                {texNow && 'mb' in texNow && (over
+                  ? <span className="small warn">Textures: about {texNow.mb} MB ({texNow.pictures} different pictures). The game loads about 25 MB of textures for a map; past that it may load none and the map shows black. Pick a smaller area, or <button className="link small" disabled={!!progress} onClick={shrink}>shrink it to fit</button>.</span>
+                  : texNow.mb > 25
+                    ? <span className="small warn" title="Each picture counts once, however many surfaces use it, as the export stores it">Textures: about {texNow.mb} MB ({texNow.pictures} different pictures), at the edge of the about 25 MB maps are known to load with. A little smaller is safer: <button className="link small" disabled={!!progress} onClick={shrink}>shrink it to fit</button>.</span>
+                    : <span className="small muted" title="Each picture counts once, however many surfaces use it, as the export stores it">Textures: about {texNow.mb} MB of the about 25 MB the game loads ({texNow.pictures} different pictures).</span>)}
+                <button className="primary" disabled={!!progress || Math.max(...size(sel)) > MAX_SIDE} onClick={start}>{over ? 'Start anyway (may load black in game)' : 'Start a map from this area'}</button>
                 <button disabled={!!progress} onClick={() => scan(false)}>Scan this area</button>
               </> : <span className="small muted">Drag on the map to draw an area, or pick a size above (a click picks 120 m round it). Drag the area to move it, its edges or corners to resize it. Right-drag to move the map, the wheel to zoom.</span>}
               <button className="quiet" disabled={!!progress} onClick={() => scan(true)} title="Every part of the city, a few minutes">Scan the whole city</button>

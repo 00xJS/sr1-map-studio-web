@@ -147,11 +147,13 @@ export interface HealthReport {
   spawns: SpawnReport[]
   fairness: FairnessReport
   /** Markers a player cannot walk to. */
-  unreachable: { type: string; position: Vec3 }[]
+  unreachable: { type: string; position: Vec3; /** Why players can't use it. */ why?: string }[]
   /** The busiest spots from the bot playtest. */
   hotspots: Vec3[]
   /** Gaps, drops and climb-only walls next to the reachable floor. */
   moves: MoveFinding[]
+  /** The map's textures as the exporter will store them (textureBudget.ts), when they were measured. */
+  textures?: { pictures: number; materials: number; mb: number; over: boolean }
   /** 0..100 overall, with the headline findings in plain language (most important first). */
   score: number
   findings: string[]

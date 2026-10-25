@@ -2,7 +2,7 @@
 // a report out (sight lines, spawn safety, red vs blue fairness, a bot
 // playtest). No DOM or three.js, so it runs in a worker, in tests and for the AI.
 import { Bvh } from './bvh'
-import { buildFloor, dijkstra, dijkstraTo, LETHAL_DROP, nodeNear, PLAYER, type FloorGraph } from './floor'
+import { buildFloor, dijkstra, dijkstraTo, LETHAL_DROP, nodeNear, PLAYER, twoWay, type FloorGraph } from './floor'
 import { observe, pickLanes, pickObservers, sees, type SightCounts } from './sight'
 import { botPlaytest, fieldCache } from './bots'
 import { findMoves, movesSummary } from './moves'
@@ -70,8 +70,24 @@ export function prepareMap(input: AnalysisInput, opts: AnalysisOptions = {}): Pr
   const reach = g.grid.reachable
   for (let i = 0; i < g.grid.count; i++) reach[i] = !fromStart || Number.isFinite(fromStart[i]) ? 1 : 0
   const reachList = Int32Array.from(Array.from(reach.keys()).filter((i) => reach[i]))
-  const unreachable = markers.flatMap((mk, i) => ((SPAWN_TYPES.includes(mk.type) || mk.type === 'Weapon pickup' || mk.type === 'Chains drop-off') && (nodeOf[i] < 0 || !reach[nodeOf[i]])
-    ? [{ type: mk.type, position: mk.position }] : []))
+  // Spawns, weapons and drop-offs must be on the floor players get round both ways (twoWay): a spawn on a roof with no
+  // stairs up leaves its player to camp there or fall; a gun on a deck nobody can climb is never picked up. The main
+  // stretch is the one most of the spawns stand on.
+  const { comp, sizes } = twoWay(g)
+  const votes = new Map<number, number>()
+  for (const n of spawnNodes) votes.set(comp[n], (votes.get(comp[n]) ?? 0) + 1)
+  let main = -1
+  for (const [c, v] of votes) if (main < 0 || v > votes.get(main)! || (v === votes.get(main)! && sizes[c] > sizes[main])) main = c
+  if (main < 0 && sizes.length) main = sizes.indexOf(Math.max(...sizes))
+  const placed = (t: string) => SPAWN_TYPES.includes(t) || t === 'Weapon pickup' || t === 'Chains drop-off'
+  const unreachable = markers.flatMap((mk, i) => {
+    if (!placed(mk.type)) return []
+    const n = nodeOf[i]
+    if (n < 0) return [{ type: mk.type, position: mk.position, why: 'not on any floor (in the air, under the map or inside something)' }]
+    if (!reach[n]) return [{ type: mk.type, position: mk.position, why: 'no way to walk there from the spawns' }]
+    if (comp[n] !== main) return [{ type: mk.type, position: mk.position, why: 'no stairs or ramp up to it, or no way back down without a fall' }]
+    return []
+  })
   // Observers in mirrored pairs about the spawns' centre (the maps are point-symmetric), when the twin is reachable too.
   const P = g.grid.pos
   const twin = (n: number) => { const q = nodeNear(g, 2 * cx - P[n * 3], P[n * 3 + 1] + 0.1, 2 * cz - P[n * 3 + 2], cx, cz); return q >= 0 && reach[q] ? q : -1 }
@@ -295,7 +311,8 @@ function summarize(spawns: SpawnReport[], fairness: FairnessReport, unreachable:
   if (unreachable.length) {
     const name = (t: string) => (t === 'Weapon pickup' ? 'weapon' : t === 'Chains drop-off' ? 'drop-off' : 'spawn')
     const kinds = [...new Set(unreachable.map((u) => name(u.type)))]
-    findings.push(`${unreachable.length} ${kinds.join('/')}${unreachable.length === 1 ? '' : 's'} can't be reached on foot from the spawns.`)
+    const whys = [...new Set(unreachable.map((u) => u.why).filter(Boolean))]
+    findings.push(`${unreachable.length} ${kinds.join('/')}${unreachable.length === 1 ? '' : 's'} can't be used: ${whys.join('; ') || 'not reachable on foot from the spawns'}.`)
   }
   // Worst first: seen from enemy spawns, then from pickups, then from the open map.
   const bad = spawns.filter((s) => s.risk === 'campable').sort((a, b) => b.seenBySpawns * 3 + b.seenByPickups + b.exposure * 10 - (a.seenBySpawns * 3 + a.seenByPickups + a.exposure * 10) || a.number - b.number)

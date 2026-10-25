@@ -58,6 +58,16 @@ export function findTexture(name: string, pegs: PegIndex[]): PegImage | null {
   return null
 }
 
+/** A picture's size and whether it has alpha (DXT3 or DXT5), from the texture files' entry tables: nothing decoded. */
+export function textureSize(name: string, pegs: PegIndex[]): [number, number, boolean] | null {
+  const key = name.toLowerCase()
+  for (const p of pegs) {
+    const e = p.byName.get(key)
+    if (e && e.width && e.height) return [e.width, e.height, e.format === 401 || e.format === 402]
+  }
+  return null
+}
+
 /**
  * A picture stored as a pointer into pixels another entry of the same file also uses (size 0): decoded in place
  * with its own size and format, which is how the game reads it. Skipped when those pixels belong to a normal

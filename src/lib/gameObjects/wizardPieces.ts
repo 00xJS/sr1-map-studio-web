@@ -18,6 +18,7 @@ import { UNITS_PER_M } from '../player'
 import { identify, type BuildingFacts, type GameIdentity, type PropKind } from './identity'
 import type { GameObjectEntry } from './indexer'
 import { withLabels, type GameLabels } from './labels'
+import { frameLook, type FrameLook } from './frame'
 import type { PlacementRule, Side } from './cityModules'
 
 /** What a stand-in stands for. */
@@ -65,11 +66,13 @@ const BUILDING_SHARE = 0.75
 /** Most distinct game textures in one map (each one goes into the map's texture file). */
 export const TEXTURE_BUDGET = 80
 /** Most distinct models per palette. */
-const PALETTE: Record<string, number> = { building: 8, fence: 2, light: 1 }
+const PALETTE: Record<string, number> = { building: 8, fence: 2, light: 1, cover: 4 }
 const PROP_PALETTE = 3
 /** Heaviest single model worth placing, in triangles. */
 const MAX_BUILDING_TRIS = 24_000
 const MAX_PROP_TRIS = 4_000
+/** Height (metres) of what counts as cover on open ground: a crouching player hides behind it, up to a container. */
+const COVER_H: [number, number] = [1.3, 3.5]
 /** Runner-up buildings each building stand-in carries (GamePart.alts). */
 const ALTS = 6
 /** Tallest building, metres, per setting (a 100 m tower would dwarf a 70 m map). */
@@ -120,6 +123,10 @@ export const SPOTS: Record<string, Spot> = {
   trafficlight: LIGHT,
   tree: NATURE, Tree: NATURE, bush: NATURE, flowers: NATURE, planterbox: NATURE,
   car: VEHICLE, burnedcar: VEHICLE, srcarhusk: VEHICLE, forklift: VEHICLE, jeep: VEHICLE, carwreck: VEHICLE,
+  // The middle of the map: something big the game has (a fountain or a statue, a kiosk, a crane, a stack of containers).
+  fountain: prop('nature', 'street', 'machine'), gazebo: prop('street', 'nature'), kiosk: prop('street', 'machine'), playground: prop('street', 'nature'),
+  scaffold: MACHINE, scaffoldtower: MACHINE, girders: MACHINE, excavator: MACHINE, radar: MACHINE, checkpoint: prop('street', 'cover'),
+  helipad: MACHINE, containerstack: COVER, burnedshell: prop('vehicle', 'clutter'),
   picketfence: FENCE, srchainlink: FENCE, chainfence: FENCE, hedge: FENCE, barricade: FENCE, roadbarricade: FENCE, lowwall: FENCE, jersey: FENCE,
   sandbagwall: FENCE, hesco: FENCE, twall: FENCE,
 }
@@ -297,6 +304,16 @@ export interface PiecesOptions {
   rule?: (e: GameObjectEntry) => PlacementRule
 }
 
+const frames = new WeakMap<GameObjectEntry[], Map<WizardSetting, FrameLook>>()
+/** The frame's game surfaces for a setting, worked out once per library. */
+function framesFor(entries: GameObjectEntry[], setting: WizardSetting): FrameLook {
+  let m = frames.get(entries)
+  if (!m) frames.set(entries, m = new Map())
+  let f = m.get(setting)
+  if (!f) m.set(setting, f = frameLook(entries, setting))
+  return f
+}
+
 /** Picks game models for one wizard map; a new one per map (it keeps the palettes and the budget). */
 export class GamePieces {
   private readonly lib: Prepared
@@ -307,6 +324,8 @@ export class GamePieces {
   /** Pairs of spots on both halves get the same model. */
   private readonly twins = new Map<string, Cand | null>()
   readonly stats: GamePiecesStats = { buildings: 0, props: 0, lights: 0, fences: 0, kept: 0, triangles: 0, textures: 0, models: 0 }
+  /** The game's surfaces for the map's frame: its ground, walls, decks and streets (frame.ts). */
+  readonly frame: FrameLook
   /** Whole Stilwater modules for the layout's big areas (wizardModules.ts GameCity), when there are any. */
   city?: CityHooks
   private readonly rule?: (e: GameObjectEntry) => PlacementRule
@@ -314,6 +333,7 @@ export class GamePieces {
 
   constructor(entries: GameObjectEntry[], o: PiecesOptions) {
     this.lib = prepare(entries, o.setting, o.identify ?? identify, o.labels, o.labelsVersion)
+    this.frame = framesFor(entries, o.setting)
     this.rule = o.rule
     if (o.rule) for (const e of entries) this.byId.set(e.id, e)
     // Its own random numbers, so the layout stays the one the same seed gives without game pieces.
@@ -439,6 +459,28 @@ export class GamePieces {
       .sort((a, b) => b[1] - a[1] || a[0].e.id.localeCompare(b[0].e.id))
       .slice(0, ALTS)
       .map(([x]) => x.e.id)
+  }
+
+  /**
+   * Game cover for open ground at (x, z): something a player can duck or stand behind (a container, a dumpster, a
+   * barrier, a parked vehicle; 1.3 to 3.5 m tall) no wider across than `room` units, turned across `across` (degrees,
+   * the heading of the long open run it breaks). Null when nothing fits.
+   */
+  cover(x: number, z: number, room: number, across: number, copies = 2): Part | null {
+    const kinds: PropKind[] = ['cover', 'vehicle', 'machine']
+    const fit = (c: Cand) => {
+      const h = c.h, reach = Math.hypot(c.long, c.short) / 2 * M
+      if (h < COVER_H[0] || h > COVER_H[1] || c.long < 1.5 || reach > room / 2) return 0
+      // Long and tall enough to hide behind: the bigger, the more it breaks the run.
+      return c.long * Math.min(h, 2.5)
+    }
+    for (const kind of kinds) {
+      const c = this.choose(this.lib.props.get(kind) ?? [], 'cover', fit, copies)
+      if (!c) continue
+      this.stats.props += copies
+      return this.standIn(c, 'Game cover', [r2(x), 1, r2(z)], ((across + 90) % 360 + 360) % 360, c.long, c.short)
+    }
+    return null
   }
 
   /** A prop for a spot of this kind that reaches `radius` units from where it stands and is about `height` tall. */

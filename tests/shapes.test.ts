@@ -26,8 +26,13 @@ describe('block-out shapes', () => {
   })
 
   it('stairs add up their steps', () => {
-    // Steps of height 1, 2, 3, 4 over equal depths: (1+2+3+4)/4 of the full box.
-    expect(volume({ kind: 'stairs', size: [2, 4, 8], segments: 4, tile: 4 }).v).toBeCloseTo(2 * 8 * 4 * (10 / 16), 4)
+    // Steps of height 0.5, 1, 1.5, 2 over equal depths: (1+2+3+4)/4 of the full box.
+    expect(volume({ kind: 'stairs', size: [2, 2, 8], segments: 4, tile: 4 }).v).toBeCloseTo(2 * 8 * 2 * (10 / 16), 4)
+  })
+
+  it('stairs never get a step taller than the player walks up', () => {
+    // 4 m in 4 steps would be 1 m each: built as 16 of 0.25 m, (1+…+16)/16 of the box.
+    expect(volume({ kind: 'stairs', size: [2, 8, 8], segments: 4, tile: 4 }).v).toBeCloseTo(2 * 8 * 8 * (136 / 256), 4)
   })
 
   it('cylinder approaches pi r^2 h', () => {

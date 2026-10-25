@@ -8,6 +8,8 @@ import { analysisKey } from '../lib/analysis/collision'
 import { analyzeProject, cancelAnalysis } from '../lib/analysis/client'
 import type { HealthReport } from '../lib/analysis/types'
 import { buildOverlay, type Overlay, type OverlayKind } from './healthOverlay'
+import { textureBudget } from '../lib/textureBudget'
+import { db } from '../lib/db'
 
 export type { OverlayKind }
 
@@ -44,6 +46,15 @@ export async function runHealthCheck(overlay?: OverlayKind) {
   useHealth.setState({ running: true, error: null, progress: { text: 'Reading the map', done: 0 } })
   try {
     const report = await analyzeProject(project, { onProgress: (text, done) => useHealth.setState({ progress: { text, done } }) })
+    // Its textures as the exporter will store them: a map whose textures don't fit the game's memory loads black.
+    const tex = await textureBudget(project, pictureSize).catch(() => null)
+    if (tex) {
+      report.textures = tex
+      if (tex.over) {
+        report.findings.unshift(`Textures come to about ${tex.mb} MB (${tex.pictures} different pictures): the biggest map known to load has about 25 MB, and past that the game may load none of them, leaving the map black. Use fewer different textures, or a smaller area.`)
+        report.score = Math.min(report.score, 20)
+      }
+    }
     useHealth.setState((s) => ({
       report, key: analysisKey(project), projectId: project.id, running: false, progress: null, ms: Math.round(performance.now() - started),
       overlay: overlay ?? (s.overlay === 'off' ? 'sight' : s.overlay), focus: null,
@@ -51,6 +62,24 @@ export async function runHealthCheck(overlay?: OverlayKind) {
   } catch (err) {
     useHealth.setState({ running: false, progress: null, error: (err as Error).message })
   }
+}
+
+const sizes = new Map<string, Promise<[number, number] | null>>()
+/** A stored picture's width and height (read once per tab). */
+function pictureSize(hash: string): Promise<[number, number] | null> {
+  let p = sizes.get(hash)
+  if (!p) {
+    p = (async () => {
+      const blob = await db.getBlob(hash)
+      if (!blob) return null
+      const bmp = await createImageBitmap(blob)
+      const wh: [number, number] = [bmp.width, bmp.height]
+      bmp.close()
+      return wh
+    })().catch(() => null)
+    sizes.set(hash, p)
+  }
+  return p
 }
 
 export function stopHealthCheck() {

@@ -73,16 +73,18 @@ describe('ramps over steps too tall to walk up', () => {
   })
 
   it("finds the editor's own Stairs shape once it's scaled up past a step, and not before", () => {
-    const tris = (size: V) => {
+    // The shape's own steps are always low enough; an object scaled up (a converted or scaled-up map) is what has tall ones.
+    const tris = (size: V, scale = 1) => {
       const m = parseObj(shapeObj({ kind: 'stairs', size, segments: 8, tile: 4 }))
       const out = box([-40, -1, -40], [40, 0, 40])
-      for (let f = 0; f < m.faces.length; f++) out.push(m.positions[m.faces[f] * 3], m.positions[m.faces[f] * 3 + 1], m.positions[m.faces[f] * 3 + 2])
+      for (let f = 0; f < m.faces.length; f++) out.push(m.positions[m.faces[f] * 3] * scale, m.positions[m.faces[f] * 3 + 1] * scale, m.positions[m.faces[f] * 3 + 2] * scale)
       // A landing behind the top step (the shape rises toward −Z), so the last riser has floor behind it.
-      out.push(...box([-3, 0, -size[2] / 2 - 6], [3, size[1], -size[2] / 2]))
+      out.push(...box([-3 * scale, 0, (-size[2] / 2 - 6) * scale], [3 * scale, size[1] * scale, (-size[2] / 2) * scale]))
       return Float32Array.from(out)
     }
     expect(findStairs(tris([6, 3, 8]))).toHaveLength(0)
-    const big = findStairs(tris([6, 6, 8]))
+    expect(findStairs(tris([6, 6, 8]))).toHaveLength(0)
+    const big = findStairs(tris([6, 3, 8], 2))
     expect(big).toHaveLength(1)
     expect(big[0].up[1]).toBeCloseTo(-1, 3)
     expect(big[0].steps).toBeGreaterThanOrEqual(7)

@@ -306,7 +306,7 @@ export const URBAN: Sample[] = [
     ],
     markers: teamMarkers({
       red: [[-30, 1, -92], [30, 1, -92]],
-      shared: [[-35, 1, -50], [0, 8, 0]],
+      shared: [[-35, 1, -50], [14, 1, 10]],
       weapons: [['sniper_rifle', [0, 1, -12]], ['rpg_launcher', [-12, 1, 0]]],
       drops: [[-90, 1, -4]],
       pimp: [0, 1, -95],
@@ -581,7 +581,8 @@ export const URBAN: Sample[] = [
           car(x, z, r + 10, ['#4a4a5a', '#6a5a2a', '#2a2a2a'][i % 3], 211 + i, G + 3),
           ...(i % 2 ? [car(x, z, r - 8, '#5a2a2a', 221 + i, G + 6)] : []),
         ]),
-        box('Scrap heap', [16, 3, 16], [-30, G, -40], PB.rusty), box('Scrap heap', [10, 3, 10], [-30, G + 3, -40], PB.rusty), box('Scrap heap', [5, 3, 5], [-30, G + 6, -40], PB.rusty),
+        // Tiers a jump high each (1 m), so the top can be climbed and left without a fall.
+        box('Scrap heap', [16, 2, 16], [-30, G, -40], PB.rusty), box('Scrap heap', [10, 2, 10], [-30, G + 2, -40], PB.rusty), box('Scrap heap', [5, 2, 5], [-30, G + 4, -40], PB.rusty),
         cyl('Tire pile', 8, 2.5, [60, G, -80], PB.tire), cyl('Tire pile', 5, 2.5, [60, G + 2.5, -80], PB.tire),
         box('Magnet crane', [4, 22, 4], [80, G, -10], PB.yellow), box('Crane arm', [30, 2, 2], [66, G + 22, -10], PB.yellow),
         box('Office trailer', [24, 6, 8], [-60, G, -94], U.white, PB.planks), climb(-44.5, -94, 6, 7, 90, G),
@@ -590,7 +591,7 @@ export const URBAN: Sample[] = [
     ],
     markers: teamMarkers({
       red: [[-10, 1, -94], [10, 1, -94]],
-      shared: [[0, 1, -50], [-30, 10, -40], [-60, 7, -94]],
+      shared: [[0, 1, -50], [-30, 7, -40], [-60, 7, -94]],
       weapons: [['sniper_rifle', [-37, 4, -47]], ['rpg_launcher', [0, 7, 2]]],
       drops: [[-90, 1, 0]],
       pimp: [0, 1, -97],

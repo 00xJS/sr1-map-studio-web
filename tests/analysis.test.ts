@@ -92,7 +92,7 @@ describe('getting around', () => {
   it('a 1.5 m block with no way up: the weapon on it is out of reach', () => {
     const r = check([ground(), box([10, 3, 10], [0, 0, 0])], [...base, onTop])
     expect(r.unreachable.map((u) => u.type)).toEqual(['Weapon pickup'])
-    expect(r.findings[0]).toMatch(/can't be reached on foot/)
+    expect(r.findings[0]).toMatch(/can't be used: no way to walk there/)
   })
 
   it('a ramp up to it makes it reachable', () => {

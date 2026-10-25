@@ -236,6 +236,14 @@ function storedTexture(t: Tex) {
   if (!p) {
     p = (async () => {
       if ('file' in t) return { vpath: t.file, surface: t.surface ?? 0, ref: t.ref }
+      if ('game' in t) {
+        // The game's own surface (a Game pieces map's frame): read from the player's files, kept as a game file.
+        const [{ gameTextureFile }, { surfaceOf }] = await Promise.all([import('./gameObjects/frame'), import('./gameObjects/place')])
+        const f = await gameTextureFile(t)
+        const s = await storeFile(f, f.name, 'game')
+        s.ref.origin = 'game'
+        return { vpath: s.vpath, surface: t.surface ?? surfaceOf(t.tex), ref: s.ref }
+      }
       if ('lib' in t) {
         const r = await fetch(`/textures/${t.lib}.jpg`)
         if (!r.ok) throw new Error(`Starter texture ${t.lib} could not be loaded.`)
@@ -260,7 +268,7 @@ function storedTexture(t: Tex) {
   return p
 }
 
-const seeThrough = (t: Tex) => !('lib' in t) && !!t.alpha
+const seeThrough = (t: Tex) => !('lib' in t) && !('game' in t) && !!t.alpha
 
 /** The sky new maps get, so the game doesn't show a black sky (a generated picture: shares as a recipe). */
 export const DEFAULT_SKY: Tex = { gen: 'sky', tweak: { seed: 61 } }

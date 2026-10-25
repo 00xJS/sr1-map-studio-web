@@ -16,6 +16,8 @@ export type Fix =
   | { kind: 'removeMarkers'; types: string[]; label: string }
   /** Give the map the default sky picture. */
   | { kind: 'sky' }
+  /** Move unusable spawns and weapons and add more where players can use them (editor/spawnActions.ts). */
+  | { kind: 'autoSpawns' }
 
 export interface CheckItem {
   id: string
@@ -58,12 +60,12 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
   const spawns = p.markers.filter((m) => SPAWN_TYPES.includes(m.type)).length
   const spawnFix: Fix = { kind: 'tool', tool: 'spawn', spawn: 'Shared spawn' }
   if (!spawns) add({ id: 'spawns', state: 'needed', text: 'Place spawns where players appear', fix: spawnFix, action: 'Place' })
-  else if (spawns < 4) add({ id: 'spawns', state: 'suggested', text: `Only ${spawns} spawn${spawns === 1 ? '' : 's'}: add a few more (8 is good)`, fix: spawnFix, action: 'Place' })
+  else if (spawns < 4) add({ id: 'spawns', state: 'suggested', text: `Only ${spawns} spawn${spawns === 1 ? '' : 's'}: every player would start in the same few spots (8 or more is good)`, fix: { kind: 'autoSpawns' }, action: 'Add for me' })
   else add({ id: 'spawns', state: 'done', text: `${spawns} spawns` })
   // Gangsta Brawl and Big Ass Chains spawn everyone at Player spawns, never at team ones.
   const shared = p.markers.filter((m) => m.type === 'Shared spawn')
   if (spawns && freeForAll(modes)) {
-    if (shared.length < FFA_SPAWNS) add({ id: 'ffa-spawns', state: 'suggested', text: `Gangsta Brawl and Big Ass Chains use Player spawns only: ${shared.length} placed, ${FFA_SPAWNS} or more spread over the map is good`, fix: spawnFix, action: 'Place' })
+    if (shared.length < FFA_SPAWNS) add({ id: 'ffa-spawns', state: 'suggested', text: `Gangsta Brawl and Big Ass Chains use Player spawns only: ${shared.length} placed, ${FFA_SPAWNS} or more spread over the map is good`, fix: { kind: 'autoSpawns' }, action: 'Add for me' })
     else if (bunched(shared, SPAWN_GAP)) add({ id: 'ffa-spawns', state: 'suggested', text: `${bunched(shared, SPAWN_GAP)} Player spawns are within ${SPAWN_GAP / 2} m of another: spread them out so players don't appear together` })
   }
 

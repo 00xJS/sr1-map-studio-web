@@ -238,6 +238,8 @@ if (import.meta.env.DEV && typeof window !== 'undefined') {
 export const workerCityMap = (onProgress: (done: number, total: number) => void) => call<CityMap>({ type: 'cityMap' }, undefined, onProgress)
 export const workerCityCut = (rect: Rect, stems: string[], texSize: number) => call<CityCut>({ type: 'cityCut', rect, stems, texSize })
 export const workerCityScan = (rect: Rect, stems: string[]) => call<Hole[]>({ type: 'cityScan', rect, stems })
+/** The different pictures a cut of the area would bring (name, width, height, alpha): for its texture budget. */
+export const workerCityTextures = (rect: Rect, stems: string[]) => call<[string, number, number, boolean][]>({ type: 'cityTextures', rect, stems })
 
 const CITY_KEY = 'city:map'
 // 2: 2 m pixels, triangles filled, and what each pixel is.

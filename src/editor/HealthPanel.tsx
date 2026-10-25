@@ -9,6 +9,7 @@ import { Check, toast, useBusy } from '../ui'
 import { useState } from 'react'
 import { findSlivers, type SliverReport } from '../lib/invisibleWalls'
 import { addStairRamps, isRamps, solidTriangles } from './stairActions'
+import { fixSpawnsAndWeapons } from './spawnActions'
 import { getViewer } from './Viewport'
 import { runHealthCheck, stopHealthCheck, useHealth, useHealthStale, type OverlayKind } from './health'
 import { MOVE_COLORS, RISK_COLORS } from './healthOverlay'
@@ -69,6 +70,8 @@ function Headline({ r }: { r: HealthReport }) {
       <Tile label="Overall" value={r.score} of={100} tone={tone(r.score)} title="Half spawn safety, half fairness, less for weapons or spawns nobody can walk to" />
       <Tile label="Safe spawns" value={safe} of={r.spawns.length} tone={r.spawns.length ? tone((100 * safe) / r.spawns.length) : 'bad'} title="Spawns out of sight of the enemy and a good walk from them" />
       <Tile label="Fairness" value={r.fairness.basis === 'none' ? '–' : r.fairness.score} of={r.fairness.basis === 'none' ? undefined : 100} tone={r.fairness.basis === 'none' ? undefined : tone(r.fairness.score)} title="Whether red (−Z) and blue (+Z) get the same chances" />
+      {r.textures && <Tile label="Textures (MB)" value={r.textures.mb} of={25} tone={r.textures.over ? 'bad' : r.textures.mb > 20 ? 'warn' : 'ok'}
+        title={`${r.textures.pictures} different pictures on ${r.textures.materials} materials, as the export stores them. The game loads a map's textures into a fixed pool: the biggest map known to load has about 25 MB, and one that doesn't fit shows black.`} />}
     </div>
   )
 }
@@ -134,6 +137,7 @@ export function HealthSection() {
       <Controls />
       {report && !running && <button className="sm quiet more" onClick={() => useEditor.getState().set({ advanced: true, tab: 'health' })}>Every spawn and the red vs blue details →</button>}
     </div>
+    <SpawnsAndWeapons />
     <StairRamps />
     <InvisibleWalls />
     </>
@@ -151,6 +155,7 @@ export function HealthPanel() {
         {report && !running && <><Headline r={report} /><Findings r={report} /><OverlayButtons advanced /></>}
         <Controls />
       </div>
+      <SpawnsAndWeapons />
       <StairRamps />
       <InvisibleWalls />
       {report && !running && <>
@@ -260,6 +265,27 @@ function InvisibleWalls() {
 }
 
 /** Stairs whose steps are too tall to walk up (common on converted or scaled-up maps): invisible ramps over them. */
+function SpawnsAndWeapons() {
+  const [run, busy] = useBusy()
+  const hasMap = useEditor((s) => (s.project?.scene_items.length ?? 0) > 0)
+  return (
+    <div className="group">
+      <span className="section-title">Spawns and weapons</span>
+      <span className="small faint">Checks every spawn and weapon on the map's real floor. Any inside something, in the air or somewhere nobody can walk to moves to the nearest spot players can use; then spawns are added (out of sight of most of the map first, spread far apart) and weapons (spread out, off the spawns), up to 12 of each. One undo step.</span>
+      <div><button className="sm" disabled={busy || !hasMap} onClick={() => run(async () => {
+        const r = await fixSpawnsAndWeapons()
+        if (!r.floor) { toast('No floor a player can stand on was found: add a floor first.', 'info', 8000); return }
+        const parts = [
+          r.moved ? `${r.moved} moved (${r.reasons.join('; ')})` : '',
+          r.added.spawns ? `${r.added.spawns} spawn${r.added.spawns === 1 ? '' : 's'} added` : '',
+          r.added.weapons ? `${r.added.weapons} weapon${r.added.weapons === 1 ? '' : 's'} added` : '',
+        ].filter(Boolean)
+        toast(parts.length ? `Done: ${parts.join(', ')}. Check again to see how safe the spawns are.` : 'Done: every spawn and weapon is somewhere players can use, and the map has enough of both.', parts.length ? 'ok' : 'info', 10000)
+      })}>{busy ? 'Checking spawns and weapons…' : 'Fix spawns and weapons'}</button></div>
+    </div>
+  )
+}
+
 function StairRamps() {
   const [run, busy] = useBusy()
   const has = useEditor((s) => !!s.project?.scene_items.some(isRamps))
@@ -336,7 +362,7 @@ function SightAndFlow({ r }: { r: HealthReport }) {
       <span className="section-title">Sight lines and traffic</span>
       <span className="small">{Math.round(r.openShare * 100)}% of the floor is wide open (half the map sees it); {Math.round(r.blindShare * 100)}% is hidden from almost everywhere.</span>
       {r.lanes.length > 0 && <span className="small">Longest sight lines: {r.lanes.map((l) => `${l.metres} m`).join(', ')}.</span>}
-      {r.unreachable.length > 0 && <span className="small warn">Can't be walked to: {r.unreachable.map((u) => `${u.type.toLowerCase()} at ${u.position.map((v) => Math.round(v)).join(', ')}`).join('; ')}.</span>}
+      {r.unreachable.length > 0 && <span className="small warn">Players can't use: {r.unreachable.map((u) => `${u.type.toLowerCase()} at ${u.position.map((v) => Math.round(v)).join(', ')}${u.why ? ` (${u.why})` : ''}`).join('; ')}. Spawns and weapons → Fix spawns and weapons moves them.</span>}
       <span className="small faint">Traffic comes from {BOTS.bots} bots making {BOTS.trips} runs between spawns, weapons and drop-offs, now and then dying and respawning where the game would put them (never within 5 m of an enemy, likelier the further from one).</span>
     </div>
   )

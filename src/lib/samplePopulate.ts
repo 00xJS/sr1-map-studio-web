@@ -7,7 +7,7 @@ import type { Vec3 } from './project'
 import type { MarkerSpec, Sample, Theme } from './sampleKit'
 import { over, partIndex, type PartIndex } from './sampleScale'
 import { prepareMap } from './analysis/analyze'
-import { nodeNear, PLAYER } from './analysis/floor'
+import { nodeNear, PLAYER, twoWay } from './analysis/floor'
 import { sampleInput } from './analysis/sampleInput'
 import { OPAQUE, SOLID } from './analysis/types'
 import type { Bvh } from './analysis/bvh'
@@ -23,7 +23,14 @@ const LIGHTS: Record<Theme, Vec3[]> = {
   'Cyber': [[0.2, 0.9, 1], [1, 0.25, 0.85], [0.6, 0.35, 1], [0.5, 1, 0.3]],
 }
 
-export interface PopulateTargets { shared: number; perTeam: number; weapons: number; drops: number; lights: number }
+export interface PopulateTargets {
+  shared: number; perTeam: number; weapons: number; drops: number; lights: number
+  /**
+   * Spawns go to sheltered spots first: ones little of the map can see at eye height (as the health check judges
+   * them), before any out in the open. The wizard's maps ask for it.
+   */
+  shelter?: boolean
+}
 export const FULL_TARGETS: PopulateTargets = { shared: 20, perTeam: 8, weapons: 22, drops: 4, lights: 24 }
 
 const flip = (p: Vec3): Vec3 => [-p[0], p[1], -p[2]]
@@ -124,6 +131,30 @@ function pick(pool: Vec3[], taken: Vec3[], count: number, minGap: number, ok: (p
   return chosen
 }
 
+/** Viewpoints spread over the floor that a spot's exposure is measured against. */
+const OBSERVERS = 64
+
+/**
+ * Share of the floor (OBSERVERS viewpoints spread over `pool`) that sees a player standing at a spot, eye to eye:
+ * the health check's exposure, roughly. Worked out once per spot, when asked.
+ */
+function exposureOf(bvh: Bvh, pool: Vec3[]): (p: Vec3) => number {
+  const eye = (p: Vec3): Vec3 => [p[0], p[1] + 0.1 + PLAYER.standEye, p[2]]
+  const watchers = pick(pool, [], Math.min(OBSERVERS, pool.length), 0, () => true, () => true).map(eye)
+  const memo = new Map<Vec3, number>()
+  return (p) => {
+    let v = memo.get(p)
+    if (v === undefined) {
+      const e = eye(p)
+      let seen = 0
+      for (const w of watchers) if (!bvh.blocked(...w, ...e, OPAQUE)) seen++
+      v = seen / Math.max(1, watchers.length)
+      memo.set(p, v)
+    }
+    return v
+  }
+}
+
 /** Heading (yaw 0 faces −Z) turned the least from `yaw` that looks down open floor rather than into a wall. */
 function openYaw(bvh: Bvh, p: Vec3, yaw: number): number {
   const eye = p[1] + 0.1 + PLAYER.standEye
@@ -137,11 +168,26 @@ function openYaw(bvh: Bvh, p: Vec3, yaw: number): number {
 export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sample['parts'] = s.parts): Sample {
   // Only spots a player can walk to from the map's own spawns: not the top of a tall crate or a ledge with no way up.
   const walk = s.markers.length ? prepareMap(sampleInput(s), { cell: 2 }) : null
+  // Spots players get to and back from on foot: up stairs or a ramp and down again without a fall (twoWay), on the
+  // stretch of floor the map's own spawns stand on. Never a roof nobody can climb, or one whose only way off is a fall.
+  const two = walk ? twoWay(walk.g) : null
+  const home = (() => {
+    if (!walk || !two) return -1
+    const votes = new Map<number, number>()
+    for (const [type, p] of s.markers) {
+      if (!/spawn/i.test(type)) continue
+      const n = nodeNear(walk.g, p[0], p[1] + 0.1, p[2])
+      if (n >= 0) votes.set(two.comp[n], (votes.get(two.comp[n]) ?? 0) + 1)
+    }
+    let best = -1
+    for (const [c, v] of votes) if (best < 0 || v > votes.get(best)! || (v === votes.get(best)! && two.sizes[c] > two.sizes[best])) best = c
+    return best >= 0 ? best : two.sizes.indexOf(Math.max(...two.sizes))
+  })()
   const reached = (p: Vec3) => {
     if (!walk) return true
     const n = nodeNear(walk.g, p[0], p[1] + 0.1, p[2])
     const P = walk.g.grid.pos
-    return n >= 0 && walk.g.grid.reachable[n] === 1 && Math.abs(P[n * 3 + 1] - p[1]) < 0.6 && Math.hypot(P[n * 3] - p[0], P[n * 3 + 2] - p[2]) <= 1.5
+    return n >= 0 && walk.g.grid.reachable[n] === 1 && two!.comp[n] === home && Math.abs(P[n * 3 + 1] - p[1]) < 0.6 && Math.hypot(P[n * 3] - p[0], P[n * 3 + 2] - p[2]) <= 1.5
   }
   const pool = candidates(s, floor).filter((p) => reached(p) && reached(flip(p)))
   if (!pool.length) return s
@@ -154,7 +200,9 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   }
   const zs = pool.map((p) => p[2])
   const depth = Math.max(...zs) - Math.min(...zs)
-  const markers: MarkerSpec[] = [...s.markers]
+  // The layout's own weapons and drop-offs nobody can walk to (on a deck whose stairs went, inside something) go:
+  // the weapons are made up below, where players can get to them.
+  const markers: MarkerSpec[] = s.markers.filter(([type, p]) => !walk || !/Weapon pickup|Chains drop-off/.test(type) || reached(p))
   const of = (type: string) => markers.filter(([m]) => m === type).map(([, p]) => p)
   const spawns = () => [...of('Shared spawn'), ...of('Red team spawn'), ...of('Blue team spawn')]
   // The map's own weapons and drop-offs within the game's 5 m of a spawn move (with their mirror twins) to the
@@ -179,15 +227,20 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   }
   // Where players gather; spawns keep the game's 5 m from them (and they from spawns).
   const busy = [...of('Weapon pickup'), ...of('Chains drop-off')]
+  // How much of the map sees a spot (and its mirror twin): the sheltered ones take spawns first.
+  const seen = t.shelter && walk ? exposureOf(walk.bvh, pool) : null
+  const sheltered = (limit: number) => (p: Vec3) => !seen || Math.max(seen(p), seen(flip(p))) <= limit
 
   // Team spawns: spread across each team's end of the map, out of sight of the other team's spawns where there's room.
   const eye = (p: Vec3) => [p[0], p[1] + 0.1 + PLAYER.standEye, p[2]]
   const hidden = (p: Vec3) => !walk || of('Blue team spawn').concat([flip(p)]).every((b) => walk.bvh.blocked(...(eye(b) as Vec3), ...(eye(p) as Vec3), OPAQUE))
   // Hidden spots first, closer together (2 m, the game's spawn box) before any in sight of the enemy.
   // Off the weapons and drop-offs by the game's 5 m too, unless there is no room left that way.
-  for (const [strict, gap, clear] of [[true, 6, true], [true, 4, true], [false, 6, true], [false, 6, false]] as const) {
+  const teamPasses = [[true, 6, true, 0.12], [true, 4, true, 0.2], [true, 6, true, 1], [true, 4, true, 1], [false, 6, true, 1], [false, 6, false, 1]] as const
+  for (const [strict, gap, clear, open] of seen ? teamPasses : teamPasses.filter(([, , , o]) => o === 1)) {
+    const cover = sheltered(open)
     for (let need = t.perTeam - of('Red team spawn').length; need > 0; need--) {
-      const [p] = pick(pool, of('Red team spawn'), 1, gap, (q) => q[2] < -depth * 0.3 && (!clear || clearOf(busy, q)) && (!strict || hidden(q)), mirrorOk)
+      const [p] = pick(pool, of('Red team spawn'), 1, gap, (q) => q[2] < -depth * 0.3 && (!clear || clearOf(busy, q)) && (!strict || hidden(q)) && cover(q), mirrorOk)
       if (!p) break
       markers.push(['Red team spawn', p, { yaw: 180 }], ['Blue team spawn', flip(p), { yaw: 0 }])
     }
@@ -196,7 +249,13 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   // Free-for-all spawns: everywhere, as far apart as possible.
   const sharedNeed = Math.max(0, t.shared - of('Shared spawn').length)
   const sharedOk = (p: Vec3) => p[2] < 0 || (p[2] === 0 && p[0] < 0)
-  let shared = pick(pool, [...spawns(), ...of('Chains drop-off')], Math.ceil(sharedNeed / 2), 12, (p) => sharedOk(p) && clearOf(busy, p), mirrorOk)
+  let shared: Vec3[] = []
+  // Sheltered spots first (a little closer together if that's what it takes), then anywhere.
+  if (seen) for (const [open, gap] of [[0.12, 12], [0.2, 12], [0.2, 9]] as const) {
+    if (shared.length >= Math.ceil(sharedNeed / 2)) break
+    shared.push(...pick(pool, [...spawns(), ...of('Chains drop-off'), ...shared, ...shared.map(flip)], Math.ceil(sharedNeed / 2) - shared.length, gap, (p) => sharedOk(p) && clearOf(busy, p) && sheltered(open)(p), mirrorOk))
+  }
+  if (shared.length < Math.ceil(sharedNeed / 2)) shared.push(...pick(pool, [...spawns(), ...of('Chains drop-off'), ...shared, ...shared.map(flip)], Math.ceil(sharedNeed / 2) - shared.length, 12, (p) => sharedOk(p) && clearOf(busy, p), mirrorOk))
   if (shared.length < Math.ceil(sharedNeed / 2)) shared = [...shared, ...pick(pool, [...spawns(), ...of('Chains drop-off'), ...shared, ...shared.map(flip)], Math.ceil(sharedNeed / 2) - shared.length, 12, sharedOk, mirrorOk)]
   for (const p of shared) markers.push(['Shared spawn', p, { yaw: lookAtCenter(p) }], ['Shared spawn', flip(p), { yaw: lookAtCenter(flip(p)) }])
 

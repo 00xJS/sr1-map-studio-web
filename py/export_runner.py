@@ -110,7 +110,8 @@ def build_bbchunk_multibatch(obj_path, reference_path, output_path, texture_mapp
         if log:
             for line in hit['log']:
                 log(line)
-    _state['texture_total'] = len(report.get('texture_items', []))
+    # Each picture is encoded once, however many materials share it (shared_textures.py).
+    _state['texture_total'] = len({str(t.get('name')) for t in report.get('texture_items', [])})
     return report, obj
 
 

@@ -5,6 +5,8 @@ import { useNavigate } from 'react-router-dom'
 import { useEditor } from './store'
 import { chooseTool } from './Tools'
 import { addDefaultSky, removeMarkersOfType } from './actions'
+import { fixSpawnsAndWeapons } from './spawnActions'
+import { toast, toastError } from '../ui'
 import { getViewer } from './Viewport'
 import { dataPackStatus } from '../lib/datapack'
 import { mapChecklist, type CheckItem, type Fix } from '../lib/checklist'
@@ -39,6 +41,12 @@ export function useApplyFix(onSamples: () => void) {
         break
       case 'removeMarkers': removeMarkersOfType(fix.types); break
       case 'sky': void addDefaultSky(); break
+      case 'autoSpawns':
+        toast('Finding spots for spawns and weapons…', 'info', 4000)
+        void fixSpawnsAndWeapons().then((r) => toast(r.floor
+          ? `Done: ${r.added.spawns} spawn${r.added.spawns === 1 ? '' : 's'} and ${r.added.weapons} weapon${r.added.weapons === 1 ? '' : 's'} added${r.moved ? `, ${r.moved} moved somewhere players can use` : ''} (one undo step).`
+          : 'No floor a player can stand on was found: add a floor first.', r.floor ? 'ok' : 'info', 10000), toastError)
+        break
       case 'modes':
         st.select(null)
         if (st.advanced) st.set({ tab: 'export' })

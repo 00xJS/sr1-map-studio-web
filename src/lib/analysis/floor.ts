@@ -164,6 +164,37 @@ function smoothRise(bvh: Bvh, ax: number, ay: number, az: number, bx: number, by
   return Math.abs(by - prev) <= sub
 }
 
+/**
+ * Stretches of floor players can get round both ways: up by stairs, a ramp or a jump onto a ledge, and back down
+ * without a fall (a drop is one way). A roof with no way up, a deck whose only way off is a fall or a sealed room is a
+ * stretch of its own. `comp`: each node's stretch; `sizes`: nodes in each.
+ */
+export function twoWay(g: FloorGraph): { comp: Int32Array; sizes: number[] } {
+  const n = g.grid.count
+  const comp = new Int32Array(n).fill(-1)
+  const sizes: number[] = []
+  const back = (from: number, to: number) => {
+    for (let e = g.edgeStart[from]; e < g.edgeStart[from + 1]; e++) if (g.edgeTo[e] === to) return true
+    return false
+  }
+  for (let s = 0; s < n; s++) {
+    if (comp[s] >= 0) continue
+    const c = sizes.length, stack = [s]
+    let size = 0
+    comp[s] = c
+    while (stack.length) {
+      const u = stack.pop()!
+      size++
+      for (let e = g.edgeStart[u]; e < g.edgeStart[u + 1]; e++) {
+        const v = g.edgeTo[e]
+        if (comp[v] < 0 && back(v, u)) { comp[v] = c; stack.push(v) }
+      }
+    }
+    sizes.push(size)
+  }
+  return { comp, sizes }
+}
+
 /** Shortest walking cost from any source to every node (Infinity where none reaches). */
 export function dijkstra(g: FloorGraph, sources: number[]): Float32Array {
   const n = g.grid.count

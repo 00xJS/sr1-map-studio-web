@@ -60,6 +60,10 @@ function cached(key: string, make: () => Promise<THREE.Texture | null>) {
 
 function partTexture(t: Tex): Promise<THREE.Texture | null> {
   if ('file' in t) return Promise.resolve(null)
+  if ('game' in t) return cached('game:' + t.game + ':' + t.tex, async () => {
+    const { gameTextureFile } = await import('./gameObjects/frame')
+    return blobTexture(await gameTextureFile(t, 128))
+  })
   if ('lib' in t) return cached('lib:' + t.lib, async () => {
     const r = await fetch(`/textures/thumbs/${t.lib}.jpg`)
     return r.ok ? blobTexture(await r.blob()) : null

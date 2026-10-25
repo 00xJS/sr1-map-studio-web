@@ -2,8 +2,9 @@
 // from the player's own game, placed the way the library places one (place.ts): its files stored in this browser
 // as game files (origin 'game', so the map can go into the player's own game but is never shared, published or
 // synced), standing where the stand-in stood, turned so its long side and its front go where the stand-in's do.
-import type { FileRef, SceneItem } from '../project'
-import type { Part } from '../sampleKit'
+import type { FileRef, SceneItem, Vec3 } from '../project'
+import { turn, type Part } from '../sampleKit'
+import type { GameObjectEntry } from './indexer'
 import type { ObjModel } from '../geometry'
 import { peekModel } from '../assets'
 import { mapLimit } from '../hubRules'
@@ -36,6 +37,36 @@ export function placedTurn(p: Part, ex: number, ez: number, cover: number, front
   if (p.label === 'Game building' && cover < SOLID_COVER) return null
   const rot = modelTurn(ex, ez, p, front)
   return p.label === 'Game building' && !fitsStandIn(ex, ez, p, rot) ? null : rot
+}
+
+/** Share of a building's placements a part must stand with it to come along (GameObjectEntry.assembly). */
+const WITH = 0.6
+/** How far (units) a building's parts may reach past its stand-in: a porch or steps out front, not across the street. */
+const REACH = 3
+
+/**
+ * The parts the game always places with a building (its porch, front steps, side pieces: GameObjectEntry.assembly),
+ * where the game puts them once the building stands at `at` turned `rot` (editor units, degrees; `ws` the world
+ * scale). Parts reaching more than REACH past the stand-in `p` are left off.
+ */
+export function buildingParts(p: Part, e: Pick<GameObjectEntry, 'assembly'>, at: Vec3, rot: number, ws: number): { e: GameObjectEntry; at: Vec3; rot: number }[] {
+  const M = 1 / ws
+  const out: { e: GameObjectEntry; at: Vec3; rot: number }[] = []
+  for (const a of e.assembly ?? []) {
+    const pe = entryById(a.id)
+    if (!pe || (a.share ?? 1) < WITH) continue
+    // The game's +X is the editor's −X (models are mirrored into editor space).
+    const [dx, dz] = turn(-a.at[0] * M, a.at[2] * M, rot)
+    const r = rot + (a.yaw * 180) / Math.PI
+    // Its footprint as it stands, in the stand-in's own frame.
+    const [lx, lz] = turn(at[0] + dx - p.at[0], at[2] + dz - p.at[2], -(p.rot ?? 0))
+    const [hx, hz] = pe.long === 'z' ? [pe.size[1] / 2, pe.size[0] / 2] : [pe.size[0] / 2, pe.size[1] / 2]
+    const t = ((r - (p.rot ?? 0)) * Math.PI) / 180, c = Math.abs(Math.cos(t)), s = Math.abs(Math.sin(t))
+    const ax = (c * hx + s * hz) * M, az = (s * hx + c * hz) * M
+    if (Math.abs(lx) + ax > p.size[0] / 2 + REACH || Math.abs(lz) + az > p.size[2] / 2 + REACH) continue
+    out.push({ e: pe, at: [at[0] + dx, at[1] + a.at[1] * M, at[2] + dz], rot: r })
+  }
+  return out
 }
 
 /** A model as measured once cut out: its extents as stored (editor units) and eyeCover. */
@@ -109,9 +140,18 @@ export async function placeGameParts(parts: Part[], ws: number, onProgress?: (t:
   for (const p of parts) {
     const s = await standing(p, measure, tex)
     if (!s) { failed.push(p); continue }
-    const placed = await gameObjectItem(entryById(s.id)!, [p.at[0], p.at[1], p.at[2]], s.rot, ws)
+    const e = entryById(s.id)!
+    const placed = await gameObjectItem(e, [p.at[0], p.at[1], p.at[2]], s.rot, ws)
     Object.assign(files, placed.files)
     items.push(placed.item)
+    // A building comes whole: its porch, steps and side pieces where the game puts them.
+    if (p.label === 'Game building') for (const bp of buildingParts(p, e, p.at, s.rot, ws)) {
+      try {
+        const part = await gameObjectItem(bp.e, bp.at, bp.rot, ws)
+        Object.assign(files, part.files)
+        items.push(part.item)
+      } catch { /* that part can't be read: the building stands without it */ }
+    }
   }
   // How solid each building measured is, for the wizard's next maps (as "Check game pieces" measures it).
   const known = useGameLabels.getState().labels, covers: Record<string, { cover: number }> = {}

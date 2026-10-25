@@ -120,8 +120,13 @@ describe('getting around like the game', () => {
     expect(up(box([6, 6, 6], [0, 0, -2], 'ramp'))).toBeLessThan(Infinity)
     expect(up(box([6, 6, 2.8], [0, 0, -3.6], 'ramp'))).toBe(Infinity)
     const low = up({ ...box([6, 6, 12], [0, 0, 1], 'stairs'), segments: 16 }) // 0.19 m steps
-    const tall = up({ ...box([6, 6, 12], [0, 0, 1], 'stairs'), segments: 6 }) // 0.5 m steps
+    // The Stairs shape never makes a step the player can't walk up: asked for 6 (0.5 m each), it builds 12.
+    const asked = up({ ...box([6, 6, 12], [0, 0, 1], 'stairs'), segments: 6 })
+    // Steps of 0.5 m built one by one: a jump each.
+    const steps = [0, 1, 2, 3, 4, 5].map((i) => box([6, i + 1, 2], [0, 0, 6 - 2 * i]))
+    const tall = cost(floor([ground(), platform, ...steps]), [0, 0.1, 20], top)
     expect(low).toBeLessThan(Infinity)
+    expect(asked).toBeLessThan(low + 2)
     expect(tall).toBeGreaterThan(low + 6)
   })
 

@@ -44,11 +44,14 @@ import retail_features as retail
 import native_sky
 import retail_records
 import peg_mips
+import shared_textures
 
 # Retail material values (and, below, record settings) instead of the template's.
 retail_records.install()
 # Full mip chains in the map's own textures, laid out as retail PEGs store them.
 peg_mips.install()
+# One texture per picture, however many materials use it (a city cut came to 136 MB of textures: black in game).
+shared_textures.install()
 
 # Same output as the original compressor, about 20x faster (see fast_dxt.py).
 fast_dxt.install()
@@ -464,6 +467,7 @@ def _export(s, log):
             features.write_loading_screen(out, base, loading, job, log)
         except Exception as exc:  # a missing picture should not stop the map export
             log('Loading screen skipped: ' + str(exc))
+    shared_textures.check_size(out / (base + '.peg_xbox2'), log)
     extras = retail.finish(s, out, base, markers, ws, mirror, (0., 0., 0.) if space == 'game' else fixed_origin, space, log)
     features.write_brawl_spawns(out, base, log)
     files =sorted(str(p) for p in out.rglob('*') if p.is_file())
