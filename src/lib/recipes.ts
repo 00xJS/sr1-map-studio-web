@@ -84,6 +84,7 @@ export function validShape(s: any): boolean {
   if (s.bevel !== undefined && !num(s.bevel, 0, 100)) return false
   if (s.lie !== undefined && typeof s.lie !== 'boolean') return false
   if (s.fit !== undefined && typeof s.fit !== 'boolean') return false
+  if (s.open !== undefined && typeof s.open !== 'boolean') return false
   if (s.outline !== undefined) {
     if (!Array.isArray(s.outline) || s.outline.length < 3 || s.outline.length > MAX_OUTLINE) return false
     if (!s.outline.every((p: unknown) => Array.isArray(p) && p.length === 2 && p.every((x) => num(x, -2000, 2000)))) return false
@@ -139,7 +140,7 @@ export function cleanRecipe<R extends FileRecipe>(r: R): R
 export function cleanRecipe(r: FileRecipe): FileRecipe {
   const shape = (s: Shape): Shape => {
     const out: Shape = { kind: s.kind, size: [...s.size] as Shape['size'], tile: s.tile }
-    for (const k of ['segments', 'taper', 'bevel', 'lie', 'fit'] as const) if (s[k] !== undefined) (out as any)[k] = s[k]
+    for (const k of ['segments', 'taper', 'bevel', 'lie', 'fit', 'open'] as const) if (s[k] !== undefined) (out as any)[k] = s[k]
     if (s.outline) out.outline = s.outline.map(([a, b]) => [a, b])
     return out
   }

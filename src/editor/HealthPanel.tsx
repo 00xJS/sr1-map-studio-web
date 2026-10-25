@@ -5,6 +5,8 @@
 import type { ReactNode } from 'react'
 import { Vector3 } from 'three'
 import { useEditor } from './store'
+import { useBusy } from '../ui'
+import { addStairRamps, isRamps } from './stairActions'
 import { getViewer } from './Viewport'
 import { runHealthCheck, stopHealthCheck, useHealth, useHealthStale, type OverlayKind } from './health'
 import { MOVE_COLORS, RISK_COLORS } from './healthOverlay'
@@ -123,12 +125,15 @@ export function HealthSection() {
   const report = useHealth((s) => s.report)
   const running = useHealth((s) => s.running)
   return (
+    <>
     <div className="group">
       <span className="section-title">Map health <span className="chip">new</span></span>
       {report && !running && <><Headline r={report} /><Findings r={report} max={4} /><OverlayButtons /></>}
       <Controls />
       {report && !running && <button className="sm quiet more" onClick={() => useEditor.getState().set({ advanced: true, tab: 'health' })}>Every spawn and the red vs blue details →</button>}
     </div>
+    <StairRamps />
+    </>
   )
 }
 
@@ -143,6 +148,7 @@ export function HealthPanel() {
         {report && !running && <><Headline r={report} /><Findings r={report} /><OverlayButtons advanced /></>}
         <Controls />
       </div>
+      <StairRamps />
       {report && !running && <>
         <Spawns r={report} />
         <Fairness r={report} />
@@ -210,6 +216,20 @@ function GettingAround({ r }: { r: HealthReport }) {
           </div>
         ))}
       <span className="small faint">From the game’s own numbers: a run jump clears about 2.5 m and a sprint jump 6 m; falls over 4 m hurt and 9 m kills; a jump gets you onto about 1.1 m.</span>
+    </div>
+  )
+}
+
+/** Stairs whose steps are too tall to walk up (common on converted or scaled-up maps): invisible ramps over them. */
+function StairRamps() {
+  const [run, busy] = useBusy()
+  const has = useEditor((s) => !!s.project?.scene_items.some(isRamps))
+  const hasMap = useEditor((s) => (s.project?.scene_items.length ?? 0) > 0)
+  return (
+    <div className="group">
+      <span className="section-title">Stairs too tall to run up</span>
+      <span className="small faint">The game’s player only steps up about 0.28 m without jumping, so taller steps (often on converted or scaled-up maps) stop you at every one. This finds those stairs and lays a see-through ramp over each: you run up it in game and never see it.</span>
+      <div><button className="sm" disabled={busy || !hasMap} onClick={() => run(() => addStairRamps())}>{has ? 'Find stairs again' : 'Add invisible ramps over tall steps'}</button></div>
     </div>
   )
 }

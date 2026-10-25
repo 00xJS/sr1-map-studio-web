@@ -56,7 +56,8 @@ function tiles(px: Uint8ClampedArray, size: number, acrossOnly = false) {
 }
 
 describe('generated textures', () => {
-  for (const kind of Object.keys(KINDS) as TextureKind[]) {
+  // (invisible is blank on purpose: see the test below)
+  for (const kind of (Object.keys(KINDS) as TextureKind[]).filter((k) => k !== 'invisible')) {
     it(`${kind} tiles and is not flat`, () => {
       const size = 64
       const px = generate({ ...defaultParams(kind, size), seed: 3 })
@@ -67,6 +68,11 @@ describe('generated textures', () => {
       expect(tiles(px, size, kind === 'sky')).toBe(true)
     })
   }
+  it('invisible is fully see-through (the ramps over tall steps)', () => {
+    const px = generate({ ...defaultParams('invisible', 16), seed: 1 })
+    expect(px.length).toBe(16 * 16 * 4)
+    expect(px.every((v) => v === 0)).toBe(true)
+  })
 })
 
 describe('makeSeamless', () => {

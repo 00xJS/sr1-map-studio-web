@@ -10,7 +10,7 @@ export type TextureKind =
   | 'facade' | 'storefront' | 'garage_door' | 'hazard' | 'matrix' | 'water'
   | 'chevrons' | 'emblem' | 'screen' | 'scoreboard' | 'banner'
   | 'poster' | 'graffiti' | 'sign'
-  | 'lettering' | 'picture' | 'sky' | 'paint'
+  | 'lettering' | 'picture' | 'sky' | 'paint' | 'invisible'
 
 export interface GenParams {
   kind: TextureKind
@@ -72,10 +72,12 @@ export const KINDS: Record<TextureKind, KindInfo> = {
   // What an empty photo frame shows until you choose a photo.
   sky: { label: 'Sky', surface: 0, color: '#3f78c4', accent: '#d3dee6', scale: 4, wear: 0.45, accentLabel: 'Horizon', scaleLabel: 'Cloud size' },
   picture: { label: 'Picture', surface: 5, color: '#8fb8de', accent: '#4f7a3f', scale: 1, wear: 0, accentLabel: 'Hills', scaleLabel: 'Unused' },
+  // Fully see-through: solid in game but never seen (the ramps over tall steps, stairRamps.ts). Used with alpha on.
+  invisible: { label: 'Invisible', surface: 0, color: '#000000', accent: '#000000', scale: 1, wear: 0, accentLabel: 'Unused', scaleLabel: 'Unused' },
 }
 
-/** Kinds made only for one prefab (a photo frame's stand-in), left out of the texture pickers. */
-export const PREFAB_ONLY: ReadonlySet<TextureKind> = new Set(['picture'])
+/** Kinds made only for one prefab or tool (a photo frame's stand-in, the invisible ramps), left out of the texture pickers. */
+export const PREFAB_ONLY: ReadonlySet<TextureKind> = new Set(['picture', 'invisible'])
 
 export const defaultParams = (kind: TextureKind, size = 512): GenParams => {
   const k = KINDS[kind]
@@ -705,6 +707,7 @@ function pattern(p: GenParams): Pixel {
       const cloud = clamp01((fbm(u, v * 2, n, 5, s) - 0.56 + wear * 0.3) * 3.2) * (1 - t * 0.55)
       return mix(c, [247, 248, 250], cloud * 0.9)
     }
+    case 'invisible': return () => [0, 0, 0, 0]
     case 'picture': return (u, v) => {
       // A sunny sky over two rows of hills, on a pale card mount (the same all round, so it tiles): "a photo goes here".
       if (u < 0.04 || u > 0.96 || v < 0.04 || v > 0.96) return shade([236, 232, 222], 0.97 + 0.03 * noise(u, v, 64, 64, s))

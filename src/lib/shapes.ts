@@ -27,6 +27,8 @@ export interface Shape {
   outline?: [number, number][]
   /** Stretch the texture once over each face instead of repeating it (a photo on a wall). */
   fit?: boolean
+  /** Ramp: just the sloped top, no sides or bottom (the invisible ramps over tall steps, stairRamps.ts). */
+  open?: boolean
   /** Terrain: grid cells along X and Z (see terrain.ts). */
   cells?: [number, number]
   /** Terrain: (cells X + 1) × (cells Z + 1) heights above the slab top, row by row along X. */
@@ -197,7 +199,7 @@ export function faces(s: Shape): Face[] {
         [[[x1, 0, z1], [x1, 0, z0], [x1, h, z0]], false],
         [[[x0, 0, z1], [x0, 0, z0], [x0, h, z0]], false],
       ]
-      return polys.map(([pts, top]) => ({ pts: outward(pts, c), top }))
+      return (s.open ? polys.slice(0, 1) : polys).map(([pts, top]) => ({ pts: outward(pts, c), top }))
     }
     case 'stairs': {
       const n = Math.max(1, Math.min(64, Math.round(s.segments ?? 8)))

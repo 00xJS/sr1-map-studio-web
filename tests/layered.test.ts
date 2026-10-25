@@ -17,6 +17,7 @@ const BEFORE: Record<string, string> = {
   water: '0e0736183cf87e18', matrix: '56076eaccdf27784', banner: '364a384817dd509e', hazard: '1d1e5df0a6eb91ad', chevrons: '4f4cdc71f47520a2',
   emblem: '38cd5eb361957d6a', screen: '9a67e144d6e946d3', scoreboard: '7c6303e91589bca3', poster: '1192e2c5672c02bb', graffiti: 'e9bc4a8fa3ea12f3',
   sign: 'a3f4a63d2087e7d5', lettering: '84155f7cfe1d5911', sky: '81c8aa0ca393395d', picture: '174bc27e1876fc61',
+  invisible: '4fe7b59af6de3b66',
 }
 
 const lum = (px: Uint8ClampedArray, i: number) => (0.2126 * px[4 * i] + 0.7152 * px[4 * i + 1] + 0.0722 * px[4 * i + 2]) / 255
