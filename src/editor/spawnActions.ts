@@ -4,6 +4,9 @@
 import { useEditor, currentProject } from './store'
 import { solidTriangles } from './stairActions'
 import { prepareMap } from '../lib/analysis/analyze'
+import { waterAreas } from '../lib/analysis/collision'
+import { loadModel } from '../lib/assets'
+import type { ObjModel } from '../lib/geometry'
 import { planMarkers, type MarkerPlan } from '../lib/markerPlan'
 import { newMarker } from '../lib/project'
 import { FFA_SPAWNS } from '../lib/levels'
@@ -22,7 +25,13 @@ export async function fixSpawnsAndWeapons(): Promise<SpawnFix> {
   const k = (project.settings.world_scale || 0.5) / 0.5
   const markers = project.markers.map((m) => ({ type: m.type, position: m.position.map((v) => v * k) as typeof m.position, weapon: m.weapon }))
   const prep = prepareMap({ tris: k === 1 ? input.tris : input.tris.map((v) => v * k), flags: input.flags, markers }, { cell: 2 })
-  const plan: MarkerPlan = planMarkers(prep, markers, WANT)
+  // Water objects: their seabed is no place for a spawn or a gun.
+  const wetModels = new Map<string, ObjModel>()
+  await Promise.all([...new Set(project.scene_items.filter((it) => it.swimmable_water).map((it) => it.path))].map(async (p) => {
+    try { wetModels.set(p, await loadModel(project, p)) } catch { /* missing: left out */ }
+  }))
+  const wet = waterAreas(project, (p) => wetModels.get(p)).map((a) => a.map((v) => v * k) as typeof a)
+  const plan: MarkerPlan = planMarkers(prep, markers, { ...WANT, wet })
   const back = (p: [number, number, number]) => p.map((v) => +(v / k).toFixed(3)) as [number, number, number]
   const spawns = plan.added.filter((a) => a.type !== 'Weapon pickup').length, weapons = plan.added.length - spawns
   if (plan.moved.length || plan.added.length) {

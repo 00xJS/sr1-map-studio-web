@@ -127,6 +127,9 @@ const FRAME: Record<string, { top: Slot; side: Slot; rock?: Slot; must?: boolean
   Kerb: { top: 'wallTop', side: 'wallTop' },
   Park: { top: 'grass', side: 'wallTop' },
   Lawn: { top: 'grass', side: 'wallTop' },
+  Seabed: { top: 'ground', side: 'wallTop', must: true },
+  'Quay wall': { top: 'wallTop', side: 'wall', must: true },
+  Slipway: { top: 'deckTop', side: 'deckSide', must: true },
   Crosswalk: { top: 'cross', side: 'cross' },
   'Lane dash': { top: 'line', side: 'line' },
   'Edge line': { top: 'line', side: 'line' },
@@ -140,7 +143,8 @@ const FRAME: Record<string, { top: Slot; side: Slot; rock?: Slot; must?: boolean
 export function gameOnly(parts: Part[], f: FrameLook, keep: (p: Part) => boolean = () => false): Part[] {
   const out: Part[] = []
   for (const p of parts) {
-    if (p.game || keep(p)) { out.push(p); continue }
+    // Water keeps its own look: the game draws its water with a shader, not a picture (it exports as the game's own water).
+    if (p.game || p.water || keep(p)) { out.push(p); continue }
     // Pieces of the site's prefabs go (a gazebo's floor is no frame), all but the streets' own.
     const slot = FRAME[p.label]
     if (!slot || (p.group && p.prefab?.key !== 'road')) continue

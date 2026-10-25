@@ -26,6 +26,28 @@ export function collisionFromProject(project: Project, model: (path: string) => 
   return { tris: Float32Array.from(tris), flags: Uint8Array.from(flags), markers }
 }
 
+/** Each swimmable water object's area and surface, editor units: [x0, z0, x1, z1, surface]. */
+export function waterAreas(project: Project, model: (path: string) => ObjModel | undefined): [number, number, number, number, number][] {
+  const out: [number, number, number, number, number][] = []
+  for (const it of project.scene_items) {
+    if (!it.swimmable_water) continue
+    const mdl = model(it.path)
+    if (!mdl) continue
+    const water = new Set(it.water_materials ?? [])
+    let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity, top = -Infinity
+    for (let f = 0; f < mdl.faces.length / 3; f++) {
+      if (water.size && !water.has(exportMatName(mdl.mats[mdl.faceMat[f]]))) continue
+      for (let k = 0; k < 3; k++) {
+        const v = mdl.faces[f * 3 + k] * 3
+        const [x, y, z] = transformPoint(mdl.positions.subarray(v, v + 3), it)
+        x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); top = Math.max(top, y)
+      }
+    }
+    if (Number.isFinite(top)) out.push([x0, z0, x1, z1, top])
+  }
+  return out
+}
+
 function addItem(it: SceneItem, mdl: ObjModel, tris: number[], flags: number[]) {
   const excluded = new Set(it.collision_excluded_faces ?? [])
   const water = new Set(it.swimmable_water ? it.water_materials ?? [] : [])

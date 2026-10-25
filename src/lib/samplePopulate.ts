@@ -54,7 +54,10 @@ export function candidates(s: Sample, floor: Sample['parts'] = s.parts): Vec3[] 
   const [x0, x1, z0, z1] = [Math.min(...xs), Math.max(...xs), Math.min(...zs), Math.max(...zs)]
   const all = partIndex(s.parts), ground = floor === s.parts ? all : partIndex(floor)
   // Not on top of a kerb or other low ledge (a spawn there sits half in the step).
-  const open = (p: Vec3) => ground.support(p) >= 0 && !all.blocker(p) && !inKerb(all, p)
+  // Not under water (a seabed is floor, but nobody spawns or finds a gun down there).
+  const wet = s.parts.filter((q) => q.water)
+  const underWater = ([x, y, z]: Vec3) => wet.some((q) => q.at[1] + q.size[1] > y + 0.2 && over(q, x, z, 0))
+  const open = (p: Vec3) => ground.support(p) >= 0 && !all.blocker(p) && !inKerb(all, p) && !underWater(p)
   const spots = new Map<string, Vec3>()
   const key = (x: number, y: number, z: number) => `${x},${y},${z}`
   for (let x = Math.ceil(x0 / 4) * 4; x <= x1; x += 4) for (let z = Math.ceil(z0 / 4) * 4; z <= z1; z += 4) for (const y of heights) {

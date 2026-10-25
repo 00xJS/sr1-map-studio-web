@@ -569,9 +569,12 @@ export function wizardLayout(o: WizardOptions, pieces?: GamePieces): Sample {
   const look = LOOKS[o.setting]
   const [W, D] = wizardSize(o.players, o.layout)
   const strip = 14
+  // Docks: a harbour basin down each side, inside the map's size (sized for its players); the layout gets the quay between.
+  const basin = o.setting === 'docks' && o.layout !== 'neighbourhood' ? BASIN : 0
+  const quay = W - 2 * basin
   // A neighbourhood from modules is laid out like city blocks (its streets plain ground: modules bring their own sidewalks).
   if (o.layout === 'neighbourhood' && !pieces?.city?.ready) return neighbourhoodSample(o, look, r, W, D, strip, pieces)
-  const h = new Half(W, D, strip, look, r, pieces)
+  const h = new Half(quay, D, strip, look, r, pieces)
   if (!lay(h, o) && o.layout === 'neighbourhood') return neighbourhoodSample(o, look, rng(o.seed), W, D, strip, pieces)
   const mid = centre(o, look, r)
   const gTex = r.pick(look.ground)
@@ -585,7 +588,7 @@ export function wizardLayout(o: WizardOptions, pieces?: GamePieces): Sample {
     name, icon: SETTINGS[o.setting].icon, theme: look.theme, modes: ALL_MODES, size: 'full',
     description: `${LAYOUTS[o.layout].label} in a ${SETTINGS[o.setting].label.toLowerCase()} setting for about ${o.players} players (seed ${o.seed}).`,
     parts: [
-      ground(W, D, gTex, PB.concrete, 8),
+      ...(basin ? harbour(quay, W, D, gTex, look) : [ground(W, D, gTex, PB.concrete, 8)]),
       ...perimeter(W, D, look.wallH, look.wall, look.wallTop),
       ...mid.parts,
       ...mirror(...h.parts),
@@ -596,6 +599,30 @@ export function wizardLayout(o: WizardOptions, pieces?: GamePieces): Sample {
     markers: teamMarkers({ red, shared: [], weapons, drops: [], pimp: [0, 1, sz] }),
     dressWith: look.dress.filter((k) => ALL_PREFABS[k]),
   }
+}
+
+/** Width (units) of the docks' harbour basin down each side. */
+const BASIN = 14
+/** How far under the quay's edge the water is, and how deep (units). */
+const WATER_DOWN = 0.5, WATER_DEEP = 4.5
+
+/**
+ * The docks' quay between two harbour basins: water players swim in (exported as the game's own water volumes) a
+ * quarter metre under the quay's edge, a seabed under it, a quay wall, and slipways up out of the water so a player
+ * who falls in always has a way back. Point-symmetric like the rest of the map.
+ */
+function harbour(quay: number, W: number, D: number, gTex: Tex, look: Look): Part[] {
+  const B = (W - quay) / 2, x = quay / 2 + B / 2
+  const surface = 1 - WATER_DOWN, bed = surface - WATER_DEEP
+  const out: Part[] = [ground(quay, D, gTex, PB.concrete, 8)]
+  for (const sx of [-1, 1]) {
+    out.push(box('Seabed', [B, 1, D], [sx * x, bed - 1, 0], PB.gravel, PB.concrete, 0, 8))
+    out.push({ ...box('Water', [B, WATER_DEEP, D], [sx * x, bed, 0], U.water, U.water, 0, 8), water: true })
+    out.push(box('Quay wall', [1, 1 - bed, D], [sx * (quay / 2 + 0.5), bed, 0], look.wallTop, look.wall, 0, 4))
+  }
+  // Slipways rising out of the water onto the quay, a quarter of the way along each side (mirrored for blue).
+  out.push(...mirror(ramp('Slipway', [6, 1 - bed, 10], [-(quay / 2 + 5), bed, -D / 4], look.deck.top, look.deck.side, 270)))
+  return out
 }
 
 /** Streets, blocks, a park and hills (see neighbourhood.ts), with spawns at each end. */

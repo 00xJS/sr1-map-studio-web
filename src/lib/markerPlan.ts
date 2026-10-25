@@ -40,6 +40,8 @@ export interface PlanOptions {
   /** Least gap between spawns, and from a spawn to a weapon (units). */
   spawnGap?: number
   weaponGap?: number
+  /** Water ([x0, z0, x1, z1, surface]): floor under it (a seabed) gets no spawns or weapons. */
+  wet?: [number, number, number, number, number][]
 }
 
 export function planMarkers(p: Prepared, markers: PlanMarker[], o: PlanOptions): MarkerPlan {
@@ -59,8 +61,10 @@ export function planMarkers(p: Prepared, markers: PlanMarker[], o: PlanOptions):
   let main = 0
   for (let c = 1; c < sizes.length; c++) if (votes[c] > votes[main] || (votes[c] === votes[main] && sizes[c] > sizes[main])) main = c
   const usable = (n: number) => comp[n] === main && !g.grid.crouchOnly[n] && g.edgeStart[n + 1] - g.edgeStart[n] >= SOLID_FOOTING
+  const wet = o.wet ?? []
+  const dry = (n: number) => !wet.some(([x0, z0, x1, z1, top]) => P[n * 3] >= x0 && P[n * 3] <= x1 && P[n * 3 + 2] >= z0 && P[n * 3 + 2] <= z1 && P[n * 3 + 1] < top - 0.1)
   const good: number[] = []
-  for (let n = 0; n < N; n++) if (usable(n)) good.push(n)
+  for (let n = 0; n < N; n++) if (usable(n) && dry(n)) good.push(n)
   if (!good.length) return { moved: [], added: [], floor: 0 }
   const at = (n: number): Vec3 => [P[n * 3], +(P[n * 3 + 1] + 0.1).toFixed(3), P[n * 3 + 2]]
   const dist = (a: Vec3, n: number) => Math.hypot(a[0] - P[n * 3], a[2] - P[n * 3 + 2]) + Math.abs(a[1] - P[n * 3 + 1]) * 2
@@ -73,9 +77,9 @@ export function planMarkers(p: Prepared, markers: PlanMarker[], o: PlanOptions):
     const n = nodeNear(g, x, y, z)
     const on = n >= 0 && Math.hypot(x - P[n * 3], z - P[n * 3 + 2]) <= ON_FLOOR[0] && Math.abs(y - P[n * 3 + 1]) <= ON_FLOOR[1]
     // One placed by hand stays where it is while players can stand there (by a ledge too); new ones keep off edges.
-    if (on && comp[n] === main && !g.grid.crouchOnly[n]) return
+    if (on && comp[n] === main && !g.grid.crouchOnly[n] && dry(n)) return
     const why = n < 0 || !on ? 'not on any floor (in the air, under the map or inside something)'
-      : comp[n] !== main ? 'on floor players can\'t walk to from the rest of the map' : 'with only room to crouch'
+      : comp[n] !== main ? 'on floor players can\'t walk to from the rest of the map' : !dry(n) ? 'under water' : 'with only room to crouch'
     // The nearest usable spot not on top of another marker.
     let best = -1, bestD = Infinity
     for (const q of good) {
