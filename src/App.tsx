@@ -15,6 +15,8 @@ const Catalog = lazy(() => import('./pages/Catalog'))
 const Play = lazy(() => import('./play/PlayPage'))
 const City = lazy(() => import('./pages/City'))
 const OpenMapHost = lazy(() => import('./pages/OpenMapDialog'))
+// Development only: checking the game library's names and roles against pictures.
+const GameLabels = import.meta.env.DEV ? lazy(() => import('./pages/GameLabels')) : null
 
 /** The "Open a game map" dialog, loaded when a map folder is first opened. */
 function OpenMap() {
@@ -81,6 +83,7 @@ export default function App() {
           <Route path="/showcase/:id" element={<Shell>{hubEnabled ? <HubMap /> : <HubOff />}</Shell>} />
           <Route path="/hub" element={<ToShowcase />} />
           <Route path="/hub/:id" element={<ToShowcase />} />
+          {GameLabels && <Route path="/dev/game-labels" element={<GameLabels />} />}
           <Route path="/account" element={<Shell><Account /></Shell>} />
           <Route path="*" element={<Shell><div className="page"><h1>Page not found</h1><Link to="/">Back to my maps</Link></div></Shell>} />
         </Routes>

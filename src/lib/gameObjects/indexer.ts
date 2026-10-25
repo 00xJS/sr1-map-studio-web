@@ -4,7 +4,8 @@
 // are called, so a model copied into many chunks is one entry. Pure functions: the worker runs them on chunks
 // read from the player's own packfiles, and the tests on synthetic and real chunks.
 import { meshIndexCount, meshTextures, meshTriangleCount, type Chunk } from './chunk'
-import { BUILDINGS, CATEGORIES, baseName, buildingCode, categoryOf, skipName } from './classify'
+import { baseName, buildingCode, skipName } from './classify'
+import { BUILDINGS, CATEGORIES, chunkDistricts, identify } from './identity'
 
 export type Vec3 = [number, number, number]
 
@@ -37,6 +38,11 @@ export interface GameObjectEntry {
   physics?: boolean
   /** The multiplayer maps it is in (their chunk names), and 'city' when Stilwater has it too. */
   where?: string[]
+  /** The Stilwater districts the chunks it is placed in belong to (as far as their names tell). */
+  districts?: string[]
+  /** Buildings: the side of its own frame (as cut out) its doors and shop fronts face, and the axis its long side runs along. */
+  front?: '+x' | '-x' | '+z' | '-z'
+  long?: 'x' | 'z'
 }
 
 /** What a retail multiplayer map holds, for the library's per-map view. */
@@ -152,6 +158,7 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
   const groups = new Map<string, number[]>()
   const singles: number[] = []
 
+  const districts = chunkDistricts(ch.records.map((r) => r.name))
   const named = new Set<number>()
   ch.records.forEach((rec, i) => {
     named.add(rec.instance)
@@ -196,6 +203,17 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
       }
       const ext = [0, 1, 2].map((k) => max[k] - min[k])
       if (Math.max(ext[0], ext[2]) > 250) continue
+      // Its front: the side its doors and shop fronts stand nearest (in the game's axes, which the cut-out keeps).
+      let fx = 0, fz = 0, nf = 0
+      for (const m of members) {
+        if (!FRONT_PART.test(ch.records[recs[m]].name.toLowerCase().replace(/^.*?\d[a-z]_/, ''))) continue
+        const b = boxes[m]!
+        fx += ((b.min[0] + b.max[0]) / 2 - (min[0] + max[0]) / 2) / Math.max(ext[0] / 2, 0.1)
+        fz += ((b.min[2] + b.max[2]) / 2 - (min[2] + max[2]) / 2) / Math.max(ext[2] / 2, 0.1)
+        nf++
+      }
+      fx /= nf || 1; fz /= nf || 1
+      const front = !nf || Math.max(Math.abs(fx), Math.abs(fz)) < 0.3 ? undefined : Math.abs(fx) >= Math.abs(fz) ? (fx > 0 ? '+x' : '-x') : (fz > 0 ? '+z' : '-z')
       const size: Vec3 = [r2(Math.max(ext[0], ext[2])), r2(Math.min(ext[0], ext[2])), r2(ext[1])]
       const key = `b|${members.length}|${idx}|${ext.map((v) => Math.round(v * 10)).join(',')}`
       const parts = members.map((m) => recs[m]).sort((a, b) => a - b)
@@ -204,6 +222,7 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
       out.set(key, {
         key, up: 1, id: keyId(key), name: code, cat: BUILDINGS, profile: '', pack, chunk, record: parts[0], parts,
         size, tris, tex: [...tex.entries()].sort((a, b) => b[1] - a[1]).slice(0, 8).map(([t]) => t), seen: 1,
+        long: ext[0] >= ext[2] ? 'x' : 'z', ...(front ? { front } : {}), ...(districts.length ? { districts } : {}),
       })
     }
   }
@@ -235,14 +254,19 @@ export function indexChunk(ch: Chunk, pack: string, chunk: string): Candidate[] 
       continue
     }
     const profile = rec && rec.profile !== 'Default' ? rec.profile : ''
-    out.set(key, {
-      key, up, id: keyId(key), name, cat: categoryOf(profile, name, tex, size), profile,
+    const c: Candidate = {
+      key, up, id: keyId(key), name, cat: '', profile,
       pack, chunk, record: i, size, tris: meshTriangleCount(ch, mesh), tex: tex.slice(0, 4), seen: 1,
-      ...(rec ? { raw: [rec.name] } : {}), ...(rec && rec.shape >= 0 ? { physics: true } : {}),
-    })
+      ...(rec ? { raw: [rec.name] } : {}), ...(rec && rec.shape >= 0 ? { physics: true } : {}), ...(districts.length ? { districts } : {}),
+    }
+    c.cat = identify(c).category
+    out.set(key, c)
   }
   return [...out.values()]
 }
+
+/** Building part names that face the street: doors, shop fronts and windows, canopies, porches. */
+const FRONT_PART = /front|door|entr|display|marq|canop|porch|shop|awn/
 
 /** A plain name from a texture file name: "USPSMailBox_tm.tga" -> "uspsmailbox". */
 export const textureName = (t: string) => t.replace(/\.\w+$/, '').replace(/_(tm|sp|nm|nor|spec|diff?|d|c|a|alpha|mask|hi|lo)$/i, '').toLowerCase()
@@ -253,15 +277,16 @@ export const textureName = (t: string) => t.replace(/\.\w+$/, '').replace(/_(tm|
  * how often the game uses it.
  */
 export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
-  const by = new Map<string, { copies: Candidate[]; seen: number; names: Map<string, number>; ups: Map<number, number>; raw: Set<string>; where: Set<string> }>()
+  const by = new Map<string, { copies: Candidate[]; seen: number; names: Map<string, number>; ups: Map<number, number>; raw: Set<string>; where: Set<string>; districts: Set<string> }>()
   // How many different objects each chunk holds: copies are taken from as few chunks as possible, so drawing a
   // page of pictures reads few chunks.
   const perChunk = new Map<string, number>()
   for (const c of all) {
     let g = by.get(c.key)
-    if (!g) by.set(c.key, (g = { copies: [], seen: 0, names: new Map(), ups: new Map(), raw: new Set(), where: new Set() }))
+    if (!g) by.set(c.key, (g = { copies: [], seen: 0, names: new Map(), ups: new Map(), raw: new Set(), where: new Set(), districts: new Set() }))
     g.where.add(isMpChunk(c.pack, c.chunk) ? c.chunk.toLowerCase().replace(/_al$/, '') : 'city')
     for (const r of c.raw ?? []) if (g.raw.size < 8) g.raw.add(r)
+    for (const d of c.districts ?? []) g.districts.add(d)
     g.copies.push(c)
     g.seen += c.seen
     for (const n of [c.name, ...(c.names ?? [])]) g.names.set(n, (g.names.get(n) ?? 0) + (n === c.name ? c.seen : 1))
@@ -275,13 +300,16 @@ export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
     const upBest = [...g.ups.entries()].sort((a, b) => b[1] - a[1])[0][0]
     const score = (c: Candidate) => (c.up === upBest ? 1e9 : 0) + (perChunk.get(c.pack + '/' + c.chunk) ?? 0)
     const best = g.copies.reduce((a, b) => (score(b) > score(a) ? b : a))
-    const { key: _k, up: _u, names: _n, raw: _r, ...e } = best
+    const { key: _k, up: _u, names: _n, raw: _r, districts: _d, ...e } = best
     const names = [...g.names.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n)
     const entry: GameObjectEntry = { ...e, name: names[0] ?? e.name, seen: g.seen }
     if (names.length > 1) entry.names = names.slice(1, 5)
     else delete entry.names
     if (g.raw.size) entry.raw = [...g.raw]
     entry.where = [...g.where].sort()
+    if (g.districts.size) entry.districts = [...g.districts].sort()
+    // What it is, now that every name, map and district it has is known (one rule table: identity.ts).
+    entry.cat = identify(entry).category
     entries.push(entry)
   }
   const rank = (c: string) => { const i = CATEGORIES.indexOf(c); return i < 0 ? CATEGORIES.length : i }

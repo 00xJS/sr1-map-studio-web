@@ -33,15 +33,15 @@ describe('game object tags', () => {
     expect(describeEntry(can)).toMatch(/^Trash can \(trashcand\): street furniture; 0\.7 × 0\.7 × 1 m; .*used 120× in the game$/)
   })
 
-  it('picks a varied mix for a theme, never building pieces, decals or one-offs', () => {
+  it('picks a varied mix of props for a theme, never building pieces, walls, decals or one-offs', () => {
     const lib = [
       entry('trashcana', 'Street furniture', [0.7, 0.7, 1], ['trashcan1_me.tga'], 50), entry('trashcanb', 'Street furniture', [0.7, 0.7, 1], ['trashcan2_me.tga'], 40),
-      entry('dumpsterrusta', 'Street furniture', [2, 1.2, 1.4], ['rustydump_me.tga'], 30), entry('barbwirea', 'Fences and barriers', [4, 0.2, 1], ['barbwire.tga'], 20),
+      entry('dumpsterrusta', 'Street furniture', [2, 1.2, 1.4], ['rustydump_me.tga'], 30), entry('junkmattressa', 'Furniture', [2, 1.4, 0.2], ['junkmattress_ca.tga'], 20),
       entry('grimedecal', 'Other', [3, 3, 0.01], ['grime_d.tga'], 90), entry('wallbroken', 'Building pieces', [5, 0.3, 3], ['crack_co.tga'], 90),
       entry('junkcar', 'Wrecks and vehicles', [4, 2, 1.4], ['husk_me.tga'], 1),
     ]
     const pick = varietyPick(lib, ['run-down'], 3)
-    expect(pick.map((e) => e.name)).toEqual(expect.arrayContaining(['dumpsterrusta', 'barbwirea']))
+    expect(pick.map((e) => e.name)).toEqual(expect.arrayContaining(['dumpsterrusta', 'junkmattressa']))
     expect(pick.some((e) => ['grimedecal', 'wallbroken', 'junkcar'].includes(e.name))).toBe(false)
   })
 })

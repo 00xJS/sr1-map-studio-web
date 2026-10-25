@@ -1,53 +1,27 @@
-// Names and categories for the "From my game" library: a short base name for each object (copies of one model
-// carry numbers and area tags around the same name) and a category guessed from plain words in its physics
-// profile and its name. Only rules live here, no names from the game.
+// Names for the "From my game" library: a short base name for each object (copies of one model carry numbers and
+// area tags around the same name), the building a part belongs to, and the names of copies never drawn. Only
+// rules live here, no names from the game.
+import { identify } from './identity'
 
 /** Lower case, without the copy numbers at the end and the short area tag some copies carry in front. */
 export function baseName(name: string): string {
   let n = name.toLowerCase().replace(/(_?\d+)+$/, '').replace(/^\d+_?/, '')
-  // A short tag in front ("ab_", "ab12_", "c9a_"), once or twice, when a real name is left after it.
+  // A short tag in front ("ab_", "ab12_", "c9a_"; not a word like "pier_"), once or twice, when a real name is left after it.
   for (let i = 0; i < 2; i++) {
-    const m = n.match(/^[a-z]{1,3}\d*[a-z]?_(.+)$/)
+    const m = n.match(/^(?:[a-z]{1,3}\d+[a-z]?|[a-z]{1,3})_(.+)$/)
     if (m && m[1].length >= 4 && /[a-z]{3}/.test(m[1])) n = m[1]
   }
   return n.replace(/^\d+_?/, '').replace(/(_?\d+)+$/, '') || name.toLowerCase()
 }
 
-export const BUILDINGS = 'Buildings'
-export const OTHER = 'Other'
+// Categories and what each model is come from one rule table (identity.ts); these are kept for the callers that
+// only want a category.
+export { BUILDINGS, OTHER, CATEGORIES } from './identity'
 
-/** Categories in the order the library shows them, each with the words that put an object in it. */
-const RULES: [string, RegExp][] = [
-  ['Lights and signals', /light|lamp|signal|siglmp|lantern/],
-  ['Signs and billboards', /sign|billboard|banner|poster|marquee/],
-  ['Fences and barriers', /fence|railing|guard ?rail|barrier|bollard|barricade|gate|cone|jersey/],
-  ['Street furniture', /bench|hydrant|mailbox|newspaper|newsstand|payphone|phone|parking ?meter|meter|bus ?stop|trash|garbage|recycl|planter|manhole|drain|grate|picnic|porta ?potty|toilet/],
-  ['Containers and crates', /crate|box|barrel|dumpster|container|pallet|palate|drum|spool|bag|tank|cylinder|cinder|lumber|pipe|bucket|tire|tyre|skip/],
-  ['Furniture', /chair|table|sofa|couch|bed\b|desk|shelf|shelves|cabinet|locker|counter|stool|dresser|umbrella|furniture/],
-  ['Bottles, glass and small things', /glass|bottle|cup\b|can\b|cans|pack|jar|plate|book|magazine|phone|keyboard|tray|electronics/],
-  ['Machines', /machine|vend|register|pump|generator|grill|cooler|fridge|washer|dryer|\bac\b|vent|compressor|computer|monitor|\btv\b/],
-  ['Nature', /tree|bush|shrub|plant|grass|rock|stone|log\b|timber|flower|hedge|palm|leaf|leaves/],
-  ['Doors and windows', /door|window|shutter|garage/],
-  ['Wrecks and vehicles', /(^|_)car(_|s?$|\d)|husk|wreck|truck|boat|(^|_)plane(_|$)|airplane|bike|(^|_)cart(_|$)|trailer/],
-  ['Water and sky', /water|pool|ocean|\bsea\b|river|fountain|sky|cloud|\bsun\b|moon|stars|atmosphere/],
-  ['Ground and roads', /^ter_|terrain|ground|road|street|sidewalk|curb|kerb|asphalt|pavement|hwy|hway|highway|freeway|ramp|bridge|dirt|sand|gravel|grass|lawn|parking|crosswalk/],
-  ['Building pieces', /wall|roof|floor|stair|step|beam|column|pillar|awning|ledge|trim|facade|duct|chimney|balcony|scaffold|girder|brick|concrete|plaster|tile|panel|frame|pipe|rail|arch|dome|tower|hull|base/],
-]
-
-export const CATEGORIES = [BUILDINGS, ...RULES.map(([c]) => c), OTHER]
-
-/**
- * The category for an object from its profile name and base name, then (for pieces the name doesn't place) its
- * texture names; anything over 60 m across is ground or a road.
- */
+/** The category for an object from its profile name, base name, textures and size (see identity.ts). */
 export function categoryOf(profile: string, base: string, textures: string[] = [], size?: number[]): string {
-  const p = profile.toLowerCase()
-  const text = (p === 'default' ? '' : p + ' ') + base
-  for (const [cat, re] of RULES) if (re.test(text)) return cat
-  const tex = textures.map((t) => t.toLowerCase().replace(/\.\w+$/, '')).join(' ')
-  for (const [cat, re] of RULES) if (re.test(tex)) return cat
-  if (size && Math.max(size[0], size[1]) > 60 && size[2] < Math.max(size[0], size[1]) / 4) return 'Ground and roads'
-  return OTHER
+  const [a = 1, b = 1, h = 1] = size ?? []
+  return identify({ id: '', name: base, cat: '', profile, pack: '', chunk: '', record: 0, size: [a, b, h], tris: 0, tex: textures, seen: 1 }).category
 }
 
 /** Profile names the editor shows as a hint ("Default" means none). */

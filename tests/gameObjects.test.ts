@@ -12,6 +12,8 @@ import { baseName, buildingCode, categoryOf, BUILDINGS, OTHER, skipName } from '
 import { chunkPegNames, pegHeadNames, pegHeadSize, shrink, hasAlpha, textureDirectory } from '../src/lib/gameObjects/textures'
 import { objText, surfaceOf } from '../src/lib/gameObjects/place'
 import { gameObjectPaths } from '../src/lib/gameObjects/policy'
+import { identify, RULE_CATEGORIES } from '../src/lib/gameObjects/identity'
+import { displayName } from '../src/lib/gameObjects/tags'
 import { showcasePlan } from '../src/lib/hubRules'
 import { newProject, type SceneItem } from '../src/lib/project'
 import { openVpp, type Vpp } from '../src/lib/sr1char/vpp'
@@ -259,6 +261,29 @@ describe.skipIf(!GAME_TESTS || !haveGame)('the library from a local game install
     const mesh = extractObject(ch, top)
     expect(mesh.triangles.length / 3).toBe(top.tris)
     for (const t of mesh.materials.filter(Boolean)) expect(dir.names[t.toLowerCase()], t).toBeTypeOf('number')
+
+    // What each model is (identity.ts): the library's category and name are identify()'s, every name the table
+    // gives belongs to one category, and the copies never drawn are never placed.
+    const ids = lib.map((e) => [e, identify(e)] as const)
+    expect(ids.every(([e, id]) => e.cat === id.category && displayName(e) === id.name)).toBe(true)
+    const named = ids.filter(([, id]) => RULE_CATEGORIES.has(id.name))
+    const disagree = named.filter(([, id]) => RULE_CATEGORIES.get(id.name) !== id.category)
+    console.log(`identity: ${named.length} models with a telling name, ${disagree.length} whose category disagrees; roles ${JSON.stringify(ids.reduce((m, [, id]) => ({ ...m, [id.role]: (m[id.role] ?? 0) + 1 }), {} as Record<string, number>))}`)
+    expect(named.length).toBeGreaterThan(lib.length * 0.6)
+    expect(disagree.length).toBe(0)
+    const byName = new Map<string, Set<string>>()
+    for (const [, id] of ids) if (id.role !== 'building') (byName.get(id.name) ?? byName.set(id.name, new Set()).get(id.name)!).add(id.category)
+    expect([...byName].filter(([, cats]) => cats.size > 1).map(([n]) => n)).toEqual([])
+    const lower = (e: (typeof lib)[number]) => [e.name, ...(e.names ?? []), ...(e.raw ?? [])].map((n) => n.toLowerCase())
+    const neverDrawn = ids.filter(([e]) => (e.tex.length > 0 && e.tex.every((t) => /missing-alpha|norender|^proxy\d*_/i.test(t))) || lower(e).some((n) => /shadow|shdw|hullshd|blocker|occluder/.test(n)))
+    expect(neverDrawn.length).toBeGreaterThan(100)
+    expect(neverDrawn.filter(([, id]) => id.role !== 'skip').map(([e]) => e.name)).toEqual([])
+    expect(ids.filter(([, id]) => id.role === 'skip' && id.category !== 'Hidden and decals' && id.category !== 'Water and sky')).toEqual([])
+    const buildings = ids.filter(([, id]) => id.role === 'building')
+    expect(buildings.length).toBeGreaterThan(800)
+    expect(buildings.every(([, id]) => /^(\d+-storey|Single-storey|Large|Small|[A-Z][a-z]+) /.test(id.name) && id.building!.storeys >= 1 && id.settings.length > 0)).toBe(true)
+    expect(buildings.filter(([, id]) => id.building!.front).length).toBeGreaterThan(150)
+    expect(buildings.filter(([, id]) => id.building!.districts?.length).length).toBeGreaterThan(buildings.length * 0.8)
 
     // For tests/game_objects_check.py (a full export of a game object through the Python exporter).
     const out = process.env.SR1_GAME_OBJECT_OUT
