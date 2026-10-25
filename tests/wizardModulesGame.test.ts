@@ -45,8 +45,8 @@ describe.skipIf(!GAME_TESTS || !haveGame)('game pieces from Stilwater modules on
       const s = wizardSample(o, city.pieces)
       const today = wizardSample(o, new GamePieces(lib, o))
       if (!city.used) {
-        // Nothing to build from (or nothing fits): today's map, exactly.
-        expect(s, `${setting} ${layout}`).toEqual(today)
+        // Nothing to build from (or nothing fits): single game models, with the same placement rules, exactly.
+        expect(s, `${setting} ${layout}`).toEqual(wizardSample(o, new GamePieces(lib, { ...o, rule: city.rule })))
         report.push(`${setting} ${layout}: no modules used (${city.ready ? 'none fit' : 'none in the library'}); fell back to single game models, health ${health(today)}`)
         continue
       }

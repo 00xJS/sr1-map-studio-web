@@ -42,7 +42,7 @@ const byId = new Map(entries.map((e) => [e.id, e]))
 
 // ---- made-up rules (phase B's shape) ----
 const RULES: Record<string, PlacementRule> = {
-  wallsign: { attach: 'wall', facing: '+z', mayVary: [] },
+  wallsign: { attach: 'wall', facing: '+z', mountHeight: 2.2, mayVary: [] },
   acunit: { attach: 'wall', facing: '+z', mayVary: ['nudge'] },
   lamp: { attach: 'ground', needs: ['lampbase'], mayVary: ['turn'] },
   lonelamp: { attach: 'ground', needs: ['lampbase'], mayVary: ['turn'] },
@@ -257,6 +257,9 @@ describe('city modules: a downtown map built from them', () => {
     expect(game.some((p) => p.game!.id === 'lonelamp')).toBe(false)
     // Wall things only against a module wall, on the wizard's wall pass (exact, from the module wall).
     for (const p of game.filter((q) => q.game!.id === 'wallsign' || q.game!.id === 'acunit')) expect(p.game!.from, p.game!.id).toBeTruthy()
+    // At the height the game hangs it (2.2 m up), on the ground where the rule gives none.
+    for (const p of game.filter((q) => q.game!.id === 'wallsign')) expect(p.at[1]).toBeCloseTo(1 + 2.2 * 2)
+    for (const p of game.filter((q) => q.game!.id === 'acunit')) expect(p.at[1]).toBeCloseTo(1)
     // A bench keeps the floor in front of it clear.
     for (const b of game.filter((q) => q.game!.id === 'bench' && q.label === 'Game prop')) {
       const [fx, fz] = facingVec('+z', b.rot ?? 0)
@@ -307,10 +310,18 @@ describe('city modules: other layouts, settings and limits', () => {
     expect(s.parts.some((p) => p.label.startsWith('Stilwater'))).toBe(false)
   })
 
+  it('hangs wall things at the height the game has them, only on walls tall enough', () => {
+    const o = opts({ players: 12, busy: 100 }), c = city(o, { modules: [M_('corner')], groups: [] })
+    const s = wizardSample(o, c.pieces)
+    const signs = gameParts(s).filter((q) => q.game!.id === 'wallsign')
+    expect(signs.length).toBeGreaterThan(0)
+    for (const p of signs) expect(p.at[1]).toBeCloseTo(1 + 2.2 * 2)
+  })
+
   it('sizes a part\'s stand-in by its own size across when the study gives it', () => {
     // A fence 6 m along its own Z: without `ext` the box would lie along X (the library's long side default).
     const fenced = mod('yardfence', [16, 14], [edge('+z', 'street', [0, 6]), edge('-z', 'wall'), edge('+x', 'wall'), edge('-x', 'wall')],
-      { parts: [{ id: 'shop', at: [0, 0, -2], yaw: 0, layer: 'shell' }, { id: 'walk', at: [7, 0, 0], yaw: 0, layer: 'fence', ext: [0.2, 6] } as CityModule['parts'][number]] })
+      { parts: [{ id: 'shop', at: [0, 0, -2], yaw: 0, layer: 'shell' }, { id: 'walk', at: [7, 0, 0], yaw: 0, layer: 'fence', ext: [0.2, 6] }] })
     const o = opts(), c = city(o, { modules: [fenced] })
     const s = wizardSample(o, c.pieces)
     const walk = gameParts(s).filter((p) => p.game!.id === 'walk' && p.label === 'Stilwater fence')
@@ -359,14 +370,14 @@ describe('city modules: other layouts, settings and limits', () => {
 })
 
 describe('city modules: falling back', () => {
-  it('with nothing to build from (the shared stubs) builds today\'s game pieces map exactly', () => {
+  it('with nothing to build from builds the single-model game pieces map, with the same rules, exactly', () => {
     for (const layout of ['blocks', 'neighbourhood', 'crossroads'] as const) {
       const o = opts({ layout })
-      // The contract's own (empty) modules and groups, and its default rule.
+      // No modules or groups in this library (none of its entries carry any), and the library's own rules.
       const c = new GameCity(entries, { setting: o.setting, seed: o.seed, identify })
       expect(c.ready).toBe(false)
       const s = wizardSample(o, c.pieces)
-      const today = wizardSample(o, new GamePieces(entries, { setting: o.setting, seed: o.seed, identify }))
+      const today = wizardSample(o, new GamePieces(entries, { setting: o.setting, seed: o.seed, identify, rule: c.rule }))
       expect(s).toEqual(today)
       expect(c.used).toBe(false)
     }
@@ -379,7 +390,7 @@ describe('city modules: falling back', () => {
       expect(c.ready).toBe(true)
       const s = wizardSample(o, c.pieces)
       expect(c.used, layout).toBe(false)
-      expect(s, layout).toEqual(wizardSample(o, new GamePieces(entries, { setting: o.setting, seed: o.seed, identify })))
+      expect(s, layout).toEqual(wizardSample(o, new GamePieces(entries, { setting: o.setting, seed: o.seed, identify, rule: c.rule })))
     }
   })
 

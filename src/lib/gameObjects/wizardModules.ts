@@ -13,8 +13,10 @@
 import { PB, box, mirror, turn, type Part } from '../sampleKit'
 import { KEEP_OUT, busyness, busyOf, rng, type Half, type Rng, type WizardOptions, type WizardSetting } from '../mapWizard'
 import { UNITS_PER_M } from '../player'
-import { cityModules, groups as cityGroups, placementOf, type CityGroup, type CityModule, type EdgeKind, type ModuleEdge, type ModulePart, type PlacementRule, type Side } from './cityModules'
+import { cityModules, groups as cityGroups, type CityGroup, type CityModule, type EdgeKind, type ModuleEdge, type ModulePart, type PlacementRule, type Side } from './cityModules'
 import type { GameObjectEntry } from './indexer'
+import { placementRules } from './placement'
+import { withCityLabels, withPlacementLabels, type CityLabels } from './labels'
 import { GamePieces, TEXTURE_BUDGET, TRI_BUDGET, exactStandIn, type CityHooks, type PiecesOptions } from './wizardPieces'
 
 const M = UNITS_PER_M
@@ -34,7 +36,7 @@ const MODULE_SHARE = 0.75
 /** Most distinct modules in one map (reusing a few is cheaper to export than many used once). */
 const MODULE_PALETTE = 6
 const GROUP_PALETTE = 6
-/** Tallest single wall thing placed on its own: the rule says nothing of how high it hangs, so it stands on the ground. */
+/** Tallest single wall thing that goes in standing on the ground, where its rule gives no height to hang it at. */
 const WALL_PROP_MAX_H = 2.5
 /** Street width (metres) between areas, per setting. */
 const STREET: Record<WizardSetting, number> = {
@@ -274,6 +276,17 @@ export interface CityOptions extends PiecesOptions {
   modules?: CityModule[]
   groups?: CityGroup[]
   rule?: (e: GameObjectEntry) => PlacementRule
+  /** The player's corrections to modules and groups (labels.ts: the ones marked wrong are left out). */
+  cityLabels?: CityLabels
+}
+
+/** Every model's placement rule, worked out once per library (placement.ts), with the player's corrections. */
+const rulesFor = new WeakMap<GameObjectEntry[], Map<string, PlacementRule>>()
+function libraryRule(entries: GameObjectEntry[], o: CityOptions): (e: GameObjectEntry) => PlacementRule {
+  let rules = rulesFor.get(entries)
+  if (!rules) rulesFor.set(entries, rules = placementRules(entries))
+  const base = (e: GameObjectEntry) => rules!.get(e.id) ?? { attach: 'ground', mayVary: ['turn'] } as PlacementRule
+  return o.labels ? withPlacementLabels(o.labels, base) : base
 }
 
 /** A group standing on red's half. */
@@ -298,14 +311,15 @@ export class GameCity implements CityHooks {
   private readonly lib = new Map<string, GameObjectEntry>()
   private readonly modules: ModuleCand[]
   private readonly groupList: GroupCand[]
-  private readonly rule: (e: GameObjectEntry) => PlacementRule
+  /** Each model's placement rule (placement.ts, with the player's corrections). */
+  readonly rule: (e: GameObjectEntry) => PlacementRule
   private readonly r: Rng
   private readonly palette = new Map<string, number>()
   private readonly groupPalette = new Set<string>()
 
   constructor(entries: GameObjectEntry[], o: CityOptions) {
     for (const e of entries) this.lib.set(e.id, e)
-    this.rule = o.rule ?? placementOf
+    this.rule = o.rule ?? libraryRule(entries, o)
     this.pieces = new GamePieces(entries, { ...o, rule: this.rule })
     this.pieces.city = this
     this.r = rng((o.seed ^ 0x2c1b3c6d) >>> 0)
@@ -322,14 +336,15 @@ export class GameCity implements CityHooks {
       return { tris, tex }
     }
     this.modules = []
-    for (const m of o.modules ?? cityModules(entries)) {
+    const cl = o.cityLabels
+    for (const m of o.modules ?? (cl ? withCityLabels(cityModules(entries), cl.modules) : cityModules(entries))) {
       const c = cost(m.parts), weight = suits(m.settings)
       // Every part must be in this player's library, or the module isn't whole.
       if (!c || !weight || !m.parts.length) continue
       this.modules.push({ m, tris: Math.max(m.tris, c.tris), tex: c.tex, weight })
     }
     this.groupList = []
-    for (const g of o.groups ?? cityGroups(entries)) {
+    for (const g of o.groups ?? (cl ? withCityLabels(cityGroups(entries), cl.groups) : cityGroups(entries))) {
       const c = cost(g.parts), weight = suits(g.settings)
       if (!c || !weight || !g.parts.length || g.anchor === 'roof') continue
       this.groupList.push({ g, tris: c.tris, tex: c.tex, weight: weight * (1 + Math.log10(1 + g.seen) / 2) })
@@ -582,9 +597,11 @@ export class GameCity implements CityHooks {
 
   /** Single wall things (their rule says 'wall'), with their back to a module's wall, facing out. */
   private wallProps(h: Half, fill: number) {
+    // At the height the game mostly hangs them; standing on the ground (and no taller than a person or so) when it doesn't say.
+    const mount = (e: GameObjectEntry) => this.rule(e).mountHeight ?? 0
     const things = [...this.lib.values()].filter((e) => {
       const rl = this.rule(e)
-      return rl.attach === 'wall' && !rl.onlyOn?.length && !rl.needs?.length && e.size[2] <= WALL_PROP_MAX_H && e.seen >= 2 && e.tris <= 4000
+      return rl.attach === 'wall' && !rl.onlyOn?.length && !rl.needs?.length && (rl.mountHeight !== undefined || e.size[2] <= WALL_PROP_MAX_H) && e.seen >= 2 && e.tris <= 4000
     }).sort((a, b) => b.seen - a.seen || a.id.localeCompare(b.id)).slice(0, 40)
     if (!things.length) return
     const walls = this.wallSpots()
@@ -595,17 +612,22 @@ export class GameCity implements CityHooks {
       const e = pool[Math.floor(this.r.next() * pool.length)], rl = this.rule(e)
       if (!this.fits(e.tris * 2, new Set(e.tex.map((t) => t.toLowerCase())))) continue
       const spot = walls[Math.floor(this.r.next() * walls.length)]
+      // Only on a wall tall enough to hold it (its module's roof).
+      const top = Math.max(3, ...levels(spot.p.m).map((l) => l.h))
+      if (mount(e) + e.size[2] > top) continue
       // The side that faces out from the wall faces away from it.
       const facing = rl.facing ?? '+z'
       const rot = rotFor(facing, spot.d)
-      const [fw, fd] = footprintOf([e.size[0], e.size[1]], rot)
+      // Its long side along the wall: across its own X when it faces ±Z, across Z when it faces ±X.
+      const own: [number, number] = facing === '+x' || facing === '-x' ? [e.size[1], e.size[0]] : [e.size[0], e.size[1]]
+      const [fw, fd] = footprintOf(own, rot)
       const w = spot.d === 'N' || spot.d === 'S' ? fw : fd, dep = spot.d === 'N' || spot.d === 'S' ? fd : fw
       if (spot.to - spot.from < w) continue
       const t = spot.from + w / 2 + this.r.next() * (spot.to - spot.from - w)
       const r = this.againstWall(spot, t, w, dep)
       const clear = this.againstWall(spot, t, w, dep + Math.max(ALLEY, (rl.clearFront ?? 0) * M))
       if (!this.free(h, r, M, spot.p) || !this.free(h, clear, 0, spot.p)) continue
-      const g: CityGroup = { id: 'wall:' + e.id, name: e.name, kind: 'decor', settings: [], anchor: 'wall', size: [e.size[0], e.size[1]], parts: [{ id: e.id, at: [0, 0, 0], yaw: 0, layer: 'prop' }], seen: e.seen, examples: [] }
+      const g: CityGroup = { id: 'wall:' + e.id, name: e.name, kind: 'decor', settings: [], anchor: 'wall', size: own, parts: [{ id: e.id, at: [0, mount(e), 0], yaw: 0, layer: 'prop', ext: own }], seen: e.seen, examples: [] }
       this.placedGroups.push({ ...r, g, rot, x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2, wall: spot.d })
       h.take({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2, w: r.x1 - r.x0, d: r.z1 - r.z0 })
       this.pieces.spend(e.tris * 2, new Set(e.tex.map((t) => t.toLowerCase())))
@@ -639,9 +661,8 @@ export class GameCity implements CityHooks {
     return parts.map((q) => {
       const [dx, dz] = gamePoint(q.at[0], q.at[2], rot)
       // The box only stands in for the model in the passes that follow; the model itself goes exactly here.
-      // The part's own size across, where the study gives it (ModulePart.ext, newer than this contract's first shape).
-      const ext = (q as ModulePart & { ext?: [number, number] }).ext
-      return exactStandIn(this.lib.get(q.id)!, 'Stilwater ' + q.layer, [x + dx, y + q.at[1] * M, z + dz], rot + q.yaw, from, ext)
+      // Its box the part's own size across, where the study gives it.
+      return exactStandIn(this.lib.get(q.id)!, 'Stilwater ' + q.layer, [x + dx, y + q.at[1] * M, z + dz], rot + q.yaw, from, q.ext)
     })
   }
 }

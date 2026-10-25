@@ -7,7 +7,7 @@ import type { Sample } from '../lib/sampleKit'
 import { NeedGameFolder, buildIndex, connect, loadIndex, useGameObjects } from '../lib/gameObjects/client'
 import { gamePiecesSuit } from '../lib/gameObjects/wizardPieces'
 import { GameCity } from '../lib/gameObjects/wizardModules'
-import { loadLabels, useGameLabels } from '../lib/gameObjects/labels'
+import { loadCityLabels, loadLabels, useCityLabels, useGameLabels } from '../lib/gameObjects/labels'
 import { Link } from 'react-router-dom'
 import { toastError } from '../ui'
 import type { Preview } from '../lib/wizardPreview'
@@ -79,13 +79,15 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
   // The library is read from this browser when there is one (no game files needed for that).
   // The player's own labels for the models (Check game pieces) are picked by too.
   const { labels, version } = useGameLabels()
-  useEffect(() => { void loadIndex().catch(() => {}); void loadLabels() }, [])
+  // And their corrections to the city's modules and groups (Check game pieces → Groups, Modules).
+  const cityLabels = useCityLabels()
+  useEffect(() => { void loadIndex().catch(() => {}); void loadLabels(); void loadCityLabels() }, [])
   const gameOn = useGame && !!entries && gamePiecesSuit(o.setting)
   // Game pieces: whole Stilwater modules and groups where the game library has them, single game models otherwise.
   const { sample, city } = useMemo(() => {
-    const city = gameOn ? new GameCity(entries!, { ...o, labels, labelsVersion: version }) : undefined
+    const city = gameOn ? new GameCity(entries!, { ...o, labels, labelsVersion: version, cityLabels }) : undefined
     return { sample: wizardSample(o, city?.pieces), city }
-  }, [o, gameOn, entries, labels, version])
+  }, [o, gameOn, entries, labels, version, cityLabels])
   const create = async () => {
     // Placing the models needs the game files open (the browser may ask for the folder once).
     if (city) try { await connect(true) } catch (e) { toastError(e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder so the wizard can bring in the models from your game.') : e); return }

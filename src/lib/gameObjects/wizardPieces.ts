@@ -332,7 +332,8 @@ export class GamePieces {
   private loose(c: Cand): boolean {
     const rl = this.rule?.(c.e)
     if (!rl) return true
-    if (rl.attach !== 'ground' || rl.onlyOn?.length) return false
+    // On the ground, not a kit piece, and not something the game keeps up a building's stairs.
+    if (rl.attach !== 'ground' || rl.onlyOn?.length || rl.reach) return false
     const has = new Set((c.e.assembly ?? []).map((a) => a.id))
     return (rl.needs ?? []).every((id) => has.has(id) && this.byId.has(id))
   }
