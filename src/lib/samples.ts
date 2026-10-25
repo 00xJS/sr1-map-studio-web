@@ -373,7 +373,13 @@ export async function buildSample(id: string, onProgress?: (t: string) => void, 
 /** A project from a finished sample (one from sampleFor, or the new map wizard's). */
 export async function buildFrom(sample: Sample, onProgress?: (t: string) => void): Promise<Project> {
   const project = newProject(sample.name)
-  const { items, files } = await materialize(sample.parts, onProgress)
+  // Models from the player's game (the wizard's "Game pieces") are placed from their game files; a model that
+  // can't be read keeps its stand-in box.
+  const game = sample.parts.filter((p) => p.game)
+  const placed = game.length ? await (await import('./gameObjects/wizardBuild')).placeGameParts(game, project.settings.world_scale || 0.5, onProgress) : null
+  const plain = [...sample.parts.filter((p) => !p.game), ...(placed?.failed ?? []).map(({ game: _, ...p }) => p)]
+  const { items, files } = await materialize(plain, onProgress)
+  if (placed) { items.push(...placed.items); Object.assign(files, placed.files) }
   project.scene_items = items
   // A little above the surface, as the editor's "snap to surface" does.
   project.markers = sample.markers.map(([type, at, patch]) => {

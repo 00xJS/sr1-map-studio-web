@@ -10,6 +10,8 @@ export interface PendingEdits {
   label: string
   /** Open the AI chat once they're done (the request came from it). */
   openChat?: boolean
+  /** Then run the map's checks: ramps over stairs too tall to run up, and the health check (a map built from game models). */
+  checks?: boolean
 }
 
 const pending = new Map<string, PendingEdits>()

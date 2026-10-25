@@ -30,6 +30,8 @@ import { FileButton, toast, toastError } from '../ui'
 import { openMapFiles } from '../lib/mapFolder/store'
 import { onQueued, queueEdits, takeEdits, type PendingEdits } from '../lib/pendingEdits'
 import { runAiActions } from './aiActions'
+import { addStairRamps } from './stairActions'
+import { runHealthCheck } from './health'
 import { useChat } from './aiSession'
 
 const CloudButton = lazy(() => import('./CloudButton').then((m) => ({ default: m.CloudButton })))
@@ -151,6 +153,13 @@ function usePendingEdits(openChat: () => void) {
         await new Promise((r) => setTimeout(r, 200))
       }
       if (!live) { queueEdits(id, job); return }
+      if (job.checks) {
+        // Game models bring their own stairs: ramps over any too tall to run up, then the health check.
+        await addStairRamps().catch(toastError)
+        if (useEditor.getState().advanced) useEditor.getState().set({ tab: 'health' })
+        void runHealthCheck()
+      }
+      if (!job.actions.length) return
       const { done, skipped } = await runAiActions(job.actions, job.label)
       const chat = useChat.getState()
       if (chat.turns.length || job.openChat) chat.add({ role: 'assistant', text: done ? `Added the extras: ${done} change${done === 1 ? '' : 's'}.` : 'The extras made no changes.', note: skipped.length ? `Skipped: ${skipped.join('; ')}.` : undefined, undoLabel: done ? job.label : undefined })

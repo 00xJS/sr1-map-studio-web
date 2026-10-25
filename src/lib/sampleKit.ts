@@ -45,6 +45,11 @@ export interface Part {
   rock?: Tex
   /** The prefab these parts were made by, so the editor can rebuild it with new settings. */
   prefab?: { key: string; params: Record<string, number | string>; at: Vec3; rot: number }
+  /**
+   * A model from the player's own game stands here (the new map wizard's "Game pieces"): this box, the model's
+   * size, stands in for it in the passes that follow and is swapped for the model when the map is built.
+   */
+  game?: import('./gameObjects/wizardPieces').GamePart
 }
 
 export type Theme = 'Starter' | 'Urban' | 'Urban paintball' | 'Cyber'

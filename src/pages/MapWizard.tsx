@@ -4,6 +4,9 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { DENSITY, LAYOUTS, SETTINGS, busyLabel, busyOf, densityFor, newSeed, wizardSample, type WizardLayout, type WizardOptions, type WizardSetting } from '../lib/mapWizard'
 import { mapSize } from '../lib/sampleScale'
 import type { Sample } from '../lib/sampleKit'
+import { NeedGameFolder, buildIndex, connect, loadIndex, useGameObjects } from '../lib/gameObjects/client'
+import { GamePieces, gamePiecesSuit } from '../lib/gameObjects/wizardPieces'
+import { toastError } from '../ui'
 
 const PLAYERS = [4, 6, 8, 10, 12]
 const GROUND_COLORS: Record<string, string> = {
@@ -38,6 +41,7 @@ export function Sketch({ s }: { s: Sample }) {
       // Streets, sidewalks and green ground in their own colours; terrain shaded by its highest point.
       const flat = GROUND_COLORS[p.label]
       g.fillStyle = flat ? flat
+        : p.game ? `hsl(160 28% ${34 + h * 40}%)`
         : p.kind === 'terrain' ? `hsl(95 30% ${26 + Math.min(1, Math.max(0, ...(p.heights ?? [0])) / 12) * 22}%)`
           : raised ? `hsl(38 45% ${42 + h * 30}%)`
             : s.theme === 'Cyber' ? `hsl(280 45% ${30 + h * 45}%)`
@@ -66,7 +70,20 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
   const [o, setO] = useState<WizardOptions>(() => initial ?? { setting: 'downtown', layout: 'blocks', players: 10, density: 'normal', seed: newSeed() })
   const [name, setName] = useState(initial?.name ?? '')
   const set = (patch: Partial<WizardOptions>) => setO((x) => ({ ...x, ...patch }))
-  const sample = useMemo(() => wizardSample(o), [o])
+  const [useGame, setUseGame] = useState(false)
+  const entries = useGameObjects((s) => s.entries)
+  // The library is read from this browser when there is one (no game files needed for that).
+  useEffect(() => { void loadIndex().catch(() => {}) }, [])
+  const gameOn = useGame && !!entries && gamePiecesSuit(o.setting)
+  const { sample, pieces } = useMemo(() => {
+    const pieces = gameOn ? new GamePieces(entries!, o) : undefined
+    return { sample: wizardSample(o, pieces), pieces }
+  }, [o, gameOn, entries])
+  const create = async () => {
+    // Placing the models needs the game files open (the browser may ask for the folder once).
+    if (pieces) try { await connect(true) } catch (e) { toastError(e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder so the wizard can bring in the models from your game.') : e); return }
+    onCreate({ ...sample, name: name.trim() || sample.name })
+  }
   const size = mapSize(sample)
   const level = busyOf(o)
   const count = (...t: string[]) => sample.markers.filter(([m]) => t.includes(m)).length
@@ -111,13 +128,14 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
             <span className="row faint small" style={{ justifyContent: 'space-between' }}><span>Open</span><span>Packed</span><span>3× packed</span></span>
           </label>
         </div>
+        <GamePiecesChoice on={useGame} setOn={setUseGame} suits={gamePiecesSuit(o.setting)} pieces={pieces} />
         <label className="col" style={{ gap: 6 }}>
           <span className="section-title">Name</span>
           <input value={name} placeholder={sample.name} onChange={(e) => setName(e.target.value)} maxLength={40} />
         </label>
         <div className="row wrap">
           <button onClick={() => set({ seed: newSeed() })} disabled={busy} title="Same choices, a different map">🎲 Reroll</button>
-          <button className="primary" disabled={busy} onClick={() => onCreate({ ...sample, name: name.trim() || sample.name })}>Create this map</button>
+          <button className="primary" disabled={busy} onClick={() => void create()}>Create this map</button>
           {onBlank && <button className="link small" disabled={busy} onClick={onBlank}>or start blank</button>}
         </div>
       </div>
@@ -131,6 +149,43 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
           <span style={{ color: '#ffd23f' }}>●</span> weapon <span style={{ color: '#3dff9a' }}>●</span> chains drop-off · lighter is taller, tan is a deck or ramp. Seed {o.seed}.
         </span>
       </div>
+    </div>
+  )
+}
+
+/** "What to build with": the site's own shapes and prefabs, or models from the player's own game. */
+function GamePiecesChoice({ on, setOn, suits, pieces }: { on: boolean; setOn: (v: boolean) => void; suits: boolean; pieces?: GamePieces }) {
+  const { entries, status, progress } = useGameObjects()
+  const [loading, setLoading] = useState(false)
+  const load = async () => {
+    setLoading(true)
+    try { await buildIndex(true); setOn(true) } catch (e) { toastError(e) } finally { setLoading(false) }
+  }
+  const st = pieces?.stats
+  return (
+    <div className="col" style={{ gap: 6 }}>
+      <span className="section-title">Build with</span>
+      <div className="row wrap">
+        <button className={'sm' + (!on ? ' on' : '')} onClick={() => setOn(false)} title="The site's own buildings, shapes and prefabs">Site pieces</button>
+        <button className={'sm' + (on ? ' on' : '')} disabled={!entries} onClick={() => setOn(true)}
+          title={entries ? 'Real buildings and props from your own Saints Row game files' : 'Load your game library first'}>🎮 Game pieces</button>
+      </div>
+      {!entries && (
+        <span className="faint small">
+          Game pieces builds the map from real buildings and props in your own game. It needs your game library, read from your Saints Reborn folder on this device:{' '}
+          {status === 'indexing' || loading
+            ? <b>reading your game ({progress ? `${progress.done}/${progress.total || '…'}` : '…'})</b>
+            : <button className="link small" onClick={() => void load()}>load my game library</button>}
+          {' '}(or in the editor: Shape tool → Prefabs → From my game).
+        </span>
+      )}
+      {on && entries && !suits && <span className="faint small">The game has nothing like the cyber grid: this setting uses the site's pieces.</span>}
+      {on && entries && suits && (
+        <span className="small" style={{ color: 'var(--warn, #e0b050)' }}>
+          Built from models in your own game files, kept on this device: you can export this map to your game, but it can't be shared, put on the Showcase or synced.
+          {st && <span className="faint"> {st.buildings} buildings, {st.props} props, {st.lights} lights and {st.fences} fence pieces from {st.models} models ({Math.round(st.triangles / 1000)}k triangles, {st.textures} textures){st.kept ? `; ${st.kept} spots keep the site's piece where nothing fitted` : ''}.</span>}
+        </span>
+      )}
     </div>
   )
 }

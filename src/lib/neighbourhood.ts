@@ -14,6 +14,7 @@ import { buildRoad, formatPath, roadOptions, roadPrefabParts, WALK_H, type Polyl
 import { TERRAIN_TEX, heightAt, hills, peak, shapeTerrain, terrainShape } from './terrain'
 import { blocker } from './sampleScale'
 import type { Look, Rng, WizardOptions } from './mapWizard'
+import type { GamePieces } from './gameObjects/wizardPieces'
 
 export interface HoodContext {
   o: WizardOptions
@@ -28,6 +29,8 @@ export interface HoodContext {
   /** A building players can walk into (front toward +Z), standing at y. */
   walkIn(key: string, x: number, z: number, w: number, d: number, extra: Record<string, string | number>, y: number): Part[]
   high: string[]
+  /** Game models for the buildings (the wizard's "Game pieces"). */
+  pieces?: GamePieces
 }
 
 export interface HoodResult {
@@ -109,7 +112,9 @@ export function neighbourhood(c: HoodContext): HoodResult {
       if (k === walkInAt) {
         const key = fd >= 14 && w >= 14 ? r.pick(['twostory', 'room']) : 'room'
         const made = c.walkIn(key, x, fz, w, fd, { style: r.pick(['brick', 'plaster', 'concrete']) }, LOT_Y)
-        if (made.length) { half.push(...made); weapons.push([r.pick(['pump_action_shotgun', 'ak47', 'tec9']), [x, LOT_Y, fz]]); return }
+        // Game pieces: a game building instead (players can't go in), its weapon on the doorstep.
+        const game = made.length ? c.pieces?.building(x, fz, w, fd, LOT_Y, 0, 2, made) : null
+        if (made.length) { half.push(...(game ? [game] : made)); weapons.push([r.pick(['pump_action_shotgun', 'ak47', 'tec9']), [x, LOT_Y, game ? Math.round(b.z1 - 0.5) : fz]]); return }
       }
       half.push(...block(x, fz, w, fd, 'S'))
     })
@@ -141,9 +146,12 @@ export function neighbourhood(c: HoodContext): HoodResult {
   /** One building: a detailed facade in town, the setting's own structure elsewhere. */
   function block(x: number, z: number, w: number, d: number, front: 'S' | 'N'): Part[] {
     const h = c.height()
-    if (o.setting === 'downtown') return building({ x, z, w, d, h, y: LOT_Y, style: r.pick(DOWNTOWN_STYLES), front })
-    if (o.setting === 'industrial' && r.chance(0.5)) return building({ x, z, w, d, h: Math.max(8, Math.min(h, 14)), y: LOT_Y, style: 'warehouse', front })
-    return look.structure(r, x, z, w, d, h)
+    // The site's building is always made, so the layout's random numbers stay the same with game pieces.
+    const site = o.setting === 'downtown' ? building({ x, z, w, d, h, y: LOT_Y, style: r.pick(DOWNTOWN_STYLES), front })
+      : o.setting === 'industrial' && r.chance(0.5) ? building({ x, z, w, d, h: Math.max(8, Math.min(h, 14)), y: LOT_Y, style: 'warehouse', front })
+        : look.structure(r, x, z, w, d, h)
+    const game = c.pieces?.building(x, z, w, d, LOT_Y, front === 'S' ? 0 : 180, 2, site)
+    return game ? [game] : site
   }
 
   function park(b: Block) {

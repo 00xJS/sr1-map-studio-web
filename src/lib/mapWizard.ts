@@ -13,6 +13,7 @@ import { detailize } from './sampleDetail'
 import { dress, type DressOptions } from './sampleDress'
 import { populate, type PopulateTargets } from './samplePopulate'
 import { neighbourhood } from './neighbourhood'
+import type { GamePieces } from './gameObjects/wizardPieces'
 
 export type WizardSetting = 'downtown' | 'industrial' | 'paintball' | 'cyber' | 'suburbs' | 'docks' | 'construction' | 'military' | 'rundown'
 export type WizardLayout = 'blocks' | 'plaza' | 'lanes' | 'arena' | 'heights' | 'neighbourhood' | 'crossroads' | 'compounds' | 'maze' | 'scatter'
@@ -258,7 +259,7 @@ class Half {
   parts: Part[] = []
   weapons: [string, Vec3][] = []
   taken: Rect[] = []
-  constructor(readonly W: number, readonly D: number, readonly strip: number, readonly look: Look, readonly r: Rng) {}
+  constructor(readonly W: number, readonly D: number, readonly strip: number, readonly look: Look, readonly r: Rng, readonly pieces?: GamePieces) {}
 
   /** Inside red's half, clear of the spawn strip and the middle, and `gap` away from everything placed. */
   fits(q: Rect, gap = 4) {
@@ -271,7 +272,10 @@ class Half {
 
   structure(q: Rect, h: number) {
     if (!this.fits(q)) return false
-    this.parts.push(...this.look.structure(this.r, q.x, q.z, q.w, q.d, h))
+    // The site's building is always made, so the layout's random numbers (and the rest of the map) stay the same.
+    const site = this.look.structure(this.r, q.x, q.z, q.w, q.d, h)
+    const game = this.pieces?.building(q.x, q.z, q.w, q.d, 1, 0, 2, site)
+    this.parts.push(...(game ? [game] : site))
     this.take(q)
     return true
   }
@@ -396,7 +400,10 @@ function lay(h: Half, o: WizardOptions) {
         ...[-1, 1].flatMap((sz) => [{ x: cx - (yw + gate) / 4, z: cz + sz * yd / 2, w: (yw - gate) / 2, d: t }, { x: cx + (yw + gate) / 4, z: cz + sz * yd / 2, w: (yw - gate) / 2, d: t }]),
       ]
       if (!walls.every((q) => h.fits(q, 0))) continue
-      for (const q of walls) { h.parts.push(box('Yard wall', [q.w, wallH, q.d], [q.x, 1, q.z], h.look.wallTop, h.look.wall)); h.take(q) }
+      for (const q of walls) {
+        h.parts.push(...(h.pieces?.fence(q.x, q.z, q.w, q.d, 1, wallH * 0.75) ?? [box('Yard wall', [q.w, wallH, q.d], [q.x, 1, q.z], h.look.wallTop, h.look.wall)]))
+        h.take(q)
+      }
       // Inside: a building on one side, and a deck or a second building on the other when it's busy.
       const side = r.pick([-1, 1])
       h.structure({ x: cx + side * yw / 4.5, z: cz, w: Math.round(yw * 0.34), d: Math.round(yd * 0.5) }, height())
@@ -474,14 +481,14 @@ export function wizardSize(players: number, layout: WizardLayout): [number, numb
   return layout === 'lanes' ? [r8(side / 1.2), r8(side * 1.2)] : [r8(side), r8(side)]
 }
 
-/** The map before detail, props and markers are added (exported for tests). */
-export function wizardLayout(o: WizardOptions): Sample {
+/** The map before detail, props and markers are added (exported for tests). `pieces`: fill it with game models (see wizardPieces.ts). */
+export function wizardLayout(o: WizardOptions, pieces?: GamePieces): Sample {
   const r = rng(o.seed)
   const look = LOOKS[o.setting]
   const [W, D] = wizardSize(o.players, o.layout)
   const strip = 14
-  if (o.layout === 'neighbourhood') return neighbourhoodSample(o, look, r, W, D, strip)
-  const h = new Half(W, D, strip, look, r)
+  if (o.layout === 'neighbourhood') return neighbourhoodSample(o, look, r, W, D, strip, pieces)
+  const h = new Half(W, D, strip, look, r, pieces)
   lay(h, o)
   const mid = centre(o, look, r)
   const gTex = r.pick(look.ground)
@@ -509,9 +516,9 @@ export function wizardLayout(o: WizardOptions): Sample {
 }
 
 /** Streets, blocks, a park and hills (see neighbourhood.ts), with spawns at each end. */
-function neighbourhoodSample(o: WizardOptions, look: Look, r: Rng, W: number, D: number, strip: number): Sample {
+function neighbourhoodSample(o: WizardOptions, look: Look, r: Rng, W: number, D: number, strip: number, pieces?: GamePieces): Sample {
   const height = () => r.pick(look.hoodHeights)
-  const hood = neighbourhood({ o, look, r, W, D, strip, height, walkIn, high: o.setting === 'cyber' ? CYBER_HIGH : WEAPONS_HIGH })
+  const hood = neighbourhood({ o, look, r, W, D, strip, height, walkIn, high: o.setting === 'cyber' ? CYBER_HIGH : WEAPONS_HIGH, pieces })
   const sz = -D / 2 + strip / 2
   const red: Vec3[] = [-0.3, -0.1, 0.1, 0.3].map((f) => [Math.round(f * W), 1, sz])
   const name = o.name?.trim() || `${SETTINGS[o.setting].label} ${LAYOUTS[o.layout].label}`
@@ -531,8 +538,12 @@ function neighbourhoodSample(o: WizardOptions, look: Look, r: Rng, W: number, D:
   }
 }
 
-/** The finished map: layout, then building detail, themed props, spawns, weapons and lights. */
-export function wizardSample(o: WizardOptions): Sample {
+/**
+ * The finished map: layout, then building detail, themed props, spawns, weapons and lights. With `pieces`, game
+ * models take the buildings' plots during the layout and the props' spots after dressing, before spawns and
+ * weapons are placed round them.
+ */
+export function wizardSample(o: WizardOptions, pieces?: GamePieces): Sample {
   const p = Math.max(2, Math.min(12, o.players))
   const targets: PopulateTargets = {
     perTeam: Math.max(4, Math.min(10, Math.round(p / 2) + 2)),
@@ -541,5 +552,6 @@ export function wizardSample(o: WizardOptions): Sample {
     drops: 4,
     lights: o.setting === 'cyber' ? 28 : 22,
   }
-  return populate(dress(detailize(wizardLayout(o)), busyness(busyOf(o)).dress), targets)
+  const dressed = dress(detailize(wizardLayout(o, pieces)), busyness(busyOf(o)).dress)
+  return populate(pieces ? pieces.swap(dressed) : dressed, targets)
 }
