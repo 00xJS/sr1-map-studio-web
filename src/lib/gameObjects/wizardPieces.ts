@@ -198,7 +198,12 @@ export function prepare(entries: GameObjectEntry[], setting: WizardSetting, base
   const ident = labels ? withLabels(labels, base) : base
   const out: Prepared = { buildings: [], fences: [], props: new Map(), named: new Map() }
   const all = new Map(entries.map((e) => [e.id, e]))
+  // The city's own copy of a model wins over a multiplayer map's: the retail maps dress some of them for play (their
+  // bus stop stands on a concrete block the catalogue counts as part of it), where the city's stands as it is.
+  const look = (e: GameObjectEntry) => `${e.size.map((v) => v.toFixed(1)).join(',')}|${[...e.tex].map((t) => t.toLowerCase()).sort().join(',')}`
+  const inCity = new Set(entries.filter((e) => e.where?.includes('city')).map(look))
   for (const e of entries) {
+    if (e.where?.length && !e.where.includes('city') && inCity.has(look(e))) continue
     const id = ident(e), l = labels?.[e.id]
     if (id.role !== 'building' && id.role !== 'prop' && id.role !== 'fence') continue
     // Whole pieces only: a real 3D model standing on its own, complete with its parts, or one that stands on its base

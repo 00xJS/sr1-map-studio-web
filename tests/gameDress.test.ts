@@ -3,7 +3,7 @@
 import { describe, expect, it } from 'vitest'
 import type { GameObjectEntry } from '../src/lib/gameObjects/indexer'
 import type { GameIdentity, PropKind } from '../src/lib/gameObjects/identity'
-import { GamePieces, TEXTURE_BUDGET, TRI_BUDGET, gameParts } from '../src/lib/gameObjects/wizardPieces'
+import { GamePieces, TEXTURE_BUDGET, TRI_BUDGET, gameParts, prepare } from '../src/lib/gameObjects/wizardPieces'
 import { KITS } from '../src/lib/gameObjects/areaKits'
 import { wizardSample, type WizardOptions } from '../src/lib/mapWizard'
 
@@ -67,5 +67,19 @@ describe('game dressing', () => {
     gp.commit(c)
     expect(gp.stats.triangles).toBe(600)
     expect(gp.stats.props).toBe(2)
+  })
+})
+
+describe('city copies first', () => {
+  it("leaves out a multiplayer map's copy of a model the city has (the retail bus stop on its concrete block)", () => {
+    const city: GameObjectEntry = { ...entries.find((e) => e.id === 'bench')!, id: 'city_stop', where: ['city'] }
+    const mp: GameObjectEntry = { ...city, id: 'mp_stop', where: ['mp_bac_01'] }
+    // A multiplayer-only model with no city copy stays.
+    const only: GameObjectEntry = { ...entries.find((e) => e.id === 'bin')!, id: 'mp_only', where: ['mp_bac_01'] }
+    byId.set('city_stop', byId.get('bench')!); byId.set('mp_stop', byId.get('bench')!); byId.set('mp_only', byId.get('bin')!)
+    const ids = [...prepare([city, mp, only], 'downtown', identify).props.values()].flat().map((c) => c.e.id)
+    expect(ids).toContain('city_stop')
+    expect(ids).toContain('mp_only')
+    expect(ids).not.toContain('mp_stop')
   })
 })
