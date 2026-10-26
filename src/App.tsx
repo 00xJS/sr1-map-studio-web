@@ -1,7 +1,7 @@
 import { useIsAdmin } from './lib/admin'
 import { lazy, Suspense, type ReactNode } from 'react'
 import { NavLink, Link, Navigate, Route, Routes, useParams } from 'react-router-dom'
-import { Dialogs, ErrorBoundary, FileButton, Toasts, Avatar, toastError } from './ui'
+import { Dialogs, ErrorBoundary, FileButton, Toasts, Avatar, Kewizzle, ZeroXJS, toastError } from './ui'
 import { accountsEnabled, hubEnabled, useUser } from './lib/backend'
 import { openMapFiles, useOpenMap } from './lib/mapFolder/store'
 import Home from './pages/Home'
@@ -51,7 +51,7 @@ export function Shell({ children }: { children: ReactNode }) {
       </header>
       {children}
       <footer className="site-footer">
-        <span>Free and open source. Original SR1 Map Studio by kewizzle · Web app by <a href="https://github.com/00xJS" target="_blank" rel="noreferrer">00xJS</a></span>
+        <span>Free and open source. Original SR1 Map Studio by <Kewizzle /> · Rebuilt and expanded for the web by <ZeroXJS /></span>
         <a href="https://github.com/00xJS/sr1-map-studio-web" target="_blank" rel="noreferrer">Source on GitHub</a>
       </footer>
     </div>

@@ -111,13 +111,18 @@ where you put them, and wooden crates can smash into boards, both read from your
 
 ## Credits
 
-SR1 Map Studio was created by **kewizzle**, who came up with the idea and built the original desktop
+SR1 Map Studio was created by **Kewizzle**, who came up with the idea and built the original desktop
 program and map exporter this project started from.
 
-**[00xJS](https://github.com/00xJS)** turned it into this web app and took it much further: the
-browser editor, walk-through and free cam, the map wizard and AI chat, hundreds of objects, cloud
-saves, share links and the Showcase, and the new export features (game modes, water, breakables,
-lighting).
+**[00xJS](https://github.com/00xJS)** rebuilt it from the ground up as this web app and took it much
+further, working out more of how the game builds its maps along the way: the browser editor,
+walk-through and free cam, the map wizard and AI chat, real Stilwater buildings and props from your
+own game, Stilwater cuts, in-place upgrades for finished maps (the game's sky, a minimap, retail
+lighting), working minimaps, removal of invisible walls, invisible ramps over stairs and kerbs too
+tall to walk up, the map health check (campable spawns, sight lines by weapon reach, fairness,
+spawns and guns players can't reach, falls, a bot playtest, texture memory), hundreds of objects,
+cloud saves, share links and the Showcase, and the new export features (game modes, water,
+breakables, lighting, the game's own sky).
 
 The map-format code comes from the Saints Reborn Map Converter by **whompay**.
 

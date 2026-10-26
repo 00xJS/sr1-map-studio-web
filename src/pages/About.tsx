@@ -1,12 +1,24 @@
 import { catalogs } from '../lib/catalogs'
+import { Kewizzle, ZeroXJS } from '../ui'
 
 export default function About() {
   return (
     <div className="page page-narrow">
       <h1>About</h1>
       <div className="card">
-        <p>SR1 Map Studio (web) is the browser version of <b>SR1 Map Studio v1.13</b> by <b>kewizzle</b>, the Saints Row 1 / Saints Reborn map editor. kewizzle had the original idea and wrote the desktop program and map exporter it started from. <a href="https://github.com/00xJS" target="_blank" rel="noreferrer"><b>00xJS</b></a> rebuilt it as a web app and has been building on it since. The original Python exporter runs unmodified inside your browser through Pyodide (Python compiled to WebAssembly); the editor interface was rebuilt for the web.</p>
-        <p className="small muted">Exporter version {catalogs.exporter_version}. Map-format code is a Python port of the Saints Reborn Map Converter by whompay.</p>
+        <p>SR1 Map Studio began as <b>SR1 Map Studio v1.13</b> by <Kewizzle />, the Saints Row 1 / Saints Reborn map editor: Kewizzle had the original idea and wrote the desktop program and the map exporter. <ZeroXJS /> rebuilt it from the ground up for the browser and has taken it much further, working out more of how the game builds its maps along the way.</p>
+        <ul className="small" style={{ margin: '0 0 10px', paddingLeft: 18, display: 'grid', gap: 4 }}>
+          <li><b>A 3D editor in your browser</b>, nothing to install, with a walk mode to try a map on foot.</li>
+          <li><b>A map wizard</b> that builds a playable map from a setting, a layout and a player count, dressed the way Stilwater dresses each kind of place.</li>
+          <li><b>Your own game's pieces</b>: real Stilwater buildings and props read from your copy of the game, each catalogued by what it is and how the game stands it, and set on the ground the way the city sets it.</li>
+          <li><b>Stilwater cuts and finished maps</b>: turn a piece of the city into a multiplayer map (shrunk to fit if its textures won't), or open a finished map folder and upgrade it in place: the game's own sky, a minimap, lighting like the game's own maps, invisible walls taken out.</li>
+          <li><b>Working minimaps</b>, after working out how the game finds a map's minimap.</li>
+          <li><b>No invisible walls</b>: the paper-thin triangles in converted maps that stop players and cameras are taken out.</li>
+          <li><b>A map health check</b>: spawns that are easy to camp, sight lines judged by what each weapon can actually hit, how fair the two halves are, spawns and guns with no stairs up or no way down without a fall, gaps and drops that hurt or kill, a bot playtest showing where players run, and textures that would overflow the game's memory (the map that loads black). One click moves spawns and weapons to where players can use them.</li>
+          <li><b>Walkable stairs</b>: invisible ramps over steps and kerbs too tall to walk up.</li>
+          <li><b>More in the map itself</b>: water you can swim in, physics props, glass, lighting and the game's own sky.</li>
+        </ul>
+        <p className="small muted">Kewizzle's Python exporter still builds every map, running inside your browser through Pyodide (Python compiled to WebAssembly), with the new map-format work added on top. Exporter version {catalogs.exporter_version}. Map-format code is a Python port of the Saints Reborn Map Converter by whompay.</p>
       </div>
       <div className="card">
         <h3>License</h3>

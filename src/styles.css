@@ -448,3 +448,36 @@ kbd { font: 11px/1 var(--mono); padding: 3px 6px; border-radius: 4px; background
 /* Stilwater page: the city map beside its panel; stacked on narrow screens. */
 .city-layout { display: flex; gap: 16px; align-items: flex-start; flex-wrap: wrap; }
 .city-map { flex: 1 1 520px; min-width: 0; width: 100%; height: min(72vh, 820px); border-radius: 10px; background: #0d0e12; cursor: crosshair; touch-action: none; display: block; }
+
+/* 00xJS's name (ui.tsx ZeroXJS): bold orange. */
+a.zeroxjs, a.zeroxjs:visited, .site-footer a.zeroxjs { color: #ff8a1f; font-weight: 700; text-shadow: 0 0 8px rgba(255, 138, 31, 0.3); }
+a.zeroxjs:hover, .site-footer a.zeroxjs:hover { color: #ffa54d; }
+
+/* Kewizzle's name (ui.tsx Kewizzle): fuchsia, and on hover a shimmer of colours with sparkles round it. */
+a.kewizzle, a.kewizzle:visited, .site-footer a.kewizzle { position: relative; display: inline-block; color: #ff3fd8; font-weight: 700; cursor: pointer; white-space: nowrap; text-shadow: 0 0 8px rgba(255, 63, 216, 0.35); }
+a.kewizzle:hover, .site-footer a.kewizzle:hover {
+  text-decoration: none;
+  background: linear-gradient(90deg, #ff3fd8, #ffb3f2, #ffd84d, #7df9ff, #b28cff, #ff3fd8);
+  background-size: 300% 100%; -webkit-background-clip: text; background-clip: text; color: transparent;
+  text-shadow: none; animation: kw-shimmer 1.4s linear infinite;
+}
+.kw-spark { position: absolute; font-size: 0.7em; line-height: 1; opacity: 0; pointer-events: none; user-select: none; -webkit-text-fill-color: currentColor; }
+.kw-s1 { left: -0.7em; top: -0.55em; color: #ffd84d; }
+.kw-s2 { left: 30%; top: -0.9em; color: #7df9ff; }
+.kw-s3 { right: -0.75em; top: -0.45em; color: #ffb3f2; }
+.kw-s4 { right: 18%; bottom: -0.8em; color: #b28cff; }
+.kw-s5 { left: 8%; bottom: -0.75em; color: #ff3fd8; }
+.kewizzle:hover .kw-spark { animation: kw-twinkle 1.2s ease-in-out infinite; }
+.kewizzle:hover .kw-s2 { animation-delay: 0.25s; }
+.kewizzle:hover .kw-s3 { animation-delay: 0.5s; }
+.kewizzle:hover .kw-s4 { animation-delay: 0.75s; }
+.kewizzle:hover .kw-s5 { animation-delay: 1s; }
+@keyframes kw-shimmer { to { background-position: 300% 0; } }
+@keyframes kw-twinkle {
+  0%, 100% { opacity: 0; transform: scale(0.4) rotate(0deg); }
+  50% { opacity: 1; transform: scale(1.15) rotate(90deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  a.kewizzle:hover, .site-footer a.kewizzle:hover, .kewizzle:hover .kw-spark { animation: none; }
+  .kewizzle:hover .kw-spark { opacity: 1; }
+}

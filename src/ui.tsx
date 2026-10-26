@@ -185,3 +185,18 @@ export function timeAgo(iso: string) {
 export function Avatar({ name, url }: { name: string; url?: string }) {
   return <span className="avatar">{url ? <img src={url} alt="" /> : (name || '?').slice(0, 1).toUpperCase()}</span>
 }
+
+/** 00xJS, who rebuilt the studio for the web: bold orange, linked to their GitHub. */
+export function ZeroXJS() {
+  return <a className="zeroxjs" href="https://github.com/00xJS" target="_blank" rel="noreferrer">00xJS</a>
+}
+
+/** Kewizzle's name, as Kewizzle asked for it: fuchsia, and sparkling in every colour on hover (styles.css), linked to his channel. */
+export function Kewizzle() {
+  return (
+    <a className="kewizzle" href="https://www.youtube.com/@kewizzle" target="_blank" rel="noreferrer" title="Kewizzle">
+      Kewizzle
+      {[1, 2, 3, 4, 5].map((n) => <span key={n} className={`kw-spark kw-s${n}`} aria-hidden>✦</span>)}
+    </a>
+  )
+}
