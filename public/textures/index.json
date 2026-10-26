@@ -299,6 +299,17 @@
    ],
    "source": "https://polyhaven.com/a/gravel_concrete_03",
    "license": "CC0"
+  },
+  {
+   "id": "saints_reborn_wall",
+   "name": "Saints Reborn logo wall",
+   "surface": 0,
+   "authors": [
+    "Whompay (Saints Reborn logo)",
+    "00xJS (wall)"
+   ],
+   "source": "https://github.com/whompay/SaintsReborn",
+   "license": "Apache-2.0"
   }
  ]
 }

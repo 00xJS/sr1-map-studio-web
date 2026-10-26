@@ -10,7 +10,7 @@ import { generatedPng } from './texgen'
 import { storeFile } from './files'
 import { db } from './db'
 import { tagRecipe } from './recipes'
-import { ALL_MODES, GB, PB, box, turn, type Part, type Sample, type Tex, type Theme } from './sampleKit'
+import { ALL_MODES, GB, LOGO_WALL, PB, box, logoTile, turn, type Part, type Sample, type Tex, type Theme } from './sampleKit'
 import { PAINTBALL, poster, put } from './samplesPaintball'
 import { CYBER } from './samplesCyber'
 import { URBAN } from './samplesUrban'
@@ -70,10 +70,10 @@ const STARTER: Sample[] = [
     description: 'Walled square with a raised center platform, four ramps, pillars and cover. Set up for every mode.',
     parts: [
       box('Floor', [100, 1, 100], [0, 0, 0], T.floorWorn, T.concrete),
-      box('Wall', [104, 8, 2], [0, 1, -51], T.concrete, T.brick),
-      box('Wall', [104, 8, 2], [0, 1, 51], T.concrete, T.brick),
-      box('Wall', [100, 8, 2], [51, 1, 0], T.concrete, T.brick, 90),
-      box('Wall', [100, 8, 2], [-51, 1, 0], T.concrete, T.brick, 90),
+      box('Wall', [104, 8, 2], [0, 1, -51], T.concrete, LOGO_WALL, 0, logoTile(8)),
+      box('Wall', [104, 8, 2], [0, 1, 51], T.concrete, LOGO_WALL, 0, logoTile(8)),
+      box('Wall', [100, 8, 2], [51, 1, 0], T.concrete, LOGO_WALL, 90, logoTile(8)),
+      box('Wall', [100, 8, 2], [-51, 1, 0], T.concrete, LOGO_WALL, 90, logoTile(8)),
       box('Platform', [16, 4, 16], [0, 1, 0], T.metal, T.darkConcrete),
       { label: 'Ramp', kind: 'ramp', size: [6, 4, 12], at: [0, 1, 14], top: T.wood, side: T.darkConcrete },
       { label: 'Ramp', kind: 'ramp', size: [6, 4, 12], at: [0, 1, -14], rot: 180, top: T.wood, side: T.darkConcrete },
@@ -99,10 +99,10 @@ const STARTER: Sample[] = [
     description: 'Indoor hall with corrugated walls, crate stacks, support columns and a catwalk reached by stairs.',
     parts: [
       box('Floor', [90, 1, 60], [0, 0, 0], T.darkConcrete, T.concrete),
-      box('Wall', [94, 14, 2], [0, 1, -31], T.metal, T.corrugated),
-      box('Wall', [94, 14, 2], [0, 1, 31], T.metal, T.corrugated),
-      box('Wall', [60, 14, 2], [46, 1, 0], T.metal, T.corrugated, 90),
-      box('Wall', [60, 14, 2], [-46, 1, 0], T.metal, T.corrugated, 90),
+      box('Wall', [94, 14, 2], [0, 1, -31], T.metal, LOGO_WALL, 0, logoTile(14)),
+      box('Wall', [94, 14, 2], [0, 1, 31], T.metal, LOGO_WALL, 0, logoTile(14)),
+      box('Wall', [60, 14, 2], [46, 1, 0], T.metal, LOGO_WALL, 90, logoTile(14)),
+      box('Wall', [60, 14, 2], [-46, 1, 0], T.metal, LOGO_WALL, 90, logoTile(14)),
       box('Catwalk', [80, 1, 4], [0, 8, -26], T.diamond, T.metal),
       { label: 'Stairs', kind: 'stairs', size: [4, 8, 12], at: [-35, 1, -18], top: T.diamond, side: T.metal, segments: 12 },
       { label: 'Stairs', kind: 'stairs', size: [4, 8, 12], at: [35, 1, -18], top: T.diamond, side: T.metal, segments: 12 },

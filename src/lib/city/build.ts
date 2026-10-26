@@ -3,7 +3,7 @@
 // look-only parts, decals and grass, keep collision off as in the game), boundary walls and a safety floor so
 // nobody walks or falls off the cut edge, and spawns and weapons spread over the open street level.
 import { newMarker, newProject, type Marker, type Project, type Vec3 } from '../project'
-import { box, PB, type Part } from '../sampleKit'
+import { box, LOGO_WALL, logoTile, PB, type Part } from '../sampleKit'
 import { materialize, skyFile } from '../samples'
 import { catalogs } from '../catalogs'
 import { objText, plain, rgbaPng, safe, stemOf, storeLayers, storeLook, surfaceOf } from '../gameObjects/place'
@@ -197,9 +197,10 @@ export async function cityProject(r: Rect, map: CityMap, onProgress: (t: string)
   // Walls round the cut edge and a floor under it (editor units; street level is 0).
   const u = (m: number) => m / ws
   const W = u(w), D = u(d), H = u(16), y0 = u(-6)
+  const wall = (size: Vec3, at: Vec3) => box('Boundary wall', size, at, PB.concrete, LOGO_WALL, 0, logoTile(H + y0, -y0))
   const parts: Part[] = [
-    box('Boundary wall', [W + 2, H, 1], [0, y0, -D / 2 - 0.5], PB.concrete), box('Boundary wall', [W + 2, H, 1], [0, y0, D / 2 + 0.5], PB.concrete),
-    box('Boundary wall', [1, H, D], [-W / 2 - 0.5, y0, 0], PB.concrete), box('Boundary wall', [1, H, D], [W / 2 + 0.5, y0, 0], PB.concrete),
+    wall([W + 2, H, 1], [0, y0, -D / 2 - 0.5]), wall([W + 2, H, 1], [0, y0, D / 2 + 0.5]),
+    wall([1, H, D], [-W / 2 - 0.5, y0, 0]), wall([1, H, D], [W / 2 + 0.5, y0, 0]),
     box('Safety floor', [W, 1, D], [0, y0 - 1, 0], PB.concrete),
   ]
   onProgress('Adding boundary walls…')

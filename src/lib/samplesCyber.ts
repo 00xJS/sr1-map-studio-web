@@ -5,7 +5,7 @@
 // of the life (wall screens, trims, markings, lane arrows) comes from the
 // cyber life pass when the map is built (prefabsCyberLife.ts).
 import type { Vec3 } from './project'
-import { ALL_MODES, CY, LIGHT, box, cyl, ground, mirror, mirrorLights, perimeter, ramp, stairs, teamMarkers, type Part, type Sample, type Tex } from './sampleKit'
+import { ALL_MODES, CY, LIGHT, LOGO_WALL, box, cyl, ground, logoTile, mirror, mirrorLights, perimeter, ramp, stairs, teamMarkers, type Part, type Sample, type Tex } from './sampleKit'
 import { prefabParams, tagPrefab, type Params } from './prefabs'
 import { MORE_PREFABS } from './prefabsMore'
 import { CYBER_LIFE_PREFABS, SCOREBOARD, neonTex, screenTex } from './prefabsCyberLife'
@@ -122,7 +122,7 @@ export const CYBER: Sample[] = [
     description: 'A round arena around a towering core of falling code. Ramps climb to the core ring; glowing conduits and code pillars break up the floor.',
     parts: [
       cyl('Arena floor', 84, 1, [0, 0, 0], CY.gridCyan, CY.panel, 48, 0, 6),
-      ...[...Array(24)].map((_, k) => { const a = k * 15, [x, z] = polar(41.5, a); return { ...box('Ring wall', [11, 7, 1], [x, 0, z], CY.panelLight, CY.panel, tangent(a)), big: true } }),
+      ...[...Array(24)].map((_, k) => { const a = k * 15, [x, z] = polar(41.5, a); return { ...box('Ring wall', [11, 7, 1], [x, 0, z], CY.panelLight, LOGO_WALL, tangent(a), logoTile(6, 1)), big: true } }),
       cyl('Core ring', 18, 3, [0, 1, 0], CY.dark, CY.panel, 24),
       { ...cyl('Data core', 8, 16, [0, 4, 0], CY.cyan, CY.matrix, 24), tile: 6, big: true },
       ...halo(5.6, 10, 16, CY.cyan, true), ...halo(5.6, 15, 16, CY.pink, true),
@@ -340,7 +340,7 @@ export const CYBER: Sample[] = [
     description: 'An octagonal pit ringed by tiered neon seating up to a walkway round the top, with a ramped platform under a four-sided scoreboard in the middle and blocks for cover.',
     parts: [
       cyl('Arena floor', 90, 1, [0, 0, 0], CY.gridPink, CY.panel, 8, 22.5, 6),
-      ...[0, 45, 90, 135, 180, 225, 270, 315].map((a) => { const [x, z] = polar(42, a); return box('Outer wall', [35, 9, 1], [x, 0, z], CY.panelLight, CY.panel, tangent(a)) }),
+      ...[0, 45, 90, 135, 180, 225, 270, 315].map((a) => { const [x, z] = polar(42, a); return box('Outer wall', [35, 9, 1], [x, 0, z], CY.panelLight, LOGO_WALL, tangent(a), logoTile(8, 1)) }),
       ...[0, 45, 90, 135, 180, 225, 270, 315].map((a) => { const [x, z] = polar(34, a); return stairs('Seating', [24, 6, 8], [x, 1, z], CY.dark, CY.panelLight, outward(a), 6) }),
       // The top row steps onto a walkway that runs round the inside of the wall.
       // Neighbours differ a hair in height where they overlap at the corners, so the tops don't flicker.

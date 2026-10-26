@@ -279,13 +279,14 @@ function faceUvs(pts: V[], normal: V, tile: number, fit?: boolean): [number, num
   return raw.map(([u, v]) => [(u - u0) / (u1 - u0 || 1), (v - v0) / (v1 - v0 || 1)])
 }
 
-/** World-space UVs: project onto the plane the face is most aligned with. */
+/** World-space UVs: project onto the plane the face is most aligned with. U runs to the viewer's right on
+ *  every side (it flips with the face's direction), so words and logos read the right way from either side of a wall. */
 function uv(p: V, normal: V, tile: number): [number, number] {
   const ax = Math.abs(normal[0]), ay = Math.abs(normal[1]), az = Math.abs(normal[2])
   const t = Math.max(0.05, tile)
-  if (ay >= ax && ay >= az) return [p[0] / t, -p[2] / t]
-  if (ax >= az) return [p[2] / t, p[1] / t]
-  return [p[0] / t, p[1] / t]
+  if (ay >= ax && ay >= az) return [Math.sign(normal[1]) * p[0] / t, -p[2] / t]
+  if (ax >= az) return [-Math.sign(normal[0]) * p[2] / t, p[1] / t]
+  return [Math.sign(normal[2]) * p[0] / t, p[1] / t]
 }
 
 const fmt = (n: number) => String(+n.toFixed(5))

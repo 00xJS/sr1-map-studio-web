@@ -104,6 +104,8 @@ export function frameLook(entries: GameObjectEntry[], setting: WizardSetting): F
 /** Whether a texture is one of the game's (a frame surface). */
 export const isGameTex = (t: Tex) => 'game' in t
 
+const isLogoWall = (t: Tex | undefined) => !!t && 'lib' in t && t.lib === 'saints_reborn_wall'
+
 /**
  * The frame's shapes by label, and the game surfaces they wear: [top, side]. `must`: kept even when the library has
  * none of the textures (the map needs its ground, outer walls and decks), in the site's look.
@@ -150,6 +152,8 @@ export function gameOnly(parts: Part[], f: FrameLook, keep: (p: Part) => boolean
     if (!slot || (p.group && p.prefab?.key !== 'road')) continue
     const top = f[slot.top], side = f[slot.side]
     if (!top || !side) { if (slot.must) out.push(p); continue }
+    // Outer walls keep the Saints Reborn logo on their sides, as on every new map; only their tops turn to the game's.
+    if (isLogoWall(p.side)) { out.push({ ...p, top }); continue }
     out.push({ ...p, top, side, ...(slot.rock && f[slot.rock] ? { rock: f[slot.rock] } : {}) })
   }
   return out

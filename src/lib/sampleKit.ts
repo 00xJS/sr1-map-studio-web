@@ -124,13 +124,25 @@ export function organic(w: number, d: number, seed: number, points = 28, wobble 
 /** A ground slab w × d, 1 thick, top at y 1. */
 export const ground = (w: number, d: number, top: Tex, side: Tex = top, tile = 6): Part => box('Ground', [w, 1, d], [0, 0, 0], top, side, 0, tile)
 
-/** Four walls standing h above the ground, just outside a w × d ground slab. */
+/** The Saints Reborn logo wall (public/textures/saints_reborn_wall.jpg): what every new map's outer walls wear. */
+export const LOGO_WALL: Tex = { lib: 'saints_reborn_wall', surface: 0 }
+
+/** Units per repeat of the logo wall so one row of logos shows, centred on the `visible` units of a wall whose
+ *  bottom `hidden` units are below the ground (the logo band sits just above the middle of the picture). */
+export function logoTile(visible: number, hidden = 0): number {
+  const mid = hidden + visible / 2, band = 0.51
+  return +(mid / (Math.max(0, Math.floor(mid / visible - band)) + band)).toFixed(2)
+}
+
+/** Four walls standing h above the ground, just outside a w × d ground slab. Their sides wear the logo wall;
+ *  `tex` (the map's own wall) is kept for the top when no `top` is given. */
 export function perimeter(w: number, d: number, h: number, tex: Tex, top: Tex = tex): Part[] {
+  const tile = logoTile(h, 1)
   return [
-    box('Wall', [w + 2, h + 1, 1], [0, 0, -d / 2 - 0.5], top, tex),
-    box('Wall', [w + 2, h + 1, 1], [0, 0, d / 2 + 0.5], top, tex),
-    box('Wall', [1, h + 1, d], [-w / 2 - 0.5, 0, 0], top, tex),
-    box('Wall', [1, h + 1, d], [w / 2 + 0.5, 0, 0], top, tex),
+    box('Wall', [w + 2, h + 1, 1], [0, 0, -d / 2 - 0.5], top, LOGO_WALL, 0, tile),
+    box('Wall', [w + 2, h + 1, 1], [0, 0, d / 2 + 0.5], top, LOGO_WALL, 0, tile),
+    box('Wall', [1, h + 1, d], [-w / 2 - 0.5, 0, 0], top, LOGO_WALL, 0, tile),
+    box('Wall', [1, h + 1, d], [w / 2 + 0.5, 0, 0], top, LOGO_WALL, 0, tile),
   ]
 }
 

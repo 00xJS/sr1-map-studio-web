@@ -112,6 +112,27 @@ describe('block-out shapes', () => {
     expect(uRange({ kind: 'box', size: [8, 1, 8], tile: 4 })).toBeCloseTo(2, 5)
     expect(uRange({ kind: 'box', size: [16, 1, 16], tile: 4 })).toBeCloseTo(4, 5)
   })
+
+  it('texture reads left to right on every side of a box', () => {
+    // Walk each side face: U must grow toward the viewer's right (outward normal × up), never mirrored.
+    const m = parseObj(shapeObj({ kind: 'box', size: [8, 4, 6], tile: 2 }))
+    const P = (i: number) => [m.positions[i * 3], m.positions[i * 3 + 1], m.positions[i * 3 + 2]]
+    let sides = 0
+    for (let f = 0; f < m.faces.length; f += 3) {
+      const [a, b, c] = [m.faces[f], m.faces[f + 1], m.faces[f + 2]]
+      const [pa, pb, pc] = [P(a), P(b), P(c)]
+      const e1 = pb.map((v, k) => v - pa[k]), e2 = pc.map((v, k) => v - pa[k])
+      const n = [e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]
+      if (Math.abs(n[1]) > 1e-6) continue
+      const right = [n[2], 0, -n[0]] // the viewer looks along -n with +Y up, so right = -n × up
+      for (const [i, j] of [[a, b], [b, c], [a, c]]) {
+        const d = P(j).map((v, k) => v - P(i)[k]), along = d[0] * right[0] + d[2] * right[2]
+        if (Math.abs(along) > 1e-6) expect(Math.sign(m.uvs[j * 2] - m.uvs[i * 2])).toBe(Math.sign(along))
+      }
+      sides++
+    }
+    expect(sides).toBe(8)
+  })
 })
 
 describe('prefab objects', () => {
