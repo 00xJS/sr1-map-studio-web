@@ -32,7 +32,8 @@ To remove it, untick it in the mod loader or delete the folder.
    play it alone.
 3. Change the map in SR1 Map Studio and press **Install to game** again. Within
    about a second the match shows the loading screen and comes back with your
-   changes. You can also press **F7** at any time during the match.
+   changes. You can also press **F7** at any time during the match. You come
+   back as your own multiplayer character (the look you made for online play).
 
 What still needs a restart of the game:
 
@@ -91,6 +92,10 @@ Set `debug = true` in `mod.ini`, play, and open `SaintsReborn/dist/mods/wml.log`
 - `Reloading map ...` then `Map ... reloaded in N s` is a good reload.
   Anything else (`did not start loading`, `ended in state ...`) is worth
   reporting, together with the log.
+- `Online look put back (...)` follows every reload. If it says the look
+  `differs from before the reload`, or your character doesn't look like
+  yours, report it with the log (with `debug = true` it lists the clothes,
+  body sliders and colours before and after).
 
 ## Online
 
