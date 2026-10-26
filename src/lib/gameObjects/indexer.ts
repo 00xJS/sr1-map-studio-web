@@ -67,6 +67,14 @@ export interface GameObjectEntry {
   /** Models the game most often stands within a few metres of this one, most telling first, with how often. */
   near?: { id: string; n: number }[]
   /**
+   * What the game stands on top of this one (a lamp post on its base, a sign on its pole's foot, a crate on a pallet):
+   * each model, how many of this one's placements have it there, where its feet stand in this one's frame (metres)
+   * and turned how (radians). Several of them are the variations that fit this base.
+   */
+  tops?: { id: string; n: number; at: Vec3; yaw: number }[]
+  /** The models this one stands on top of (its bases), and how often. */
+  bases?: { id: string; n: number }[]
+  /**
    * A piece only ever used on one kind of building (its windows, doors, trims and corners made for it): that
    * building's code ("bsad2a"), and the library's buildings of that kind it stands on (ids, most used first).
    * Kit pieces are not to be mixed onto other buildings.
@@ -509,6 +517,29 @@ function together(entries: GameObjectEntry[], rel: Map<string, { close: Map<stri
       for (const p of e.assembly) { const b = byId.get(p.id)!; if (!b.partOf || volume(byId.get(b.partOf)!) < volume(e)) b.partOf = e.id }
     }
   }
+  // What stands on what: a model touching this one whose feet are at its top, inside its footprint.
+  for (const e of entries) {
+    if (e.copyOf) continue
+    const g = rel.get(e.id)!
+    // Its feet inside the base's narrow width round its middle (a parking meter beside a kerb block isn't on it).
+    const h = e.size[2], reach = Math.max(0.3, e.size[1] / 2 + 0.15)
+    const found = new Map<string, { n: number; x: number; y: number; z: number; t: number }>()
+    for (const [bin, v] of g.close) {
+      const b = byId.get(bin.slice(0, bin.indexOf('|')))
+      if (!b || b.id === e.id || b.copyOf) continue
+      const n = v[0], x = v[1] / n, y = v[2] / n, z = v[3] / n
+      if (Math.abs(y - h) > Math.max(0.12, 0.15 * h) || Math.hypot(x, z) > reach || h < 0.05) continue
+      const f = found.get(b.id) ?? { n: 0, x: 0, y: 0, z: 0, t: 0 }
+      f.n += n; f.x += x * n; f.y += y * n; f.z += z * n; f.t += (v[4] / n) * n
+      found.set(b.id, f)
+    }
+    const tops = [...found].filter(([, f]) => f.n >= 2).sort((a, b) => b[1].n - a[1].n).slice(0, 12)
+      .map(([id, f]) => ({ id, n: f.n, at: [r2(f.x / f.n), r2(f.y / f.n), r2(f.z / f.n)] as Vec3, yaw: r2(f.t / f.n) }))
+    if (!tops.length) continue
+    e.tops = tops
+    for (const t of tops) { const b = byId.get(t.id)!; (b.bases ??= []).push({ id: e.id, n: t.n }) }
+  }
+  for (const e of entries) e.bases?.sort((a, b) => b.n - a.n)
   for (const e of entries) {
     const g = rel.get(e.id)!
     const mine = new Set([...(e.assembly ?? []).map((p) => p.id), e.partOf ?? '', e.copyOf ?? ''])

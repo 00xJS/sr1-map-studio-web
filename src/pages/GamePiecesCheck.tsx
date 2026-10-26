@@ -12,6 +12,7 @@ import { identify, type GameRole, type PropKind } from '../lib/gameObjects/ident
 import { loadCityLabels, loadLabels, setLabels, useCityLabels, useGameLabels, withLabels, type GameLabel } from '../lib/gameObjects/labels'
 import { placementOf } from '../lib/gameObjects/cityModules'
 import { CityView, PlacementView } from './CityReview'
+import { CatalogView, PlaceholderView } from './CatalogReview'
 import { SOLID_COVER, gamePiecesSuit, prepare, type Cand } from '../lib/gameObjects/wizardPieces'
 import { eyeCover } from '../lib/gameObjects/wizardBuild'
 import { mapLimit } from '../lib/hubRules'
@@ -29,8 +30,8 @@ const ROLES: [GameRole, string][] = [['building', 'A whole building'], ['prop', 
 const KINDS: PropKind[] = ['cover', 'clutter', 'street', 'nature', 'light', 'vehicle', 'sign', 'furniture', 'machine']
 const SETTING_KEYS = (Object.keys(SETTINGS) as WizardSetting[]).filter(gamePiecesSuit)
 const PAGE = 48
-type Tab = 'pieces' | 'placement' | 'groups' | 'modules'
-const TABS: [Tab, string][] = [['pieces', 'Wizard pieces'], ['placement', 'Placement rules'], ['groups', 'Groups'], ['modules', 'Modules']]
+type Tab = 'pieces' | 'catalogue' | 'placeholders' | 'placement' | 'groups' | 'modules'
+const TABS: [Tab, string][] = [['pieces', 'Wizard pieces'], ['catalogue', 'Catalogue'], ['placeholders', 'Placeholders'], ['placement', 'Placement rules'], ['groups', 'Groups'], ['modules', 'Modules']]
 
 /** How solid a model is at eye height, cut out of the player's game (its shape only, no pictures). */
 async function measure(e: GameObjectEntry): Promise<number> {
@@ -131,6 +132,8 @@ export default function GamePiecesCheck() {
             {!connected && <button className="sm" onClick={() => void openFiles()} title="The pictures are drawn from your game files">Show pictures</button>}
             <button className="sm quiet" disabled={!anyLabels} onClick={download} title="Your labels and corrections as a file (model names and sizes from your game, kept on your device)">Download my labels</button>
           </div>
+          {tab === 'catalogue' && <div className="col" style={{ gap: 10 }} key={'cat' + (connected ? 'pictures' : 'none')}><CatalogView entries={entries} /></div>}
+          {tab === 'placeholders' && <div className="col" style={{ gap: 10 }} key={'ph' + (connected ? 'pictures' : 'none')}><PlaceholderView entries={entries} /></div>}
           {tab === 'placement' && <div className="col" style={{ gap: 10 }} key={connected ? 'pictures' : 'none'}><PlacementView entries={entries} /></div>}
           {(tab === 'groups' || tab === 'modules') && <div className="col" style={{ gap: 10 }} key={tab + (connected ? 'pictures' : 'none')}><CityView which={tab} entries={entries} /></div>}
           {tab === 'pieces' && <>

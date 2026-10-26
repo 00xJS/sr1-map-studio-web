@@ -11,7 +11,7 @@ import type { Hole, Rect } from '../city/city'
 import type { TextureDirectory } from './textures'
 
 /** Bump when the index changes shape or rules: the next visit rebuilds it. */
-export const INDEX_VERSION = 14
+export const INDEX_VERSION = 15
 const INDEX_KEY = 'gameObjects:index'
 const CHUNK_PREFIX = 'gameObjects:chunk:'
 export const PACK_FILES: Record<string, string> = {

@@ -20,6 +20,9 @@ export interface GameLabel {
   settings?: WizardSetting[]
   /** Buildings: share of the model solid at eye height, seen side-on (wizardBuild.ts eyeCover). */
   cover?: number
+  /** What it is to look at, and how it is put together, when the catalogue got it wrong (catalog.ts). */
+  form?: import('./catalog').Form
+  structure?: import('./catalog').Structure
   /** Corrections to its placement rule: each field set replaces the rules' (null clears it). */
   place?: PlacementFix
 }

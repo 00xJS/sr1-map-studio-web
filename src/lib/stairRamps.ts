@@ -86,7 +86,8 @@ export function findStairs(tris: Float32Array, flags?: Uint8Array): StairRun[] {
   // Floor at height y, open above it for a player's height (not the ground under a block, inside something solid).
   const floorAt = (x: number, z: number, y: number, tol: number) => {
     bvh.column(x, z, y + 3.5, y - 0.5, SOLID, ys, hit)
-    return near(ys, y, tol) && !ys.some((v) => v > y + tol && v < y + 3.5)
+    // (A second layer of floor a few centimetres up, as converted maps have, is no ceiling.)
+    return near(ys, y, tol) && !ys.some((v) => v > y + 0.3 && v < y + 3.5)
   }
   const runs = flights(risers)
   // Single steps: not part of any run of steps (even one left alone, a bench or a casing), nor the side of one.
@@ -101,7 +102,7 @@ export function findStairs(tris: Float32Array, flags?: Uint8Array): StairRun[] {
       return along >= c[0].r - 1.5 && along <= c[c.length - 1].r + TOP_DEPTH + 1.5 && across >= t0 - 1.5 && across <= t1 + 1.5
     })
   }
-  return [...runs, ...risers.filter((r) => !inFlight.has(r) && !besideRun(r)).flatMap((r) => singleStep(r, floorAt) ?? [])]
+  return [...runs, ...risers.filter((r) => !inFlight.has(r) && !besideRun(r)).flatMap((r) => singleSteps(r, floorAt))]
 }
 
 /** Every step too tall to walk up: one riser per step, with the floor at its foot and its top (editor units). */
@@ -202,29 +203,47 @@ function flights(risers: Riser[]): StairRun[] {
       chain.push(risers[j])
     }
     if (chain.length < 2) return
+    const run = rampOver(chain)
+    if (!run) return
+    // A run that can't take one ramp (too narrow where its steps overlap, too steep): its steps may be single steps.
+    runs.push(run)
     found.push(chain)
     chain.forEach((c) => inFlight.add(c))
-    const run = rampOver(chain)
-    if (run) runs.push(run)
   })
   return runs
 }
 
-/** The wedge in front of a single step, or null when it isn't one (see SINGLE_MAX_RISER). */
-function singleStep(r: Riser, floorAt: (x: number, z: number, y: number, tol: number) => boolean): StairRun | null {
-  const rise = r.yt - r.yb, width = r.t1 - r.t0
-  if (rise > SINGLE_MAX_RISER || width < MIN_WIDTH) return null
+/** How often along a single step its floors are checked (units). */
+const SAMPLE = 1
+
+/**
+ * The wedges in front of a single step (see SINGLE_MAX_RISER): one over each stretch of it, at least MIN_WIDTH wide,
+ * with floor at its foot for the wedge's length and floor on top a player's depth, checked every SAMPLE along it. A
+ * long terrace edge with a crate or a wall somewhere along it still gets wedges where it's clear.
+ */
+function singleSteps(r: Riser, floorAt: (x: number, z: number, y: number, tol: number) => boolean): StairRun[] {
+  const rise = r.yt - r.yb
+  if (rise > SINGLE_MAX_RISER || r.t1 - r.t0 < MIN_WIDTH) return []
   const run = rise / Math.tan((SINGLE_DEG * Math.PI) / 180)
   const up = r.up, across: [number, number] = [-up[1], up[0]]
   const p = (along: number, t: number): [number, number] => [up[0] * along + across[0] * t, up[1] * along + across[1] * t]
-  // Floor in front for the wedge's length and on top a player's depth, at both ends and in the middle.
-  for (const t of [r.t0 + 0.3, (r.t0 + r.t1) / 2, r.t1 - 0.3]) {
-    for (const d of [0.3, run / 2, run + 0.2]) if (!floorAt(...p(r.r - d, t), r.yb, 0.08)) return null
-    for (const d of [0.3, TOP_DEPTH / 2, TOP_DEPTH]) if (!floorAt(...p(r.r + d, t), r.yt, 0.08)) return null
+  const clear = (t: number) => [0.3, run / 2, run + 0.2].every((d) => floorAt(...p(r.r - d, t), r.yb, 0.08))
+    && [0.3, TOP_DEPTH / 2, TOP_DEPTH].every((d) => floorAt(...p(r.r + d, t), r.yt, 0.08))
+  const out: StairRun[] = []
+  const emit = (a: number, b: number) => {
+    // The stretch from the first clear sample to the last, half a sample past each (within the step).
+    const t0 = Math.max(r.t0, a - SAMPLE / 2), t1 = Math.min(r.t1, b + SAMPLE / 2), width = t1 - t0
+    if (width < MIN_WIDTH) return
+    const tm = (t0 + t1) / 2
+    const at = (along: number, y: number): Vec3 => { const [x, z] = p(along, tm); return [x, y + LIFT, z] }
+    out.push({ up, steps: 1, rise, tread: 0, from: at(r.r - run, r.yb), to: at(r.r, r.yt), width, slopeDeg: SINGLE_DEG })
   }
-  const tm = (r.t0 + r.t1) / 2
-  const at = (along: number, y: number): Vec3 => { const [x, z] = p(along, tm); return [x, y + LIFT, z] }
-  return { up, steps: 1, rise, tread: 0, from: at(r.r - run, r.yb), to: at(r.r, r.yt), width, slopeDeg: SINGLE_DEG }
+  let from: number | null = null, last = 0
+  for (let t = r.t0 + 0.3; t <= r.t1 - 0.3 + 1e-6; t += SAMPLE) {
+    if (clear(t)) { if (from === null) from = t; last = t } else if (from !== null) { emit(from, last); from = null }
+  }
+  if (from !== null) emit(from, last)
+  return out
 }
 
 /** The ramp over a flight: the plane through the nosings, from the lower floor to the top step. */

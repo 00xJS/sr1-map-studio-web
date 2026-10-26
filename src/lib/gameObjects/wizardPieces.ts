@@ -19,6 +19,8 @@ import { identify, type BuildingFacts, type GameIdentity, type PropKind } from '
 import type { GameObjectEntry } from './indexer'
 import { withLabels, type GameLabels } from './labels'
 import { frameLook, type FrameLook } from './frame'
+import { sameKind } from './placeholders'
+import { ALL_PREFABS } from '../prefabRegistry'
 import type { PlacementRule, Side } from './cityModules'
 
 /** What a stand-in stands for. */
@@ -484,11 +486,13 @@ export class GamePieces {
   }
 
   /** A prop for a spot of this kind that reaches `radius` units from where it stands and is about `height` tall. */
-  private propFor(spot: Extract<Spot, { role: 'prop' }>, radius: number, height: number, copies: number, light = false): Cand | null {
+  private propFor(spot: Extract<Spot, { role: 'prop' }>, radius: number, height: number, copies: number, light = false, key = ''): Cand | null {
+    const label = ALL_PREFABS[key]?.label ?? key
     const fit = (c: Cand) => {
       const reach = (Math.hypot(c.long, c.short) / 2) * M, h = c.h * M
       if (reach > radius * 1.15 + 0.5 || h > Math.max(height * 1.6, height + 2) || h < height * 0.35) return 0
-      return 1 + Math.min(1, reach / Math.max(0.5, radius))
+      // The same kind of thing as the site's piece (a dumpster for a dumpster) far likelier than one only its size.
+      return (1 + Math.min(1, reach / Math.max(0.5, radius))) * (key && sameKind(key, label, [c.e.name, c.id.name]) ? 6 : 1)
     }
     for (const kind of spot.kinds) {
       const c = this.choose(this.lib.props.get(kind) ?? [], light ? 'light' : 'prop:' + kind, fit, copies)
@@ -537,7 +541,7 @@ export class GamePieces {
             const reach = (Math.hypot(c.long, c.short) / 2) * M
             return reach <= p.radius * 1.1 + 0.5 && c.h * M <= Math.max(p.height * 1.6, p.height + 2) && c.h * M >= p.height * 0.4 ? 1 : 0
           }, copies)
-          : this.propFor(spot, p.radius, p.height, copies, spot.kinds[0] === 'light')
+          : this.propFor(spot, p.radius, p.height, copies, spot.kinds[0] === 'light', p.key)
         this.twins.set(k, c)
         if (!c) this.stats.kept += copies
         else if (spot.role === 'fence') this.stats.fences += copies
