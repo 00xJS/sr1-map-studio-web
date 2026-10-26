@@ -153,6 +153,8 @@ const flat = (f: Facts) => Math.min(...f.size) < 0.02
 const runLike = (f: Facts) => f.size[0] >= 1.5 && f.size[1] < Math.max(0.8, f.size[0] / 4)
 const big = (f: Facts) => f.size[0] >= 12
 const post = (f: Facts) => f.size[0] < 0.5 && f.size[2] > Math.max(0.8, f.size[0] * 2)
+/** Shaped like a vehicle: long (a bike's 1.5 m up to a bus), clearly longer than wide, no taller than a truck. */
+const vehicleShape = (f: Facts) => f.size[0] >= 1.5 && f.size[0] >= 1.8 * f.size[1] && f.size[2] >= 0.8 && f.size[2] <= 5 && (f.size[0] >= 2.2 || f.size[1] < 0.9)
 
 /** First match wins. Word starts matter: "street" is no tree. */
 const RULES: Rule[] = [
@@ -180,6 +182,7 @@ const RULES: Rule[] = [
   R(/sconce|walllight|wall_?lamp|(^|_)wlamp/, 'Wall lamp', LIGHTS, { role: 'piece' }),
   R(/lightceil|ceil_?(ing)?_?light|flite|fluorescent|florescent|chandel|chandal|ceilingfan|hanglamp|pendant/, 'Ceiling light', LIGHTS, { role: 'piece' }),
   R(/neon/, 'Neon sign', SIGNS),
+  R(/banner_?pole/, 'Street lamp with banners', LIGHTS, { kind: 'street', when: (f) => f.size[2] >= 2.5 }),
   R(/streetlight|street_?lamp|lamppost|lmpst|lmppst|lppost|lamp_?post|highway-?light|lotlamp|(^|_)lamppole|lightpole|lghtpole|floodlight|fldlight|spotlight/, 'Street lamp', LIGHTS, { kind: 'street', when: (f) => f.size[2] >= 2.5 }),
   R(/streetlight|street_?lamp|lamppost|lmpst|lmppst|lppost|lamp_?post|highway-?light|lotlamp|(^|_)lamppole|lightpole|lghtpole|floodlight|fldlight|spotlight/, 'Street lamp base', LIGHTS, { variant: true, role: 'piece', when: (f) => f.size[2] < 1.5 && f.size[0] < 1.2 }),
   R(/sky_?light/, 'Window', OPENINGS),
@@ -248,7 +251,9 @@ const RULES: Rule[] = [
   R(/(^|_)husk|wreck|burnt_?car|junk_?car|car_?husk/, 'Wrecked car', VEHICLES),
   R(/(^|_)boat|yacht|dinghy|(^|_)ship(_|$)/, 'Boat', VEHICLES),
   R(/(^|_)plane(_|$)|airplane|jet(_|$)|helicop/, 'Aircraft', VEHICLES),
-  R(/(^|_)car(_|s?$|\d)|(^|_)truck|(^|_)van(_|$)|(^|_)bus(_|$)|(^|_)cart(_|$)|golf_?cart|motorcycle|(^|_)bike(_|$)|bicycle/, 'Vehicle', VEHICLES),
+  R(/shopping_?cart|(^|_)trolley/, 'Shopping cart', OTHER, { kind: 'clutter', when: (f) => f.size[0] >= 0.6 && f.size[2] >= 0.6 }),
+  // A vehicle's shape too: a texture called car_wall or a truck's pillar alone isn't one.
+  R(/(^|_)car(_|s?$|\d)|(^|_)truck|(^|_)van(_|$)|(^|_)bus(_|$)|(^|_)cart(_|$)|golf_?cart|motorcycle|(^|_)bike(_|$)|bicycle/, 'Vehicle', VEHICLES, { when: vehicleShape }),
   R(/husk_?tire|(^|_)tire|(^|_)tyre|tire_?(stack|pile)|(^|_)wheel/, 'Tire', CONTAINERS, { kind: 'clutter' }),
   // Containers and crates.
   R(/dumpster|dump(_|$)|(^|_)skip_?bin/, 'Dumpster', CONTAINERS),

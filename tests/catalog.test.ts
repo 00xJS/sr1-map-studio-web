@@ -92,3 +92,23 @@ describe('bases and what stands on them', () => {
     expect(catalogEntry(entry('barrel', [0.8, 0.7, 1], { seen: 800, tops: [{ id: 'poster', n: 3, at: [0, 1, 0], yaw: 0 }] })).structure.value).not.toBe('base')
   })
 })
+
+describe('what the wizard places', () => {
+  it('whole pieces only, a model on a low foot (placed with it), never a bare base, a part or a sheet', async () => {
+    const { wizardWhole } = await import('../src/lib/gameObjects/wizardPieces')
+    const foot = entry('lampbase', [0.6, 0.6, 0.35], { seen: 100, tops: [{ id: 'lampa', n: 60, at: [0, 0.3, 0], yaw: 0 }, { id: 'lampb', n: 40, at: [0, 0.3, 0], yaw: 0 }] })
+    const lamp = entry('lampa', [1.5, 0.5, 5], { seen: 60, bases: [{ id: 'lampbase', n: 60 }] })
+    const table = entry('table', [2, 1, 0.9], { seen: 50, tops: [{ id: 'cup', n: 40, at: [0, 0.9, 0], yaw: 0 }] })
+    const cup = entry('cup', [0.2, 0.2, 0.15], { seen: 40, bases: [{ id: 'table', n: 40 }] })
+    const byId = new Map([foot, lamp, table, cup].map((e) => [e.id, e]))
+    const ok = (e: GameObjectEntry) => wizardWhole(catalogEntry(e), e, byId)
+    expect(ok(lamp)).toBe(true)
+    expect(ok(foot)).toBe(false)
+    // A cup lives on a table: not a thing to place by itself, nor with a table under it.
+    expect(ok(cup)).toBe(false)
+    expect(ok(entry('bench', [2.6, 0.7, 1]))).toBe(true)
+    expect(ok(entry('poster', [1, 0.01, 0.9]))).toBe(false)
+    expect(ok(entry('panel', [1, 0.3, 1], { partOf: 'lampa' }))).toBe(false)
+    expect(ok(entry('window', [1, 0.2, 1.5], { kitOf: 'bsad2a' }))).toBe(false)
+  })
+})

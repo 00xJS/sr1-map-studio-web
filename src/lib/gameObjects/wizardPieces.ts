@@ -19,6 +19,7 @@ import { identify, type BuildingFacts, type GameIdentity, type PropKind } from '
 import type { GameObjectEntry } from './indexer'
 import { withLabels, type GameLabels } from './labels'
 import { frameLook, type FrameLook } from './frame'
+import { catalogEntry, withCorrections, type CatalogEntry } from './catalog'
 import { sameKind } from './placeholders'
 import { ALL_PREFABS } from '../prefabRegistry'
 import type { PlacementRule, Side } from './cityModules'
@@ -162,6 +163,8 @@ export interface Cand {
   long: number; short: number; h: number
   /** How well it suits the setting, times how much the game uses it. */
   weight: number
+  /** What the catalogue makes of it (catalog.ts): its form, how it's put together, the cover it gives. */
+  cat: CatalogEntry
 }
 
 export interface Prepared {
@@ -187,9 +190,15 @@ export function prepare(entries: GameObjectEntry[], setting: WizardSetting, base
   if (hit) return hit
   const ident = labels ? withLabels(labels, base) : base
   const out: Prepared = { buildings: [], fences: [], props: new Map() }
+  const all = new Map(entries.map((e) => [e.id, e]))
   for (const e of entries) {
     const id = ident(e), l = labels?.[e.id]
     if (id.role !== 'building' && id.role !== 'prop' && id.role !== 'fence') continue
+    // Whole pieces only: a real 3D model standing on its own, complete with its parts, or one that stands on its base
+    // (placed with it). Never a part, a building's kit piece, a connector, a second copy, a flat sheet or a stand-in;
+    // a base alone only as the foot of what stands on it. The player's check overrides.
+    const cat = withCorrections(catalogEntry(e, id), l)
+    if (!l?.ok && !l?.role && !wizardWhole(cat, e, all)) continue
     // The name rules stand in for a player's check until there is one.
     if (!l?.ok && !l?.role && (id.role !== 'building' ? PART_NAMES.has(id.name) : NOT_BUILDINGS.has(id.name))) continue
     // Players could see through it at eye height (measured by the player, or when the game files were read).
@@ -199,7 +208,7 @@ export function prepare(entries: GameObjectEntry[], setting: WizardSetting, base
     const pad = id.role === 'building' ? 2 * BUILDING_MARGIN : 0
     const long = Math.max(a, b) + pad, short = Math.min(a, b) + pad
     const suits = id.settings.includes(setting) ? 2 : id.settings.length ? 0.3 : 1
-    const c: Cand = { e, id, long, short, h, weight: suits * (1 + Math.log10(1 + e.seen) / 2) * (l?.ok || l?.role ? 3 : 1) }
+    const c: Cand = { e, id, cat, long, short, h, weight: suits * (1 + Math.log10(1 + e.seen) / 2) * (l?.ok || l?.role ? 3 : 1) }
     if (id.role === 'building') {
       // Not a pole or a mast: no taller than four times its long side.
       if (short >= 3 && h >= MIN_HEIGHT && h <= MAX_HEIGHT[setting] && h <= 4 * long && e.tris <= MAX_BUILDING_TRIS) out.buildings.push(c)
@@ -306,6 +315,25 @@ export interface PiecesOptions {
   rule?: (e: GameObjectEntry) => PlacementRule
 }
 
+/** Forms the wizard never places, whatever their role. */
+const NOT_PLACED = new Set(['flat', 'line', 'water', 'sky', 'light'])
+
+/** Tallest a base under a model may be (m): a lamp's or a post's foot, not a table or a counter. */
+const FOOT_H = 0.6
+
+/** Whether the catalogue says the wizard may place this model: a whole thing (see prepare). */
+export function wizardWhole(c: CatalogEntry, e: GameObjectEntry, byId?: Map<string, GameObjectEntry>): boolean {
+  if (NOT_PLACED.has(c.form.value) || (c.form.value === 'invisible' && e.tex.length)) return false
+  if (c.structure.value === 'top') return !!footOf(e, byId)
+  return c.structure.value === 'standalone' || c.structure.value === 'assembly'
+}
+
+/** The low foot a model stands on (its most used base), when it is one (see FOOT_H). */
+function footOf(e: GameObjectEntry, byId?: Map<string, GameObjectEntry>): GameObjectEntry | null {
+  const b = e.bases?.[0] && byId?.get(e.bases[0].id)
+  return b && e.bases![0].n >= 0.5 * e.seen && b.size[2] <= FOOT_H && b.size[0] <= Math.max(1.5, e.size[0] * 1.5) ? b : null
+}
+
 const frames = new WeakMap<GameObjectEntry[], Map<WizardSetting, FrameLook>>()
 /** The frame's game surfaces for a setting, worked out once per library. */
 function framesFor(entries: GameObjectEntry[], setting: WizardSetting): FrameLook {
@@ -337,7 +365,7 @@ export class GamePieces {
     this.lib = prepare(entries, o.setting, o.identify ?? identify, o.labels, o.labelsVersion)
     this.frame = framesFor(entries, o.setting)
     this.rule = o.rule
-    if (o.rule) for (const e of entries) this.byId.set(e.id, e)
+    for (const e of entries) this.byId.set(e.id, e)
     // Its own random numbers, so the layout stays the one the same seed gives without game pieces.
     this.r = rng((o.seed ^ 0x5bd1e995) >>> 0)
   }
@@ -471,10 +499,12 @@ export class GamePieces {
   cover(x: number, z: number, room: number, across: number, copies = 2): Part | null {
     const kinds: PropKind[] = ['cover', 'vehicle', 'machine']
     const fit = (c: Cand) => {
-      const h = c.h, reach = Math.hypot(c.long, c.short) / 2 * M
-      if (h < COVER_H[0] || h > COVER_H[1] || c.long < 1.5 || reach > room / 2) return 0
-      // Long and tall enough to hide behind: the bigger, the more it breaks the run.
-      return c.long * Math.min(h, 2.5)
+      const h = c.h, reach = Math.hypot(c.long, c.short) / 2 * M, cover = c.cat.measures.cover.value
+      // Real cover (the catalogue's: tall enough and solid at eye height, not a see-through rack), not a wall of a thing.
+      if (cover === 'none' || h > COVER_H[1] || c.long < 1.5 || reach > room / 2) return 0
+      // Long and tall enough to hide behind: the bigger, the more it breaks the run; standing cover most, and a
+      // crate players can climb onto a little more (it is high ground too).
+      return c.long * Math.min(h, 2.5) * (cover === 'stand' ? 1.5 : 1) * (c.cat.measures.standOn ? 1.2 : 1)
     }
     for (const kind of kinds) {
       const c = this.choose(this.lib.props.get(kind) ?? [], 'cover', fit, copies)
@@ -569,6 +599,21 @@ export class GamePieces {
    * there. `parts`: the map so far; `own`: the site piece it replaces (not in the way).
    */
   private placeLoose(c: Cand, label: string, at: Vec3, rot: number, parts: Part[], own: Part[]): Part[] | null {
+    // On its foot: the base where the game puts it, and on it one of the variations the game stands there (the same
+    // one on both halves of the map, by where it stands), each exactly where the game has it on that base.
+    const foot = c.cat.structure.value === 'top' ? footOf(c.e, this.byId) : null
+    if (foot) {
+      const variants = (foot.tops ?? []).filter((t) => t.n >= Math.max(2, 0.1 * foot.seen) && this.byId.has(t.id) && this.canStand(this.byId.get(t.id)!, c.e))
+      const pick = variants.length ? variants[(Math.round(Math.abs(at[0])) * 31 + Math.round(Math.abs(at[2]))) % variants.length] : null
+      const top = pick ? this.byId.get(pick.id)! : c.e
+      const off = pick ?? foot.tops?.find((t) => t.id === c.e.id)
+      if (off) {
+        const [dx, dz] = turn(-off.at[0] * M, off.at[2] * M, rot)
+        if (top !== c.e) this.spend(top.tris, top.tex)
+        this.spend(foot.tris, foot.tex)
+        return [exactStandIn(foot, label, at, rot), exactStandIn(top, label, [at[0] + dx, at[1] + off.at[1] * M, at[2] + dz], rot + (off.yaw * 180) / Math.PI)]
+      }
+    }
     const rl = this.rule?.(c.e)
     if (!rl || (!rl.needs?.length && !rl.clearFront)) return [this.standIn(c, label, at, rot, c.long, c.short)]
     const turns = rl.mayVary.includes('turn') ? [0, 90, 180, 270] : [0]
@@ -585,6 +630,11 @@ export class GamePieces {
       return out
     }
     return null
+  }
+
+  /** Whether a variation on a base may stand in for the model chosen (whole, and about its size: a street lamp for a street lamp). */
+  private canStand(v: GameObjectEntry, chosen: GameObjectEntry): boolean {
+    return v.size[2] >= chosen.size[2] * 0.6 && v.size[2] <= chosen.size[2] * 1.6 && v.size[0] <= chosen.size[0] * 2 + 0.5 && v.tris <= MAX_PROP_TRIS
   }
 
   /** Clear floor `clearFront` metres out from the model's front (every side, when its rule doesn't say which is the front). */

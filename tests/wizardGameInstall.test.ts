@@ -10,6 +10,7 @@ import { readChunk, type Chunk } from '../src/lib/gameObjects/chunk'
 import { indexChunk, mergeCandidates, type Candidate, type GameObjectEntry } from '../src/lib/gameObjects/indexer'
 import { extractObject } from '../src/lib/gameObjects/extract'
 import { identify } from '../src/lib/gameObjects/identity'
+import { catalogEntry } from '../src/lib/gameObjects/catalog'
 import { GamePieces, SOLID_COVER, TEXTURE_BUDGET, TRI_BUDGET, fitsStandIn, gameParts, modelTurn, prepare } from '../src/lib/gameObjects/wizardPieces'
 import { wizardSample, type WizardLayout, type WizardSetting } from '../src/lib/mapWizard'
 import { openVpp, type Vpp } from '../src/lib/sr1char/vpp'
@@ -69,6 +70,8 @@ describe.skipIf(!GAME_TESTS || !haveGame)('game pieces from a local game install
       for (const p of game) {
         const e = byId.get(p.game!.id)!
         const id = identify(e)
+        // A building, prop or fence; or the foot one of them stands on (a lamp's base, placed only under it).
+        if (catalogEntry(e).structure.value === 'base') continue
         expect(['building', 'prop', 'fence'], `${e.name} (${id.role})`).toContain(id.role)
         if (id.role !== 'building') continue
         expect(p.label).toBe('Game building')

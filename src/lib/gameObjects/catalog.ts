@@ -99,7 +99,7 @@ export function catalogEntry(e: GameObjectEntry, ident: GameIdentity = identify(
   else if (SKY.test(e.name) || (e.raw ?? []).some((r) => SKY.test(r))) form = { value: 'sky', sure: 0.9, why: 'One of the game’s sky objects (sun, moon, stars, clouds)' }
   else if (dims[0] < SHEET && dims[1] < LINE && dims[2] > 1) form = { value: 'line', sure: 0.8, why: `Thin both ways (${fmt(dims[0])} × ${fmt(dims[1])} m) and ${fmt(dims[2])} m long: a wire, cable or rail` }
   else if (dims[0] < SHEET && dims[1] > 0.2) form = { value: 'flat', sure: 0.85, why: `Only ${fmt(dims[0])} m thick across ${fmt(dims[1])} × ${fmt(dims[2])} m: a sheet (decal, sign, poster, window)` }
-  else if (ident.kind === 'light' && (LIGHTISH.test(e.name) || tex.some((t) => LIGHTISH.test(t))) && e.tris <= 300) form = { value: 'light', sure: 0.6, why: 'A small lamp or glow model' }
+  else if (ident.kind === 'light' && (LIGHTISH.test(e.name) || tex.some((t) => LIGHTISH.test(t))) && e.tris <= 300 && dims[2] < 1) form = { value: 'light', sure: 0.6, why: 'A small lamp or glow model' }
   else form = { value: 'model', sure: 0.9, why: `Solid shape ${fmt(long)} × ${fmt(short)} × ${fmt(height)} m` }
 
   // Structure: a copy or a part says so outright (the game places them with another); kit pieces belong to one
@@ -136,7 +136,8 @@ export function catalogEntry(e: GameObjectEntry, ident: GameIdentity = identify(
     ...(e.copyOf || e.partOf || e.kitOf ? { of: e.copyOf ?? e.partOf ?? e.belongsTo?.[0] } : {}),
     ...(e.assembly?.length ? { parts: e.assembly.map((a) => a.id) } : {}),
     ...(e.tops?.length ? { tops: e.tops.map(({ id, n }) => ({ id, n })) } : {}),
-    ...(e.bases?.length ? { bases: e.bases } : {}),
+    // What it stands on, when it does so often enough to say (a lamp base on a pillar 9 times in 515 is no rule).
+    ...(e.bases?.some((b) => b.n >= Math.max(2, 0.2 * e.seen)) ? { bases: e.bases.filter((b) => b.n >= Math.max(2, 0.2 * e.seen)) } : {}),
   }
 }
 
