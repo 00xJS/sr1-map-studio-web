@@ -31,7 +31,20 @@ const sources = new Map<string, ThumbSource>()
 export function registerThumbSource(prefix: string, src: ThumbSource) { sources.set(prefix, src) }
 const sourceFor = (key: string) => [...sources].find(([p]) => key.startsWith(p))?.[1]
 /** Forgets pictures known this session under a prefix, so they are asked for again (after their source becomes readable). */
-export function resetThumbs(prefix: string) { for (const k of [...ready.keys()]) if (k.startsWith(prefix) && ready.get(k) === null) ready.delete(k) }
+export function resetThumbs(prefix: string) {
+  for (const k of [...ready.keys()]) if (k.startsWith(prefix) && ready.get(k) === null) ready.delete(k)
+  for (const k of [...tries.keys()]) if (k.startsWith(prefix)) tries.delete(k)
+  // Tiles on screen without a picture ask again.
+  resets.forEach((fn) => fn())
+}
+const resets = new Set<() => void>()
+/** Calls back after resetThumbs (a tile showing no picture asks for it again). */
+export function onThumbsReset(fn: () => void): () => void { resets.add(fn); return () => { resets.delete(fn) } }
+/** Pictures under a prefix that couldn't be drawn this session. */
+export const missingThumbs = (prefix: string) => [...ready].filter(([k, v]) => k.startsWith(prefix) && v === null).length
+/** Failed drawings per key: a picture that throws is tried again (a busy reader, a file still opening) before it is given up. */
+const tries = new Map<string, number>()
+const RETRIES = 2
 
 const req = <T>(r: IDBRequest<T>) => new Promise<T>((ok, no) => { r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error) })
 
@@ -108,6 +121,10 @@ async function pump() {
         }
       } catch (e) {
         thumbStats.failed++
+        const n = (tries.get(key) ?? 0) + 1
+        tries.set(key, n)
+        // Again later, behind the pictures waiting now.
+        if (n <= RETRIES) { queue.unshift(key); await new Promise((ok) => setTimeout(ok, 250 * n)); continue }
         console.warn('Prefab thumbnail', key, e)
       }
       finish(key, url)

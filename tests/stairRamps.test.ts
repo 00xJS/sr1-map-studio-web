@@ -88,6 +88,19 @@ describe('ramps over steps too tall to walk up', () => {
     expect(findStairs(stairs(1, 0.9, 2, 1.5))).toHaveLength(0)
   })
 
+  it('ramps a long kerb up to a raised walkway along its length, round what stands on its edge', () => {
+    // Slime's Storm: a walkway 0.45 m above the road, 40 m long, laid in 2 m paving slabs, a post on its edge.
+    const tris = [...box([-60, -1, -40], [60, 0, 40])]
+    for (let x = -40; x < 40; x += 4) tris.push(...box([x, 0, 0], [x + 4, 0.9, 8]))
+    tris.push(...box([-1, 0.9, 0.2], [1, 4, 1.2]))
+    const runs = findStairs(Float32Array.from(tris)).filter((r) => r.up[1] > 0.9)
+    // Two wedges, one each side of the post, together nearly the whole 80 units.
+    expect(runs).toHaveLength(2)
+    const covered = runs.reduce((a, r) => a + r.width, 0)
+    expect(covered).toBeGreaterThan(70)
+    for (const r of runs) expect(Math.abs((r.from[0] + r.to[0]) / 2)).toBeGreaterThan(r.width / 2)
+  })
+
   it("finds the editor's own Stairs shape once it's scaled up past a step, and not before", () => {
     // The shape's own steps are always low enough; an object scaled up (a converted or scaled-up map) is what has tall ones.
     const tris = (size: V, scale = 1) => {

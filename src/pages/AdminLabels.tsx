@@ -16,6 +16,7 @@ import type { CatalogEntry, Form, Structure } from '../lib/gameObjects/catalog'
 import type { GameObjectEntry } from '../lib/gameObjects/indexer'
 import { gamePiecesSuit } from '../lib/gameObjects/wizardPieces'
 import { PrefabThumb } from '../editor/PrefabThumb'
+import { missingThumbs, resetThumbs } from '../lib/prefabThumbs'
 import { FORMS, PlaceholderView, STRUCTURES, useCatalogue } from './CatalogReview'
 import { CityView, PlacementView } from './CityReview'
 import '../editor/gameObjectActions'
@@ -37,6 +38,14 @@ export default function AdminLabels() {
   const user = useUser()
   const { entries, status, progress, connected } = useGameObjects()
   const [tab, setTab] = useState<Tab>('labels')
+  const reload = async () => {
+    if (!connected) {
+      try { await connect(true) } catch (e) { toastError(e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder to see the models.') : e); return }
+    }
+    const missing = missingThumbs('game:')
+    resetThumbs('game:')
+    toast(missing ? `Asking again for ${missing} picture${missing === 1 ? '' : 's'} that didn't load.` : 'Pictures reloaded.', 'info', 2500)
+  }
   useEffect(() => { void loadIndex().catch(() => {}); void loadLabels(); void loadCityLabels() }, [])
 
   if (admin === null) return <div className="page"><p className="muted">Checking your account…</p></div>
@@ -68,10 +77,10 @@ export default function AdminLabels() {
           <div className="row wrap">
             {TABS.map(([k, name]) => <button key={k} className={tab === k ? 'on' : ''} onClick={() => setTab(k)}>{name}</button>)}
             <span className="grow" />
-            {!connected && <button className="sm" onClick={() => connect(true).catch((e) => toastError(e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder to see the models.') : e))}>Show pictures</button>}
+            <button className="sm" onClick={() => void reload()} title="Asks again for every picture that didn't load (and opens your game files if they aren't open)">{connected ? '↻ Reload pictures' : 'Show pictures'}</button>
             <Backup />
           </div>
-          {tab === 'labels' && <LabelDesk entries={entries} key={connected ? 'pictures' : 'none'} />}
+          {tab === 'labels' && <LabelDesk entries={entries} key={(connected ? 'pictures' : 'none')} />}
           {tab === 'placeholders' && <div className="col" style={{ gap: 10 }} key={'ph' + connected}><PlaceholderView entries={entries} /></div>}
           {tab === 'placement' && <div className="col" style={{ gap: 10 }} key={'pl' + connected}><PlacementView entries={entries} /></div>}
           {(tab === 'groups' || tab === 'modules') && <div className="col" style={{ gap: 10 }} key={tab + connected}><CityView which={tab} entries={entries} /></div>}

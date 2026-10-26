@@ -1,7 +1,7 @@
 // A prefab's thumbnail, asked for only while it is on screen (see lib/prefabThumbs.ts).
 // Used by the prefab browser and the map catalog.
 import { createContext, useContext, useEffect, useRef, useState } from 'react'
-import { readyThumb, subscribeThumb } from '../lib/prefabThumbs'
+import { onThumbsReset, readyThumb, subscribeThumb } from '../lib/prefabThumbs'
 import type { ThumbBundle } from '../lib/prefabRender'
 
 type Watch = (el: Element, fn: (visible: boolean) => void) => () => void
@@ -26,6 +26,9 @@ export function PrefabThumb({ shape, saved, size }: { shape: string; saved?: { s
   const el = useRef<HTMLSpanElement>(null)
   const watch = useContext(ThumbWatch) ?? pageWatcher
   const [url, setUrl] = useState<string | null | undefined>(() => (saved ? undefined : readyThumb(shape)))
+  // Bumped when the pictures are reset: one that couldn't be drawn is asked for again.
+  const [tries, setTries] = useState(0)
+  useEffect(() => onThumbsReset(() => setTries((n) => n + 1)), [])
   useEffect(() => {
     const known = saved ? undefined : readyThumb(shape)
     setUrl(known)
@@ -38,7 +41,7 @@ export function PrefabThumb({ shape, saved, size }: { shape: string; saved?: { s
       else if (off) { off(); off = null }
     })
     return () => { stop(); off?.() }
-  }, [shape, saved?.sig, watch])
+  }, [shape, saved?.sig, watch, tries])
   const style = size ? { width: size, height: size } : undefined
   return (
     <span ref={el} className={'prefab-thumb' + (url === undefined ? ' loading' : '')} style={style} aria-hidden>
