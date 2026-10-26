@@ -8,6 +8,7 @@ import { botPlaytest, fieldCache } from './bots'
 import { findMoves, movesSummary } from './moves'
 import type { AnalysisInput, AnalysisMarker, AnalysisOptions, FairnessReport, HealthReport, Risk, SpawnReport, Team, TeamStats } from './types'
 import type { Vec3 } from '../project'
+import { AIMED_M, longReach, reachOf } from '../weaponRange'
 
 const SPAWN_TYPES = ['Shared spawn', 'Red team spawn', 'Blue team spawn']
 /** The bot playtest's default size. */
@@ -16,6 +17,8 @@ const POWER = /rpg|sniper|mini|launcher/i
 const m = (units: number) => units / 2
 const pct = (x: number) => `${Math.round(x * 100)}%`
 const round = (x: number) => Math.round(x)
+/** Farthest a player counts as seen, units: as far as most guns hit (weaponRange.ts). */
+export const WITHIN = AIMED_M * 2
 
 /** Everything before the sight check: the ray tree, the floor graph, markers on it, the reachable floor and who looks. */
 export interface Prepared {
@@ -37,7 +40,7 @@ export const SIGHT_FROM = 0.2, SIGHT_TO = 0.8
 export function analyzeMap(input: AnalysisInput, opts: AnalysisOptions = {}): HealthReport {
   const p = prepareMap(input, opts)
   const t = performance.now()
-  const counts = observe(p.bvh, p.g.grid.pos, p.reachList, p.observers, opts.maxSight ?? 300, progress(opts, 'Checking sight lines', SIGHT_FROM, SIGHT_TO))
+  const counts = observe(p.bvh, p.g.grid.pos, p.reachList, p.observers, opts.maxSight ?? 300, progress(opts, 'Checking sight lines', SIGHT_FROM, SIGHT_TO), opts.within ?? WITHIN)
   p.ms.sight = Math.round(performance.now() - t)
   return finishMap(p, counts)
 }
@@ -128,8 +131,11 @@ export function finishMap(p: Prepared, counts: SightCounts): HealthReport {
     const me = eye(i)
     const seenFrom: Vec3[] = []
     let bySpawns = 0, byPickups = 0
-    for (const j of enemies) if (sees(bvh, eye(j), me)) { bySpawns++; seenFrom.push(markers[j].position) }
-    for (const j of weaponIdx) if (sees(bvh, eye(j), me)) { byPickups++; seenFrom.push(markers[j].position) }
+    // Only from where a gun reaches: a player who spawns there with the guns players spawn with (most guns hit
+    // reliably only within about 50 m), or one who picks up that weapon (a sniper rifle reaches much farther).
+    const near = (j: number, metres: number) => Math.hypot(eye(j)[0] - me[0], eye(j)[1] - me[1], eye(j)[2] - me[2]) <= metres * 2
+    for (const j of enemies) if (near(j, AIMED_M) && sees(bvh, eye(j), me)) { bySpawns++; seenFrom.push(markers[j].position) }
+    for (const j of weaponIdx) if (near(j, reachOf(markers[j].weapon)) && sees(bvh, eye(j), me)) { byPickups++; seenFrom.push(markers[j].position) }
     const f = n >= 0 ? field(n) : null
     let enemyWalk = Infinity
     if (f) for (const j of enemies) if (nodeOf[j] >= 0) enemyWalk = Math.min(enemyWalk, f[nodeOf[j]])
@@ -162,7 +168,8 @@ export function finishMap(p: Prepared, counts: SightCounts): HealthReport {
 
   const moves = findMoves(bvh, g)
   lap('moves')
-  const { score, findings } = summarize(spawns, fairness, unreachable, lanes, blindShare, openShare, reachList.length)
+  const far = [...new Set(weaponIdx.map((i) => markers[i].weapon).filter((w) => longReach(w)))] as string[]
+  const { score, findings } = summarize(spawns, fairness, unreachable, lanes, blindShare, openShare, reachList.length, far)
   const getAround = movesSummary(moves)
   if (getAround && reachList.length) findings.push(getAround)
   return {
@@ -304,8 +311,11 @@ export function mirrorCheck(markers: AnalysisMarker[]): { type: string; position
   }).map((mk) => ({ type: mk.type, position: mk.position }))
 }
 
+const GUN: Record<string, string> = { sniper_rifle: 'sniper rifle', rpg_launcher: 'RPG', rpg_laser: 'laser RPG', m16: 'M16', magnum: 'Magnum' }
+const gunName = (w: string) => GUN[w.toLowerCase()] ?? w
+
 function summarize(spawns: SpawnReport[], fairness: FairnessReport, unreachable: HealthReport['unreachable'], lanes: HealthReport['lanes'],
-  blindShare: number, openShare: number, floor: number): { score: number; findings: string[] } {
+  blindShare: number, openShare: number, floor: number, far: string[] = []): { score: number; findings: string[] } {
   const findings: string[] = []
   if (!floor) return { score: 0, findings: ['No floor to stand on yet: add a floor or a sample map first.'] }
   if (unreachable.length) {
@@ -325,8 +335,11 @@ function summarize(spawns: SpawnReport[], fairness: FairnessReport, unreachable:
   if (!spawns.length) findings.push('No spawns yet: place some so players have somewhere to start.')
   else if (!bad.length) findings.push(watch.length ? `No spawn is easy to camp; ${watch.length} could use a bit more cover.` : 'Every spawn is out of sight and away from the enemy.')
   for (const r of fairness.reasons.slice(0, 2)) if (!r.startsWith('Even')) findings.push(r)
-  if (lanes[0]) findings.push(`Longest sniper lane: ${lanes[0].metres} m across the map.`)
-  if (openShare > 0.3) findings.push(`${pct(openShare)} of the floor is wide open (half the map can see it): add cover.`)
+  // A long line only matters to what can hit along it: past about 50 m, only the long guns.
+  if (lanes[0]) findings.push(lanes[0].metres <= AIMED_M ? `Longest sight line: ${lanes[0].metres} m, within what most guns hit.`
+    : far.length ? `Longest sniper lane: ${lanes[0].metres} m across the map, for the ${far.map(gunName).join(', ')} on it (most guns don't hit past about ${AIMED_M} m).`
+      : `Longest sight line: ${lanes[0].metres} m, but nothing on the map hits that far (most guns don't past about ${AIMED_M} m).`)
+  if (openShare > 0.3) findings.push(`${pct(openShare)} of the floor is wide open (half the map can see it and is close enough to hit it): add cover.`)
   if (blindShare > 0.25) findings.push(`${pct(blindShare)} of the floor is hidden from almost everywhere: good cover, but also camping corners.`)
   const spawnScore = spawns.length ? (100 * spawns.reduce((a, s) => a + (s.risk === 'ok' ? 1 : s.risk === 'watch' ? 0.6 : 0), 0)) / spawns.length : 0
   const score = Math.max(0, Math.min(100, round(0.5 * spawnScore + 0.5 * fairness.score - 5 * unreachable.length - Math.max(0, openShare - 0.3) * 50)))

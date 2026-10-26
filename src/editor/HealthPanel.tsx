@@ -17,7 +17,7 @@ import { BOTS } from '../lib/analysis/analyze'
 import type { HealthReport, MoveFinding, MoveKind, SpawnReport, TeamStats } from '../lib/analysis/types'
 
 const OVERLAYS: { kind: OverlayKind; label: string; title: string; advanced?: boolean }[] = [
-  { kind: 'sight', label: 'Sight lines', title: 'How much of the map sees each spot, standing; red lines are the longest sight lines (sniper lanes)' },
+  { kind: 'sight', label: 'Sight lines', title: 'How much of the map sees each spot, standing, from close enough to hit it (most guns: about 50 m); red lines are the longest sight lines (sniper lanes)' },
   { kind: 'crouch', label: 'Crouched', title: 'The same for a crouching player: where crouching hides you', advanced: true },
   { kind: 'traffic', label: 'Traffic', title: 'Where the bots ran most: where players will actually run' },
   { kind: 'spawns', label: 'Spawns', title: 'Every spawn, coloured by how safe it is, with lines from the places that can see the risky ones' },
@@ -27,7 +27,7 @@ const OVERLAYS: { kind: OverlayKind; label: string; title: string; advanced?: bo
 
 const LEGEND: Record<OverlayKind, string> = {
   off: '',
-  sight: 'Blue: hidden. Red: seen from much of the map. Red lines: sniper lanes. Numbers: spawns that need a look.',
+  sight: 'Blue: hidden. Red: seen from much of the map, close enough to be hit. Red lines: sniper lanes. Numbers: spawns that need a look.',
   crouch: 'As Sight lines, for a crouching player: spots that turn blue are where crouching hides you.',
   traffic: 'Purple: a few runs. Red to yellow: busier. Yellow rings: the busiest spots.',
   spawns: 'Green: safe. Yellow: could use more cover. Red: easy to camp. Click a spawn finding (or one in the Health tab) to see the places that can see it.',
@@ -360,7 +360,7 @@ function SightAndFlow({ r }: { r: HealthReport }) {
   return (
     <div className="group">
       <span className="section-title">Sight lines and traffic</span>
-      <span className="small">{Math.round(r.openShare * 100)}% of the floor is wide open (half the map sees it); {Math.round(r.blindShare * 100)}% is hidden from almost everywhere.</span>
+      <span className="small">{Math.round(r.openShare * 100)}% of the floor is wide open (half the map sees it from close enough to hit it); {Math.round(r.blindShare * 100)}% is hidden from almost everywhere.</span>
       {r.lanes.length > 0 && <span className="small">Longest sight lines: {r.lanes.map((l) => `${l.metres} m`).join(', ')}.</span>}
       {r.unreachable.length > 0 && <span className="small warn">Players can't use: {r.unreachable.map((u) => `${u.type.toLowerCase()} at ${u.position.map((v) => Math.round(v)).join(', ')}${u.why ? ` (${u.why})` : ''}`).join('; ')}. Spawns and weapons → Fix spawns and weapons moves them.</span>}
       <span className="small faint">Traffic comes from {BOTS.bots} bots making {BOTS.trips} runs between spawns, weapons and drop-offs, now and then dying and respawning where the game would put them (never within 5 m of an enemy, likelier the further from one).</span>

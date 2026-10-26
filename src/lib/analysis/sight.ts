@@ -45,11 +45,12 @@ export function pickObservers(nodes: Int32Array, rayBudget: number, seed: number
 export interface SightCounts { stand: Uint16Array; crouch: Uint16Array; longest: number[]; rays: number }
 
 /** Looks from each observer at every reachable node. The crouched check only runs where the standing one sees:
- *  lower eyes are taken as at least as hidden. */
-export function observe(bvh: Bvh, pos: Float32Array, nodes: Int32Array, observers: ArrayLike<number>, maxSight: number, onProgress?: (done: number) => void): SightCounts {
+ *  lower eyes are taken as at least as hidden. A node counts as seen only from within `within` (units: as far as
+ *  most guns hit, weaponRange.ts); the longest lines are looked for out to `maxSight`. */
+export function observe(bvh: Bvh, pos: Float32Array, nodes: Int32Array, observers: ArrayLike<number>, maxSight: number, onProgress?: (done: number) => void, within = maxSight): SightCounts {
   const n = pos.length / 3, P = pos
   const stand = new Uint16Array(n), crouch = new Uint16Array(n)
-  const far2 = maxSight * maxSight
+  const far2 = maxSight * maxSight, near2 = within * within
   const rays0 = bvh.rays
   // [length, from, to] triples.
   const longest: number[] = []
@@ -65,8 +66,10 @@ export function observe(bvh: Bvh, pos: Float32Array, nodes: Int32Array, observer
       const d2 = dx * dx + dz * dz + dy * dy
       if (d2 > far2) continue
       if (bvh.blocked(ax, ay, az, bx, by + PLAYER.standEye, bz, OPAQUE)) continue
-      stand[b]++
-      if (!bvh.blocked(ax, ay, az, bx, by + PLAYER.crouchEye, bz, OPAQUE)) crouch[b]++
+      if (d2 <= near2) {
+        stand[b]++
+        if (!bvh.blocked(ax, ay, az, bx, by + PLAYER.crouchEye, bz, OPAQUE)) crouch[b]++
+      }
       if (d2 > bestLen * bestLen) { bestLen = Math.sqrt(d2); bestB = b }
     }
     if (bestB >= 0) longest.push(bestLen, a, bestB)

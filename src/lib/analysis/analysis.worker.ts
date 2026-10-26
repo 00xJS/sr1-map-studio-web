@@ -9,7 +9,7 @@ import type { AnalysisInput, AnalysisOptions, HealthReport } from './types'
 export type AnalysisRequest =
   | { id: number; kind: 'prepare'; input: AnalysisInput; opts: Omit<AnalysisOptions, 'onProgress'> }
   | { id: number; kind: 'load'; tris: Float32Array; flags: Uint8Array }
-  | { id: number; kind: 'observe'; pos: Float32Array; nodes: Int32Array; observers: Int32Array; maxSight: number }
+  | { id: number; kind: 'observe'; pos: Float32Array; nodes: Int32Array; observers: Int32Array; maxSight: number; within?: number }
   | { id: number; kind: 'finish'; counts: SightCounts; sightMs: number }
   | { id: number; kind: 'drop' }
 
@@ -40,7 +40,7 @@ self.onmessage = (e: MessageEvent<AnalysisRequest>) => {
         break
       case 'observe': {
         if (job?.id !== m.id) throw new Error('The map was not loaded in this worker')
-        const counts = observe(job.bvh, m.pos, m.nodes, m.observers, m.maxSight, (done) => post({ id: m.id, kind: 'progress', text: 'Checking sight lines', done }))
+        const counts = observe(job.bvh, m.pos, m.nodes, m.observers, m.maxSight, (done) => post({ id: m.id, kind: 'progress', text: 'Checking sight lines', done }), m.within)
         post({ id: m.id, kind: 'counts', counts }, [counts.stand.buffer, counts.crouch.buffer])
         break
       }

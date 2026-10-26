@@ -4,7 +4,7 @@
 import { loadModel } from '../assets'
 import type { ObjModel } from '../geometry'
 import type { Project } from '../project'
-import { SIGHT_FROM, SIGHT_TO } from './analyze'
+import { SIGHT_FROM, SIGHT_TO, WITHIN } from './analyze'
 import { collisionFromProject } from './collision'
 import { mergeCounts, type SightCounts } from './sight'
 import type { AnalysisInput, AnalysisOptions, HealthReport } from './types'
@@ -58,7 +58,7 @@ export function analyzeInWorkers(input: AnalysisInput, opts: AnalysisOptions = {
             // Observers were shuffled, so even slices take about the same time.
             sightStart = performance.now()
             const per = Math.ceil(m.observers.length / ws.length)
-            ws.forEach((x, i) => send(x, { id, kind: 'observe', pos: m.pos, nodes: m.nodes, observers: m.observers.slice(i * per, (i + 1) * per), maxSight: plain.maxSight ?? 300 }))
+            ws.forEach((x, i) => send(x, { id, kind: 'observe', pos: m.pos, nodes: m.nodes, observers: m.observers.slice(i * per, (i + 1) * per), maxSight: plain.maxSight ?? 300, within: plain.within ?? WITHIN }))
             break
           }
           case 'counts':
