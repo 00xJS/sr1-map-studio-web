@@ -52,6 +52,7 @@ export class SupabaseBackend implements Backend {
       name: p?.display_name || meta.user_name || meta.full_name || 'Player',
       avatar_url: p?.avatar_url || meta.avatar_url || undefined,
       is_moderator: !!p?.is_moderator,
+      ...(session.user.email ? { email: session.user.email } : {}),
     }
   }
   async getUser() { return this.profile(await this.session()) }

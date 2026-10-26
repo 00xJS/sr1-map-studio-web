@@ -1,3 +1,4 @@
+import { useIsAdmin } from './lib/admin'
 import { lazy, Suspense, type ReactNode } from 'react'
 import { NavLink, Link, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { Dialogs, ErrorBoundary, FileButton, Toasts, Avatar, toastError } from './ui'
@@ -15,6 +16,7 @@ const Catalog = lazy(() => import('./pages/Catalog'))
 const Play = lazy(() => import('./play/PlayPage'))
 const City = lazy(() => import('./pages/City'))
 const GamePiecesCheck = lazy(() => import('./pages/GamePiecesCheck'))
+const AdminLabels = lazy(() => import('./pages/AdminLabels'))
 const OpenMapHost = lazy(() => import('./pages/OpenMapDialog'))
 // Development only: checking the game library's names and roles against pictures.
 const GameLabels = import.meta.env.DEV ? lazy(() => import('./pages/GameLabels')) : null
@@ -27,6 +29,7 @@ function OpenMap() {
 
 export function Shell({ children }: { children: ReactNode }) {
   const user = useUser()
+  const admin = useIsAdmin()
   return (
     <div className="app">
       <header className="topnav">
@@ -38,6 +41,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {hubEnabled && <NavLink to="/showcase">Showcase</NavLink>}
           <NavLink to="/setup">Data pack</NavLink>
           <NavLink to="/about">About</NavLink>
+          {admin && <NavLink to="/admin/labels" title="Your labelling desk (only you see this)">Labels</NavLink>}
         </nav>
         <FileButton className="sm" directory onFiles={(f) => openMapFiles(f).catch(toastError)}
           title="Open a finished Saints Row map folder (from SaintsReborn/dist/maps) to edit it, or to add the game's sky to it. You can also drop a map folder or zip on My maps.">Open a game map…</FileButton>
@@ -79,6 +83,7 @@ export default function App() {
           <Route path="/maps" element={<Shell><Catalog /></Shell>} />
           <Route path="/city" element={<Shell><ErrorBoundary label="The city page hit an error"><Suspense fallback={null}><City /></Suspense></ErrorBoundary></Shell>} />
           <Route path="/game-pieces" element={<Shell><ErrorBoundary label="The game pieces page hit an error"><Suspense fallback={null}><GamePiecesCheck /></Suspense></ErrorBoundary></Shell>} />
+          <Route path="/admin/labels" element={<Shell><ErrorBoundary label="The labelling desk hit an error"><Suspense fallback={null}><AdminLabels /></Suspense></ErrorBoundary></Shell>} />
           <Route path="/setup" element={<Shell><Setup /></Shell>} />
           <Route path="/about" element={<Shell><About /></Shell>} />
           <Route path="/showcase" element={<Shell>{hubEnabled ? <Hub /> : <HubOff />}</Shell>} />

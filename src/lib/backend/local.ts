@@ -14,7 +14,7 @@ const STORES = ['users', 'cloud', 'blobs', 'maps', 'likes', 'reports', 'log', 'r
 type StoreName = (typeof STORES)[number]
 const MAX_PUBLISH_PER_DAY = 20
 
-interface UserRow { id: string; name: string; is_moderator: boolean; created_at: string }
+interface UserRow { id: string; name: string; is_moderator: boolean; created_at: string; email?: string }
 interface CloudRow { uid: string; id: string; name: string; updated_at: string; project: Project; size_bytes: number; thumb: Blob | null }
 interface MapRow {
   id: string; owner: string; project_id: string; title: string; description: string; tags: string[]
@@ -63,7 +63,7 @@ function thumbUrl(key: string, stamp: string, blob: Blob | null): string | undef
   return url
 }
 
-const toUser = (u: UserRow): User => ({ id: u.id, name: u.name, is_moderator: u.is_moderator })
+const toUser = (u: UserRow): User => ({ id: u.id, name: u.name, is_moderator: u.is_moderator, ...(u.email ? { email: u.email } : {}) })
 const now = () => new Date().toISOString()
 
 export class LocalBackend implements Backend {
@@ -87,11 +87,14 @@ export class LocalBackend implements Backend {
   private emit(u: User | null) { for (const cb of this.listeners) cb(u) }
   onAuthChange(cb: (user: User | null) => void) { this.listeners.add(cb); return () => { this.listeners.delete(cb) } }
 
-  private async signIn(id: string, name: string) {
+  private async signIn(id: string, name: string, email?: string) {
     let row = await get<UserRow>('users', id)
     if (!row) {
       // The first account on this simulated server moderates, so moderation can be tried.
-      row = { id, name, is_moderator: (await keys('users')).length === 0, created_at: now() }
+      row = { id, name, is_moderator: (await keys('users')).length === 0, created_at: now(), ...(email ? { email } : {}) }
+      await put('users', id, row)
+    } else if (email && row.email !== email) {
+      row = { ...row, email }
       await put('users', id, row)
     }
     localStorage.setItem(SESSION_KEY, id)
@@ -100,7 +103,7 @@ export class LocalBackend implements Backend {
   async signInWithEmail(email: string): Promise<'link-sent' | 'signed-in'> {
     const e = email.trim().toLowerCase()
     if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(e)) throw new Error('Enter a valid email address.')
-    await this.signIn('u-' + (await hashText(e)).slice(0, 16), e.split('@')[0].slice(0, 40))
+    await this.signIn('u-' + (await hashText(e)).slice(0, 16), e.split('@')[0].slice(0, 40), e)
     return 'signed-in'
   }
   async signInWithProvider(): Promise<void> { await this.signIn('local-tester', 'Local tester') }

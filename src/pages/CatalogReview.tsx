@@ -12,8 +12,8 @@ import type { GameObjectEntry } from '../lib/gameObjects/indexer'
 import { PrefabThumb } from '../editor/PrefabThumb'
 
 const PAGE = 48
-const FORMS: [Form, string][] = [['model', '3D model'], ['flat', 'Flat (decal, sign, poster)'], ['line', 'Line (wire, rail)'], ['invisible', 'Invisible or stand-in'], ['water', 'Water surface'], ['light', 'Light'], ['sky', 'Sky']]
-const STRUCTURES: [Structure, string][] = [['standalone', 'Standalone'], ['assembly', 'Comes with parts'], ['base', 'Base (others stand on it)'], ['top', 'Stands on a base'], ['part', 'Part of something bigger'], ['kit', 'Building kit piece'], ['connector', 'Connector (corner, end, post)'], ['copy', 'Copy or second state']]
+export const FORMS: [Form, string][] = [['model', '3D model'], ['flat', 'Flat (decal, sign, poster)'], ['line', 'Line (wire, rail)'], ['invisible', 'Invisible or stand-in'], ['water', 'Water surface'], ['light', 'Light'], ['sky', 'Sky']]
+export const STRUCTURES: [Structure, string][] = [['standalone', 'Standalone'], ['assembly', 'Comes with parts'], ['base', 'Base (others stand on it)'], ['top', 'Stands on a base'], ['part', 'Part of something bigger'], ['kit', 'Building kit piece'], ['connector', 'Connector (corner, end, post)'], ['copy', 'Copy or second state']]
 const COVER: Record<string, string> = { none: 'No cover', crouch: 'Crouch cover', stand: 'Stand cover' }
 type Side = 'form' | 'structure' | 'role' | 'cover'
 const SIDES: [Side, string][] = [['form', 'Form'], ['structure', 'Structure'], ['role', 'Role'], ['cover', 'Cover']]
@@ -30,7 +30,7 @@ const valueOf = (c: CatalogEntry, s: Side) => (s === 'cover' ? c.measures.cover.
 const unsure = (c: CatalogEntry) => [c.form, c.structure, c.role, c.measures.cover].some((j) => j.sure < UNSURE)
 
 /** The library catalogued, with the player's labels and placement corrections on top. */
-function useCatalogue(entries: GameObjectEntry[]) {
+export function useCatalogue(entries: GameObjectEntry[]) {
   const { labels, version } = useGameLabels()
   const rules = useMemo(() => placementRules(entries), [entries])
   return useMemo(() => {

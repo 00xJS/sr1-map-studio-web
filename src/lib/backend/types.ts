@@ -9,6 +9,8 @@ export interface User {
   name: string
   avatar_url?: string
   is_moderator: boolean
+  /** The signed-in account's own email (only ever the viewer's own; never shown to others or sent anywhere). */
+  email?: string
 }
 
 export interface CloudProjectMeta {
