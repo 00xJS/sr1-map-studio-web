@@ -15,6 +15,8 @@ import { populate, type PopulateTargets } from './samplePopulate'
 import { neighbourhood } from './neighbourhood'
 import type { GamePieces } from './gameObjects/wizardPieces'
 import { gameOnly } from './gameObjects/frame'
+import { gameDress } from './gameObjects/gameDress'
+import { KITS } from './gameObjects/areaKits'
 
 export type WizardSetting = 'downtown' | 'industrial' | 'paintball' | 'cyber' | 'suburbs' | 'docks' | 'construction' | 'military' | 'rundown'
 export type WizardLayout = 'blocks' | 'plaza' | 'lanes' | 'arena' | 'heights' | 'neighbourhood' | 'crossroads' | 'compounds' | 'maze' | 'scatter'
@@ -447,7 +449,9 @@ function lay(h: Half, o: WizardOptions): boolean {
       const q = { x, z, w: len * sn + 3 * c, d: len * c + 3 * sn }
       if (!h.fits(q, 2)) continue
       const wall = h.look.structure(r, 0, 0, len, 3, o.setting === 'downtown' ? 6 : 4)[0]
-      h.parts.push({ ...wall, label: o.setting === 'cyber' ? 'Neon block' : 'Ring wall', at: [x, 1, z], rot })
+      // Game pieces: a run of the game's walls or fences along the ring.
+      const game = h.pieces?.any ? h.pieces.fenceAlong(x, z, len, rot, 1, 3.6) : null
+      h.parts.push(...(game ?? [{ ...wall, label: o.setting === 'cyber' ? 'Neon block' : 'Ring wall', at: [x, 1, z] as Vec3, rot }]))
       h.take(q)
     }
   } else if (o.layout === 'crossroads') {
@@ -500,9 +504,14 @@ function lay(h: Half, o: WizardOptions): boolean {
       const runs: Rect[] = []
       if (i < cols && r.chance(odds)) runs.push({ x: px + C / 2, z: pz, w: C - 5, d: t })
       if (j < rows && r.chance(odds)) runs.push({ x: px, z: pz + C / 2, w: t, d: C - 5 })
-      for (const q of runs) if (h.fits(q, 0.5)) { h.parts.push(box('Maze wall', [q.w, wallH, q.d], [q.x, 1, q.z], h.look.wallTop, h.look.wall)); h.take(q) }
+      for (const q of runs) if (h.fits(q, 0.5)) {
+        // Game pieces: the game's own walls and fences, tall enough to hide behind.
+        h.parts.push(...(h.pieces?.fence(q.x, q.z, q.w, q.d, 1, 3.6) ?? [box('Maze wall', [q.w, wallH, q.d], [q.x, 1, q.z], h.look.wallTop, h.look.wall)]))
+        h.take(q)
+      }
     }
-  } else if (o.layout === 'scatter') {
+  } else if (o.layout === 'scatter' && !h.pieces?.any) {
+    // (Game pieces: the game's own cover fills the field when the map is dressed, gameDress.ts.)
     // Low walls and blocks, waist to chest high, turned across or along the map.
     const count = Math.round((W * D) / 2 / 260 * Math.min(1.6, fill))
     const { top, side } = h.look.deck
@@ -666,7 +675,12 @@ export function wizardSample(o: WizardOptions, pieces?: GamePieces): Sample {
   // Stilwater modules are kept out of while props, spawns and weapons go in round them (their stand-ins are rough).
   const laid = wizardLayout(o, pieces)
   const keep = pieces?.city?.keepOut() ?? []
-  const dressed = dress(detailize(keep.length ? { ...laid, parts: [...laid.parts, ...keep] } : laid), busyness(busyOf(o)).dress)
+  const detailed = detailize(keep.length ? { ...laid, parts: [...laid.parts, ...keep] } : laid)
+  // Game pieces: dressed from the game's own models the way the game dresses each kind of place (areaKits.ts); a
+  // cover field gets more of it.
+  const dressed = pieces?.any
+    ? gameDress(detailed, pieces, KITS[o.setting], Math.min(100, busyOf(o) + (o.layout === 'scatter' ? 35 : 0)), o.seed)
+    : dress(detailed, busyness(busyOf(o)).dress)
   // Game pieces: the site's props become the game's where one fits, and whatever is left of the site's goes (its
   // ground, walls, decks and streets stay, in the game's own surfaces).
   const swapped = pieces ? pieces.swap(dressed) : dressed

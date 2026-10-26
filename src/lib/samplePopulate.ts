@@ -253,10 +253,17 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   const sharedNeed = Math.max(0, t.shared - of('Shared spawn').length)
   const sharedOk = (p: Vec3) => p[2] < 0 || (p[2] === 0 && p[0] < 0)
   let shared: Vec3[] = []
-  // Sheltered spots first (a little closer together if that's what it takes), then anywhere.
-  if (seen) for (const [open, gap] of [[0.12, 12], [0.2, 12], [0.2, 9]] as const) {
-    if (shared.length >= Math.ceil(sharedNeed / 2)) break
-    shared.push(...pick(pool, [...spawns(), ...of('Chains drop-off'), ...shared, ...shared.map(flip)], Math.ceil(sharedNeed / 2) - shared.length, gap, (p) => sharedOk(p) && clearOf(busy, p) && sheltered(open)(p), mirrorOk))
+  // Sheltered spots first (a little closer together if that's what it takes), then anywhere. Each out of sight of
+  // most of the spawns already placed (and its own twin), as few as it takes: the health check calls a shared spawn
+  // six others can see easy to camp.
+  const seenBy = (p: Vec3) => [...spawns(), ...shared, ...shared.map(flip), flip(p)]
+    .filter((q) => !walk!.bvh.blocked(...(eye(q) as Vec3), ...(eye(p) as Vec3), OPAQUE)).length
+  if (seen) for (const [open, gap, views] of [[0.12, 12, 2], [0.2, 12, 3], [0.2, 9, 4], [0.12, 12, Infinity], [0.2, 12, Infinity], [0.2, 9, Infinity]] as const) {
+    while (shared.length < Math.ceil(sharedNeed / 2)) {
+      const [p] = pick(pool, [...spawns(), ...of('Chains drop-off'), ...shared, ...shared.map(flip)], 1, gap, (q) => sharedOk(q) && clearOf(busy, q) && sheltered(open)(q) && (views === Infinity || seenBy(q) <= views), mirrorOk)
+      if (!p) break
+      shared.push(p)
+    }
   }
   if (shared.length < Math.ceil(sharedNeed / 2)) shared.push(...pick(pool, [...spawns(), ...of('Chains drop-off'), ...shared, ...shared.map(flip)], Math.ceil(sharedNeed / 2) - shared.length, 12, (p) => sharedOk(p) && clearOf(busy, p), mirrorOk))
   if (shared.length < Math.ceil(sharedNeed / 2)) shared = [...shared, ...pick(pool, [...spawns(), ...of('Chains drop-off'), ...shared, ...shared.map(flip)], Math.ceil(sharedNeed / 2) - shared.length, 12, sharedOk, mirrorOk)]

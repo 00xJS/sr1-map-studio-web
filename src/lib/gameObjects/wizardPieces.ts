@@ -171,6 +171,8 @@ export interface Prepared {
   buildings: Cand[]
   fences: Cand[]
   props: Map<PropKind, Cand[]>
+  /** Props and fences by identify()'s name, best first (what the area kits ask for, areaKits.ts). */
+  named: Map<string, Cand[]>
 }
 
 const prepared = new WeakMap<GameObjectEntry[], Map<string, Prepared>>()
@@ -189,7 +191,7 @@ export function prepare(entries: GameObjectEntry[], setting: WizardSetting, base
   const hit = key ? bySetting.get(key) : undefined
   if (hit) return hit
   const ident = labels ? withLabels(labels, base) : base
-  const out: Prepared = { buildings: [], fences: [], props: new Map() }
+  const out: Prepared = { buildings: [], fences: [], props: new Map(), named: new Map() }
   const all = new Map(entries.map((e) => [e.id, e]))
   for (const e of entries) {
     const id = ident(e), l = labels?.[e.id]
@@ -225,6 +227,10 @@ export function prepare(entries: GameObjectEntry[], setting: WizardSetting, base
   out.buildings = top(out.buildings)
   out.fences = top(out.fences)
   for (const [k, l] of out.props) out.props.set(k, top(l))
+  for (const c of [...out.fences, ...[...out.props.values()].flat()]) {
+    const l = out.named.get(c.id.name)
+    if (l) l.push(c); else out.named.set(c.id.name, [c])
+  }
   if (key) bySetting.set(key, out)
   return out
 }
@@ -397,7 +403,7 @@ export class GamePieces {
   }
 
   /** A model from `list`: a fitting one (fit > 0), the ones already in use far likelier, within the budget. Null when none. */
-  private choose(list: Cand[], palette: string, fit: (c: Cand) => number, copies: number | ((c: Cand) => number), limit = TRI_BUDGET): Cand | null {
+  private choose(list: Cand[], palette: string, fit: (c: Cand) => number, copies: number | ((c: Cand) => number), limit = TRI_BUDGET, commit = true): Cand | null {
     const times = typeof copies === 'number' ? () => copies : copies
     const used = this.palettes.get(palette) ?? new Set<string>()
     const cap = PALETTE[palette] ?? PROP_PALETTE
@@ -409,8 +415,7 @@ export class GamePieces {
       const mine = used.has(c.e.id)
       if (!mine) {
         if (used.size >= cap) continue
-        const fresh = new Set(c.e.tex.map((t) => t.toLowerCase()).filter((t) => !this.tex.has(t)))
-        if (this.tex.size + fresh.size > TEXTURE_BUDGET) continue
+        if (!this.texFits(this.brings(c))) continue
       }
       const w = f * c.weight * (mine ? 6 : 1)
       ok.push([c, w]); total += w
@@ -418,8 +423,22 @@ export class GamePieces {
     if (!ok.length) return null
     let x = this.r.next() * total
     const pick = ok.find(([, w]) => (x -= w) <= 0)?.[0] ?? ok[ok.length - 1][0]
-    this.use(pick, palette, times(pick))
+    if (commit) this.use(pick, palette, times(pick))
     return pick
+  }
+
+  /** The textures a model brings with it: its own, its foot's, and those of the parts its rule places with it. */
+  private brings(c: Cand): string[] {
+    const out = [...c.e.tex]
+    const foot = c.cat.structure.value === 'top' ? footOf(c.e, this.byId) : null
+    if (foot) out.push(...foot.tex)
+    for (const id of this.rule?.(c.e)?.needs ?? []) out.push(...(this.byId.get(id)?.tex ?? []))
+    return out
+  }
+
+  /** Whether these textures still fit the map's texture budget. */
+  private texFits(tex: string[]): boolean {
+    return this.tex.size + new Set(tex.map((t) => t.toLowerCase()).filter((t) => !this.tex.has(t))).size <= TEXTURE_BUDGET
   }
 
   private use(c: Cand, palette: string, copies: number) {
@@ -603,7 +622,8 @@ export class GamePieces {
     // one on both halves of the map, by where it stands), each exactly where the game has it on that base.
     const foot = c.cat.structure.value === 'top' ? footOf(c.e, this.byId) : null
     if (foot) {
-      const variants = (foot.tops ?? []).filter((t) => t.n >= Math.max(2, 0.1 * foot.seen) && this.byId.has(t.id) && this.canStand(this.byId.get(t.id)!, c.e))
+      const variants = (foot.tops ?? []).filter((t) => t.n >= Math.max(2, 0.1 * foot.seen) && this.byId.has(t.id) && this.canStand(this.byId.get(t.id)!, c.e)
+        && this.texFits(this.byId.get(t.id)!.tex))
       const pick = variants.length ? variants[(Math.round(Math.abs(at[0])) * 31 + Math.round(Math.abs(at[2]))) % variants.length] : null
       const top = pick ? this.byId.get(pick.id)! : c.e
       const off = pick ?? foot.tops?.find((t) => t.id === c.e.id)
@@ -630,6 +650,61 @@ export class GamePieces {
       return out
     }
     return null
+  }
+
+  /**
+   * A model named `name` (identify()'s name, best first) that `fit` likes, for an area kit (areaKits.ts), counted
+   * `copies` times against the budget. Null when the library has none that fits.
+   */
+  named(name: string, fit: (c: Cand) => number, copies = 2): Cand | null {
+    // Not counted yet: only once it is placed (see commit), so a spot it doesn't fit costs nothing.
+    return this.choose(this.lib.named.get(name) ?? [], 'kit:' + name, fit, copies, TRI_BUDGET, false)
+  }
+
+  /** Counts a model from named() that was placed: its palette, triangles, textures and the map's tally. */
+  commit(c: Cand, copies = 2) {
+    this.use(c, 'kit:' + c.id.name, copies)
+    if (c.id.role === 'fence') this.stats.fences += copies; else this.stats.props += copies
+  }
+
+  /** Whether the library has anything under that name. */
+  hasNamed(name: string) { return !!this.lib.named.get(name)?.length }
+
+  /** The most cover anything under that name gives (the catalogue's: none, crouch or stand). */
+  coverOf(name: string): 'none' | 'crouch' | 'stand' {
+    const l = this.lib.named.get(name) ?? []
+    return l.some((c) => c.cat.measures.cover.value === 'stand') ? 'stand' : l.some((c) => c.cat.measures.cover.value === 'crouch') ? 'crouch' : 'none'
+  }
+
+  /** What the last game dressing placed (gameDress.ts), for the wizard's summary and the tests. */
+  dressed?: { screens: number; fronts: number; alleys: number; cover: number; wanted: number }
+
+  /** Stand-ins for `c` at a spot, as its placement rule asks (see placeLoose); null when it can't stand there. */
+  place(c: Cand, label: string, at: Vec3, rot: number, parts: Part[], own: Part[] = []): Part[] | null {
+    return this.placeLoose(c, label, at, rot, parts, own)
+  }
+
+  /** Which way the model's front faces (its placement rule's), when it has one. */
+  frontOf(c: Cand): Side | undefined { return this.rule?.(c.e)?.facing }
+
+  /**
+   * Fence runs along a line `len` units long through (x, z), along X turned by `rot` degrees (as the editor turns a
+   * part): copies of one fence model end to end, at least `minH` units tall. Null when no fence fits.
+   */
+  fenceAlong(x: number, z: number, len: number, rot: number, y: number, minH: number, copies = 2): Part[] | null {
+    const m = len / M
+    const runs = (c: Cand) => Math.max(1, Math.ceil(m / c.long - 1e-6))
+    const c = this.choose(this.lib.fences, 'fence', (c) => (c.long <= m && c.h * M >= minH && c.long >= m / 8 ? c.long / m : 0), (c) => copies * runs(c))
+    if (!c) { this.stats.kept++; return null }
+    const n = runs(c), step = n > 1 ? (m - c.long) / (n - 1) : 0
+    const [ax, az] = turn(1, 0, rot)
+    const out: Part[] = []
+    for (let k = 0; k < n; k++) {
+      const t = (n > 1 ? -m / 2 + c.long / 2 + k * step : 0) * M
+      out.push(this.standIn(c, 'Game fence', [r2(x + ax * t), y, r2(z + az * t)], ((rot % 360) + 360) % 360, c.long, c.short))
+    }
+    this.stats.fences += n * copies
+    return out
   }
 
   /** Whether a variation on a base may stand in for the model chosen (whole, and about its size: a street lamp for a street lamp). */
