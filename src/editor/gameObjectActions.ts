@@ -5,7 +5,7 @@ import { toast } from '../ui'
 import { db } from '../lib/db'
 import { registerThumbSource, resetThumbs } from '../lib/prefabThumbs'
 import { connect, entryById, getObject, loadIndex, useGameObjects } from '../lib/gameObjects/client'
-import { gameObjectItem, gameRefOf, missingGameObjects, rebuildItem } from '../lib/gameObjects/place'
+import { gameObjectItem, gameRefOf, missingGameObjects, rebuildItem, sinkUnits } from '../lib/gameObjects/place'
 import { referencedPaths, type FileRef, type Project, type Vec3 } from '../lib/project'
 
 const THUMB_TEX = 64
@@ -23,7 +23,8 @@ const ws = () => currentProject()?.settings.world_scale || 0.5
 /** Places a library object standing on the clicked surface. */
 export async function placeGameObject(id: string, at: Vec3, groundY: number | null, rot: number) {
   const e = await entry(id)
-  const { item, files } = await gameObjectItem(e, [at[0], groundY ?? at[1], at[2]], rot, ws())
+  // On a floor: sunk into it as the city has it (place.ts sinkUnits).
+  const { item, files } = await gameObjectItem(e, [at[0], groundY !== null ? groundY - sinkUnits(e, ws()) : at[1], at[2]], rot, ws())
   const st = useEditor.getState()
   st.update('Add ' + e.name, (d) => {
     Object.assign(d.files, files)

@@ -11,6 +11,7 @@ import { parseObj } from '../geometry'
 import type { FileRef, Project, SceneItem } from '../project'
 import { getObject } from './client'
 import type { GameObjectEntry } from './indexer'
+import type { Part } from '../sampleKit'
 import type { ObjectResult, ObjectTexture } from './worker'
 import type { ObjectMesh } from './extract'
 import { lookTextures, lookUvSets } from './material'
@@ -203,6 +204,20 @@ export function objectFiles(e: Pick<GameObjectEntry, 'id' | 'name' | 'pack' | 'c
 }
 
 /** A scene item for a library entry, standing at `at`, turned `rot` degrees. */
+/**
+ * Editor units to stand a single game model lower than its lowest point, so it stands on a flat floor the way it
+ * stands on the city's (sits.ts sink: a building's stairwell going down past the sidewalk, a bus stop's posts
+ * reaching the street past the kerb). `ws`: the map's metres per unit.
+ */
+export const sinkUnits = (e: Pick<GameObjectEntry, 'sits' | 'sink'>, ws: number) => (e.sink ?? e.sits?.sink ?? 0) / ws
+
+/**
+ * Units a wizard stand-in's model goes down into the floor: its group's sink when it goes with others, none when it
+ * is part of a whole Stilwater module (placed exactly as the city has it), else its own.
+ */
+export const sunk = (p: Pick<Part, 'game'>, e: Pick<GameObjectEntry, 'sits' | 'sink'>, ws: number) =>
+  p.game?.sink !== undefined ? p.game.sink / ws : p.game?.from ? 0 : sinkUnits(e, ws)
+
 export async function gameObjectItem(e: GameObjectEntry, at: [number, number, number], rot: number, ws: number): Promise<{ item: SceneItem; files: Record<string, FileRef> }> {
   const s = await objectFiles(e, ws)
   const game_object: GameObjectRef = { source: 'game', pack: e.pack, chunk: e.chunk, record: e.record, ...(e.parts ? { parts: e.parts } : {}), id: e.id, ws }

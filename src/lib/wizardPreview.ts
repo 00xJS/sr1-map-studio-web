@@ -18,7 +18,7 @@ import { findSlivers } from './invisibleWalls'
 import { NeedGameFolder, entryById, getObject } from './gameObjects/client'
 import { identify } from './gameObjects/identity'
 import { objectMesh } from './gameObjects/render'
-import { objText, safe, stemOf } from './gameObjects/place'
+import { objText, safe, stemOf, sunk } from './gameObjects/place'
 import { buildingParts, eyeCover, mapTextures, placedTurn, standing } from './gameObjects/wizardBuild'
 
 const RAD = Math.PI / 180
@@ -126,13 +126,16 @@ export function previewMap(sample: Sample, onUpdate: (p: Preview) => void): () =
 
   const show = (p: Part, m: Model, s: { id: string; rot: number }) => {
     const inst = new THREE.Mesh(m.mesh.geometry, m.mesh.material)
-    inst.position.set(p.at[0], p.at[1], p.at[2])
+    // Sunk into the floor as the map builder stands it (wizardBuild.ts).
+    const e = entryById(s.id)
+    const at: [number, number, number] = [p.at[0], p.at[1] - (e ? sunk(p, e, WS) : 0), p.at[2]]
+    inst.position.set(...at)
     inst.rotation.y = s.rot * RAD
     root.add(inst)
     root.remove(boxes.get(p)!)
     placed.set(p, s)
     if (p.label !== 'Game building') return
-    for (const bp of buildingParts(p, entryById(s.id)!, p.at, s.rot, WS)) {
+    for (const bp of buildingParts(p, entryById(s.id)!, at, s.rot, WS)) {
       extra.push({ id: bp.e.id, at: bp.at, rot: bp.rot })
       wholes.push(modelOf(bp.e.id).then((pm) => {
         if (!live) return

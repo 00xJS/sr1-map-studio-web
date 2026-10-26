@@ -8,7 +8,7 @@ import { extractObject } from './extract'
 import { eyeCover } from './eyeCover'
 import { baseName, buildingCode, skipName } from './classify'
 import { BUILDINGS, CATEGORIES, buildingKind, chunkDistricts, identify } from './identity'
-import { SITS_LEN, Solid, probeChunk, sitsFrom, type Sits, type Target } from './sits'
+import { SITS_LEN, Solid, probeChunk, probeSinks, sitsFrom, type Sits, type Target } from './sits'
 import { cityData, isStudyChunk, studyChunk, studyCity, type Cover, type Site } from './cityStudy'
 import type { CityGroup, CityModule } from './cityModules'
 
@@ -95,6 +95,8 @@ export interface GameObjectEntry {
   layout?: GamePart[]
   /** How the game stands it (on the ground, on a wall, on a roof, hanging), from a few of its placements per chunk (sits.ts). */
   sits?: Sits
+  /** Whole buildings: metres their lowest point is below the floor round them in the city (props: sits.sink). */
+  sink?: number
   /** The groups of things the city keeps placing with this one, this one their anchor (cityStudy.ts; cityModules.ts groups()). */
   groups?: CityGroup[]
   /** Buildings: this building cut out of the city with what stands on and around it (cityStudy.ts; cityModules.ts cityModules()). */
@@ -153,6 +155,8 @@ export interface Candidate extends GameObjectEntry {
   spots?: number[]; foot?: [number, number]; sites?: Site[]; cover?: Cover
   /** How the chunk stands it (sits.ts): the counts (SITS_LEN numbers) and its cover at eye height. */
   sitSums?: number[]; sitCover?: number
+  /** Whole buildings: how far below the floor round them their lowest point is, summed, and over how many placements. */
+  sinkSum?: number; sinkN?: number
 }
 
 /** Smaller than this across is a speck nobody could place. */
@@ -454,6 +458,13 @@ function standing(ch: Chunk, places: Placement[], out: Map<string, Candidate>, s
     kinds.set(inst, role === 'skip' ? Solid.None : role === 'ground' ? Solid.Ground : role === 'prop' ? Solid.Prop : Solid.Structure)
     if (role !== 'skip' && role !== 'ground' && !buildingKind(c)) targets.push({ inst, key: p.key, at: p.at, yaw: p.yaw, ext: p.ext, h: p.h })
   }
+  // Whole buildings: only how far they are sunk into the floor round them.
+  const wholes = places.filter((p) => buildingKind(out.get(p.key)!) === 'whole')
+    .map((p) => ({ inst: p.inst[0], own: p.inst, key: p.key, at: p.at, yaw: p.yaw, ext: p.ext, h: p.h }))
+  if (wholes.length) for (const [key, r] of probeSinks(ch, wholes, (n) => kinds.get(n) ?? Solid.None, boundsOf)) {
+    const c = out.get(key)!
+    c.sinkSum = (c.sinkSum ?? 0) + r.sum; c.sinkN = (c.sinkN ?? 0) + r.n
+  }
   if (!targets.length) return
   const inside = (q: Vec3) => hosts.some((h) => Math.abs(q[0] - h.at[0]) <= h.ext[0] / 2 + 0.5 && Math.abs(q[2] - h.at[2]) <= h.ext[1] / 2 + 0.5 && q[1] >= h.at[1] - 1 && q[1] <= h.at[1] + h.h + 1)
   for (const [key, r] of probeChunk(ch, targets, (n) => kinds.get(n) ?? Solid.None, boundsOf, inside)) {
@@ -631,7 +642,7 @@ export const textureName = (t: string) => t.replace(/\.\w+$/, '').replace(/_(tm|
  * how often the game uses it.
  */
 export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
-  const by = new Map<string, { copies: Candidate[]; seen: number; names: Map<string, number>; ups: Map<number, number>; raw: Set<string>; where: Set<string>; districts: Set<string>; close: Map<string, number[]>; around: Map<string, number>; on: Map<string, number>; onAt: Map<string, number[]>; sits?: number[]; sitCover?: number }>()
+  const by = new Map<string, { copies: Candidate[]; seen: number; names: Map<string, number>; ups: Map<number, number>; raw: Set<string>; where: Set<string>; districts: Set<string>; close: Map<string, number[]>; around: Map<string, number>; on: Map<string, number>; onAt: Map<string, number[]>; sits?: number[]; sitCover?: number; sinkSum?: number; sinkN?: number }>()
   // How many different objects each chunk holds: copies are taken from as few chunks as possible, so drawing a
   // page of pictures reads few chunks.
   const perChunk = new Map<string, number>()
@@ -647,6 +658,7 @@ export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
     for (const [k, v] of Object.entries(c.onAt ?? {})) { const t = g.onAt.get(k); if (t) for (let i = 0; i < 5; i++) t[i] += v[i]; else g.onAt.set(k, [...v]) }
     if (c.sitSums) { const t = (g.sits ??= new Array(SITS_LEN).fill(0)); for (let i = 0; i < SITS_LEN; i++) t[i] += c.sitSums[i] ?? 0 }
     if (c.sitCover !== undefined) g.sitCover ??= c.sitCover
+    if (c.sinkN) { g.sinkSum = (g.sinkSum ?? 0) + c.sinkSum!; g.sinkN = (g.sinkN ?? 0) + c.sinkN }
     g.copies.push(c)
     g.seen += c.seen
     for (const n of [c.name, ...(c.names ?? [])]) g.names.set(n, (g.names.get(n) ?? 0) + (n === c.name ? c.seen : 1))
@@ -661,7 +673,7 @@ export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
     const upBest = [...g.ups.entries()].sort((a, b) => b[1] - a[1])[0][0]
     const score = (c: Candidate) => (c.up === upBest ? 1e9 : 0) + (perChunk.get(c.pack + '/' + c.chunk) ?? 0)
     const best = g.copies.reduce((a, b) => (score(b) > score(a) ? b : a))
-    const { key: _k, up: _u, names: _n, raw: _r, districts: _d, close: _c, around: _a, on: _o, onAt: _oa, spots: _s, foot: _f, sites: _si, cover: _cv, sitSums: _ss, sitCover: _sc, ...e } = best
+    const { key: _k, up: _u, names: _n, raw: _r, districts: _d, close: _c, around: _a, on: _o, onAt: _oa, spots: _s, foot: _f, sites: _si, cover: _cv, sitSums: _ss, sitCover: _sc, sinkSum: _sk, sinkN: _sn, ...e } = best
     const names = [...g.names.entries()].sort((a, b) => b[1] - a[1]).map(([n]) => n)
     const entry: GameObjectEntry = { ...e, name: names[0] ?? e.name, seen: g.seen }
     if (names.length > 1) entry.names = names.slice(1, 5)
@@ -670,6 +682,7 @@ export function mergeCandidates(all: Iterable<Candidate>): GameObjectEntry[] {
     entry.where = [...g.where].sort()
     if (g.districts.size) entry.districts = [...g.districts].sort()
     if (g.sits) entry.sits = sitsFrom(g.sits, g.sitCover)
+    if (g.sinkN && g.sinkSum! / g.sinkN >= 0.01) entry.sink = Math.round((g.sinkSum! / g.sinkN) * 100) / 100
     entries.push(entry)
     rel.set(entry.id, g)
   }

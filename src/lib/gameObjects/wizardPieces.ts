@@ -40,6 +40,11 @@ export interface GamePart {
   /** The module or group it belongs to (its name). */
   from?: string
   /**
+   * Metres it is sunk into the floor, when it goes with others that must sink together (a lamp on its foot, a model
+   * and the parts its rule places with it: all by the first one's sink). Unset: its own (place.ts sinkUnits).
+   */
+  sink?: number
+  /**
    * Buildings: others that fit the same stand-in, best first. The map builder tries them in turn when this one turns
    * out see-through at eye height or bigger than its footprint said, before falling back to the site's plain block.
    */
@@ -631,7 +636,7 @@ export class GamePieces {
         const [dx, dz] = turn(-off.at[0] * M, off.at[2] * M, rot)
         if (top !== c.e) this.spend(top.tris, top.tex)
         this.spend(foot.tris, foot.tex)
-        return [exactStandIn(foot, label, at, rot), exactStandIn(top, label, [at[0] + dx, at[1] + off.at[1] * M, at[2] + dz], rot + (off.yaw * 180) / Math.PI)]
+        return together(foot, [exactStandIn(foot, label, at, rot), exactStandIn(top, label, [at[0] + dx, at[1] + off.at[1] * M, at[2] + dz], rot + (off.yaw * 180) / Math.PI)])
       }
     }
     const rl = this.rule?.(c.e)
@@ -647,7 +652,7 @@ export class GamePieces {
         out.push(exactStandIn(e, label, [at[0] + dx, at[1] + a.at[1] * M, at[2] + dz], r + (a.yaw * 180) / Math.PI))
         this.spend(e.tris, e.tex)
       }
-      return out
+      return together(c.e, out)
     }
     return null
   }
@@ -752,6 +757,12 @@ export class GamePieces {
       roads: new Set(road.filter((q) => !posts.includes(q))),
     }
   }
+}
+
+/** Stand-ins placed as one: all sunk into the floor as far as `lead` is in the city (place.ts sinkUnits). */
+function together(lead: Pick<GameObjectEntry, 'sink' | 'sits'>, parts: Part[]): Part[] {
+  const sink = lead.sink ?? lead.sits?.sink ?? 0
+  return parts.map((p) => ({ ...p, game: { ...p.game!, sink } }))
 }
 
 /** A stand-in's footprint across X and Z (units), as it stands. */

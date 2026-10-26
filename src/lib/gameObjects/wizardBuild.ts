@@ -10,7 +10,7 @@ import { peekModel } from '../assets'
 import { mapLimit } from '../hubRules'
 import { entryById, loadIndex } from './client'
 import { identify } from './identity'
-import { gameObjectItem, objectFiles } from './place'
+import { gameObjectItem, objectFiles, sunk } from './place'
 import { SOLID_COVER, TEXTURE_BUDGET, fitsStandIn, modelTurn } from './wizardPieces'
 import { setLabels, useGameLabels } from './labels'
 import { eyeCover } from './eyeCover'
@@ -141,11 +141,13 @@ export async function placeGameParts(parts: Part[], ws: number, onProgress?: (t:
     const s = await standing(p, measure, tex)
     if (!s) { failed.push(p); continue }
     const e = entryById(s.id)!
-    const placed = await gameObjectItem(e, [p.at[0], p.at[1], p.at[2]], s.rot, ws)
+    // Sunk into the floor as the city has it, unless it is part of a whole Stilwater module (placed exactly as the city has it).
+    const at: [number, number, number] = [p.at[0], p.at[1] - sunk(p, e, ws), p.at[2]]
+    const placed = await gameObjectItem(e, at, s.rot, ws)
     Object.assign(files, placed.files)
     items.push(placed.item)
     // A building comes whole: its porch, steps and side pieces where the game puts them.
-    if (p.label === 'Game building') for (const bp of buildingParts(p, e, p.at, s.rot, ws)) {
+    if (p.label === 'Game building') for (const bp of buildingParts(p, e, at, s.rot, ws)) {
       try {
         const part = await gameObjectItem(bp.e, bp.at, bp.rot, ws)
         Object.assign(files, part.files)

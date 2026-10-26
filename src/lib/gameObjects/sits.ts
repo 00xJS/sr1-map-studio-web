@@ -29,14 +29,21 @@ export interface Sits {
   ceiling: number
   /** Its feet above the ground under it, metres (average). */
   lift: number
+  /**
+   * How far its lowest point is below the floor it stands on, metres (average): the floor most of the ground just
+   * round its footprint is at. A building whose stairwell or drain goes down past the sidewalk, a bus stop whose
+   * posts reach down to the street past the kerb. Stood on a flat floor by its lowest point it would float this
+   * much, so it is sunk by it instead.
+   */
+  sink?: number
   /** Clear floor in front of each side, metres (average, at most OPEN_MAX). */
   open: [number, number, number, number]
   /** How solid its own shape is between knee and eye height, or its own height when lower (0..1; the less of two side views). */
   cover?: number
 }
 
-/** The counts as they add up: n, ground, wall, roof, hang, inside, back x4, lift sum, open sums x4, ceiling. */
-export const SITS_LEN = 16
+/** The counts as they add up: n, ground, wall, roof, hang, inside, back x4, lift sum, open sums x4, ceiling, sink sum, placements with a sink. */
+export const SITS_LEN = 18
 /** Floor in front is looked for up to this far (metres). */
 export const OPEN_MAX = 3
 
@@ -452,7 +459,59 @@ function probe(scene: Scene, t: Target, sums: number[], inside: (p: Vec3) => boo
   for (let i = 0; i < 4; i++) { sums[6 + i] += back[i]; sums[11 + i] += open[i] }
   sums[10] += lift
   if (ceiling) sums[15]++
+  const sink = sinkOf(scene, t, P, same)
+  if (sink !== null) { sums[16] += sink; sums[17]++ }
 }
+
+/**
+ * How far below the floor round it a placement's lowest point is (metres, 0 when it stands on it or above it): the
+ * level most of eight points just outside its footprint agree on, looking down from up to SINK_MAX over its feet.
+ * Null when there is too little floor round it to tell (its street is in another chunk).
+ */
+function sinkOf(scene: Scene, t: Target, P: (u: number, y: number, w: number) => Vec3, same: (n: number) => boolean): number | null {
+  const hx = t.ext[0] / 2 + 0.4, hz = t.ext[1] / 2 + 0.4
+  const ys: number[] = []
+  for (const [u, w] of [[hx, 0], [-hx, 0], [0, hz], [0, -hz], [hx, hz], [hx, -hz], [-hx, hz], [-hx, -hz]]) {
+    const r = scene.cast(P(u, SINK_MAX, w), [0, -1, 0], SINK_MAX + 0.2, same, WALLS)
+    if (r && r.ny > 0.7) ys.push(SINK_MAX - r.t)
+  }
+  if (ys.length < 4) return null
+  // The biggest group of levels within a few centimetres of each other (the higher on a tie).
+  ys.sort((a, b) => a - b)
+  let best = 0, at = 0
+  for (let i = 0; i < ys.length; i++) {
+    let j = i
+    while (j + 1 < ys.length && ys[j + 1] - ys[i] <= 0.06) j++
+    if (j - i + 1 >= best) { best = j - i + 1; at = (ys[i] + ys[j]) / 2 }
+  }
+  return best >= 3 ? Math.max(0, Math.min(SINK_MAX, at)) : null
+}
+
+/**
+ * For whole buildings (several instances each, not probed above): how far each one's lowest point is below the
+ * floor round it, summed over a couple of its placements per chunk. `own`: each target's own instances.
+ */
+export function probeSinks(ch: Chunk, targets: (Target & { own: number[] })[], kind: (inst: number) => Solid, bounds: (mesh: number) => Box | null): Map<string, { sum: number; n: number }> {
+  const scene = new Scene(ch, kind, bounds)
+  const out = new Map<string, { sum: number; n: number }>(), tried = new Map<string, number>()
+  for (const t of targets) {
+    const r = out.get(t.key) ?? { sum: 0, n: 0 }
+    // A few more tries than the others get: some placements have too little floor round them to tell.
+    const k = tried.get(t.key) ?? 0
+    if (r.n >= PER_CHUNK || k >= 2 * PER_CHUNK) continue
+    tried.set(t.key, k + 1)
+    out.set(t.key, r)
+    const own = new Set(t.own)
+    const c = Math.cos(t.yaw), s = Math.sin(t.yaw)
+    const P = (u: number, y: number, w: number): Vec3 => [t.at[0] + u * c - w * s, t.at[1] + y, t.at[2] + u * s + w * c]
+    const sink = sinkOf(scene, t, P, (n) => own.has(n))
+    if (sink !== null) { r.sum += sink; r.n++ }
+  }
+  return out
+}
+
+/** Deepest a model is taken to be sunk into the floor round it (metres). */
+const SINK_MAX = 1.5
 
 /** The counts added up across chunks, as a Sits. */
 export function sitsFrom(sums: number[], cover?: number): Sits {
@@ -460,7 +519,8 @@ export function sitsFrom(sums: number[], cover?: number): Sits {
   const r1 = (v: number) => Math.round(v * 10) / 10
   return {
     n: sums[0], ground: sums[1], wall: sums[2], roof: sums[3], hang: sums[4], inside: sums[5],
-    back: [sums[6], sums[7], sums[8], sums[9]], ceiling: sums[15] ?? 0, lift: r1(sums[10] / n), open: [r1(sums[11] / n), r1(sums[12] / n), r1(sums[13] / n), r1(sums[14] / n)],
+    back: [sums[6], sums[7], sums[8], sums[9]], ceiling: sums[15] ?? 0, lift: r1(sums[10] / n),
+    ...(sums[17] && sums[16] / sums[17] >= 0.01 ? { sink: Math.round((sums[16] / sums[17]) * 100) / 100 } : {}), open: [r1(sums[11] / n), r1(sums[12] / n), r1(sums[13] / n), r1(sums[14] / n)],
     ...(cover !== undefined ? { cover } : {}),
   }
 }
