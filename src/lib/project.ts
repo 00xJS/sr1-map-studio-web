@@ -149,6 +149,11 @@ export interface ProjectSettings {
   /** Off: the server rolls time of day and weather each match, like retail maps without the flag. */
   always_clear_weather: boolean
   /**
+   * Rain stops on the floor under roofs and ceilings: the export finds it in the map's collision and puts rain
+   * blockers over it (py/interiors.py). Unset counts as on; only used when the weather changes each match.
+   */
+  dry_interiors?: boolean
+  /**
    * Leave paper-thin (sliver) triangles out of the collision at export (py/collision_fix.py): they draw nothing
    * but block players and push the camera from open air. Unset counts as on.
    */
@@ -199,6 +204,9 @@ export const uid = () => crypto.randomUUID()
 
 /** The export adds the game's own sky (see gameSky.ts): on unless turned off; a native sky preset brings its own instead. */
 export const gameSkyWanted = (s: Pick<ProjectSettings, 'game_sky' | 'native_sky'>) => s.game_sky !== false && !s.native_sky
+
+/** The export keeps interiors dry (dry_interiors): on unless turned off, and only on a map where it can rain. */
+export const dryInteriors = (s: Pick<ProjectSettings, 'dry_interiors' | 'always_clear_weather'>) => !s.always_clear_weather && s.dry_interiors !== false
 
 export const defaultSettings = (): ProjectSettings => ({
   base_name: 'mymap',

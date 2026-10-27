@@ -10,7 +10,9 @@ own mp_bac_01) and reads it back: the sky is listed, the map is otherwise
 unchanged, a second try says it's done, and a map without room is left as it
 was; the template's material glow and fade distances are cleared; and a map
 still naming the template's minimap gets a picture of its own, pointed at the
-drawn area. Nothing from the game or the maps is kept.
+drawn area; and rain blockers go over its roofed floor (dry interiors), the
+map-wide minimap region staying last. Nothing from the game or the maps is
+kept.
 """
 import json
 import os
@@ -130,6 +132,7 @@ def installed_maps(game, maps, tmp):
             retail = before['upgrades']['retail_materials']['state']
             mm = before['upgrades']['minimap']['state']
             walls = before['upgrades']['invisible_walls']['state']
+            dry = before['upgrades']['dry_interiors']['state']
             slivers = collision_fix.count_slivers(rc.read_chunk(chunk.read_bytes()))
             # A fresh copy of mp_bac_01's chunk each time: the sky is read from it, then it is deleted.
             spare = w / 'mp_bac_01.bbchunk_xbox2'
@@ -139,19 +142,28 @@ def installed_maps(game, maps, tmp):
             # The picture the editor draws from above (src/lib/mapFolder/minimap.ts), over a 60 m square.
             picture = w / 'minimap.png'
             Image.new('RGBA', (1024, 1024), (40, 120, 200, 255)).save(picture)
-            spec = {'chunk': str(chunk), 'peg': str(texfile), 'upgrades': ['game_sky', 'minimap', 'retail_materials', 'invisible_walls'],
+            spec = {'chunk': str(chunk), 'peg': str(texfile), 'upgrades': ['game_sky', 'minimap', 'retail_materials', 'invisible_walls', 'dry_interiors'],
                     'game_sky': {'dir': str(source / 'native_sky'), 'chunk': str(spare)},
                     'minimap_png': str(picture), 'minimap_box': [-30.0, -20.0, 30.0, 40.0]}
             old = (chunk.read_bytes(), texfile.read_bytes())
             r = map_upgrade.upgrade(spec, logs.append)
             ch = rc.read_chunk(chunk.read_bytes())
             after = map_upgrade.inspect({'chunk': str(chunk)}, logs.append)
-            want = [k for k, st in (('invisible_walls', walls), ('retail_materials', retail), ('minimap', mm), ('game_sky', state)) if st == 'available']
+            want = [k for k, st in (('invisible_walls', walls), ('retail_materials', retail), ('minimap', mm), ('dry_interiors', dry), ('game_sky', state))
+                    if st == 'available']
             check(r['applied'] == want, f'{d.name}: applied {r["applied"]}, in order (materials first, the sky last)')
             # Invisible walls: every sliver out of the collision, the drawing untouched (collision_fix.py).
             check((walls == 'available') == (slivers > 0) and collision_fix.count_slivers(rc.read_chunk(chunk.read_bytes())) == 0,
                   f'{d.name}: {slivers} invisible wall(s) taken out of the collision, none left')
             name = map_upgrade.Minimap.picture_name(c.stem)
+            if dry == 'available':
+                # Dry interiors: rain blockers over the roofed floor, before the map-wide region the minimap needs.
+                rs, old_rs = regions.read_regions(chunk.read_bytes()), regions.read_regions(old[0])
+                rest = iter(rs)
+                kept = all(r in rest for r in old_rs)  # the old ones, in their order, among the new
+                added = len(rs) - len(old_rs) - (mm == 'available')
+                check(added >= 1 and kept and (mm != 'available' or rs[-1][2] == regions.MAP_REGION_FLAGS),
+                      f'{d.name}: {added} dry-interior box(es) added, the regions it had kept, the map-wide one last')
             if mm == 'available':
                 d2 = chunk.read_bytes()
                 at = minimap_region.find(d2, name)
@@ -169,7 +181,8 @@ def installed_maps(game, maps, tmp):
                       f'{d.name}: a map-wide region switches the minimap on ({len(rs)} region(s), the map one last)')
                 # A map exported with a minimap but no region (black in game, as before this fix) gets just the region.
                 rch = rc.read_chunk(d2)
-                rch.get(regions.SECTION).data = bytearray(4)
+                kept_records, kept_blocks = regions._split(bytes(rch.get(regions.SECTION).data))
+                rch.get(regions.SECTION).data = bytearray(regions._join(kept_records[:-1], kept_blocks[:-1]))  # all but the map-wide one
                 chunk.write_bytes(rc.write_chunk(rch))
                 peg_before = texfile.read_bytes()
                 st = map_upgrade.inspect({'chunk': str(chunk)}, logs.append)['upgrades']['minimap']['state']
@@ -184,7 +197,7 @@ def installed_maps(game, maps, tmp):
                     shutil.copy(c, chunk)
                     shutil.copy(p, texfile)
                     shutil.copy(source / 'mp_bac_01.bbchunk_xbox2', spare)
-                    first = map_upgrade.upgrade({**spec, 'upgrades': ['game_sky', 'retail_materials', 'invisible_walls']}, logs.append)
+                    first = map_upgrade.upgrade({**spec, 'upgrades': ['game_sky', 'retail_materials', 'invisible_walls', 'dry_interiors']}, logs.append)
                     then = map_upgrade.upgrade({**spec, 'upgrades': ['minimap']}, logs.append)
                     ch2 = rc.read_chunk(chunk.read_bytes())
                     check(first['applied'][-1:] == ['game_sky'] and then['applied'] == ['minimap'] and len(native_sky.sky_list(ch2)) == 5
