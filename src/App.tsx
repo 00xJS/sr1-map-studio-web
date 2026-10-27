@@ -14,6 +14,7 @@ const HubMap = lazy(() => import('./pages/HubMap'))
 const Account = lazy(() => import('./pages/Account'))
 const Catalog = lazy(() => import('./pages/Catalog'))
 const Play = lazy(() => import('./play/PlayPage'))
+const Gallery = lazy(() => import('./pages/Gallery'))
 const City = lazy(() => import('./pages/City'))
 const GamePiecesCheck = lazy(() => import('./pages/GamePiecesCheck'))
 const AdminLabels = lazy(() => import('./pages/AdminLabels'))
@@ -38,7 +39,7 @@ export function Shell({ children }: { children: ReactNode }) {
           <NavLink to="/" end>My maps</NavLink>
           <NavLink to="/maps">Map catalog</NavLink>
           <NavLink to="/city" title="The real city from your own game: start a map from it, or scan it for holes">Stilwater</NavLink>
-          {hubEnabled && <NavLink to="/showcase">Showcase</NavLink>}
+          {hubEnabled ? <NavLink to="/showcase">Showcase</NavLink> : accountsEnabled && <NavLink to="/gallery" title="Maps to play in the browser, built from the site's own pieces">Gallery</NavLink>}
           <NavLink to="/setup">Data pack</NavLink>
           <NavLink to="/about">About</NavLink>
           {admin && <NavLink to="/admin/labels" title="Your labelling desk (only you see this)">Labels</NavLink>}
@@ -88,6 +89,7 @@ export default function App() {
           <Route path="/about" element={<Shell><About /></Shell>} />
           <Route path="/showcase" element={<Shell>{hubEnabled ? <Hub /> : <HubOff />}</Shell>} />
           <Route path="/showcase/:id" element={<Shell>{hubEnabled ? <HubMap /> : <HubOff />}</Shell>} />
+          <Route path="/gallery" element={<Shell><ErrorBoundary label="The gallery hit an error"><Gallery /></ErrorBoundary></Shell>} />
           <Route path="/hub" element={<ToShowcase />} />
           <Route path="/hub/:id" element={<ToShowcase />} />
           {GameLabels && <Route path="/dev/game-labels" element={<GameLabels />} />}

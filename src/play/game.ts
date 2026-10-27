@@ -1,17 +1,22 @@
 // Play mode rules: weapon pickups you walk over, Chains drop-offs to touch,
-// and timed runs ("collect every weapon", "touch every drop-off").
+// timed runs ("collect every weapon", "touch every drop-off") and a race
+// against bots for the same pickups (bots.ts moves them).
 // Pure module: positions in editor units (1 unit = 0.5 m), times in ms.
 import { catalogs } from '../lib/catalogs'
 import type { Marker, Vec3 } from '../lib/project'
 import { pickupRespawnMs } from '../lib/player'
 
-export type RunMode = 'roam' | 'weapons' | 'dropoffs'
+export type RunMode = 'roam' | 'weapons' | 'dropoffs' | 'race'
 
 export const RUN_LABELS: Record<RunMode, string> = {
   roam: 'Free roam',
   weapons: 'Collect every weapon',
   dropoffs: 'Touch every drop-off',
+  race: 'Race the bots',
 }
+
+/** Who took a pickup in a race: 0 is the player, 1 and up the bots. */
+export const PLAYER_ID = 0
 
 /** How close (horizontally) the player's feet must come to a pickup, editor units: about 1.1 m. */
 export const PICKUP_RADIUS = 2.2
@@ -37,6 +42,8 @@ export interface Pickup {
   back?: number
   /** Free roam: how long a taken weapon stays away, ms (the marker's own time, or the game's default for the weapon). */
   respawnMs?: number
+  /** A race: who took it (PLAYER_ID or a bot's number). */
+  by?: number
 }
 
 export interface RunState {
@@ -52,6 +59,8 @@ export interface RunState {
   inventory: string[]
   /** The weapon picked up last. */
   current: string | null
+  /** A race: what everyone races for (weapons when the map has any, else drop-offs). */
+  race?: Pickup['kind']
 }
 
 export type GameEvent =
@@ -59,6 +68,7 @@ export type GameEvent =
   | { type: 'dropoff'; pickup: Pickup; left: number }
   | { type: 'start' }
   | { type: 'finish'; time: number }
+  | { type: 'bot'; pickup: Pickup; bot: number; left: number }
 
 const WEAPON_NAMES = new Map(catalogs.weapons.map(([label, id]) => [id.toLowerCase(), label]))
 
@@ -89,17 +99,23 @@ export function availableRuns(markers: Marker[]): { mode: RunMode; label: string
   const out: { mode: RunMode; label: string; count: number }[] = [{ mode: 'roam', label: RUN_LABELS.roam, count: 0 }]
   if (weapons) out.push({ mode: 'weapons', label: RUN_LABELS.weapons, count: weapons })
   if (drops) out.push({ mode: 'dropoffs', label: RUN_LABELS.dropoffs, count: drops })
+  if (weapons + drops >= 2) out.push({ mode: 'race', label: RUN_LABELS.race, count: weapons || drops })
   return out
 }
 
 export function newRun(markers: Marker[], mode: RunMode, origin: Vec3): RunState {
-  return { mode, pickups: pickupsOf(markers), origin, started: null, finished: null, inventory: [], current: null }
+  const pickups = pickupsOf(markers)
+  const race = mode === 'race' ? (pickups.some((p) => p.kind === 'weapon') ? 'weapon' : 'dropoff') : undefined
+  return { mode, pickups, origin, started: null, finished: null, inventory: [], current: null, ...(race ? { race } : {}) }
 }
+
+/** The kind of pickup a timed run or race counts. */
+const counted = (s: RunState): Pickup['kind'] | null => s.mode === 'weapons' ? 'weapon' : s.mode === 'dropoffs' ? 'dropoff' : s.mode === 'race' ? s.race ?? 'weapon' : null
 
 /** Targets of a timed run (none in free roam). */
 export function targets(s: RunState): Pickup[] {
-  if (s.mode === 'roam') return []
-  return s.pickups.filter((p) => p.kind === (s.mode === 'weapons' ? 'weapon' : 'dropoff'))
+  const kind = counted(s)
+  return kind ? s.pickups.filter((p) => p.kind === kind) : []
 }
 
 export function progress(s: RunState): { done: number; total: number } {
@@ -140,18 +156,25 @@ export function stepRun(s: RunState, feet: Vec3, now: number, respawnMs?: number
       if (s.mode === 'roam' && p.taken && p.back !== undefined && now >= p.back) { p.taken = false; p.back = undefined }
       if (p.taken || !touches(p, feet)) continue
       p.taken = true
+      if (s.mode === 'race') p.by = PLAYER_ID
       if (s.mode === 'roam') p.back = now + (respawnMs ?? p.respawnMs ?? pickupRespawnMs(p.weapon))
       const first = !s.inventory.includes(p.weapon!)
       if (first) s.inventory.push(p.weapon!)
       s.current = p.weapon!
       events.push({ type: 'weapon', pickup: p, first })
     } else {
-      // Only a drop-off run keeps score of them.
-      if (s.mode !== 'dropoffs' || p.taken || !touches(p, feet)) continue
+      // Only a drop-off run (or a race for drop-offs) keeps score of them.
+      if (counted(s) !== 'dropoff' || p.taken || !touches(p, feet)) continue
       p.taken = true
+      if (s.mode === 'race') p.by = PLAYER_ID
       events.push({ type: 'dropoff', pickup: p, left: targets(s).filter((x) => !x.taken).length })
     }
   }
+  finishIfDone(s, now, events)
+  return events
+}
+
+function finishIfDone(s: RunState, now: number, events: GameEvent[]) {
   if (s.finished === null && s.started !== null && s.mode !== 'roam') {
     const { done, total } = progress(s)
     if (total && done === total) {
@@ -159,7 +182,27 @@ export function stepRun(s: RunState, feet: Vec3, now: number, respawnMs?: number
       events.push({ type: 'finish', time: s.finished - s.started })
     }
   }
+}
+
+/** A race: bot `bot` (1 and up) has its feet at `feet`. It takes any target it touches first. */
+export function stepBot(s: RunState, bot: number, feet: Vec3, now: number): GameEvent[] {
+  const events: GameEvent[] = []
+  if (s.mode !== 'race' || s.started === null || s.finished !== null) return events
+  for (const p of targets(s)) {
+    if (p.taken || !touches(p, feet)) continue
+    p.taken = true
+    p.by = bot
+    events.push({ type: 'bot', pickup: p, bot, left: targets(s).filter((x) => !x.taken).length })
+  }
+  finishIfDone(s, now, events)
   return events
+}
+
+/** A race's score: how many targets each racer took, the player first. */
+export function raceScores(s: RunState, bots: number): number[] {
+  const out = new Array<number>(bots + 1).fill(0)
+  for (const p of targets(s)) if (p.taken && p.by !== undefined && p.by <= bots) out[p.by]++
+  return out
 }
 
 /** Free roam: whether the player stands in a drop-off zone (for the HUD). */

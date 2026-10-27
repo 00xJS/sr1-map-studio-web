@@ -30,7 +30,7 @@ describe('pickups', () => {
     expect(p[4].radius).toBe(6) // 3 m in editor units
   })
   it('offers runs only for what the map has', () => {
-    expect(availableRuns(markers()).map((r) => [r.mode, r.count])).toEqual([['roam', 0], ['weapons', 3], ['dropoffs', 2]])
+    expect(availableRuns(markers()).map((r) => [r.mode, r.count])).toEqual([['roam', 0], ['weapons', 3], ['dropoffs', 2], ['race', 3]])
     expect(availableRuns([at('Shared spawn', [0, 0, 0])]).map((r) => r.mode)).toEqual(['roam'])
   })
   it('names weapons from the catalog, and leaves unknown ids readable', () => {

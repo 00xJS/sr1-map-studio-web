@@ -21,6 +21,37 @@ export interface ShareDoc {
   /** OBJ geometry by path. */
   models: Record<string, string>
   textures: Record<string, TextureRecipe>
+  /** How each model was made, by model key. Links made before this was recorded have none (they count as imported). */
+  made?: Record<string, MadeKind>
+}
+
+/** A block-out shape, a compound of shapes, a prefab from the site's library, or a model someone imported. */
+export type MadeKind = 'shape' | 'compound' | 'prefab' | 'import'
+export const MADE_KINDS: readonly MadeKind[] = ['shape', 'compound', 'prefab', 'import']
+
+/**
+ * The gallery shows only maps whose every model was made on the site: an
+ * imported model travels as its full geometry, which may be someone else's work.
+ */
+export const galleryReady = (doc: Pick<ShareDoc, 'models' | 'made'>): boolean =>
+  Object.keys(doc.models).every((k) => !!doc.made && Object.hasOwn(doc.made, k) && doc.made[k] !== 'import')
+
+/** Anonymous links, rate limits and boards. The share function can override the numbers with environment variables. */
+export const SHARE_RULES = {
+  /** Days an anonymous link lasts. */
+  anonDays: 30,
+  /** Links a signed-in user can make or update a day (SHARE_MAX_PER_DAY). */
+  perDay: 50,
+  /** Links a signed-in user can keep (SHARE_MAX_PER_USER). */
+  perUser: 200,
+  /** Anonymous links one IP address can make a day (SHARE_ANON_PER_DAY). */
+  anonPerDay: 10,
+  /** Reports one IP address can send a day (SHARE_REPORTS_PER_DAY). */
+  reportsPerDay: 20,
+  /** Times one IP address can submit an hour (SHARE_TIMES_PER_HOUR). */
+  timesPerHour: 60,
+  /** Times kept per board. */
+  boardKeep: 50,
 }
 
 export const SHARE_LIMITS = {
@@ -145,11 +176,31 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
     const bad = checkRecipe(r)
     if (bad) { problems.push(`A texture in the share ${bad}.`); break }
   }
+  if (d.made !== undefined) {
+    if (!d.made || typeof d.made !== 'object' || Array.isArray(d.made)) problems.push('The share’s list of how models were made is not valid.')
+    else for (const [k, v] of Object.entries(d.made)) {
+      if (!Object.hasOwn(d.models, k) || !MADE_KINDS.includes(v)) { problems.push('The share’s list of how models were made is not valid.'); break }
+    }
+  }
   const uniq = [...new Set(problems)]
   if (uniq.length) return { problems: uniq, doc: null }
   const clean = Object.fromEntries(textures.map(([k, r]) => [k, cleanRecipe(fromLegacy(r) as TextureRecipe)]))
   return { problems: uniq, doc: { ...d, title: d.title.trim(), project, textures: clean } }
 }
+
+/** What a link shows before the map loads: its timed runs and how many can start at once. */
+export function shareMeta(doc: ShareDoc): { modes: string[]; players: number } {
+  const ms = doc.project.markers
+  const modes = ['roam']
+  const weapons = ms.filter((m) => m.type === 'Weapon pickup').length, drops = ms.filter((m) => m.type === 'Chains drop-off').length
+  if (weapons) modes.push('weapons')
+  if (drops) modes.push('dropoffs')
+  if (weapons + drops >= 2) modes.push('race')
+  const spawns = ms.filter((m) => m.type === 'Shared spawn' || m.type === 'Red team spawn' || m.type === 'Blue team spawn').length
+  return { modes, players: Math.min(12, spawns) }
+}
+
+export const MODE_NAMES: Record<string, string> = { roam: 'Free roam', weapons: 'Weapon run', dropoffs: 'Drop-off run', race: 'Race the bots' }
 
 // ---------------- packing ----------------
 

@@ -8,7 +8,7 @@ import { defaultParams } from '../lib/procedural'
 import { baseName, isDataPackPath, uid, type FileRef, type Project, type SceneItem } from '../lib/project'
 import { isTextureRecipe, withoutPhoto, type TextureRecipe } from '../lib/recipes'
 import { recognizeTexture } from '../lib/recognize'
-import { FILE_SETTINGS, cleanObj, itemPaths, type ShareDoc } from './share'
+import { FILE_SETTINGS, cleanObj, galleryReady, itemPaths, type MadeKind, type ShareDoc } from './share'
 
 export type IssueKind = 'texture' | 'game' | 'missing' | 'model'
 
@@ -30,6 +30,8 @@ export interface SharePlan {
   swapped: number
   /** Objects drawn from the data pack: viewers see them only if they have one. */
   dataPack: number
+  /** Every model was made on the site (shapes and prefabs), so the map may go in the gallery. */
+  galleryReady: boolean
 }
 
 /** What a swapped-out texture becomes: plain concrete, made from scratch. */
@@ -54,6 +56,13 @@ export async function recipeFor(ref: FileRef): Promise<TextureRecipe | null> {
 }
 
 // ---------------- the share ----------------
+
+/** How the site made a model: from its file's recipe, or the prefab that placed it; anything else was imported. */
+export function madeKind(ref: FileRef | undefined, prefab: boolean): MadeKind {
+  if (ref?.recipe?.kind === 'shape') return 'shape'
+  if (ref?.recipe?.kind === 'compound') return 'compound'
+  return prefab ? 'prefab' : 'import'
+}
 
 /** Item fields that hold file paths and have no use in a play link. */
 const DROP_FIELDS = ['source_path', 'original_import_path', 'asset_ref', 'prefab'] as const
@@ -98,6 +107,10 @@ export async function planShare(project: Project, opts: { title: string; onProgr
     else flag(path, 'texture')
   }
 
+  // How each model was made, noted before the prefab field is stripped below.
+  const prefabModels = new Set(items.filter((it) => it.prefab).flatMap((it) => itemPaths(it).models))
+  const made = new Map([...models.keys()].map((p) => [p, madeKind(project.files[p], prefabModels.has(p))]))
+
   // Neutral keys: the share never shows the user's file names or hashes.
   const modelKey = new Map([...models.keys()].map((p, i) => [p, `mesh/${i}`]))
   const texKey = new Map([...recipes.keys()].map((p, i) => [p, `tex/${i}`]))
@@ -133,11 +146,12 @@ export async function planShare(project: Project, opts: { title: string; onProgr
     project: shared,
     models: Object.fromEntries([...modelKey].map(([p, k]) => [k, models.get(p)!])),
     textures: Object.fromEntries([...texKey].map(([p, k]) => [k, recipes.get(p)!])),
+    made: Object.fromEntries([...modelKey].map(([p, k]) => [k, made.get(p)!])),
   }
   if (swapped.size) doc.textures[STAND_IN_KEY] = STAND_IN
   // Only what the kept objects still use.
   const live = new Set(outItems.flatMap((it) => { const x = itemPaths(it); return [...x.models, ...x.textures] }))
-  for (const k of Object.keys(doc.models)) if (!live.has(k)) delete doc.models[k]
+  for (const k of Object.keys(doc.models)) if (!live.has(k)) { delete doc.models[k]; delete doc.made![k] }
   for (const k of Object.keys(doc.textures)) if (!live.has(k)) delete doc.textures[k]
-  return { doc, issues: [...issues.values()], dropped, swapped: swapped.size, dataPack }
+  return { doc, issues: [...issues.values()], dropped, swapped: swapped.size, dataPack, galleryReady: galleryReady(doc) }
 }

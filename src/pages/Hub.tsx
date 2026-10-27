@@ -1,5 +1,5 @@
 // The Showcase: browse, search and filter community maps built from Map Studio's own pieces.
-import { useEffect, useState } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { accountsEnabled, useBackend, type HubMapMeta, type HubSort } from '../lib/backend'
 import { toastError, Avatar, timeAgo } from '../ui'
@@ -34,9 +34,10 @@ export function Stars({ value, count }: { value: number; count?: number }) {
   )
 }
 
-export function HubCard({ m }: { m: HubMapMeta }) {
+/** A map's card. `to` and `stats` let the play-link gallery reuse it (its own page, and plays instead of remixes). */
+export function HubCard({ m, to, stats }: { m: HubMapMeta; to?: string; stats?: ReactNode }) {
   return (
-    <Link to={`/showcase/${m.id}`} className="map-card">
+    <Link to={to ?? `/showcase/${m.id}`} className="map-card">
       <div className="thumb">{m.thumbnail_url ? <img src={m.thumbnail_url} alt="" loading="lazy" /> : <span className="small">No preview</span>}</div>
       <div className="body">
         <div className="title" title={m.title}>{m.title}</div>
@@ -44,7 +45,7 @@ export function HubCard({ m }: { m: HubMapMeta }) {
           <Avatar name={m.author.name} url={m.author.avatar_url} />
           <span className="grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{m.author.name}</span>
           <Stars value={m.rating} count={m.ratings} />
-          <span title="Remixes">⑂ {m.remixes}</span>
+          {stats ?? <span title="Remixes">⑂ {m.remixes}</span>}
         </div>
         <div className="row small faint">
           <span className="grow">{timeAgo(m.created_at)}</span>

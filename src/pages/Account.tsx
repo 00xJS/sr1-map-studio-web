@@ -7,6 +7,8 @@ import { fmtBytes } from '../lib/files'
 import { Avatar, Field, confirmDialog, timeAgo, toast, toastError, useBusy } from '../ui'
 import { openCloudProject } from './CloudSection'
 import { AccountsOff, HubCard } from './Hub'
+import { ShareReports } from './ShareReports'
+import { hostedShares } from '../play/shareApi'
 
 type Provider = 'github' | 'discord' | 'google'
 const PROVIDER_LABELS: Record<Provider, string> = { github: 'GitHub', discord: 'Discord', google: 'Google' }
@@ -189,6 +191,7 @@ export default function Account() {
       <CloudSaves />
       {hubEnabled && <Published />}
       {hubEnabled && user.is_moderator && <Moderation />}
+      {hostedShares && user.is_moderator && <ShareReports />}
     </div>
   )
 }
