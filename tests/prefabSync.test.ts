@@ -4,7 +4,7 @@ import 'fake-indexeddb/auto'
 import { beforeAll, describe, expect, it } from 'vitest'
 import { LocalBackend } from '../src/lib/backend/local'
 import { LIBRARY_PROJECT_ID, type Backend } from '../src/lib/backend'
-import { mergePrefabs, syncMyPrefabsWith, type PrefabDevice, type PrefabState, type SyncedPrefab } from '../src/lib/sync'
+import { deletePiece, mergePrefabs, renamePiece, syncMyPrefabsWith, type PrefabDevice, type PrefabState, type SyncedPrefab } from '../src/lib/sync'
 import type { FileRef, SceneItem } from '../src/lib/project'
 
 beforeAll(() => {
@@ -19,8 +19,11 @@ beforeAll(() => {
 class Device implements PrefabDevice {
   state: PrefabState = { pieces: [], deleted: [] }
   blobs = new Map<string, Blob>()
+  aside = new Map<string, PrefabState>()
   read() { return structuredClone(this.state) }
   write(s: PrefabState) { this.state = structuredClone(s) }
+  takeAside(owner: string) { const s = this.aside.get(owner); this.aside.delete(owner); return s }
+  setAside(s: PrefabState & { owner: string }) { this.aside.set(s.owner, structuredClone(s)) }
   async hasBlob(h: string) { return this.blobs.has(h) }
   async getBlob(h: string) { return this.blobs.get(h) }
   async putBlob(h: string, b: Blob) { this.blobs.set(h, b) }
@@ -152,6 +155,56 @@ describe('My prefabs sync', () => {
     await syncMyPrefabsWith(b, A)
     expect(await b.getCloudProject(LIBRARY_PROJECT_ID)).not.toBeNull()
     expect((await b.listCloudProjects()).map((p) => p.id)).not.toContain(LIBRARY_PROJECT_ID)
+  })
+
+  it('another account signing in on the same device sets the first account’s pieces aside', async () => {
+    const b = new LocalBackend()
+    const D = new Device()
+    await b.signInWithEmail('switch-a@example.com')
+    D.blobs.set('h-a', new Blob(['a']))
+    D.state.pieces.push(piece('pa', '2026-10-01T00:00:00.000Z', { '/user/a.obj': ref('h-a', 'user') }, 'A piece'))
+    await syncMyPrefabsWith(b, D)
+    await b.signOut()
+    // Signed out, the pieces still work and new ones can be saved.
+    expect(D.state.pieces.map((p) => p.id)).toEqual(['pa'])
+    D.state.pieces.push(piece('pa-offline', '2026-10-02T00:00:00.000Z', {}))
+
+    await b.signInWithEmail('switch-b@example.com')
+    const uploaded: string[] = []
+    const watched: Backend = Object.create(b)
+    watched.uploadBlob = async (hash, blob) => { uploaded.push(hash); return b.uploadBlob(hash, blob) }
+    await syncMyPrefabsWith(watched, D)
+    expect(D.state.pieces).toEqual([])
+    expect(await b.getCloudProject(LIBRARY_PROJECT_ID)).toBeNull()
+    expect(uploaded).toEqual([])
+
+    D.state.pieces.push(piece('pb', '2026-10-03T00:00:00.000Z', {}, 'B piece'))
+    await syncMyPrefabsWith(b, D)
+    await b.signOut()
+    await b.signInWithEmail('switch-a@example.com')
+    await syncMyPrefabsWith(b, D)
+
+    expect(D.state.pieces.map((p) => p.id)).toEqual(['pa', 'pa-offline'])
+    const cloudA = (await b.getCloudProject(LIBRARY_PROJECT_ID))!.project as unknown as { my_prefabs: PrefabState }
+    expect(cloudA.my_prefabs.pieces.map((p) => p.id)).toEqual(['pa', 'pa-offline'])
+    expect(D.aside.get((await b.getUser())!.id)).toBeUndefined()
+    expect([...D.aside.values()].map((s) => s.pieces.map((p) => p.id))).toEqual([['pb']])
+  })
+
+  it('a deletion or rename still wins when the device that saved the piece has a clock 10 minutes fast', async () => {
+    const b = await account()
+    const A = new Device(), B = new Device()
+    const fast = new Date(Date.now() + 10 * 60_000).toISOString()
+    B.state.pieces.push(piece('gone', fast, {}), piece('renamed', fast, {}, 'Old name'))
+    await syncMyPrefabsWith(b, B)
+    await syncMyPrefabsWith(b, A)
+
+    A.state = renamePiece(deletePiece(A.state, 'gone'), 'renamed', 'New name')
+    await syncMyPrefabsWith(b, A)
+    await syncMyPrefabsWith(b, B)
+
+    expect(B.state.pieces.map((p) => [p.id, p.name])).toEqual([['renamed', 'New name']])
+    expect(A.state.pieces.map((p) => [p.id, p.name])).toEqual([['renamed', 'New name']])
   })
 
   it('each account has its own library', async () => {

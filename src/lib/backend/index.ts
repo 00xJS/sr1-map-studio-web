@@ -38,7 +38,7 @@ const syncPrefabs = (user: User | null) => {
   // Token refreshes report the same user again.
   if (user?.id === syncedFor) return
   syncedFor = user?.id
-  if (user) import('../sync').then((m) => m.syncMyPrefabs()).catch((e) => console.warn('My prefabs did not sync', e))
+  if (user) import('../sync').then((m) => m.syncMyPrefabs(), (e) => console.warn('My prefabs did not sync', e))
 }
 
 if (accountsEnabled) {

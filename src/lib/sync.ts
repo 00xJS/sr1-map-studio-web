@@ -212,14 +212,20 @@ export async function openHubMapForView(mapId: string, onProgress?: Progress): P
 // `my_prefabs` holds the pieces and deletion markers; this browser's
 // localStorage stays the working copy, so the pieces work offline and without
 // accounts. Merged by piece id: the newest `saved` wins, and a deletion beats
-// every save before it.
+// every save before it. The working copy remembers whose it is: when another
+// account signs in, it is set aside for its owner instead of being merged.
 
 export interface SyncedPrefab { id: string; name: string; saved: string; bundle: { items: SceneItem[]; files: Record<string, FileRef> } }
 export interface PrefabDeletion { id: string; deleted: string }
-export interface PrefabState { pieces: SyncedPrefab[]; deleted: PrefabDeletion[] }
+export interface PrefabState {
+  pieces: SyncedPrefab[]
+  deleted: PrefabDeletion[]
+  /** The account these pieces were last synced with; unset until the first sync. */
+  owner?: string
+}
 
-/** Where this browser keeps My prefabs (shared with editor/myPrefabs.ts). */
-export const MY_PREFABS = { key: 'sr1ms.myPrefabs', deletedKey: 'sr1ms.myPrefabs.deleted', event: 'sr1ms-myprefabs' } as const
+/** Where this browser keeps My prefabs (one key, so pieces and deletions are written together). */
+export const MY_PREFABS = { key: 'sr1ms.myPrefabs', asidePrefix: 'sr1ms.myPrefabs.aside.', event: 'sr1ms-myprefabs' } as const
 /** Deletion markers kept (the newest); older ones could let a long-offline device bring a piece back. */
 const MAX_DELETIONS = 500
 
@@ -227,25 +233,67 @@ const MAX_DELETIONS = 500
 export interface PrefabDevice {
   read(): PrefabState
   write(state: PrefabState): void
+  /** Another account's pieces, kept on this device while someone else is signed in. */
+  takeAside(owner: string): PrefabState | undefined
+  setAside(state: PrefabState & { owner: string }): void
   hasBlob(hash: string): Promise<boolean>
   getBlob(hash: string): Promise<Blob | undefined>
   putBlob(hash: string, blob: Blob): Promise<void>
 }
 
-const readJson = <T>(key: string): T[] => {
-  try { const v = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] }
+function parseState(text: string | null): PrefabState | undefined {
+  try {
+    const v = JSON.parse(text || 'null')
+    // Before syncing, the key held just the list of pieces.
+    if (Array.isArray(v)) return { pieces: v, deleted: [] }
+    if (v && Array.isArray(v.pieces)) return { pieces: v.pieces, deleted: Array.isArray(v.deleted) ? v.deleted : [], ...(v.owner ? { owner: String(v.owner) } : {}) }
+  } catch { /* unreadable: start over */ }
+  return undefined
+}
+
+/** This browser's My prefabs. */
+export const readPrefabStore = (): PrefabState => parseState(localStorage.getItem(MY_PREFABS.key)) ?? { pieces: [], deleted: [] }
+
+/** Replaces this browser's My prefabs (throws when storage is full or blocked). */
+export function writePrefabStore(s: PrefabState) {
+  localStorage.setItem(MY_PREFABS.key, JSON.stringify(s))
+  window.dispatchEvent(new Event(MY_PREFABS.event))
 }
 
 export const browserPrefabDevice: PrefabDevice = {
-  read: () => ({ pieces: readJson<SyncedPrefab>(MY_PREFABS.key), deleted: readJson<PrefabDeletion>(MY_PREFABS.deletedKey) }),
-  write(s) {
-    localStorage.setItem(MY_PREFABS.key, JSON.stringify(s.pieces))
-    localStorage.setItem(MY_PREFABS.deletedKey, JSON.stringify(s.deleted))
-    window.dispatchEvent(new Event(MY_PREFABS.event))
+  read: readPrefabStore,
+  write: writePrefabStore,
+  takeAside(owner) {
+    const s = parseState(localStorage.getItem(MY_PREFABS.asidePrefix + owner))
+    localStorage.removeItem(MY_PREFABS.asidePrefix + owner)
+    return s
   },
+  setAside: (s) => localStorage.setItem(MY_PREFABS.asidePrefix + s.owner, JSON.stringify(s)),
   hasBlob: (h) => db.hasBlob(h),
   getBlob: (h) => db.getBlob(h),
   putBlob: (h, b) => db.putBlob(h, b),
+}
+
+/**
+ * A time for a change to something saved at `saved`: now, or just after
+ * `saved` when this device's clock is behind the one that saved it, so the
+ * change still wins.
+ */
+export function stampAfter(saved: string): string {
+  const now = Date.now(), t = Date.parse(saved)
+  return new Date(Number.isFinite(t) && t >= now ? t + 1 : now).toISOString()
+}
+
+/** The state with piece `id` removed and its deletion remembered. */
+export function deletePiece(s: PrefabState, id: string): PrefabState {
+  const p = s.pieces.find((x) => x.id === id)
+  const marker = { id, deleted: p ? stampAfter(p.saved) : new Date().toISOString() }
+  return { ...s, pieces: s.pieces.filter((x) => x.id !== id), deleted: [marker, ...s.deleted.filter((d) => d.id !== id)].slice(0, MAX_DELETIONS) }
+}
+
+/** The state with piece `id` renamed; renaming counts as a save, so the new name wins on other devices. */
+export function renamePiece(s: PrefabState, id: string, name: string): PrefabState {
+  return { ...s, pieces: s.pieces.map((p) => (p.id === id ? { ...p, name, saved: stampAfter(p.saved) } : p)) }
 }
 
 /** Both copies combined. Pieces keep `a`'s order, then `b`'s new ones. */
@@ -264,6 +312,7 @@ export function mergePrefabs(a: PrefabState, b: PrefabState): PrefabState {
 const stateKey = (s: PrefabState) => JSON.stringify([
   [...s.pieces].sort((x, y) => x.id.localeCompare(y.id)),
   [...s.deleted].sort((x, y) => x.id.localeCompare(y.id)),
+  s.owner ?? null,
 ])
 
 type LibraryProject = Project & { my_prefabs?: PrefabState }
@@ -277,7 +326,23 @@ function libraryProject(s: PrefabState, before?: LibraryProject): LibraryProject
   for (const p of s.pieces) for (const [path, ref] of Object.entries(p.bundle.files)) files[`${p.id}|${path}`] = ref
   return {
     ...newProject('My prefabs'), id: LIBRARY_PROJECT_ID, description: 'Saved pieces (My prefabs). Not a map.',
-    created_at: before?.created_at ?? now, updated_at: now, files, my_prefabs: s,
+    created_at: before?.created_at ?? now, updated_at: now, files, my_prefabs: { pieces: s.pieces, deleted: s.deleted },
+  }
+}
+
+/**
+ * Make the device's working copy the signed-in account's: a copy that belongs
+ * to someone else is set aside for them, and this account's own (if it was
+ * set aside earlier) comes back. A copy with no owner yet joins this account.
+ */
+function adoptFor(device: PrefabDevice, uid: string) {
+  const cur = device.read()
+  if (cur.owner === uid) return
+  if (cur.owner) {
+    device.setAside({ ...cur, owner: cur.owner })
+    device.write({ ...(device.takeAside(uid) ?? { pieces: [], deleted: [] }), owner: uid })
+  } else {
+    device.write({ ...cur, owner: uid })
   }
 }
 
@@ -289,6 +354,9 @@ export interface PrefabSyncResult {
 
 /** One sync of My prefabs between `device` and the signed-in account. */
 export async function syncMyPrefabsWith(b: Backend, device: PrefabDevice): Promise<PrefabSyncResult> {
+  const user = await b.getUser()
+  if (!user) throw new Error('Sign in first.')
+  adoptFor(device, user.id)
   for (let attempt = 0; ; attempt++) {
     const remote = await b.getCloudProject(LIBRARY_PROJECT_ID)
     const before = remote?.project as LibraryProject | undefined
@@ -317,7 +385,7 @@ export async function syncMyPrefabsWith(b: Backend, device: PrefabDevice): Promi
 
     // Re-read: a piece saved while this ran is kept (and sent by the next sync).
     const now = device.read()
-    const next = mergePrefabs(now, merged)
+    const next = { ...mergePrefabs(now, merged), owner: user.id }
     if (stateKey(next) !== stateKey(now)) device.write(next)
 
     const missingGameFiles = new Set<string>()
@@ -331,8 +399,8 @@ let again = false
 
 /**
  * Sync this browser's My prefabs with the signed-in account; null when
- * accounts are off or nobody is signed in. Calls while one runs are folded
- * into one more pass.
+ * accounts are off, nobody is signed in or it failed (a toast says why).
+ * Calls while one runs are folded into one more pass.
  */
 export function syncMyPrefabs(): Promise<PrefabSyncResult | null> {
   if (running) { again = true; return running }
@@ -342,6 +410,11 @@ export function syncMyPrefabs(): Promise<PrefabSyncResult | null> {
     let res: PrefabSyncResult
     do { again = false; res = await syncMyPrefabsWith(b, browserPrefabDevice) } while (again)
     return res
-  })().finally(() => { running = null })
+  })().catch(async (e) => {
+    console.warn('My prefabs did not sync', e)
+    const { toast } = await import('../ui')
+    toast(`My prefabs did not sync to your account: ${e instanceof Error ? e.message : String(e)} They are still saved in this browser.`, 'bad', 8000)
+    return null
+  }).finally(() => { running = null })
   return running
 }

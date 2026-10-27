@@ -34,7 +34,7 @@ export function CloudSection() {
 
   useEffect(() => {
     if (!user) { setItems([]); return }
-    syncMyPrefabs().catch((e) => console.warn('My prefabs did not sync', e))
+    void syncMyPrefabs()
     let live = true
     Promise.all([listCloudProjects(), db.listProjects()]).then(([cloud, local]) => {
       const here = new Set(local.map((p) => p.id))

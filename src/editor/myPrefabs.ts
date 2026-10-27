@@ -6,33 +6,25 @@
 import { useSyncExternalStore } from 'react'
 import { bundleItems, placeBundle, UserError, type ItemBundle } from './actions'
 import { uid, type Vec3 } from '../lib/project'
-import { MY_PREFABS, syncMyPrefabs, type PrefabDeletion } from '../lib/sync'
-
-const KEY = MY_PREFABS.key
-const EVENT = MY_PREFABS.event
+import { deletePiece, MY_PREFABS, readPrefabStore, renamePiece, syncMyPrefabs, writePrefabStore, type PrefabState } from '../lib/sync'
 
 export interface MyPrefab { id: string; name: string; saved: string; bundle: ItemBundle }
 
-function read(): MyPrefab[] {
-  try { return JSON.parse(localStorage.getItem(KEY) || '[]') } catch { return [] }
-}
+const read = (): MyPrefab[] => readPrefabStore().pieces
 
-function write(list: MyPrefab[], deleted?: PrefabDeletion[]) {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(list))
-    if (deleted) localStorage.setItem(MY_PREFABS.deletedKey, JSON.stringify(deleted))
-  } catch { throw new UserError('This browser would not save it (storage is full or blocked).') }
+/** Writes the pieces and deletion markers together, then sends them to the account. */
+function write(change: (s: PrefabState) => PrefabState) {
+  try { writePrefabStore(change(readPrefabStore())) } catch { throw new UserError('This browser would not save it (storage is full or blocked).') }
   cache = null
-  window.dispatchEvent(new Event(EVENT))
-  syncMyPrefabs().catch((e) => console.warn('My prefabs did not sync', e))
+  void syncMyPrefabs()
 }
 
 let cache: MyPrefab[] | null = null
 const snapshot = () => (cache ??= read())
 const subscribe = (fn: () => void) => {
   const on = () => { cache = null; fn() }
-  window.addEventListener(EVENT, on); window.addEventListener('storage', on)
-  return () => { window.removeEventListener(EVENT, on); window.removeEventListener('storage', on) }
+  window.addEventListener(MY_PREFABS.event, on); window.addEventListener('storage', on)
+  return () => { window.removeEventListener(MY_PREFABS.event, on); window.removeEventListener('storage', on) }
 }
 
 export const useMyPrefabs = () => useSyncExternalStore(subscribe, snapshot)
@@ -41,21 +33,16 @@ export function saveMyPrefab(indices: number[], name: string): MyPrefab {
   const bundle = bundleItems(indices)
   if (!bundle) throw new UserError('Pick something to save first.')
   const p: MyPrefab = { id: uid(), name: name.trim() || 'My piece', saved: new Date().toISOString(), bundle }
-  write([...read(), p])
+  write((s) => ({ ...s, pieces: [...s.pieces, p] }))
   return p
 }
 
 /** One saved piece, or undefined. */
 export const readMyPrefab = (id: string): MyPrefab | undefined => read().find((p) => p.id === id)
 
-export function deleteMyPrefab(id: string) {
-  let deleted: PrefabDeletion[] = []
-  try { deleted = JSON.parse(localStorage.getItem(MY_PREFABS.deletedKey) || '[]') } catch { /* start over */ }
-  write(read().filter((p) => p.id !== id), [{ id, deleted: new Date().toISOString() }, ...deleted.filter((d) => d.id !== id)])
-}
+export function deleteMyPrefab(id: string) { write((s) => deletePiece(s, id)) }
 
-/** Renaming counts as a save, so the new name wins on other devices. */
-export function renameMyPrefab(id: string, name: string) { write(read().map((p) => (p.id === id ? { ...p, name, saved: new Date().toISOString() } : p))) }
+export function renameMyPrefab(id: string, name: string) { write((s) => renamePiece(s, id, name)) }
 
 /** Places a saved piece with its bottom centre on `at`. */
 export function placeMyPrefab(id: string, at: Vec3, rot = 0) {
