@@ -3,6 +3,7 @@ import { DATAPACK, GROUP_LABELS, dataPackStatus, importDataPackFiles, importData
 import { db, requestPersistence } from '../lib/db'
 import { py } from '../lib/py'
 import { fmtBytes } from '../lib/files'
+import { reloadPropLibrary } from '../lib/propLibrary'
 import { FileButton, confirmDialog, infoDialog, useBusy } from '../ui'
 
 const sizeOf = (g: DataPackGroup) => Object.values(DATAPACK).filter((e) => e.group === g).reduce((n, e) => n + e.size, 0)
@@ -23,6 +24,7 @@ export default function Setup() {
     await refresh()
     void requestPersistence()
     await py.remountDataPack().catch(() => {})
+    void reloadPropLibrary()
   })
 
   const selfTest = () => run(async () => {
@@ -37,12 +39,12 @@ export default function Setup() {
     <div className="page page-narrow">
       <div className="col">
         <h1>Data pack</h1>
-        <p className="muted">The exporter builds every map from reference files that come from Saints Row: the Beaver Creek map template, the breakable-glass and prop prefabs, sky presets and spawn-table templates. This site doesn't host any of them. Load them once from your own copy of the <b>SR1 Map Studio v1.13</b> package; they're checked against the package's published SHA-256 list and kept only in this browser.</p>
+        <p className="muted">The exporter builds every map from reference files that come from Saints Row: the Beaver Creek map template, the breakable-glass and prop prefabs, sky presets, the surface template and spawn-table templates. This site doesn't host any of them. Load them once from your own copy of the <b>SR1 Map Studio</b> package (v1.13, or v1.15, which adds the stock object library); they're checked against the package's published SHA-256 list and kept only in this browser.</p>
       </div>
 
       <div className="card">
         <h3>Load from your SR1 Map Studio package</h3>
-        <p className="small muted">Choose the package zip (<code>SR1_Map_Studio_v1.13_….zip</code>) or its extracted folder. Only the reference folders are read; nothing is uploaded.</p>
+        <p className="small muted">Choose the package zip (<code>SR1_Map_Studio_v1.15.zip</code> or <code>SR1_Map_Studio_v1.13_….zip</code>) or its extracted folder. Only the reference folders are read; nothing is uploaded.</p>
         <div className="row wrap">
           <FileButton className="primary" accept=".zip" disabled={busy} onFiles={([f]) => load(() => importDataPackZip(f, setProgress))}>Choose zip…</FileButton>
           <FileButton directory disabled={busy} onFiles={(f) => load(() => importDataPackFiles(f, setProgress))}>Choose folder…</FileButton>
@@ -52,7 +54,7 @@ export default function Setup() {
           <div className={'callout ' + (report.mismatched.length ? 'warn' : 'ok')}>
             <div className="col">
               <span>Loaded {report.added.length} files.</span>
-              {report.mismatched.length > 0 && <span className="small">{report.mismatched.length} files didn't match v1.13 and were skipped: {report.mismatched.join(', ')}</span>}
+              {report.mismatched.length > 0 && <span className="small">{report.mismatched.length} files didn't match the package's published list and were skipped: {report.mismatched.join(', ')}</span>}
             </div>
           </div>
         )}
@@ -75,7 +77,7 @@ export default function Setup() {
           <button className="sm" disabled={busy || !status?.ready} onClick={selfTest}>Run exporter self-test</button>
           <button className="sm quiet" disabled={busy} onClick={async () => {
             if (!(await confirmDialog('Remove data pack?', 'This deletes the loaded reference files from this browser. Your maps are not affected.', { confirm: 'Remove', danger: true }))) return
-            await db.clearDataPack(); await refresh()
+            await db.clearDataPack(); await refresh(); void reloadPropLibrary()
           }}>Remove from this browser</button>
         </div>
       </div>

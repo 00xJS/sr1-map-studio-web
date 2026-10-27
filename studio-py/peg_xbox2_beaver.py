@@ -63,7 +63,7 @@ class PegEntry:
     payload:bytes
 
 
-def parse_peg(path):
+def parse_peg(path, include_frames=False):
     data=Path(path).read_bytes()
     if len(data)<HEADER_SIZE:
         raise RuntimeError('PEG too small')
@@ -73,6 +73,10 @@ def parse_peg(path):
     if HEADER_SIZE+n*ENTRY_SIZE>len(data):
         raise RuntimeError('PEG entry table exceeds file')
     h=PegHeader(sig,ver,plat,dirsz,datasz,n,flags,total,al)
+    if include_frames:
+        if total < n or HEADER_SIZE + total * ENTRY_SIZE > dirsz or dirsz > len(data):
+            raise RuntimeError('PEG total-entry directory is invalid')
+        n = total
     out=[]
     for i in range(n):
         o=HEADER_SIZE+i*ENTRY_SIZE

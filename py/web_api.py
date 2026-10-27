@@ -23,6 +23,9 @@ from pathlib import Path
 
 # First: raises the native-object budget before the exporter modules read it.
 import physics_props as physics
+# Before sr1_native_props: v1.15's stock object library is read from the data pack once it is there.
+import prop_library
+prop_library.install()
 import sr1_obj_core as v13
 import sr1_scene
 import sr1_cts
@@ -45,6 +48,7 @@ import native_sky
 import retail_records
 import peg_mips
 import shared_textures
+import surface_registration
 
 # Retail material values (and, below, record settings) instead of the template's.
 retail_records.install()
@@ -347,6 +351,7 @@ def export_project(spec_json, log):
 
 
 def _export(s, log):
+    prop_library.refresh()
     items = s['scene_items']
     ws = float(s.get('world_scale', 0.5))
     for it in items:
@@ -355,9 +360,10 @@ def _export(s, log):
     if not items or native.is_glass(items[0]):
         raise ValueError('Load a base map first.')
     # "Breakable wood" and weight presets become stock profiles (see map_features).
-    wanted_profiles = features.prepare_breakables(items)
+    wanted_profiles = features.prepare_breakables(items, log)
     crate_donor = retail.choose_crates(s, items, wanted_profiles, log)
-    sky_donor = native_sky.prepare(s, log) if s.get('native_sky_source') else None
+    # A native sky preset or early surface registration brings its own sky (the environment pair).
+    sky_donor = native_sky.prepare(s, log) if s.get('native_sky_source') and not surface_registration.wanted(s) else None
     preflight = breakable_tools.check_scene(items, ws, _parse)
     if preflight['errors']:
         raise ValueError('\n'.join(preflight['errors']))
@@ -411,6 +417,9 @@ def _export(s, log):
     def opt(key):
         value = s.get(key)
         return value if value else None
+    # The city file and the environment it loads; early surface registration brings its own (surface_registration.py).
+    environment = dict(bbcity_donor=opt('bbcity_donor'), native_sky_chunk=opt('native_sky_chunk'), native_sky_peg=opt('native_sky_peg'))
+    environment.update(surface_registration.export_args(s, STUDIO, base))
 
     result = sr1_export.export_map(
         str(composed), {m: textures[m] for m in mesh['textures']}, str(out), base, str(STUDIO / 'reference_beavercreek'),
@@ -425,7 +434,7 @@ def _export(s, log):
         render_only_face_indices=_collision_excluded_global_indices(items, mesh),
         double_sided_scene_indices=[i for i, it in enumerate(items) if it.get('double_sided', False) and not native.is_glass(it)],
         markers=main_markers, marker_coordinate_space=space, cts_template=opt('cts_template'),
-        bbcity_donor=opt('bbcity_donor'), native_sky_chunk=opt('native_sky_chunk'), native_sky_peg=opt('native_sky_peg'))
+        **environment)
     mirror = bool(s.get('mirror_x', True))
     chunk = out / (base + '.bbchunk_xbox2')
     # Look-only overlays (tags, stickers, flat sheets without collision) go on the decal layer.
@@ -467,7 +476,9 @@ def _export(s, log):
             features.write_loading_screen(out, base, loading, job, log)
         except Exception as exc:  # a missing picture should not stop the map export
             log('Loading screen skipped: ' + str(exc))
-    shared_textures.check_size(out / (base + '.peg_xbox2'), log)
+    # After the last change to the map's textures: the copies registered early still match them.
+    early = surface_registration.finish(out, base, result, s, STUDIO, log)
+    shared_textures.check_size(out / (base + '.peg_xbox2'), log, early['copied_bytes'] if early else 0)
     extras = retail.finish(s, out, base, markers, ws, mirror, (0., 0., 0.) if space == 'game' else fixed_origin, space, log)
     features.write_brawl_spawns(out, base, log)
     files =sorted(str(p) for p in out.rglob('*') if p.is_file())
@@ -483,6 +494,7 @@ def _export(s, log):
         'water_volumes': water_count,
         'regions': region_count,
         'game_sky': int(game_sky),
+        'surface_textures': early['textures'] if early else 0,
         **extras,
     }
     return {'map_name': base, 'out_dir': str(out), 'files': files, 'summary': summary}

@@ -10,7 +10,7 @@ import { AMBIENCE_OPTIONS, LOADING_SIZE, ambienceHint, loadingMode, type Loading
 import { getViewer } from '../Viewport'
 import { dataPackStatus, hasGroup, type DataPackStatus } from '../../lib/datapack'
 import { downloadBlob } from '../../lib/exporter'
-import { GAME_MODES, SPAWN_TYPES, baseName, type ProjectSettings } from '../../lib/project'
+import { GAME_MODES, SPAWN_TYPES, baseName, maxMapName, type ProjectSettings } from '../../lib/project'
 import { checkModes, levelEntries, unusedModeMarkers } from '../../lib/levels'
 import { installSupported } from '../../lib/install'
 import { MP_PACK } from '../../lib/gameFiles'
@@ -31,13 +31,16 @@ export function ExportPanel() {
     update('Export setting', (d) => { d.settings[k] = v }, merge ? { merge: 'set-' + k } : undefined)
 
   const name = sanitize(s.base_name)
-  const nameError = !name ? 'Enter a map file name.' : name.length > 11 ? 'Map file names must be 11 characters or fewer.' : ''
+  const maxName = maxMapName(s)
+  const nameError = !name ? 'Enter a map file name.'
+    : name.length > maxName ? `Map file names must be ${maxName} characters or fewer${s.surface_preload ? ' with early surface registration' : ''}.` : ''
   const spawns = project.markers.filter((m) => SPAWN_TYPES.includes(m.type)).length
   const problems = [
     !project.scene_items.length && 'Load a base map.',
     !spawns && 'Place at least one spawn in the Spawns tab.',
     nameError,
     pack && !pack.ready && 'Your data pack is missing the map template.',
+    s.surface_preload && pack && !(hasGroup(pack, 'surface') && hasGroup(pack, 'sky')) && 'Early surface registration needs the surface template and the native sky presets from your data pack.',
   ].filter(Boolean) as string[]
   const modeCheck = checkModes(s, project.markers)
   problems.push(...modeCheck.errors)
@@ -53,7 +56,7 @@ export function ExportPanel() {
       <div className="group">
         <span className="section-title">Map</span>
         <div className="form-grid">
-          <Field label="File name (max 11)" hint={nameError || `Files: ${name || '…'}.bbchunk_xbox2 …`}>
+          <Field label={`File name (max ${maxName})`} hint={nameError || `Files: ${name || '…'}.bbchunk_xbox2 …`}>
             <input value={s.base_name} maxLength={11} onChange={(e) => set('base_name', e.target.value, true)} />
           </Field>
           <Field label="Display name" hint="Shown in the game's map list.">
@@ -92,6 +95,8 @@ export function ExportPanel() {
         </Check>
         {!s.always_clear_weather && <span className="small muted">Each match gets a random time (noon, midnight, dusk or dawn) and weather. Untested on custom maps: check your sky and lighting at night.</span>}
       </div>
+
+      <SurfaceSetting pack={pack} />
 
       <div className="group">
         <span className="section-title">World</span>
@@ -172,6 +177,29 @@ export function ExportPanel() {
   )
 }
 
+/** v1.15's early surface registration (py/surface_registration.py): footsteps and bullet impacts follow each texture's surface. */
+function SurfaceSetting({ pack }: { pack: DataPackStatus | null }) {
+  const s = useEditor((st) => st.project!.settings)
+  const update = useEditor((st) => st.update)
+  const ready = hasGroup(pack, 'surface') && hasGroup(pack, 'sky')
+  return (
+    <div className="group">
+      <span className="section-title">Surfaces <span className="chip">experimental</span></span>
+      <Check checked={!!s.surface_preload} disabled={!ready && !s.surface_preload} onChange={(v) => update('Export setting', (d) => { d.settings.surface_preload = v })}
+        title="Copies the map's textures into an extra environment file pair that the game loads before the map, so each texture's surface (Materials: Wood, Metal, Grass…) decides its footsteps and bullet impacts. Uses a full-size city file.">
+        Register surface impacts early
+      </Check>
+      <span className="faint small">
+        {!ready && !s.surface_preload
+          ? 'Needs the surface template and the native sky presets in your data pack (Data pack page).'
+          : s.surface_preload
+            ? `Adds two sf_… files to the map's levels folder (${s.native_sky === 'sr_alwayshwyf01' ? 'about 40' : 'about 60'} MB: the stock ${s.native_sky || 'sr_custom000001'} sky with copies of your textures); install them with the map. Map file names: 10 characters at most. The game's own sky option steps aside: this brings its sky. Not yet tried in game.`
+            : "Off: textures keep their surface names, but the game may read them before they load and treat every surface as concrete."}
+      </span>
+    </div>
+  )
+}
+
 /** The game's own sky, read from the player's game files at export (src/lib/gameSky.ts). */
 function GameSkySetting() {
   const s = useEditor((st) => st.project!.settings)
@@ -182,12 +210,12 @@ function GameSkySetting() {
   const on = gameSkyWanted(s)
   return (
     <div className="col">
-      <Check checked={s.game_sky !== false} disabled={!!s.native_sky} onChange={(v) => update('Export setting', (d) => { d.settings.game_sky = v })}
+      <Check checked={s.game_sky !== false} disabled={!!s.native_sky || !!s.surface_preload} onChange={(v) => update('Export setting', (d) => { d.settings.game_sky = v })}
         title={`Copies the sky of the game's ${SKY_SOURCE} map into yours at export: clouds, sun, moon and stars that follow the time of day. Read from your own game files; nothing is uploaded.`}>
         The game's own sky (clouds, sun, moon, stars)
       </Check>
-      {s.native_sky
-        ? <span className="faint small">Off while a native sky preset is chosen: the preset brings its own sky.</span>
+      {s.native_sky || s.surface_preload
+        ? <span className="faint small">Off while {s.native_sky ? 'a native sky preset is chosen: the preset' : 'early surface registration is on: its environment'} brings its own sky.</span>
         : on && ready === true ? <span className="faint small">Read from {MP_PACK} in your game at export. New: not yet tried in game.</span>
         : on && ready === false ? (
           <>

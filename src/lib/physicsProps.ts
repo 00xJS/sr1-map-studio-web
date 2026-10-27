@@ -54,6 +54,24 @@ export const PHYSICS_PRESETS: PhysicsPreset[] = [
 
 export const PRESET_BY_KEY: Record<string, PhysicsPreset> = Object.fromEntries(PHYSICS_PRESETS.map((p) => [p.key, p]))
 
+/**
+ * More stock objects, from v1.15's library in the player's own data pack (lib/propLibrary.ts): keys start with
+ * "lib_". Empty until it has been read, and on a v1.13 data pack.
+ */
+export const LIBRARY_PRESETS: PhysicsPreset[] = []
+
+export function setLibraryPresets(list: PhysicsPreset[]) {
+  for (const p of LIBRARY_PRESETS) delete PRESET_BY_KEY[p.key]
+  LIBRARY_PRESETS.splice(0, LIBRARY_PRESETS.length, ...list)
+  for (const p of list) PRESET_BY_KEY[p.key] = p
+}
+
+/** An object made from a library preset while the library isn't loaded: its profile still goes to the exporter. */
+function missingLibraryPreset(key: string, profile: string): PhysicsPreset {
+  return { key, label: profile, hint: "A stock object from the v1.15 package's library, which isn't in this browser's data pack: it exports as a light crate until it is.",
+    behavior: 'movable', profile, shape: 'box', lb: 20, bounce: 0, friction: 1, damping: [0.01, 0.05], hp: 50, hurtBy: 'bx', breaks: false, pushable: true }
+}
+
 export const PHYSICS_SHAPES: { key: PhysicsShape; label: string; hint: string }[] = [
   { key: 'box', label: 'Box', hint: 'A box around the model. Stacks well.' },
   { key: 'sphere', label: 'Ball', hint: 'A ball around the model. Rolls in every direction.' },
@@ -74,7 +92,9 @@ export function presetOf(it: SceneItem): PhysicsPreset | null {
   if (key && PRESET_BY_KEY[key]) return PRESET_BY_KEY[key]
   if (it.native_prop_behavior === 'explosive') return PRESET_BY_KEY.explodes
   const profile = it.native_profile || (it.native_prop_behavior ? 'Crate Small' : 'Can')
-  return PHYSICS_PRESETS.find((p) => p.profile === profile && p.behavior === 'movable') ?? null
+  return PHYSICS_PRESETS.find((p) => p.profile === profile && p.behavior === 'movable')
+    ?? LIBRARY_PRESETS.find((p) => p.profile === profile)
+    ?? (key?.startsWith('lib_') && it.native_profile ? missingLibraryPreset(key, it.native_profile) : null)
 }
 
 export const shapeOf = (it: SceneItem): PhysicsShape => (it.physics_shape as PhysicsShape | undefined) ?? 'box'

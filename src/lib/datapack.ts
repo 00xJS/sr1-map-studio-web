@@ -7,7 +7,7 @@ import { unzip } from 'fflate'
 import manifest from './datapack-manifest.json'
 import { db, sha256 } from './db'
 
-export type DataPackGroup = 'required' | 'glass' | 'props' | 'cts' | 'sky' | 'demo'
+export type DataPackGroup = 'required' | 'glass' | 'props' | 'cts' | 'sky' | 'surface' | 'library' | 'demo'
 type Entry = { sha256: string; size: number; group: DataPackGroup }
 export const DATAPACK = manifest as Record<string, Entry>
 
@@ -17,6 +17,8 @@ export const GROUP_LABELS: Record<DataPackGroup, string> = {
   props: 'Movable and explosive props',
   cts: 'Spawn table templates',
   sky: 'Native sky presets (large, optional)',
+  surface: 'Early surface registration template',
+  library: 'Stock object library (v1.15 package)',
   demo: 'Demo crate',
 }
 
@@ -81,7 +83,7 @@ export function importDataPackZip(file: File, onProgress?: (t: string) => void):
         if (err) { reject(new Error(`Couldn't read ${file.name} as a zip (${err.message}). Choose the SR1 Map Studio package zip, or its extracted folder.`)); return }
         const cands = Object.entries(files).map(([name, data]) => ({ path: kept[name], data }))
         if (!cands.length) {
-          reject(new Error('No SR1 Map Studio data files were found in that zip. Choose the SR1_Map_Studio_v1.13 package zip.'))
+          reject(new Error('No SR1 Map Studio data files were found in that zip. Choose the SR1 Map Studio package zip (v1.13 or v1.15).'))
           return
         }
         storeCandidates(cands, onProgress).then(resolve, reject)

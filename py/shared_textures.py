@@ -77,11 +77,17 @@ def append_dynamic_textures(reference_peg, output_peg, items, replace_special=No
 SAFE_PEG_MB = 28
 
 
-def check_size(peg_path, log):
-    """Warns when the map's texture file is bigger than any map known to load (it may come out black in game)."""
-    mb = Path(peg_path).stat().st_size / 1e6 if Path(peg_path).is_file() else 0
+def check_size(peg_path, log, copies_bytes=0):
+    """Warns when the map's texture file is bigger than any map known to load (it may come out black in game).
+
+    copies_bytes: the map's textures loaded a second time, in the environment file of early surface registration
+    (surface_registration.py). They count too; the stock environment around them is what retail maps load anyway.
+    """
+    mb = (Path(peg_path).stat().st_size if Path(peg_path).is_file() else 0) / 1e6 + copies_bytes / 1e6
     if mb > SAFE_PEG_MB:
-        log(f'WARNING: the textures of this map come to {mb:.0f} MB. The biggest map known to load has about 25 MB; '
+        log(f'WARNING: the textures of this map come to {mb:.0f} MB'
+            + (' (with their copies for early surface registration)' if copies_bytes else '')
+            + '. The biggest map known to load has about 25 MB; '
             'past that the game may not load them at all, and players spawn into a black, empty map. '
             'Use fewer different textures, or smaller ones.')
     return mb

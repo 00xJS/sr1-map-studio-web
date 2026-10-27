@@ -1,15 +1,30 @@
 // "Make it a physics prop": the simple-mode panel for one or more selected
 // objects. Pick a behaviour (light crate, heavy, rolls, explodes, breaks...),
 // then the collision shape; the limits are shown as you go.
+import { useEffect, useState } from 'react'
 import { useEditor } from './store'
 import * as act from './actions'
 import { makePhysicsProps, setBottomHeavy, setPhysicsShape } from './physicsActions'
 import { Check, Field, useBusy } from '../ui'
 import { isCustomNative, isGlass, isProp, type SceneItem } from '../lib/project'
-import { OBJECT_BUDGET, PHYSICS_PRESETS, PHYSICS_SHAPES, countPhysics, presetOf, shapeOf, type PhysicsShape } from '../lib/physicsProps'
+import { LIBRARY_PRESETS, OBJECT_BUDGET, PHYSICS_PRESETS, PHYSICS_SHAPES, countPhysics, presetOf, shapeOf, type PhysicsPreset, type PhysicsShape } from '../lib/physicsProps'
+import { loadPropLibrary } from '../lib/propLibrary'
 
 /** The first presets shown as buttons; the rest are in the list. */
 const QUICK = ['light_crate', 'heavy', 'rolls', 'ball', 'explodes', 'breaks']
+
+/** The stock objects of v1.15's library in this browser's data pack (none with a v1.13 pack). */
+function useLibraryPresets(): PhysicsPreset[] {
+  const [list, setList] = useState(() => LIBRARY_PRESETS.slice())
+  useEffect(() => { let live = true; loadPropLibrary().then((l) => { if (live) setList(l) }); return () => { live = false } }, [])
+  return list
+}
+
+const LibraryOptions = ({ presets }: { presets: PhysicsPreset[] }) => presets.length ? (
+  <optgroup label="Stock objects (v1.15 package)">
+    {presets.map((p) => <option key={p.key} value={p.key} title={p.hint}>{p.label}</option>)}
+  </optgroup>
+) : null
 
 function Limits() {
   const project = useEditor((s) => s.project)!
@@ -32,6 +47,7 @@ export function PhysicsPanel({ indices }: { indices: number[] }) {
   if (items.some((it) => isGlass(it) && !isCustomNative(it))) return null
   const physical = items.filter((it) => presetOf(it))
   const one = items.length === 1 ? items[0] : null
+  const library = useLibraryPresets()
   const preset = one ? presetOf(one) : null
   const apply = (key: string) => run(() => makePhysicsProps(indices, key))
   return (
@@ -50,18 +66,19 @@ export function PhysicsPanel({ indices }: { indices: number[] }) {
             <select className="sm" value="" disabled={busy} onChange={(e) => e.target.value && apply(e.target.value)}>
               <option value="">More…</option>
               {PHYSICS_PRESETS.filter((p) => !QUICK.includes(p.key)).map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+              <LibraryOptions presets={library} />
             </select>
           </div>
           {physical.length > 0 && <span className="faint small">{physical.length} of these {physical.length === 1 ? 'is' : 'are'} already physics props.</span>}
         </>
       )}
-      {preset && one && <PropSettings it={one} index={indices[0]} />}
+      {preset && one && <PropSettings it={one} index={indices[0]} library={library} />}
       <Limits />
     </div>
   )
 }
 
-function PropSettings({ it, index }: { it: SceneItem; index: number }) {
+function PropSettings({ it, index, library }: { it: SceneItem; index: number; library: PhysicsPreset[] }) {
   const [run, busy] = useBusy()
   const preset = presetOf(it)!
   const shape = shapeOf(it)
@@ -70,6 +87,8 @@ function PropSettings({ it, index }: { it: SceneItem; index: number }) {
       <Field label="Behaviour" hint={preset.hint}>
         <select value={preset.key} disabled={busy} onChange={(e) => run(() => makePhysicsProps([index], e.target.value))}>
           {PHYSICS_PRESETS.map((p) => <option key={p.key} value={p.key}>{p.label}</option>)}
+          <LibraryOptions presets={library} />
+          {!library.some((p) => p.key === preset.key) && !PHYSICS_PRESETS.includes(preset) && <option value={preset.key}>{preset.label}</option>}
         </select>
       </Field>
       <Field label="Collision shape" hint={PHYSICS_SHAPES.find((s) => s.key === shape)?.hint}>

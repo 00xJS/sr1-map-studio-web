@@ -22,6 +22,8 @@ from pathlib import Path
 
 import sr_reborn_core as rc
 import peg_xbox2_beaver as peg
+import prop_library
+from crate_debris import PROFILE as CRATE_PROFILE
 
 # ---------------------------------------------------------------- water --
 
@@ -343,7 +345,7 @@ BREAKING_PROFILES = {
 DEFAULT_BREAKING = 'Can'
 
 
-def prepare_breakables(items):
+def prepare_breakables(items, log=None):
     """Routes "breakable wood" objects through the movable-prop path so they really break.
 
     The exporter's wood mode copies the glass record, so wood used to shatter
@@ -361,8 +363,17 @@ def prepare_breakables(items):
         if it.get('native_prefab') == 'sr1_native_custom_mesh_glass_experiment' and it.get('native_breakable_kind') == 'wood' and not behaviour:
             it['native_prop_behavior'] = 'movable'
             wanted[j] = profile if profile in BREAKING_PROFILES else DEFAULT_BREAKING
-        elif behaviour == 'movable' and (profile in MOVABLE_PROFILES or profile in BREAKING_PROFILES) and profile != 'Crate Small':
+        elif behaviour == 'movable' and (profile in MOVABLE_PROFILES or profile in BREAKING_PROFILES or prop_library.stock_key(profile)) and profile != 'Crate Small':
             wanted[j] = profile
+        elif behaviour == 'movable' and profile and profile != 'Crate Small' and log:
+            log(f'Physics props: "{it.get("name")}" uses the stock object {profile}, which needs the stock object library '
+                'of the v1.15 package in your data pack; it exports as a crate.')
+        # With v1.15's library, a profile it lists comes with the object record it was copied from (prop_library.py).
+        # The crate keeps the web's own path: its debris comes from the player's game files (crate_debris.py).
+        key = prop_library.stock_key(wanted.get(j))
+        if key and wanted[j] != CRATE_PROFILE:
+            it['native_prop_behavior'] = key
+            del wanted[j]
         j += 1
     return wanted
 
