@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { CITY_SIZES, DISTRICTS, citySample, type CitySize } from '../lib/cityGen'
 import { newSeed } from '../lib/mapWizard'
 import type { Sample } from '../lib/sampleKit'
+import { Link } from 'react-router-dom'
 
 const LOT_COLOURS = Object.fromEntries(Object.values(DISTRICTS).map((d) => [`${d.label} lot`, d.sketch]))
 
@@ -71,7 +72,7 @@ export function CitySketch({ s }: { s: Sample }) {
   return <canvas ref={ref} width={460} height={460} style={{ width: '100%', maxWidth: 460, aspectRatio: '1', borderRadius: 8, display: 'block' }} />
 }
 
-export function CityWizard({ busy, onCreate }: { busy: boolean; onCreate: (s: Sample) => void }) {
+export function CityWizard({ busy, onCreate, game = false }: { busy: boolean; onCreate: (s: Sample) => void; game?: boolean }) {
   const [size, setSize] = useState<CitySize>('town')
   const [seed, setSeed] = useState(newSeed)
   const [name, setName] = useState('')
@@ -80,6 +81,8 @@ export function CityWizard({ busy, onCreate }: { busy: boolean; onCreate: (s: Sa
     <div className="wizard">
       <div className="col" style={{ gap: 12, flex: '1 1 300px', minWidth: 0 }}>
         <p className="small muted">An original city in the style of Saints Row's Stilwater, built from the site's own pieces, so it works with or without the game: a river with bridges and quays, streets that bend and a diagonal avenue, downtown towers, a Chinatown-like quarter, a red-light strip, the projects, a barrio, suburbs, hillside homes, docks and factories, and parks, with sidewalks, street lamps, shops and parked cars.</p>
+        {/* A whole city of game models is more than one map's budget: the real city is on the Stilwater page. */}
+        {game && <span className="small" style={{ color: 'var(--warn, #e0b050)' }}>This city is always built from the site's own pieces. For a city of real game buildings, <Link to="/city">cut a piece of Stilwater</Link> from your own game.</span>}
         <div className="col" style={{ gap: 6 }}>
           <span className="section-title">Size</span>
           <div className="row wrap">

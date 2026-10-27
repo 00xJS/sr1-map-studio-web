@@ -4,11 +4,10 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { DENSITY, LAYOUTS, SETTINGS, busyLabel, busyOf, densityFor, newSeed, wizardSample, type WizardLayout, type WizardOptions, type WizardSetting } from '../lib/mapWizard'
 import { mapSize } from '../lib/sampleScale'
 import type { Sample } from '../lib/sampleKit'
-import { NeedGameFolder, buildIndex, connect, loadIndex, useGameObjects } from '../lib/gameObjects/client'
+import { NeedGameFolder, connect } from '../lib/gameObjects/client'
 import { gamePiecesSuit } from '../lib/gameObjects/wizardPieces'
-import { GameCity } from '../lib/gameObjects/wizardModules'
-import { loadCityLabels, loadLabels, useCityLabels, useGameLabels } from '../lib/gameObjects/labels'
-import { Link } from 'react-router-dom'
+import type { GameCity } from '../lib/gameObjects/wizardModules'
+import { gameCity, useGameSource } from './BuildWith'
 import { toastError } from '../ui'
 import type { Preview } from '../lib/wizardPreview'
 
@@ -70,24 +69,18 @@ export function Sketch({ s }: { s: Sample }) {
   return <canvas ref={ref} width={420} height={420} style={{ width: '100%', maxWidth: 420, aspectRatio: '1', borderRadius: 8, display: 'block' }} />
 }
 
-export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean; onCreate: (s: Sample) => void; onBlank?: () => void; initial?: WizardOptions }) {
+export function MapWizard({ busy, onCreate, onBlank, initial, game = false }: { busy: boolean; onCreate: (s: Sample) => void; onBlank?: () => void; initial?: WizardOptions; game?: boolean }) {
   const [o, setO] = useState<WizardOptions>(() => initial ?? { setting: 'downtown', layout: 'blocks', players: 10, density: 'normal', seed: newSeed() })
   const [name, setName] = useState(initial?.name ?? '')
   const set = (patch: Partial<WizardOptions>) => setO((x) => ({ ...x, ...patch }))
-  const [useGame, setUseGame] = useState(false)
-  const entries = useGameObjects((s) => s.entries)
-  // The library is read from this browser when there is one (no game files needed for that).
-  // The player's own labels for the models (Check game pieces) are picked by too.
-  const { labels, version } = useGameLabels()
-  // And their corrections to the city's modules and groups (Check game pieces → Groups, Modules).
-  const cityLabels = useCityLabels()
-  useEffect(() => { void loadIndex().catch(() => {}); void loadLabels(); void loadCityLabels() }, [])
-  const gameOn = useGame && !!entries && gamePiecesSuit(o.setting)
+  // Game pieces (chosen at the top of the dialog, BuildWith.tsx): the player's library and their labels for it.
+  const src = useGameSource()
+  const gameOn = game && !!src.entries && gamePiecesSuit(o.setting)
   // Game pieces: whole Stilwater modules and groups where the game library has them, single game models otherwise.
   const { sample, city } = useMemo(() => {
-    const city = gameOn ? new GameCity(entries!, { ...o, labels, labelsVersion: version, cityLabels }) : undefined
+    const city = gameOn ? gameCity(src, o.setting, o.seed) ?? undefined : undefined
     return { sample: wizardSample(o, city?.pieces), city }
-  }, [o, gameOn, entries, labels, version, cityLabels])
+  }, [o, gameOn, src.entries, src.labels, src.version, src.cityLabels])
   const create = async () => {
     // Placing the models needs the game files open (the browser may ask for the folder once).
     if (city) try { await connect(true) } catch (e) { toastError(e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder so the wizard can bring in the models from your game.') : e); return }
@@ -137,7 +130,7 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
             <span className="row faint small" style={{ justifyContent: 'space-between' }}><span>Open</span><span>Packed</span><span>3× packed</span></span>
           </label>
         </div>
-        <GamePiecesChoice on={useGame} setOn={setUseGame} suits={gamePiecesSuit(o.setting)} city={city} />
+        {game && <GamePiecesInfo suits={gamePiecesSuit(o.setting)} city={city} />}
         <label className="col" style={{ gap: 6 }}>
           <span className="section-title">Name</span>
           <input value={name} placeholder={sample.name} onChange={(e) => setName(e.target.value)} maxLength={40} />
@@ -163,48 +156,25 @@ export function MapWizard({ busy, onCreate, onBlank, initial }: { busy: boolean;
   )
 }
 
-/** "What to build with": the site's own shapes and prefabs, or models from the player's own game. */
-function GamePiecesChoice({ on, setOn, suits, city }: { on: boolean; setOn: (v: boolean) => void; suits: boolean; city?: GameCity }) {
-  const { entries, status, progress } = useGameObjects()
-  const [loading, setLoading] = useState(false)
-  const load = async () => {
-    setLoading(true)
-    try { await buildIndex(true); setOn(true) } catch (e) { toastError(e) } finally { setLoading(false) }
-  }
+/** What the wizard built from the player's game: the Stilwater pieces it used, or the single models in its plots. */
+function GamePiecesInfo({ suits, city }: { suits: boolean; city?: GameCity }) {
   const st = city?.pieces.stats, cs = city?.stats
   return (
     <div className="col" style={{ gap: 6 }}>
-      <span className="section-title">Build with</span>
-      <div className="row wrap">
-        <button className={'sm' + (!on ? ' on' : '')} onClick={() => setOn(false)} title="The site's own buildings, shapes and prefabs">Site pieces</button>
-        <button className={'sm' + (on ? ' on' : '')} disabled={!entries} onClick={() => setOn(true)}
-          title={entries ? 'Real buildings and props from your own Saints Row game files' : 'Load your game library first'}>🎮 Game pieces</button>
-      </div>
-      {!entries && (
-        <span className="faint small">
-          Game pieces builds the map from real buildings and props in your own game. It needs your game library, read from your Saints Reborn folder on this device:{' '}
-          {status === 'indexing' || loading
-            ? <b>reading your game ({progress ? `${progress.done}/${progress.total || '…'}` : '…'})</b>
-            : <button className="link small" onClick={() => void load()}>load my game library</button>}
-          {' '}(or in the editor: Shape tool → Prefabs → From my game).
-        </span>
-      )}
-      {on && entries && !suits && <span className="faint small">The game has nothing like the cyber grid: this setting uses the site's pieces.</span>}
-      {on && entries && suits && (
-        <span className="small" style={{ color: 'var(--warn, #e0b050)' }}>
-          Built from models in your own game files, kept on this device: you can export this map to your game, but it can't be shared, put on the Showcase or synced.
-          {city?.used && cs && st && <span className="faint">
-            {' '}Built from {cs.modules} pieces of Stilwater as the game has them ({cs.names.slice(0, 3).join(', ')}{cs.names.length > 3 ? ` and ${cs.names.length - 3} more` : ''}), {cs.groups} groups
+      {!suits && <span className="faint small">The game has nothing like the cyber grid: this setting uses the site's pieces.</span>}
+      {suits && city && (
+        <span className="small faint">
+          {city.used && cs && st && <>
+            Built from {cs.modules} pieces of Stilwater as the game has them ({cs.names.slice(0, 3).join(', ')}{cs.names.length > 3 ? ` and ${cs.names.length - 3} more` : ''}), {cs.groups} groups
             {cs.wallProps ? `, ${cs.wallProps} wall things` : ''}, {st.props} props and {st.lights} lights ({Math.round(st.triangles / 1000)}k triangles, {st.textures} textures){cs.open ? `; ${cs.open} block${cs.open === 1 ? '' : 's'} left as open lots` : ''}.
-          </span>}
-          {city && !city.used && st && <span className="faint">
-            {' '}{city.ready ? 'No piece of Stilwater fits this layout' : "Pieces of Stilwater aren't ready in your library yet"}, so single models go in the layout's plots:{' '}
+          </>}
+          {!city.used && st && <>
+            {city.ready ? 'No piece of Stilwater fits this layout' : "Pieces of Stilwater aren't ready in your library yet"}, so single models go in the layout's plots:{' '}
             {st.buildings} buildings, {st.props} props, {st.lights} lights and {st.fences} fence pieces from {st.models} models ({Math.round(st.triangles / 1000)}k triangles, {st.textures} textures){st.kept ? `; ${st.kept} spots keep the site's piece where nothing fitted` : ''}.
-          </span>}
-          {' '}<Link to="/game-pieces" className="small">Check which models it picks →</Link>
+          </>}
         </span>
       )}
-      {on && city?.used && city.problems.length > 0 && (
+      {city?.used && city.problems.length > 0 && (
         <span className="small" style={{ color: 'var(--warn, #e0b050)' }}>Found while building it: {city.problems.join(' ')} Reroll for another, or fix it in the editor.</span>
       )}
     </div>

@@ -189,7 +189,7 @@ export const THEME_INFO: Record<Theme, string> = {
   'Cyber': 'Neon grids, glowing blocks and colored lights.',
 }
 
-const COMPACT_TARGETS = { shared: 8, perTeam: 6, weapons: 12, drops: 4, lights: 10 }
+export const COMPACT_TARGETS = { shared: 8, perTeam: 6, weapons: 12, drops: 4, lights: 10 }
 /** Generated texture size: full detail where it shows (windows, shop fronts, doors), half elsewhere to keep maps light. */
 const DETAILED = new Set(['facade', 'storefront', 'garage_door', 'lettering'])
 const texSize = (kind: string) => (DETAILED.has(kind) ? 1024 : 512)

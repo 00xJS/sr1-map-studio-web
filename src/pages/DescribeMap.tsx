@@ -12,12 +12,13 @@ import type { Sample } from '../lib/sampleKit'
 import { KeySetup, readKey, readModel } from '../editor/AiKey'
 import { loadLibrary } from '../editor/paint'
 import { Sketch } from './MapWizard'
+import { gameCity, useGameSource } from './BuildWith'
 
 const EXAMPLES = ['A rainy rooftop map with a central tower for 8 players', 'Tight neon arena for 1v1', 'Paintball field with long lanes, 10 players', 'Docks at night with lots of cover']
 /** Characters: long, imaginative descriptions are welcome; the model reads all of it. */
 const MAX_CHARS = 3000
 
-export function DescribeMap({ busy, onCreate, onTune }: { busy: boolean; onCreate: (s: Sample, edits?: PendingEdits) => void; onTune: (o: WizardOptions) => void }) {
+export function DescribeMap({ busy, onCreate, onTune, game = false }: { busy: boolean; onCreate: (s: Sample, edits?: PendingEdits) => void; onTune: (o: WizardOptions) => void; game?: boolean }) {
   const [text, setText] = useState('')
   const [plan, setPlan] = useState<MapPlan | null>(null)
   const [asking, setAsking] = useState(false)
@@ -28,7 +29,15 @@ export function DescribeMap({ busy, onCreate, onTune }: { busy: boolean; onCreat
   const abort = useRef<AbortController | null>(null)
   useEffect(() => () => abort.current?.abort(), [])
   useEffect(() => { loadLibrary().then((l) => setLibraryTextures(l.map((t) => t.id))).catch(() => {}) }, [])
-  const sample = useMemo(() => (plan ? planSample(plan) : null), [plan])
+  // Game pieces (BuildWith.tsx): the wizard builds from the game's models; a whole city is remade with them.
+  const src = useGameSource()
+  const sample = useMemo(() => {
+    if (!plan) return null
+    if (!game) return planSample(plan)
+    // (A whole city is the site's: more than one map's worth of game models.)
+    if (plan.city) return planSample(plan)
+    return planSample(plan, gameCity(src, plan.options.setting, plan.options.seed)?.pieces)
+  }, [plan, game, src.entries, src.labels, src.version, src.cityLabels])
 
   const ask = async () => {
     if (!text.trim() || asking) return

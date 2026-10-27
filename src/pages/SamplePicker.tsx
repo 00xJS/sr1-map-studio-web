@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { Modal, toastError } from '../ui'
 import { SAMPLES, THEMES, THEME_INFO, buildFrom, buildSample, hasCompact, type Sample, type Theme } from '../lib/samples'
+import { BuildWith, gameSampleOf, useBuildWith, useGameSource } from './BuildWith'
+import { NeedGameFolder, connect } from '../lib/gameObjects/client'
 import { MapWizard } from './MapWizard'
 import { CityWizard } from './CityWizard'
 import { DescribeMap } from './DescribeMap'
@@ -30,9 +32,19 @@ export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project,
   const [theme, setTheme] = useState<Theme | 'wizard' | 'describe' | 'gallery' | 'city'>('wizard')
   const [tuned, setTuned] = useState<WizardOptions | undefined>()
   const [small, setSmall] = useState(false)
+  // Site or game pieces, for every way to start a map (BuildWith.tsx).
+  const [buildGame, setBuildGame] = useBuildWith()
+  const src = useGameSource()
+  const game = buildGame && !!src.entries
   const choose = async (id: string | Sample, edits?: PendingEdits) => {
     setProgress('Starting…')
     try {
+      // A catalogue sample with game pieces: remade from the player's game models.
+      if (typeof id === 'string' && game) id = gameSampleOf(id, small, src) ?? id
+      // Placing game models needs the game files open (the browser may ask for the folder once).
+      if (typeof id !== 'string' && id.parts.some((p) => p.game)) {
+        try { await connect(true) } catch (e) { throw e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder so the models can come in from your game.') : e }
+      }
       // A map built from game models gets the map's checks once it is open (its stairs are the game's).
       const job = typeof id !== 'string' && id.parts.some((p) => p.game) ? { ...(edits ?? { actions: [], label: 'Game pieces' }), checks: true, ...(id.problems?.length ? { summary: id.problems } : {}) } : edits
       await props.onBuilt(await (typeof id === 'string' ? buildSample(id, setProgress, { compact: small }) : buildFrom(id, setProgress)), job)
@@ -47,6 +59,7 @@ export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project,
   return (
     <Modal title="Start a map" wide onClose={busy ? undefined : props.onClose}
       footer={<>{busy && <span className="grow small muted">{progress}</span>}<button onClick={props.onClose} disabled={busy}>Cancel</button></>}>
+      <BuildWith on={buildGame} setOn={setBuildGame} />
       <div className="row wrap">
         <button className={'sm' + (theme === 'describe' ? ' on' : '')} onClick={() => setTheme('describe')}>💬 Describe it</button>
         <button className={'sm' + (theme === 'wizard' ? ' on' : '')} onClick={() => setTheme('wizard')}>✨ Map wizard</button>
@@ -59,11 +72,14 @@ export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project,
         <button className={'sm' + (theme === 'gallery' ? ' on' : '')} onClick={() => setTheme('gallery')} title="Every object, a category at a time, to check how each looks">🧪 Object gallery</button>
       </div>
       {theme === 'gallery' && <Gallery busy={busy} onPick={(s) => choose(s)} />}
-      {theme === 'city' && <CityWizard busy={busy} onCreate={(s) => choose(s)} />}
-      {theme === 'describe' && <DescribeMap busy={busy} onCreate={(s, edits) => choose(s, edits)} onTune={(o) => { setTuned(o); setTheme('wizard') }} />}
-      {theme === 'wizard' && <MapWizard key={tuned?.seed} initial={tuned} busy={busy} onCreate={(s) => choose(s)} onBlank={props.onBlank} />}
+      {theme === 'gallery' && game && <span className="faint small">The gallery shows the site's own objects; your game's are on the Check game pieces page.</span>}
+      {theme === 'city' && <CityWizard busy={busy} game={game} onCreate={(s) => choose(s)} />}
+      {theme === 'describe' && <DescribeMap busy={busy} game={game} onCreate={(s, edits) => choose(s, edits)} onTune={(o) => { setTuned(o); setTheme('wizard') }} />}
+      {theme === 'wizard' && <MapWizard key={tuned?.seed} initial={tuned} busy={busy} game={game} onCreate={(s) => choose(s)} onBlank={props.onBlank} />}
       {theme !== 'wizard' && theme !== 'describe' && theme !== 'gallery' && theme !== 'city' && <>
-      <p className="small muted">{THEME_INFO[theme]} Every sample is built from simple shapes with free textures, sized for 8–12 player matches like the retail maps, and already has plenty of spawns, weapons and lights. Change anything you like.</p>
+      <p className="small muted">{THEME_INFO[theme]} {game && theme !== 'Cyber'
+        ? 'With game pieces, each sample keeps its layout, floors and stairs, and its buildings and props become real ones from your game that fit the same spots, dressed the way Stilwater dresses each kind of place.'
+        : 'Every sample is built from simple shapes with free textures.'} Each is sized for 8–12 player matches like the retail maps and already has plenty of spawns, weapons and lights. Change anything you like.</p>
       {shown.some(hasCompact) && (
         <label className="row small"><input type="checkbox" checked={small} onChange={(e) => setSmall(e.target.checked)} /> Small version (half the size, for 2–6 players)</label>
       )}

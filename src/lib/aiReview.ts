@@ -6,6 +6,7 @@ import { ALL_PREFABS } from './prefabRegistry'
 import { DENSITY, LAYOUTS, SETTINGS, newSeed, wizardSample, wizardSize, type WizardDensity, type WizardLayout, type WizardOptions, type WizardSetting } from './mapWizard'
 import { CITY_SIZES, citySample, citySide, type CitySize } from './cityGen'
 import type { Sample } from './sampleKit'
+import type { GamePieces } from './gameObjects/wizardPieces'
 import { TOPICS, type FactFix, type MapFacts, type Topic } from './mapFacts'
 import { KNOWN_EDITS, actionsOf, readJsonObject, type AiAction } from './aiChat'
 
@@ -56,8 +57,8 @@ export interface MapPlan {
 }
 
 /** The map a plan builds: the wizard's arena, or the whole city. */
-export const planSample = (plan: MapPlan): Sample =>
-  plan.city ? citySample({ size: plan.city, seed: plan.options.seed, name: plan.options.name }) : wizardSample(plan.options)
+export const planSample = (plan: MapPlan, pieces?: GamePieces): Sample =>
+  plan.city ? citySample({ size: plan.city, seed: plan.options.seed, name: plan.options.name }) : wizardSample(plan.options, pieces)
 
 /** Words that ask for a whole town or city rather than an arena. */
 const CITY_WORDS = /\b(city|cities|town|metropolis|megacity|districts?|neighbou?rhoods)\b/

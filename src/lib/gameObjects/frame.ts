@@ -159,6 +159,21 @@ export function gameOnly(parts: Part[], f: FrameLook, keep: (p: Part) => boolean
   return out
 }
 
+/**
+ * The game's surfaces on a map's frame (ground, walls, decks, streets), every other part left as it is: for maps made
+ * some other way (a catalogue sample, a generated city) whose floors, stairs and platforms must all stay.
+ */
+export function withGameSurfaces(parts: Part[], f: FrameLook): Part[] {
+  return parts.map((p) => {
+    const slot = !p.game && !p.water ? FRAME[p.label] : undefined
+    if (!slot || (p.group && p.prefab?.key !== 'road')) return p
+    const top = f[slot.top], side = f[slot.side]
+    if (!top || !side) return p
+    if (isLogoWall(p.side)) return { ...p, top }
+    return { ...p, top, side, ...(slot.rock && f[slot.rock] ? { rock: f[slot.rock] } : {}) }
+  })
+}
+
 /** The game picture a frame texture names, as a PNG file (read from the player's game files). */
 export async function gameTextureFile(t: Extract<Tex, { game: string }>, size = 512): Promise<File> {
   const { entryById, getObject } = await import('./client')
