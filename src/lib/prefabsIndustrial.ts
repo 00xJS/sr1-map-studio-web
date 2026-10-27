@@ -4,21 +4,11 @@
 // and turned by rot. Parts only turn about the vertical, so slanted pieces
 // (booms, braces, blades, tripod legs) are runs of small boxes (see strut).
 import { PB, box, cyl, lying, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
-import { group, local, wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { wheels, type PrefabDef } from './prefabs'
+import { pf, pfp, num, sel, yesNo, type Lf } from './prefabKit'
 
-type Lf = (dx: number, dy: number, dz: number) => [number, number, number]
 type V3 = [number, number, number]
 
-const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
-const pf = (name: string, make: (L: Lf) => Part[]) =>
-  (x: number, z: number, rot: number, y: number) => group(id(name, x, y, z), local(x, y, z, rot, make))
-const pfp = (name: string, params: ParamDef[], make: (L: Lf, p: Params) => Part[]) => ({
-  params,
-  make: (x: number, z: number, rot: number, y: number, given?: Params) => {
-    const p = Object.fromEntries(params.map((d) => [d.key, given?.[d.key] ?? d.default]))
-    return group(id(name, x, y, z), local(x, y, z, rot, (L) => make(L, p)))
-  },
-})
 
 /** Builds a piece (in its own frame) at (x, z), turned by r, inside another piece's frame. */
 const at = (L: Lf, x: number, z: number, r: number, make: (L: Lf) => Part[], y = 0): Part[] => {
@@ -26,9 +16,6 @@ const at = (L: Lf, x: number, z: number, r: number, make: (L: Lf) => Part[], y =
   return make(L2).map((p) => ({ ...p, rot: ((p.rot ?? 0) + r) % 360 }))
 }
 
-const num = (key: string, label: string, min: number, max: number, def: number, step = 1): ParamDef => ({ key, label, kind: 'number', min, max, step, default: def })
-const sel = (key: string, label: string, options: [string, string][], def: string): ParamDef => ({ key, label, kind: 'select', options, default: def })
-const yesNo = (key: string, label: string, def: 'yes' | 'no'): ParamDef => sel(key, label, [['yes', 'Yes'], ['no', 'No']], def)
 
 /**
  * A straight beam from a to b (local points) as a run of overlapping boxes, `w` thick

@@ -11,3 +11,7 @@ __pycache__/
 
 # Agents' working copies
 .claude/worktrees/
+public/pyodide/
+.cache/
+test-results/
+playwright-report/

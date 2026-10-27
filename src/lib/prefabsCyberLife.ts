@@ -7,19 +7,12 @@
 // lights where the glow is.
 import type { Vec3 } from './project'
 import { CY, LIGHT, box, cyl, lying, turn, type Part, type Sample, type Tex } from './sampleKit'
-import { group, local, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { group, type ParamDef, type Params, type PrefabDef } from './prefabs'
 import { over } from './sampleScale'
 import type { TextureKind } from './procedural'
+import { pfp } from './prefabKit'
 
-const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
 /** A prefab with settings: returns its params and a make that fills in defaults. */
-const pfp = (name: string, params: ParamDef[], make: (L: (dx: number, dy: number, dz: number) => [number, number, number], p: Params) => Part[]) => ({
-  params,
-  make: (x: number, z: number, rot: number, y: number, given?: Params) => {
-    const p = Object.fromEntries(params.map((d) => [d.key, given?.[d.key] ?? d.default]))
-    return group(id(name, x, y, z), local(x, y, z, rot, (L) => make(L, p)))
-  },
-})
 
 /** Glow colors, including the two team colors (red starts at −Z, blue at +Z). */
 export const GLOW: Record<string, string> = {

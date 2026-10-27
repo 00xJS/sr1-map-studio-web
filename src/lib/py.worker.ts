@@ -2,7 +2,18 @@
 // Runs the original SR1 Map Studio Python inside Pyodide, off the UI thread.
 import { loadPyodide, type PyodideInterface } from 'pyodide'
 
-const PYODIDE_URL = 'https://cdn.jsdelivr.net/pyodide/v0.27.2/full/'
+// The site serves Pyodide itself (scripts/bundle-pyodide.mjs puts it in public/pyodide). The CDN is only the
+// fallback for a build that didn't bundle it.
+const CDN_URL = 'https://cdn.jsdelivr.net/pyodide/v0.27.2/full/'
+async function pyodideURL(): Promise<string> {
+  const local = new URL('/pyodide/', self.location.origin).href
+  try {
+    const res = await fetch(local + 'version.json', { cache: 'no-cache' })
+    if (res.ok && (await res.json()).pyodide) return local
+  } catch { /* not bundled: use the CDN */ }
+  post({ type: 'log', text: 'Python runtime: this build has no public/pyodide, loading it from the CDN.' })
+  return CDN_URL
+}
 
 export type WorkerRequest =
   | { id: number; type: 'init' }
@@ -39,7 +50,7 @@ const post = (m: WorkerMessage, transfer: Transferable[] = []) => (self as unkno
 
 async function boot(): Promise<PyodideInterface> {
   post({ type: 'status', text: 'Loading Python runtime…' })
-  const p = await loadPyodide({ indexURL: PYODIDE_URL, stdout: (t) => post({ type: 'log', text: t }), stderr: (t) => post({ type: 'log', text: t }) })
+  const p = await loadPyodide({ indexURL: await pyodideURL(), stdout: (t) => post({ type: 'log', text: t }), stderr: (t) => post({ type: 'log', text: t }) })
   post({ type: 'status', text: 'Loading numpy and Pillow…' })
   await p.loadPackage(['numpy', 'pillow'])
   post({ type: 'status', text: 'Loading SR1 Map Studio modules…' })
@@ -53,7 +64,10 @@ async function boot(): Promise<PyodideInterface> {
     p.FS.mount(p.FS.filesystems.IDBFS, {}, CACHE)
     await syncCache(p, true)
     cached = true
-  } catch { /* no IndexedDB here: the cache stays in memory */ }
+  } catch (err) {
+    // No IndexedDB here (a private window): textures are compressed again each visit, which is slower.
+    post({ type: 'log', text: 'Texture cache unavailable, exports will be slower: ' + String(err) })
+  }
   p.runPython(`
 import sys, os
 sys.path.insert(0, '/studio')

@@ -2,6 +2,7 @@
 // game files; only the name goes into the map. See lib/gameObjects/items.ts.
 import { useEffect, useState } from 'react'
 import { Field } from '../ui'
+import { statusSentence } from '../lib/featureStatus'
 import type { Marker } from '../lib/project'
 import { itemsLoaded, loadItems, MISC_PACK, type GameItem } from '../lib/gameObjects/items'
 import { GameFilesButton } from './RetailMarkerFields'
@@ -26,7 +27,7 @@ export function GameItemFields({ m, set }: { m: Marker; set: Set }) {
           {chosen.preload ? '' : ' · its model may not be loaded in multiplayer'}
         </span>
       )}
-      <span className="faint small">The game places the item itself by name, like a weapon pickup, so this map stays shareable. New: not yet tried in game.</span>
+      <span className="faint small">The game places the item itself by name, like a weapon pickup, so this map stays shareable.{statusSentence('item_props')}</span>
     </>
   )
 }

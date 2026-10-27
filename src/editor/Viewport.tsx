@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { attachLook } from './look'
 import { Viewer } from './Viewer'
-import { breakMerge, setThumbnailProvider, useEditor } from './store'
+import { breakMerge, setThumbnailProvider, thingKey, useEditor } from './store'
 import { addLight, addMarker, addPrefab, addShape, placeAsset, removeTarget } from './actions'
 import { paintAt, pickAt } from './paint'
 import { ToolOptions, ToolStrip, chooseTool } from './Tools'
@@ -22,6 +22,7 @@ import { attachHealthOverlay } from './health'
 import { attachGroundTools } from './groundTools'
 import { dropHasMap } from '../lib/mapFolder/files'
 import { openMapDrop } from '../lib/mapFolder/store'
+import { coarsePointer } from '../lib/touch'
 
 let active: Viewer | null = null
 /** The editor's viewer (for camera center, snapping and thumbnails). */
@@ -29,7 +30,7 @@ export const getViewer = () => active
 
 const TAB_FOR = { item: 'scene', marker: 'spawns', light: 'lights' } as const
 /** Touch screen without a mouse (tablets, phones). */
-const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+const coarse = coarsePointer()
 
 /** With Snap on, click-placed things land on the grid. */
 function snapped(p: Vec3): Vec3 {
@@ -55,7 +56,7 @@ function placeShape(shape: string, point: Vec3, normal?: Vec3) {
 }
 
 /** A tool click on a surface. Returns true if the active tool handled it. */
-function useTool(point: Vec3, item: number, face: number, normal?: Vec3): boolean {
+function applyTool(point: Vec3, item: number, face: number, normal?: Vec3): boolean {
   const st = useEditor.getState()
   switch (st.tool) {
     case 'shape':
@@ -275,7 +276,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
           st.select({ kind: 'item', index: item })
           st.set({ faceRange: [face, face], tab: 'scene' })
           st.log(`Selected collision source face ${face} on ${st.project?.scene_items[item]?.name}.`)
-        } else useTool(point, item, face, normal)
+        } else applyTool(point, item, face, normal)
       },
       onTransform(kind, index, t, done) {
         const st = useEditor.getState()
@@ -295,7 +296,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
             const l = d.lights[index]
             if (l) l.position = t.position
           }
-        }, { merge: `gizmo-${kind}-${index}` })
+        }, { merge: `gizmo-${thingKey(kind, index)}` })
         if (done) breakMerge() // drag finished: the next edit starts a new undo step
       },
     })

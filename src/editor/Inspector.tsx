@@ -2,7 +2,7 @@
 // map itself (checklist, game modes, adding things, everything in the map)
 // when nothing is.
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
-import { useEditor, selectedItems, type Swatch } from './store'
+import { useEditor, selectedItems, thingKey, type Swatch } from './store'
 import * as act from './actions'
 import { getViewer } from './Viewport'
 import { saveMyPrefab } from './myPrefabs'
@@ -11,7 +11,8 @@ import { Palette, chooseTool } from './Tools'
 import { Checklist, useApplyFix, useChecklist } from './Checklist'
 import { HealthSection } from './HealthPanel'
 import { niceName, paintMaterial } from './paint'
-import { Check, Field, FileButton, NumberInput, toast, toastError, useBusy } from '../ui'
+import { Check, Field, FileButton, NumberInput, Status, toast, toastError, useBusy } from '../ui'
+import { triedInGame } from '../lib/featureStatus'
 import { catalogs } from '../lib/catalogs'
 import { loadModel, textureUrl } from '../lib/assets'
 import { dataPackStatus, hasGroup, type DataPackStatus } from '../lib/datapack'
@@ -102,11 +103,11 @@ function MapOverview({ onSamples, onPlay }: { onSamples: () => void; onPlay: () 
         </div>
         <span className="faint small">{project.settings.always_clear_weather
           ? 'Every match is at noon under a clear sky, like most custom maps.'
-          : 'Like the retail maps: each match rolls noon, midnight, dusk or dawn and the weather. Not yet tried on custom maps, so check how it looks at night.'}</span>
+          : 'Like the retail maps: each match rolls noon, midnight, dusk or dawn and the weather.' + (triedInGame('random_weather') ? '' : ' Not yet tried on custom maps, so check how it looks at night.')}</span>
       </div>
 
       <div className="group">
-        <span className="section-title">Background sound <span className="chip">new</span></span>
+        <span className="section-title">Background sound <Status id="ambience" /></span>
         <select value={project.settings.ambience || ''} onChange={(e) => update('Background sound', (d) => { d.settings.ambience = e.target.value })}>
           <option value="">None</option>
           {AMBIENCE_OPTIONS.map((o) => <option key={o.file} value={o.file}>{o.label}</option>)}
@@ -153,9 +154,9 @@ function AddThings() {
       {lib.length > 0 && (
         <div className="list" style={{ maxHeight: 160 }}>
           {lib.map((a, i) => (
-            <div key={a.uid} className="list-item" title="Click to place where the camera is looking" onClick={() => act.placeAsset(i, center()).catch(toastError)}>
+            <button type="button" key={a.uid} className="list-item" title="Click to place where the camera is looking" onClick={() => act.placeAsset(i, center()).catch(toastError)}>
               <span className="grow ellipsis">{a.name}</span><span className="meta">place</span>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -169,7 +170,7 @@ function Everything() {
   const [open, setOpen] = useState(false)
   const select = useEditor((s) => s.select)
   const total = project.scene_items.length + project.markers.length + project.lights.length
-  const row = (key: string, label: ReactNode, onClick: () => void) => <div key={key} className="list-item" onClick={onClick}><span className="grow ellipsis">{label}</span></div>
+  const row = (key: string, label: ReactNode, onClick: () => void) => <button type="button" key={key} className="list-item" onClick={onClick}><span className="grow ellipsis">{label}</span></button>
   return (
     <div className="group">
       <button className="quiet section-toggle" onClick={() => setOpen(!open)}>
@@ -263,7 +264,7 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
   const update = useEditor((s) => s.update)
   const [run] = useBusy()
   const set = (label: string, fn: (d: SceneItem) => void, merge?: string) =>
-    update(label, (d) => { fn(d.scene_items[index] as SceneItem) }, merge ? { merge: merge + index } : undefined)
+    update(label, (d) => { fn(d.scene_items[index] as SceneItem) }, merge ? { merge: merge + thingKey('item', index) } : undefined)
   const fixedGlass = isGlass(it) && !isCustomNative(it)
   const turn = (deg: number) => set('Turn', (d) => { d.rotation = [d.rotation[0], ((d.rotation[1] + deg) % 360 + 360) % 360, d.rotation[2]] })
   return (
@@ -308,7 +309,7 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
             <span className="col" style={{ gap: 0 }}><span>Solid</span><span className="faint small">Players and cars can't pass through it.</span></span>
           </Check>
           <Check checked={!!it.swimmable_water} onChange={(v) => set('Swimmable water', (d) => { d.swimmable_water = v })}>
-            <span className="col" style={{ gap: 0 }}><span>Swimmable water <span className="chip">new</span></span><span className="faint small">{waterHint(it)}</span></span>
+            <span className="col" style={{ gap: 0 }}><span>Swimmable water <Status id="water" /></span><span className="faint small">{waterHint(it)}</span></span>
           </Check>
         </div>
       )}
@@ -392,7 +393,7 @@ function MarkerInspector({ m, index }: { m: Marker; index: number }) {
     fn(x)
     if (x.type === 'Weapon pickup') x.label = x.weapon
     if (x.type === 'Vehicle spawn') x.label = x.vehicle
-  }, merge ? { merge: merge + index } : undefined)
+  }, merge ? { merge: merge + thingKey('marker', index) } : undefined)
   const types = m.type === 'Weapon pickup' ? ['Weapon pickup'] : SIMPLE_MARKERS.includes(m.type) ? SIMPLE_MARKERS : [m.type, ...SIMPLE_MARKERS]
   const turn = (deg: number) => set('Turn', (d) => { d.yaw = ((Math.round(d.yaw + deg) % 360) + 360) % 360 })
   return (
@@ -452,7 +453,7 @@ const LIGHT_PRESETS: [string, Vec3][] = [['Warm', [1, 0.85, 0.65]], ['White', [1
 
 function LightInspector({ l, index }: { l: Light; index: number }) {
   const update = useEditor((s) => s.update)
-  const set = (label: string, fn: (d: Light) => void, merge?: string) => update(label, (d) => { fn(d.lights[index]) }, merge ? { merge: merge + index } : undefined)
+  const set = (label: string, fn: (d: Light) => void, merge?: string) => update(label, (d) => { fn(d.lights[index]) }, merge ? { merge: merge + thingKey('light', index) } : undefined)
   return (
     <>
       <div className="group">

@@ -62,7 +62,7 @@ export class Bvh {
       const cnt = end - start
       if (cnt <= LEAF) { this.first[node] = start; this.count[node] = cnt; continue }
       // Centroid bounds pick the split axis.
-      let c0 = [Infinity, Infinity, Infinity], c1 = [-Infinity, -Infinity, -Infinity]
+      const c0 = [Infinity, Infinity, Infinity], c1 = [-Infinity, -Infinity, -Infinity]
       for (let k = start; k < end; k++) {
         const t = order[k] * 3
         for (let a = 0; a < 3; a++) { const c = cen[t + a]; if (c < c0[a]) c0[a] = c; if (c > c1[a]) c1[a] = c }

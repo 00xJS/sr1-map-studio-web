@@ -29,7 +29,7 @@ const ICONS = {
 }
 
 type Entry = { id: string; label: string; short: string; key: string; tool: Tool; gizmo?: GizmoMode; help: string }
-const ENTRIES: Entry[] = [
+export const TOOL_ENTRIES: Entry[] = [
   { id: 'select', label: 'Select and move', short: 'Move', key: 'V', tool: 'select', gizmo: 'translate', help: 'Click to select; drag the arrows to move.' },
   { id: 'rotate', label: 'Rotate', short: 'Turn', key: '2', tool: 'select', gizmo: 'rotate', help: 'Drag the rings to turn the selection.' },
   { id: 'scale', label: 'Scale', short: 'Size', key: '3', tool: 'select', gizmo: 'scale', help: 'Drag to resize the selection.' },
@@ -45,14 +45,12 @@ const ENTRIES: Entry[] = [
 ]
 
 export function chooseTool(id: string) {
-  const e = ENTRIES.find((x) => x.id === id)
+  const e = TOOL_ENTRIES.find((x) => x.id === id)
   if (!e) return
   const st = useEditor.getState()
   st.set({ tool: e.tool, placeMode: null, ...(e.gizmo ? { gizmo: e.gizmo } : {}) })
 }
 
-/** Keyboard shortcut letter -> tool id. */
-export const TOOL_KEYS: Record<string, string> = Object.fromEntries(ENTRIES.filter((e) => /[A-Z]/.test(e.key)).map((e) => [e.key.toLowerCase(), e.id]))
 
 export function ToolStrip() {
   const tool = useEditor((s) => s.tool)
@@ -60,7 +58,7 @@ export function ToolStrip() {
   const active = (e: Entry) => (e.tool === 'select' ? tool === 'select' && e.gizmo === gizmo : tool === e.tool)
   return (
     <div className="toolstrip" role="toolbar" aria-label="Tools" data-tour="tools">
-      {ENTRIES.map((e) => (
+      {TOOL_ENTRIES.map((e) => (
         <button key={e.id} className={'tool' + (active(e) ? ' on' : '') + (e.id === 'shape' || e.id === 'erase' ? ' gap' : '')}
           title={`${e.label} (${e.key}) · ${e.help}`} aria-label={e.label} onClick={() => chooseTool(e.id)} data-tour={e.id === 'paint' ? 'paint' : undefined}>
           {ICONS[e.id as keyof typeof ICONS]}
@@ -144,7 +142,7 @@ export function ToolOptions() {
   }, [open])
   const set = useEditor.getState().set
   if (tool === 'select') return null
-  const help = ENTRIES.find((e) => e.tool === tool)?.help
+  const help = TOOL_ENTRIES.find((e) => e.tool === tool)?.help
   return (
     <div className="tooloptions">
       {tool === 'shape' && (

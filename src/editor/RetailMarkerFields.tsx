@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { useEditor } from './store'
 import { Check, Field, FileButton, NumberInput, useBusy } from '../ui'
+import { statusSentence } from '../lib/featureStatus'
 import type { Marker, Vec3 } from '../lib/project'
 import {
   BOR_BOXES, BOR_CARS, BOR_CAR_BLUE, BOR_CAR_RED, BOR_DEFAULT_CAR, SOUND_DEFAULT_BOX, SOUND_DEFAULT_RADIUS, SOUND_DEFAULT_VOLUME, SOUND_ZONE, REGION_BOXES, RAIN_BLOCKER, INDOOR_ROOM, REGION_DEFAULT_AMBIENT,
@@ -97,7 +98,7 @@ function SoundZone({ m, set }: { m: Marker; set: Set }) {
           <Field label="Pause at most"><NumberInput value={m.delay_max_s ?? 20} step={1} digits={0} min={0} max={600} suffix="s" onChange={(v) => set('Pause', (d) => { d.delay_max_s = v })} /></Field>
         </div>
       )}
-      <span className="faint small">New: not yet tried in game. The sound plays from the player's own game.</span>
+      <span className="faint small">The sound plays from the player's own game.{statusSentence('sound_zones')}</span>
     </>
   )
 }
@@ -130,7 +131,7 @@ export function CrateDebrisNote() {
   useEffect(() => { check() }, [])
   if (ready === null) return null
   return ready
-    ? <span className="faint small">Smashes into boards and dust: the debris comes from your game files ({CITY_PACK}) at export. Bullets don't break it. New: not yet tried in game.</span>
+    ? <span className="faint small">Smashes into boards and dust: the debris comes from your game files ({CITY_PACK}) at export. Bullets don't break it.{statusSentence('crate_debris')}</span>
     : (
       <>
         <span className="faint small">The debris comes from your own game files at export. Without them it breaks without debris, like the other presets.</span>
