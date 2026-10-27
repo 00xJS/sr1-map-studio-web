@@ -67,6 +67,14 @@ describe('game model identity', () => {
     // "trshd" is a trash can, not a shadow; a texture called "decal" on a solid jar is no decal.
     expect(id({ name: 'trshd', tex: ['trashcan1_me.tga'], size: [0.7, 0.7, 1.1] }).role).toBe('prop')
     expect(id({ name: 'glass_container_a', tex: ['I05_Resin_Decal_co.tga'], size: [0.44, 0.39, 0.47] }).role).toBe('prop')
+    // A "building" of nothing but graffiti is the paint on another building's walls (fnorhpr1a on the rhpr1a houses);
+    // stairs whose tiles are called "decal" are still stairs.
+    expect(id({ name: 'fnorhpr1a', tex: ['B46_Graf1.tga', 'A14_graffiti08_d.tga'], size: [8.9, 2.5, 7.3] })).toMatchObject({ role: 'skip', name: 'Graffiti layer' })
+    expect(id({ name: 'stairs', tex: ['DecalTiles01.tga'], size: [6.4, 4.6, 6.1] }).name).not.toBe('Graffiti layer')
+  })
+
+  it("keeps a thing's door with the thing (a trailer's rear door is no trailer)", () => {
+    expect(id({ name: 'semitrailerdoorab', tex: ['JT_semi1_2D.tga'], size: [1.31, 0.09, 2.61] })).toMatchObject({ role: 'piece', name: 'Door' })
   })
 
   it("names a building's part by what it is, and keeps it a piece", () => {

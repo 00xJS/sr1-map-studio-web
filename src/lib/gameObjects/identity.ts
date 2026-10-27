@@ -160,7 +160,7 @@ const vehicleShape = (f: Facts) => f.size[0] >= 1.5 && f.size[0] >= 1.8 * f.size
 const RULES: Rule[] = [
   // Lights and signals.
   // A thing's own door ("boxcardr1a", "portapottydoora"): a piece of it.
-  R(/(?<!out|in)[a-z]door[a-d]?$|(box_?car|husk|potty|truck|van)_?(door|dr)/, 'Door', OPENINGS),
+  R(/(?<!out|in)[a-z]door[a-d]{0,2}$|(box_?car|husk|potty|truck|van)_?(door|dr)/, 'Door', OPENINGS),
   R(/husk_?tire|husk_?wheel/, 'Tire', CONTAINERS, { kind: 'clutter' }),
   R(/head_?stone|grave_?stone|(^|_)tomb/, 'Gravestone', STREET),
   R(/tree_?(gate|guard)/, 'Tree guard', STREET),
@@ -408,6 +408,8 @@ export const INVISIBLE_TEXTURE = /missing-alpha|(^|_)missing(_|$)|missing\.|nore
 const SKIP_NAME = /sdw(?!lk|alk)|shdw|shadow|(^|_|hull|\d)shd|blocker|occluder|(^|_)lod|lod(\d*|_?[a-z])$|_lod|proxy|(^|_)al$|_al[a-d]?\d*$|(^|_)coll(ision)?(_|$)|(^|_)nav(mesh)?(_|$)|invisible/
 /** Decals: pictures laid on a surface. */
 const DECAL = /decal|(^|_)dcl|dcl(_|$)|(^|_)dec(_|$|[a-d]$)|graffiti|(^|_)graf(_|$)|(^|_)tag_|stain|puddle|skid|splat|blood|(^|_)oil_?spill|(^|_)crack|floatingdecal|(^|_)floater/
+/** Pictures of paint on a wall: graffiti ("B46_Graf1", "A14_graffiti04_d", "B27_Graffo1") and decals. */
+const PAINT = /graf|decal|(^|_)dcl|dcl(_|$)|(^|_)dec(_|$|[a-d]$)/
 
 /** The copy numbers, area tags and file type off a name ("2fenceChainBseA19" -> "fencechainbsea"). */
 function clean(name: string): string {
@@ -745,7 +747,12 @@ export function identify(e: GameObjectEntry): GameIdentity {
   for (const [re, s] of SETTING_WORDS) if (words.some((w) => re.test(w))) s.forEach((x) => fromWords.add(x))
   let id: GameIdentity
   const kind = buildingKind(e)
-  if (kind === 'detail') id = { role: 'piece', category: PIECES, name: 'Building detail', settings: [] }
+  // Nothing but graffiti and decal pictures: the paint on another model's walls (a building's graffiti layer, its
+  // sheets standing where that building's walls are), never a thing by itself.
+  const paintOnly = e.tex.length > 0 && e.tex.every((t) => PAINT.test(t.toLowerCase()))
+    && (e.tex.some((t) => /graf/i.test(t)) || Math.min(...e.size) < 0.3)
+  if (paintOnly) id = { role: 'skip', category: HIDDEN, name: 'Graffiti layer', settings: [] }
+  else if (kind === 'detail') id = { role: 'piece', category: PIECES, name: 'Building detail', settings: [] }
   else if (kind === 'far') id = { role: 'skip', category: HIDDEN, name: 'Low-detail copy', settings: [] }
   else if (kind === 'whole') {
     id = buildingIdentity(e, [...fromWords])

@@ -85,6 +85,9 @@ const SKY = /^(sun|moon|stars|atmosphere|cloud layer|skybox|skydome|sky)$/i
 const LIGHTISH = /(light|lamp|glow|flare|beam|corona|bulb)/i
 const SEE_THROUGH = /(_gl|_fm|_lv)\.|alpha|glass|fence|chain|grate|grill|leaf|leaves|tree|bush/i
 
+/** Which building a graffiti layer is painted on, from its name ("fnorhpr1a" and "p8rhpr1a_..." are the rhpr1a buildings'). */
+const paintHost = (name: string) => { const m = name.toLowerCase().match(/^(?:fno|p\d+)([a-z]+\d+[a-z])/); return m ? ` (the ${m[1]} buildings)` : '' }
+
 /** Catalogue entry for one model; `rule` is its placement rule (placement.ts), `ident` its identity (labels first). */
 export function catalogEntry(e: GameObjectEntry, ident: GameIdentity = identify(e), rule?: PlacementRule): CatalogEntry {
   const [long, short, height] = e.size
@@ -96,6 +99,7 @@ export function catalogEntry(e: GameObjectEntry, ident: GameIdentity = identify(
   if (/water/i.test(e.name) && height < 0.3 && long * short >= 1 && !tex.some((t) => /proxy/.test(t))) form = { value: 'water', sure: 0.75, why: 'A water surface (the game draws water with a shader)' }
   else if (tex.length && tex.every((t) => INVISIBLE_TEXTURE.test(t))) form = { value: 'invisible', sure: 0.9, why: tex.some((t) => /proxy/.test(t)) ? 'A stand-in shell (proxy pictures): the low-detail version seen from far away, or collision only' : 'Only placeholder pictures: the game draws nothing' }
   else if (!tex.length) form = { value: 'invisible', sure: 0.7, why: 'No pictures at all' }
+  else if (ident.name === 'Graffiti layer') form = { value: 'flat', sure: 0.9, why: `Only graffiti and decal pictures: the paint on another model's walls${paintHost(e.name)}, not a thing by itself` }
   else if (SKY.test(e.name) || (e.raw ?? []).some((r) => SKY.test(r))) form = { value: 'sky', sure: 0.9, why: 'One of the game’s sky objects (sun, moon, stars, clouds)' }
   else if (dims[0] < SHEET && dims[1] < LINE && dims[2] > 1) form = { value: 'line', sure: 0.8, why: `Thin both ways (${fmt(dims[0])} × ${fmt(dims[1])} m) and ${fmt(dims[2])} m long: a wire, cable or rail` }
   else if (dims[0] < SHEET && dims[1] > 0.2) form = { value: 'flat', sure: 0.85, why: `Only ${fmt(dims[0])} m thick across ${fmt(dims[1])} × ${fmt(dims[2])} m: a sheet (decal, sign, poster, window)` }

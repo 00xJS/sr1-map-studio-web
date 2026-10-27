@@ -225,7 +225,9 @@ export function prepare(entries: GameObjectEntry[], setting: WizardSetting, base
       // Not a pole or a mast: no taller than four times its long side.
       if (short >= 3 && h >= MIN_HEIGHT && h <= MAX_HEIGHT[setting] && h <= 4 * long && e.tris <= MAX_BUILDING_TRIS) out.buildings.push(c)
     } else if (id.role === 'fence') {
-      if (long >= 1 && h >= 0.6 && h <= 4 && e.tris <= MAX_PROP_TRIS) out.fences.push(c)
+      // A railing is a stair's or a balcony's, not a wall to run round a yard; a run used once in the game is no
+      // fence the game builds with (a stair rail from an interior map).
+      if (long >= 1 && h >= 0.6 && h <= 4 && e.tris <= MAX_PROP_TRIS && id.name !== 'Railing' && e.seen >= 2) out.fences.push(c)
     } else if (id.kind && long >= 0.3 && short >= 0.05 && e.tris <= MAX_PROP_TRIS && e.seen >= 2) {
       const list = out.props.get(id.kind) ?? []
       list.push(c)
