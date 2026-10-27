@@ -1,6 +1,6 @@
 // Ctrl+K: one search box over the editor's tools and keys (shortcuts.ts), every prefab, the settings in the
 // side panel's tabs and the top bar's actions. Enter (or a click) runs what is highlighted.
-import { useMemo, useState, type KeyboardEvent as ReactKey } from 'react'
+import { useEffect, useMemo, useState, type KeyboardEvent as ReactKey } from 'react'
 import { useEditor, type SideTab } from './store'
 import { SHORTCUTS } from './shortcuts'
 import { TOOL_ENTRIES, chooseTool } from './Tools'
@@ -23,9 +23,11 @@ export function revealSetting(tab: SideTab, title: string, more?: string) {
   if (more) openMore(more)
   useEditor.getState().set({ tab })
   setTimeout(() => {
-    const el = [...document.querySelectorAll<HTMLElement>('.side .section-title, .side .field > span, .side .more-toggle')]
+    // A setting can name itself (data-setting); otherwise the section, field or fold whose title starts with it.
+    const named = [...document.querySelectorAll<HTMLElement>('.side [data-setting]')].find((x) => x.dataset.setting === title)
+    const el = named ?? [...document.querySelectorAll<HTMLElement>('.side .section-title, .side .field > span, .side .more-toggle')]
       .find((x) => x.textContent?.trim().toLowerCase().startsWith(title.toLowerCase()))
-    const box = el?.closest<HTMLElement>('.section, .field, .more-fold') ?? el
+    const box = named ?? el?.closest<HTMLElement>('.section, .field, .more-fold') ?? el
     if (!box) return
     box.scrollIntoView({ behavior: 'smooth', block: 'center' })
     box.classList.add('flash')
@@ -117,6 +119,14 @@ export function CommandPalette({ actions }: { actions: PaletteActions }) {
   const all = useMemo(() => [...commands(actions), ...prefabCommands()], [actions])
   const found = useMemo(() => searchCommands(all, query), [all, query])
   const close = () => toggleOverlay('palette', false)
+  // Ctrl+K again closes it, wherever the focus is (the editor's own keys are off while a dialog is open).
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); e.stopPropagation(); toggleOverlay('palette', false) }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [])
   const runIt = (c: Command | undefined) => { if (!c) return; close(); c.run() }
   const onKey = (e: ReactKey) => {
     if (e.key === 'ArrowDown') { e.preventDefault(); setAt((i) => Math.min(found.length - 1, i + 1)) }

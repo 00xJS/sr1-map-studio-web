@@ -28,6 +28,8 @@ export interface Issue {
   go?: { fix: Fix; label: string }
   /** Shows it on the map. */
   show?: { label: string; what: { spawn: number } | { overlay: 'spawns' | 'moves' } | { place: [number, number, number] } }
+  /** Spots to look at, one link each (the first few invisible walls). */
+  places?: [number, number, number][]
 }
 
 export const WHY = {
@@ -90,10 +92,10 @@ export function buildIssues({ checklist, report, stairs, slivers, removeWalls }:
   if (stairs) out.push({ id: 'stairs', rank: 1, text: `${stairs} flight${stairs === 1 ? '' : 's'} of stairs or step${stairs === 1 ? '' : 's'} too tall to walk up: players stop at each.`, why: WHY.stairs, auto: { fix: { kind: 'ramps' }, label: 'Add ramps' } })
   if (slivers?.count) {
     const n = `${slivers.count} invisible wall${slivers.count === 1 ? '' : 's'}`
-    const show = slivers.places[0] ? { label: 'Show', what: { place: slivers.places[0] } } : undefined
+    const places = slivers.places.slice(0, 6)
     out.push(removeWalls
-      ? { id: 'walls', rank: 3, text: `${n}: left out of the collision at export.`, why: WHY.walls, show }
-      : { id: 'walls', rank: 1, text: `${n}: players bump into nothing.`, why: WHY.walls, auto: { fix: { kind: 'walls' }, label: 'Remove at export' }, show })
+      ? { id: 'walls', rank: 3, text: `${n}: left out of the collision at export.`, why: WHY.walls, places }
+      : { id: 'walls', rank: 1, text: `${n}: players bump into nothing.`, why: WHY.walls, auto: { fix: { kind: 'walls' }, label: 'Remove at export' }, places })
   }
   return out.map((x, i) => [x, i] as const).sort((a, b) => a[0].rank - b[0].rank || a[1] - b[1]).map(([x]) => x)
 }

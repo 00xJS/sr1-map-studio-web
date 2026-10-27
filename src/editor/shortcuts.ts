@@ -120,6 +120,8 @@ export const SHORTCUTS: Shortcut[] = [
 
 /** The editor's key handler: the first binding that matches runs. */
 export function handleKey(e: KeyboardEvent, st: St) {
+  // A job like Fix all is editing the map: no key changes it meanwhile (Ctrl+Z included).
+  if (st.locked) { if (e.ctrlKey || e.metaKey) e.preventDefault(); return true }
   const t = e.target as HTMLElement
   const typing = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT'
   const c: Ctx = { e, st, mod: e.ctrlKey || e.metaKey, key: e.key.toLowerCase(), typing }

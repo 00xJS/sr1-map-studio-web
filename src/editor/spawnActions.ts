@@ -19,8 +19,9 @@ export const WANT = { spawns: Math.max(12, FFA_SPAWNS), weapons: 12 }
 
 export interface SpawnFix { moved: number; added: { spawns: number; weapons: number }; reasons: string[]; floor: number }
 
-/** What the fix would do to a project, in its own units: markers to move and markers to add. */
-export interface SpawnFixPlan { plan: MarkerPlan; scale: number }
+/** What the fix would do to a project, in its own units: markers to move and markers to add. `uids` are the
+ *  planned project's markers, in the order the plan's indices count them. */
+export interface SpawnFixPlan { plan: MarkerPlan; scale: number; uids: string[] }
 
 /**
  * The invisible ramps the map's checks will put over stairs too tall to run up (stairActions.ts addStairRamps), as
@@ -61,13 +62,17 @@ export async function planSpawnFix(project: Project, opts: { ramps?: boolean } =
     try { wetModels.set(p, await loadModel(project, p)) } catch { /* missing: left out */ }
   }))
   const wet = waterAreas(project, (p) => wetModels.get(p)).map((a) => a.map((v) => v * k) as typeof a)
-  return { plan: planMarkers(prep, markers, { ...WANT, wet }), scale: k }
+  return { plan: planMarkers(prep, markers, { ...WANT, wet }), scale: k, uids: project.markers.map((m) => m.uid) }
 }
 
 /** Makes the planned moves and additions on `d` (a draft inside an undo step, or a project not open yet). */
-export function applySpawnFix(d: Project, { plan, scale: k }: SpawnFixPlan) {
+export function applySpawnFix(d: Project, { plan, scale: k, uids }: SpawnFixPlan) {
   const back = (p: [number, number, number]) => p.map((v) => +(v / k).toFixed(3)) as [number, number, number]
-  for (const mv of plan.moved) d.markers[mv.index].position = back(mv.to)
+  // By uid: a marker added, deleted or reordered since the plan was made moves only itself (or nothing).
+  for (const mv of plan.moved) {
+    const m = d.markers.find((x) => x.uid === uids[mv.index])
+    if (m) m.position = back(mv.to)
+  }
   for (const a of plan.added) {
     const m = newMarker(a.type, back(a.at))
     m.yaw = a.yaw
@@ -91,6 +96,8 @@ export async function fixSpawnsAndWeapons(): Promise<SpawnFix> {
   const project = currentProject()
   if (!project) return { moved: 0, added: { spawns: 0, weapons: 0 }, reasons: [], floor: 0 }
   const fix = await planSpawnFix(project)
+  // Another map was opened while it planned: this plan is not about it.
+  if (currentProject()?.id !== project.id) throw new Error('another map was opened')
   if (fix.plan.moved.length || fix.plan.added.length) useEditor.getState().update('Fix spawns and weapons', (d) => applySpawnFix(d, fix))
   const { text, ...out } = spawnFixSummary(fix)
   useEditor.getState().log(text)

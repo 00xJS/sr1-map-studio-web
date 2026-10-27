@@ -15,6 +15,7 @@ import { FileButton, confirmDialog, toastError, useBusy } from '../../ui'
 import { catalogs } from '../../lib/catalogs'
 import { dataPackStatus, hasGroup, type DataPackStatus } from '../../lib/datapack'
 import { markerLabel } from '../../lib/labels'
+import { RETAIL_MARKER_TYPES } from '../../lib/retailModes'
 import { PIMP_EXIT, isCustomNative, isGlass, isProp, type SceneItem, type Vec3 } from '../../lib/project'
 
 const PhotoDialog = lazy(() => import('../PhotoDialog').then((m) => ({ default: m.PhotoDialog })))
@@ -61,6 +62,7 @@ function AddThings() {
           onFiles={(f) => run(() => act.importModelFiles(f, project.scene_items.length ? 'add' : 'base'))}>Your own 3D model…</FileButton>
         <button className="sm" onClick={() => setPhoto(true)} title="Turn a photo into a building front or a cut-out sign">From a photo…</button>
       </div>
+      <AnyMarker />
       {photo && <Suspense fallback={null}><PhotoDialog onClose={() => setPhoto(false)} /></Suspense>}
       {lib.length > 0 && (
         <div className="list short">
@@ -73,6 +75,36 @@ function AddThings() {
       )}
       <span className="faint small">Pick a tool, then click the map where you want it.</span>
     </div>
+  )
+}
+
+const MARKER_TYPES = [...catalogs.marker_types, ...RETAIL_MARKER_TYPES]
+
+/** Every kind of marker (triggers, NPCs, retail-mode markers), placed by a click or where the camera looks; a light
+ *  where the camera looks. */
+function AnyMarker() {
+  const hasItems = useEditor((s) => s.project!.scene_items.length > 0)
+  const placeMode = useEditor((s) => s.placeMode)
+  const type = useEditor((s) => s.placeMarkerType)
+  const st = useEditor.getState
+  const atCamera = () => (getViewer()?.center() ?? [0, 0, 0]) as Vec3
+  return (
+    <More id="add" title="Any kind of marker, or at the camera">
+      <div className="stack">
+        <div className="row wrap">
+          <select className="grow" value={type} onChange={(e) => st().set({ placeMarkerType: e.target.value })} aria-label="Kind of marker">
+            {MARKER_TYPES.map((t) => <option key={t} value={t}>{markerLabel(t)}</option>)}
+          </select>
+          <button className={'sm' + (placeMode === 'marker' ? ' on' : '')} disabled={!hasItems} onClick={() => st().set({ placeMode: placeMode === 'marker' ? null : 'marker' })}>
+            {placeMode === 'marker' ? 'Click the map…' : '◎ Place on map'}
+          </button>
+          <button className="sm" onClick={() => { try { act.addMarker(type, atCamera()) } catch (e) { toastError(e) } }} title="Where the camera is looking">+ At the camera</button>
+        </div>
+        <div className="row wrap">
+          <button className="sm" onClick={() => { try { const c = atCamera(); act.addLight([c[0], c[1] + 3, c[2]]) } catch (e) { toastError(e) } }} title="A little above where the camera is looking">+ Light at the camera</button>
+        </div>
+      </div>
+    </More>
   )
 }
 

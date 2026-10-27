@@ -1,5 +1,6 @@
 // Export and install, for the Install in game dialog.
 import { useEffect, useRef, useState } from 'react'
+import { create } from 'zustand'
 import { useEditor, saveNow } from './store'
 import { confirmDialog } from '../ui'
 import { runExport, downloadBlob, type ExportResult } from '../lib/exporter'
@@ -11,6 +12,9 @@ import { withLoadingScreen } from '../lib/mapFeatures'
 import { getViewer } from './Viewport'
 
 export interface ExportDone { r: ExportResult; zip: () => Promise<Blob>; folder: string; installedTo?: string }
+
+/** What the last build of a map came to (the Ship tab shows it): not saved, gone on reload. */
+export const useLastBuild = create<{ projectId: string; summary: Record<string, number> | null }>(() => ({ projectId: '', summary: null }))
 
 export function useExport() {
   const [busy, setBusy] = useState(false)
@@ -49,6 +53,7 @@ export function useExport() {
       const project = await withLoadingScreen(withMinimap, viewer ? (w, h) => viewer.capture(w, h) : undefined, log)
       const out = await runExport(project, log, (stage) => t.enter(stage))
       log(`Export complete: ${out.result.files.length} map files.`)
+      useLastBuild.setState({ projectId: project.id, summary: out.result.summary })
       if (maps) {
         t.enter('install')
         if (await replaceNeedsAsking(maps, out.folder, project.id) && !(await t.outside(confirmDialog('Replace installed map?', `maps/${out.folder} already exists. Its files will be replaced with this export.`, { confirm: 'Replace' })))) {

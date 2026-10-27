@@ -156,7 +156,7 @@ export async function importDesktopProject(files: File[]): Promise<DesktopImport
   // v1.15 saves its "Register surface impacts early" checkbox; older projects have none (off here).
   if (d.surface_preload === true) {
     s.surface_preload = true
-    if (s.base_name.length > maxMapName(s)) notes.push(`Early surface registration needs a map file name of ${maxMapName(s)} characters or fewer: shorten "${s.base_name}" in the Export tab.`)
+    if (s.base_name.length > maxMapName(s)) notes.push(`Early surface registration needs a map file name of ${maxMapName(s)} characters or fewer: shorten "${s.base_name}" in Ship → File name.`)
   }
 
   project.settings = s

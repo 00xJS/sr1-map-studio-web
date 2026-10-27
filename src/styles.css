@@ -556,7 +556,11 @@ button.link.why { margin-left: 4px; font-size: var(--fs-xs); }
 .issues .needed { font-weight: 600; }
 .issues .warn, .issues .bad { color: var(--text); }
 .issue-actions { flex: none; gap: 4px; }
+.issues button.link:not(.why) { margin-left: 8px; }
 .flash { animation: flash 1.4s ease-out; }
+/* Fix all is editing the map: the editor is covered until it's done. */
+.busy-lock { position: fixed; inset: 0; z-index: 900; display: grid; place-items: center; background: rgba(0, 0, 0, 0.25); cursor: progress; }
+.busy-lock-card { display: flex; flex-direction: column; gap: var(--sp-1, 4px); padding: 14px 18px; border-radius: 10px; background: var(--bg-raised); border: 1px solid var(--line-strong); box-shadow: var(--shadow); }
 @keyframes flash { from { background: var(--accent-soft); } to { background: transparent; } }
 .palette-list { max-height: min(52vh, 460px); }
 .palette-box input { font-size: var(--fs-md); padding: 8px 10px; }

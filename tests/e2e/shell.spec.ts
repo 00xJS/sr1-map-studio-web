@@ -8,9 +8,10 @@ const shot = async (page: Page, name: string) => { if (shots) await page.screens
 async function makeMap(page: Page) {
   await page.goto('/')
   await page.getByRole('button', { name: /make your first map/i }).click()
-  const dialog = page.getByRole('dialog', { name: /start a map/i })
+  const dialog = page.getByRole('dialog', { name: /start a map|generate/i })
   await dialog.getByRole('button', { name: /create this map/i }).first().click()
   await page.waitForURL(/\/editor\//, { timeout: 90_000 })
+  await expect(page.locator('.editor-bar')).toBeVisible({ timeout: 60_000 })
   // The tour and the first-map tips cover the view: put them away.
   const close = page.getByRole('button', { name: /^(skip|close|done)/i }).first()
   if (await close.isVisible().catch(() => false)) await close.click()
@@ -57,6 +58,35 @@ test('the editor shell at 1440 and 1280 px', async ({ page }) => {
   await page.keyboard.press('Enter')
   await expect(palette).toBeHidden()
   await expect(page.getByRole('tab', { name: /^Game/ })).toHaveAttribute('aria-selected', 'true')
+
+  // Ctrl+K again closes it.
+  await page.keyboard.press('Control+k')
+  await expect(palette).toBeVisible()
+  await page.keyboard.press('Control+k')
+  await expect(palette).toBeHidden()
+
+  // "Remove invisible walls" lands on its line in the Check tab.
+  await page.keyboard.press('Control+k')
+  await palette.getByRole('combobox').fill('remove invisible')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('tab', { name: /^Check/ })).toHaveAttribute('aria-selected', 'true')
+  await expect(page.locator('[data-setting="Remove invisible walls"]')).toBeInViewport()
+
+  // The single checks run without a health check.
+  await page.getByRole('button', { name: 'Find invisible walls' }).click()
+  await expect(page.getByText(/^(Found \d+: see the list\.|No invisible walls on this map\.)$/)).toBeVisible({ timeout: 60_000 })
+  await shot(page, 'editor-1280-check-find')
+
+  // Any kind of marker, added where the camera looks.
+  await page.getByRole('tab', { name: /^Build/ }).click()
+  const heading = page.getByText(/^Spawns and pickups \(\d+\)$/)
+  const count = async () => +(/\((\d+)\)/.exec((await heading.textContent()) ?? '')?.[1] ?? 0)
+  const before = await count()
+  await page.getByRole('button', { name: /Any kind of marker, or at the camera/ }).click()
+  await page.getByRole('combobox', { name: 'Kind of marker' }).selectOption({ index: 0 })
+  await page.getByRole('button', { name: '+ At the camera' }).click()
+  await expect.poll(count).toBe(before + 1)
+  await shot(page, 'editor-1280-any-marker')
 
   expect(errors).toEqual([])
 })

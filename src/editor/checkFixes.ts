@@ -48,12 +48,25 @@ export async function fixOne(f: AutoFix): Promise<string> {
   return said
 }
 
-/** Every fix, as one undo step called "Fix all". Returns what each did. */
-export async function fixAll(fixes: AutoFix[]): Promise<string[]> {
-  const said: string[] = []
+const NAMES: Record<AutoFix['kind'], string> = { spawns: 'spawns and weapons', ramps: 'stair ramps', walls: 'invisible walls', sky: 'the sky', removeMarkers: 'unused markers' }
+
+export interface FixAllResult { done: string[]; failed: string[] }
+
+/**
+ * Every fix, as one undo step called "Fix all", with the editor locked meanwhile. A fix that fails is reported and
+ * the rest still run; if another map is opened meanwhile, the fixes left stop.
+ */
+export async function fixAll(fixes: AutoFix[]): Promise<FixAllResult> {
+  const out: FixAllResult = { done: [], failed: [] }
+  const id = useEditor.getState().project?.id
   await useEditor.getState().transaction('Fix all', async () => {
-    for (const f of fixes) said.push(await runAutoFix(f))
+    for (const f of fixes) {
+      if (useEditor.getState().project?.id !== id) { out.failed.push(NAMES[f.kind] + ' (another map was opened)'); continue }
+      try { out.done.push(await runAutoFix(f)) } catch (err) {
+        out.failed.push(`${NAMES[f.kind]} (${(err as Error)?.message || String(err)})`)
+      }
+    }
   })
-  recheck()
-  return said
+  if (useEditor.getState().project?.id === id) recheck()
+  return out
 }

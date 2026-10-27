@@ -9,6 +9,7 @@ import { blockers } from '../../lib/checklist'
 import { statusSentence } from '../../lib/featureStatus'
 import { maxMapName } from '../../lib/project'
 import { hubEnabled } from '../../lib/backend'
+import { useLastBuild } from '../useExport'
 
 const sanitize = (s: string) => s.trim().replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()
 
@@ -51,6 +52,8 @@ export function ShipTab({ onInstall, onShare, onPublish, onSamples }: { onInstal
         </div>
       </div>
 
+      <LastBuild />
+
       <More id="ship" title="File name">
         <div className="section">
           <Field label={`File name (${maxName} characters at most)`} hint={nameError || `The map's files are called ${name || '…'}.bbchunk_xbox2 and so on. Left as mymap, Install in game picks a name of its own.`}>
@@ -59,5 +62,20 @@ export function ShipTab({ onInstall, onShare, onPublish, onSamples }: { onInstal
         </div>
       </More>
     </>
+  )
+}
+
+/** What the last build came to: triangles drawn and solid, native objects, lights. */
+function LastBuild() {
+  const id = useEditor((s) => s.project!.id)
+  const summary = useLastBuild((s) => (s.projectId === id ? s.summary : null))
+  if (!summary) return null
+  const n = (k: string) => (summary[k] ?? 0).toLocaleString()
+  return (
+    <div className="section">
+      <span className="section-title">Last build</span>
+      <span className="small">Drawn: {n('render_triangles')} triangles in {n('render_meshes')} meshes, {n('material_batches')} material batches.</span>
+      <span className="small">Solid: {n('collision_triangles')} of {n('source_triangles')} triangles. Native objects: {n('native_objects')}. Lights: {n('lights')}.</span>
+    </div>
   )
 }

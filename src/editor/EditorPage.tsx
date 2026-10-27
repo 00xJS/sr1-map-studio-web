@@ -153,8 +153,9 @@ function Editor() {
   const hasItems = project.scene_items.length > 0
   // First visit: show the tour once there's something to look at (not on phones, where the panels are sheets).
   useEffect(() => { if (hasItems && !narrow && !readFlag('sr1-tour-done')) setTouring(true) }, [hasItems, narrow])
-  // Phones: picking something opens the panel sheet to show it.
-  useEffect(() => { if (narrow && hasSelection) setSheet('side') }, [narrow, hasSelection])
+  // Phones: picking something opens the panel sheet to show it; a piece just placed stays in view with its arrows.
+  const tool = useEditor((s) => s.tool)
+  useEffect(() => { if (narrow && hasSelection && tool === 'select') setSheet('side') }, [narrow, hasSelection])
   const endTour = () => { writeFlag('sr1-tour-done', true); setTouring(false) }
   const importDropped = async (files: File[]) => {
     try {
@@ -219,6 +220,18 @@ function Editor() {
       {overlays.keys && <ShortcutsOverlay />}
       {overlays.palette && <CommandPalette actions={actions} />}
       <FirstMapCoach />
+      <BusyLock />
+    </div>
+  )
+}
+
+/** While Fix all (a transaction) edits the map, the whole editor waits: nothing else can change it meanwhile. */
+function BusyLock() {
+  const locked = useEditor((s) => s.locked)
+  if (!locked) return null
+  return (
+    <div className="busy-lock" role="status" aria-live="polite">
+      <div className="busy-lock-card"><b>{locked}…</b><span className="small muted">The editor waits until it's done.</span></div>
     </div>
   )
 }

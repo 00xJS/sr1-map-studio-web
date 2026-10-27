@@ -10,6 +10,7 @@ import { newProject, newMarker, type SceneItem } from '../../src/lib/project'
 import type { HealthReport } from '../../src/lib/analysis/types'
 import { CheckTab } from '../../src/editor/tabs/CheckTab'
 import { SelectionInspector } from '../../src/editor/Inspector'
+import { catalogs } from '../../src/lib/catalogs'
 
 // The fixes that need the map's real floor are stood in for: each makes one edit, as the real ones do.
 vi.mock('../../src/editor/spawnActions', () => ({
@@ -53,9 +54,9 @@ afterEach(() => {
 
 describe('Check tab', () => {
   it('ranks what it found and applies every fix as one undo step', { timeout: 30000 }, async () => {
-    openMap()
+    const p = openMap()
     const report = { score: 60, findings: ["2 spawns can't be used: inside a wall.", 'Spawn 3 can be seen from 4 places: easy to camp.'], spawns: [], fairness: { basis: 'none', score: 0, reasons: [] }, moves: [] } as unknown as HealthReport
-    useHealth.setState({ report, stairs: 1, slivers: { count: 3, places: [[0, 0, 0]] } as never, key: '' })
+    useHealth.setState({ report, projectId: p.id, stairs: 1, slivers: { count: 3, places: [[0, 0, 0]] } as never, key: '' })
     render(<MemoryRouter><CheckTab onSamples={() => {}} /></MemoryRouter>)
 
     // Worst first: the unusable spawns and the camping spot come before anything merely worth fixing.
@@ -63,6 +64,9 @@ describe('Check tab', () => {
     expect(lines[0]).toContain("can't be used")
     expect(lines[1]).toContain('Spawn 3')
     expect(lines.some((t) => t.includes('too tall to walk up'))).toBe(true)
+    // Each invisible wall found has its own Look link, and the single checks run without a health check.
+    expect(screen.getByRole('button', { name: 'Look at spot 1' })).toBeTruthy()
+    for (const name of ['Find stairs', 'Find invisible walls', 'Fix spawns and weapons']) expect(screen.getByRole('button', { name })).toBeTruthy()
     // The long explanation waits behind "Why?".
     expect(screen.queryByText(/rub against nothing/)).toBeNull()
     fireEvent.click(screen.getAllByRole('button', { name: 'Why?' })[0])
@@ -123,5 +127,89 @@ describe('Inspector', () => {
     openMap()
     const { container } = render(<SelectionInspector />)
     expect(container.textContent).toBe('')
+  })
+})
+
+/** Types into a number field the way a person does: focus, type, leave. */
+function typeInto(input: HTMLInputElement, text: string) {
+  fireEvent.focus(input)
+  fireEvent.change(input, { target: { value: text } })
+  fireEvent.blur(input)
+}
+const inputsOf = (label: string) => [...screen.getByText(label).parentElement!.querySelectorAll('input')]
+
+describe('Metres in the inspector', () => {
+  it('changes only the axis typed in; the others keep their exact stored values', { timeout: 30000 }, () => {
+    const p = openMap()
+    act(() => {
+      useEditor.getState().update('Setup', (d) => { d.scene_items[1].position = [1.23456789, 2.3456789, -3.3333333]; d.settings.world_scale = 0.3 })
+      useEditor.setState({ allSettings: true })
+      useEditor.getState().select({ kind: 'item', index: 1 })
+    })
+    render(<SelectionInspector />)
+    const [x, y] = inputsOf('Position (metres)')
+    expect(x.value).toBe('0.37')
+    // Leaving a field untouched writes nothing back.
+    fireEvent.focus(y)
+    fireEvent.blur(y)
+    expect(useEditor.getState().project!.scene_items[1].position).toEqual([1.23456789, 2.3456789, -3.3333333])
+    typeInto(y, '1')
+    expect(useEditor.getState().project!.scene_items[1].position).toEqual([1.23456789, 1 / 0.3, -3.3333333])
+    typeInto(x, '3')
+    expect(useEditor.getState().project!.scene_items[1].position).toEqual([3 / 0.3, 1 / 0.3, -3.3333333])
+    expect(p.id).toBe(useEditor.getState().project!.id)
+  })
+
+  it("shows a pivot in metres at the object's own scale", { timeout: 30000 }, () => {
+    openMap()
+    act(() => {
+      useEditor.getState().update('Setup', (d) => { d.scene_items[1].pivot = [3, 0, 0]; d.scene_items[1].scale = 2 })
+      useEditor.setState({ allSettings: true })
+      useEditor.getState().select({ kind: 'item', index: 1 })
+    })
+    render(<SelectionInspector />)
+    // 3 model units × scale 2 × 0.5 m a unit.
+    expect(screen.getByText(/^Pivot: 3 m, 0 m, 0 m/)).toBeTruthy()
+  })
+
+  it('keeps marker positions in game coordinates as they are, and trigger radius and leash in metres', { timeout: 30000 }, () => {
+    openMap()
+    const trigger = catalogs.trigger_kinds[0]
+    act(() => {
+      useEditor.getState().update('Setup', (d) => {
+        d.markers[0].position = [10, 2, 4]
+        d.markers[1].type = trigger
+        d.markers[1].radius = 5
+        d.markers[2].type = 'Human NPC spawn'
+        d.markers[2].leash_distance = 20
+      })
+      useEditor.setState({ allSettings: true })
+      useEditor.getState().select({ kind: 'marker', index: 0 })
+    })
+    const { unmount } = render(<SelectionInspector />)
+    expect(inputsOf('Position (metres)')[0].value).toBe('5')
+    unmount()
+    act(() => useEditor.getState().update('Game coordinates', (d) => { d.settings.marker_game_coords = true }))
+    const again = render(<SelectionInspector />)
+    const [x, y] = inputsOf('Position (metres)')
+    expect(x.value).toBe('10')
+    typeInto(y, '3')
+    expect(useEditor.getState().project!.markers[0].position).toEqual([10, 3, 4])
+    again.unmount()
+
+    act(() => useEditor.getState().select({ kind: 'marker', index: 1 }))
+    const radius = render(<SelectionInspector />)
+    const [r] = inputsOf('Trigger radius (m)')
+    expect(r.value).toBe('5')
+    typeInto(r, '7')
+    expect(useEditor.getState().project!.markers[1].radius).toBe(7)
+    radius.unmount()
+
+    act(() => useEditor.getState().select({ kind: 'marker', index: 2 }))
+    render(<SelectionInspector />)
+    const [leash] = inputsOf('Leash distance (m)')
+    expect(leash.value).toBe('20')
+    typeInto(leash, '30')
+    expect(useEditor.getState().project!.markers[2].leash_distance).toBe(30)
   })
 })

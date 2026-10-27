@@ -85,7 +85,7 @@ export function AssetsPanel() {
         </div>
         <p className="faint small"><b>Open a map folder</b> opens a finished map (yours from a while ago, or one from <code>SaintsReborn/dist/maps</code>) as a new map with every object, spawn and trigger, to change and export again; it can also add the game's sky to it without rebuilding. You can drop a map folder or zip on the 3D view too.</p>
         <p className="faint small"><b>Where to load from:</b> "Import a map from the game" converts a <code>.bbchunk_xbox2</code> (select its <code>.peg_xbox2</code> too for textures) from your own game install into an editable model. Installed maps live in <code>SaintsReborn/dist/maps/&lt;map name&gt;/levels/</code>, for example <code>SaintsReborn/dist/maps/Dust/levels/dust.bbchunk_xbox2</code> and <code>dust.peg_xbox2</code>. The original game's own maps are packed inside <code>SaintsReborn/dist/game/packfiles</code> and can't be picked directly.</p>
-        <p className="faint small"><b>Where your maps go:</b> exports install into <code>SaintsReborn/dist/maps/&lt;your map name&gt;/</code>. ▶ Play puts them there for you, or unzip a downloaded export into <code>SaintsReborn/dist/maps</code>.</p>
+        <p className="faint small"><b>Where your maps go:</b> exports install into <code>SaintsReborn/dist/maps/&lt;your map name&gt;/</code>. Install in game puts them there for you, or unzip a downloaded export into <code>SaintsReborn/dist/maps</code>.</p>
         <p className="faint small">Files from your game stay on this device and can't be shared to the Showcase.</p>
       </div>
     </>

@@ -67,8 +67,10 @@ interface EditorState {
   redo(): void
   /** Several undo (negative) or redo (positive) steps at once, as one history move. */
   jumpTo(steps: number): void
-  /** Runs `fn`, then folds every edit it made into one undo step called `label` (Fix all). */
+  /** Runs `fn` with editing locked (`locked`), and makes every edit it made one undo step called `label` (Fix all). */
   transaction(label: string, fn: () => Promise<void>): Promise<void>
+  /** What a running transaction is doing: undo, redo and the editor's keys are off, and the editor is covered. */
+  locked: string | null
   select(s: Selection): void
   /** Shift+click: add an object (and its group) to the selection, or take it out. */
   toggleItem(index: number): void
@@ -78,6 +80,8 @@ interface EditorState {
 }
 
 const LIMIT = 150
+/** The transaction running now, if any (only one runs at a time). */
+let txn: { label: string } | null = null
 
 export function readFlag(key: string) { try { return localStorage.getItem(key) === '1' } catch { return false } }
 export function writeFlag(key: string, on: boolean) { try { localStorage.setItem(key, on ? '1' : '0') } catch { /* private window */ } }
@@ -114,6 +118,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   allSettings: readFlag('sr1-advanced'),
   freeCam: readFlag('sr1-freecam'),
   layeredLook: readFlag('sr1-layered'),
+  locked: null,
   open(project) {
     set({ project, selection: null, multi: [], lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [] })
   },
@@ -128,10 +133,12 @@ export const useEditor = create<EditorState>((set, get) => ({
     // field) become one undo step.
     const merging = opts?.merge && lastMerge && lastMerge.key === opts.merge && now - lastMerge.at < 1500
     lastMerge = opts?.merge ? { key: opts.merge, at: now } : null
-    const past = merging ? get().past : [...get().past, { project: cur, label }].slice(-LIMIT)
+    // Inside a transaction its edits add no steps of their own: it adds one when it ends.
+    const past = merging || txn ? get().past : [...get().past, { project: cur, label }].slice(-LIMIT)
     set({ project: next, ...reanchor(get(), cur, next), past, future: [], saveState: 'unsaved' })
   },
   undo() {
+    if (get().locked) return
     const { past, project, future } = get()
     const prev = past[past.length - 1]
     if (!prev || !project) return
@@ -140,6 +147,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     get().log('Undo: ' + prev.label)
   },
   redo() {
+    if (get().locked) return
     const { past, project, future } = get()
     const next = future[0]
     if (!next || !project) return
@@ -149,7 +157,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
   jumpTo(steps) {
     let { past, project, future } = get()
-    if (!project || !steps) return
+    if (!project || !steps || get().locked) return
     const from = project
     lastMerge = null
     for (; steps < 0 && past.length; steps++) {
@@ -167,13 +175,17 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ project, ...reanchor(get(), from, project), past, future, saveState: 'unsaved' })
   },
   async transaction(label, fn) {
+    if (txn) { await fn(); return }
     const start = get().project
+    txn = { label }
+    lastMerge = null
+    set({ locked: label })
     try { await fn() } finally {
+      txn = null
       const { past, project } = get()
-      // The entry each run of edits starts from is the project as it was before the first of them.
-      let at = -1
-      for (let i = past.length - 1; i >= 0; i--) if (past[i].project === start) { at = i; break }
-      if (start && project !== start && at >= 0) set({ past: [...past.slice(0, at), { project: start, label }] })
+      // One step back to where it started, unless nothing changed or another map was opened meanwhile.
+      if (start && project && project !== start && project.id === start.id) set({ past: [...past, { project: start, label }].slice(-LIMIT), future: [] })
+      set({ locked: null })
       lastMerge = null
     }
   },

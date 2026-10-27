@@ -39,10 +39,22 @@ const MARKER_TYPES = [...catalogs.marker_types, ...RETAIL_MARKER_TYPES]
 /** The map's world scale, for showing editor units in metres. */
 const useScale = () => useEditor((s) => s.project?.settings.world_scale || 0.5)
 
-/** A position in editor units, shown and typed in metres. */
-function MetresVec3({ value, onChange, step }: { value: Vec3; onChange: (v: Vec3) => void; step?: number }) {
-  const ws = useScale()
-  return <Vec3Input value={value.map((v) => +toMetres(v, ws).toFixed(3)) as Vec3} step={step} onChange={(v) => onChange(v.map((x) => toUnits(x, ws)) as Vec3)} />
+/** A position shown and typed in metres; `factor` is metres per stored unit. Typing in one axis changes only
+ *  that axis: the other two keep their stored values exactly. */
+export function MetresVec3({ value, onChange, step, factor }: { value: Vec3; onChange: (v: Vec3) => void; step?: number; factor: number }) {
+  return (
+    <div className="vec3">
+      {(['X', 'Y', 'Z'] as const).map((axis, i) => (
+        <label key={axis} data-axis={axis}>
+          <NumberInput value={value[i] * factor} step={step} onChange={(v) => {
+            const next = [...value] as Vec3
+            next[i] = factor ? v / factor : v
+            onChange(next)
+          }} />
+        </label>
+      ))}
+    </div>
+  )
 }
 
 /** What is selected, or nothing when nothing is. */
@@ -196,6 +208,12 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
         <Transform it={it} index={index} />
         {!isGlass(it) && <CollisionSettings it={it} index={index} />}
         {index > 0 && <NativeControls it={it} index={index} />}
+        {it.physics_intent && it.physics_intent !== 'Static' && (
+          <div className="section">
+            <span className="small muted">An old planning note says "{it.physics_intent}". It does nothing in the game: Movable and explosive props above make real ones.</span>
+            <div><button className="sm" onClick={() => set('Clear planning note', (d) => { d.physics_intent = 'Static' })}>Clear the note</button></div>
+          </div>
+        )}
       </More>
     </>
   )
@@ -219,7 +237,7 @@ function Transform({ it, index }: { it: SceneItem; index: number }) {
           {STEPS.map(([label, v]) => <button key={label} className={'sm' + (step === v ? ' on' : '')} onClick={() => useEditor.getState().set({ step: v })} title={fmtM(toMetres(v, ws))}>{label}</button>)}
         </div>
       </div>
-      <Field label="Position (metres)"><MetresVec3 value={it.position} step={toMetres(step, ws)} onChange={(v) => set('Move', (d) => { d.position = v })} /></Field>
+      <Field label="Position (metres)"><MetresVec3 value={it.position} factor={ws} step={toMetres(step, ws)} onChange={(v) => set('Move', (d) => { d.position = v })} /></Field>
       <Field label="Turn (degrees): X tilt, Y heading, Z roll"><Vec3Input value={it.rotation} step={step < 1 ? 5 : 15} onChange={(v) => set('Rotate', (d) => { d.rotation = v })} /></Field>
       {it.shape && <Field label="Scale"><NumberInput value={it.scale} step={0.1} min={0.001} max={10000} disabled={fixedGlass} onChange={(v) => set('Scale', (d) => { d.scale = v })} /></Field>}
       <PivotControls it={it} index={index} />
@@ -235,7 +253,8 @@ function Transform({ it, index }: { it: SceneItem; index: number }) {
 }
 
 function PivotControls({ it, index }: { it: SceneItem; index: number }) {
-  const ws = useScale()
+  // The pivot is in the model's own units, before its scale: metres = pivot × scale × world scale.
+  const factor = it.scale * useScale()
   const [custom, setCustom] = useState<Vec3>(it.pivot || [0, 0, 0])
   const [open, setOpen] = useState(false)
   useEffect(() => setCustom(it.pivot || [0, 0, 0]), [it.pivot])
@@ -251,11 +270,11 @@ function PivotControls({ it, index }: { it: SceneItem; index: number }) {
       </div>
       {open && (
         <div className="row">
-          <div className="grow"><MetresVec3 value={custom} step={0.05} onChange={setCustom} /></div>
+          <div className="grow"><MetresVec3 value={custom} factor={factor} step={0.05} onChange={setCustom} /></div>
           <button className="sm" onClick={() => run(() => act.setPivot(index, custom))}>Apply</button>
         </div>
       )}
-      {it.pivot && it.pivot.some((v) => v) && <span className="faint small">Pivot: {it.pivot.map((v) => fmtM(toMetres(v, ws))).join(', ')} from the model's origin</span>}
+      {it.pivot && it.pivot.some((v) => v) && <span className="faint small">Pivot: {it.pivot.map((v) => fmtM(v * factor)).join(', ')} from the model's origin</span>}
     </div>
   )
 }
@@ -417,7 +436,7 @@ function ShapeSize({ it, index }: { it: SceneItem; index: number }) {
   const shape = it.shape!
   const set = (patch: Partial<typeof shape>) => run(() => act.updateShape(index, patch))
   const dim = (i: number, label: string) => (
-    <Field label={label}><NumberInput value={+toMetres(shape.size[i], ws).toFixed(3)} step={0.25} min={toMetres(0.1, ws)} max={toMetres(2000, ws)} onChange={(v) => {
+    <Field label={label}><NumberInput value={toMetres(shape.size[i], ws)} step={0.25} min={toMetres(0.1, ws)} max={toMetres(2000, ws)} onChange={(v) => {
       const size = [...shape.size] as Vec3
       size[i] = toUnits(v, ws)
       set({ size })
@@ -428,8 +447,8 @@ function ShapeSize({ it, index }: { it: SceneItem; index: number }) {
       <div className="form-grid three">{dim(0, 'Width (m)')}{dim(1, 'Height (m)')}{dim(2, 'Depth (m)')}</div>
       {shape.kind === 'stairs' && <Field label="Steps"><NumberInput value={shape.segments ?? 8} step={1} digits={0} min={1} max={64} onChange={(v) => set({ segments: Math.round(v) })} /></Field>}
       {shape.kind === 'cylinder' && <Field label="Sides"><NumberInput value={shape.segments ?? 16} step={1} digits={0} min={3} max={64} onChange={(v) => set({ segments: Math.round(v) })} /></Field>}
-      <Field label={`Pattern size: repeats every ${fmtM(toMetres(shape.tile, ws))}`} hint="Smaller = smaller bricks and tiles">
-        <input type="range" min={0.5} max={16} step={0.5} value={shape.tile} onChange={(e) => set({ tile: +e.target.value })} />
+      <Field label="Pattern repeats every (m)" hint="Smaller = smaller bricks and tiles">
+        <NumberInput value={toMetres(shape.tile, ws)} step={0.25} min={toMetres(0.1, ws)} max={toMetres(100, ws)} onChange={(v) => set({ tile: toUnits(v, ws) })} />
       </Field>
     </>
   )
@@ -458,14 +477,7 @@ function MarkerInspector({ m, index }: { m: Marker; index: number }) {
             </select>
           </Field>
         )}
-        {m.type === 'Weapon pickup' && (
-          <Field label="Weapon">
-            <select value={m.weapon} onChange={(e) => set('Weapon', (d) => { d.weapon = e.target.value })}>
-              {!catalogs.weapons.some(([, id]) => id === m.weapon) && <option value={m.weapon}>{m.weapon}</option>}
-              {catalogs.weapons.map(([n, id]) => <option key={id} value={id}>{n}</option>)}
-            </select>
-          </Field>
-        )}
+        {m.type === 'Weapon pickup' && <WeaponField m={m} set={set} />}
         {m.type === 'Vehicle spawn' && (
           <Field label="Vehicle">
             <VehiclePicker value={m.vehicle} onChange={(id) => set('Vehicle', (d) => { d.vehicle = id.trim() || 'car_2dr_sports03' })} />
@@ -501,9 +513,33 @@ function MarkerInspector({ m, index }: { m: Marker; index: number }) {
 
 type SetMarker = (label: string, fn: (d: Marker) => void, merge?: string) => void
 
+const OTHER = '\u0000other'
+
+/** The weapon a pickup gives: one from the list, or any weapon ID typed in (Other…). */
+function WeaponField({ m, set }: { m: Marker; set: SetMarker }) {
+  const known = catalogs.weapons.some(([, id]) => id === m.weapon)
+  const [other, setOther] = useState(!known)
+  return (
+    <Field label="Weapon" hint={other ? "The game's own weapon ID, as in its weapon tables" : undefined}>
+      <select value={other ? OTHER : m.weapon} onChange={(e) => {
+        if (e.target.value === OTHER) { setOther(true); return }
+        setOther(false)
+        set('Weapon', (d) => { d.weapon = e.target.value })
+      }}>
+        {catalogs.weapons.map(([n, id]) => <option key={id} value={id}>{n}</option>)}
+        <option value={OTHER}>Other…</option>
+      </select>
+      {other && <input value={m.weapon} aria-label="Weapon ID" placeholder="e.g. ak47" onChange={(e) => set('Weapon', (d) => { d.weapon = e.target.value.trim() }, 'weapon')}
+        onBlur={() => { if (!m.weapon) set('Weapon', (d) => { d.weapon = 'ak47' }) }} />}
+    </Field>
+  )
+}
+
 /** Every other marker field: all the marker types, exact position, triggers, NPCs. */
 function MarkerMore({ m, set }: { m: Marker; set: SetMarker }) {
   const ws = useScale()
+  // With "marker positions are game coordinates" on, a marker's position is already in game metres.
+  const gameCoords = useEditor((s) => !!s.project?.settings.marker_game_coords)
   const [preview, setPreview] = useState('')
   const [run] = useBusy()
   const trig = TRIGGERS.has(m.type)
@@ -515,7 +551,7 @@ function MarkerMore({ m, set }: { m: Marker; set: SetMarker }) {
           {MARKER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
       </Field>
-      <Field label="Position (metres)"><MetresVec3 value={m.position} onChange={(v) => set('Move marker', (d) => { d.position = v })} /></Field>
+      <Field label="Position (metres)"><MetresVec3 value={m.position} factor={gameCoords ? 1 : ws} onChange={(v) => set('Move marker', (d) => { d.position = v })} /></Field>
       <Field label="Facing (degrees)"><NumberInput value={m.yaw} step={15} digits={1} onChange={(v) => set('Rotate marker', (d) => { d.yaw = v })} /></Field>
       {m.type === 'Weapon pickup' && (
         <div className="form-grid">
@@ -533,7 +569,7 @@ function MarkerMore({ m, set }: { m: Marker; set: SetMarker }) {
       )}
       {trig && (
         <div className="form-grid">
-          <Field label="Trigger radius (m)"><NumberInput value={+toMetres(m.radius, ws).toFixed(3)} step={0.1} min={toMetres(0.05, ws)} max={toMetres(1000, ws)} onChange={(v) => set('Radius', (d) => { d.radius = toUnits(v, ws) })} /></Field>
+          <Field label="Trigger radius (m)"><NumberInput value={m.radius} step={0.1} min={0.05} max={1000} onChange={(v) => set('Radius', (d) => { d.radius = v })} /></Field>
           <Field label="Delay (ms)"><NumberInput value={m.delay_ms} step={1000} digits={0} min={0} onChange={(v) => set('Delay', (d) => { d.delay_ms = Math.round(v) })} /></Field>
           <Field label="Max fires (0 = no limit)"><NumberInput value={m.max_fires} step={1} digits={0} min={0} onChange={(v) => set('Max fires', (d) => { d.max_fires = Math.round(v) })} /></Field>
           <Check checked={m.disabled} onChange={(v) => set('Initially disabled', (d) => { d.disabled = v })}>Starts switched off</Check>
@@ -553,7 +589,7 @@ function MarkerMore({ m, set }: { m: Marker; set: SetMarker }) {
             <datalist id="chars">{catalogs.human_char_types.map((t) => <option key={t} value={t} />)}</datalist>
           </Field>
           <Field label="Group"><input value={m.group} placeholder="e.g. gang_a" onChange={(e) => set('Group', (d) => { d.group = e.target.value }, 'group')} /></Field>
-          <Field label="Leash distance (m)"><NumberInput value={+toMetres(m.leash_distance, ws).toFixed(2)} step={1} min={0} max={toMetres(10000, ws)} onChange={(v) => set('Leash', (d) => { d.leash_distance = toUnits(v, ws) })} /></Field>
+          <Field label="Leash distance (m)"><NumberInput value={m.leash_distance} step={1} min={0} max={10000} onChange={(v) => set('Leash', (d) => { d.leash_distance = v })} /></Field>
         </div>
       )}
       <div className="row wrap">
@@ -613,10 +649,10 @@ function LightInspector({ l, index }: { l: Light; index: number }) {
       <More id="light">
         <div className="section">
           <Field label="Name"><input value={l.name} maxLength={80} onChange={(e) => set('Rename light', (d) => { d.name = e.target.value }, 'lname')} /></Field>
-          <Field label="Position (metres)"><MetresVec3 value={l.position} onChange={(v) => set('Move light', (d) => { d.position = v })} /></Field>
+          <Field label="Position (metres)"><MetresVec3 value={l.position} factor={ws} onChange={(v) => set('Move light', (d) => { d.position = v })} /></Field>
           <div className="form-grid">
-            <Field label="Fully bright to (m)"><NumberInput value={+toMetres(l.inner_range, ws).toFixed(2)} step={0.25} min={0} max={toMetres(1000, ws)} onChange={(v) => set('Inner range', (d) => { d.inner_range = toUnits(v, ws) })} /></Field>
-            <Field label="Dark at (m)"><NumberInput value={+toMetres(l.range, ws).toFixed(2)} step={0.25} min={0.01} max={toMetres(1000, ws)} onChange={(v) => set('Range', (d) => { d.range = toUnits(v, ws) })} /></Field>
+            <Field label="Fully bright to (m)"><NumberInput value={toMetres(l.inner_range, ws)} digits={2} step={0.25} min={0} max={toMetres(1000, ws)} onChange={(v) => set('Inner range', (d) => { d.inner_range = toUnits(v, ws) })} /></Field>
+            <Field label="Dark at (m)"><NumberInput value={toMetres(l.range, ws)} digits={2} step={0.25} min={0.01} max={toMetres(1000, ws)} onChange={(v) => set('Range', (d) => { d.range = toUnits(v, ws) })} /></Field>
           </div>
           <span className="faint small">The game's own lights: rooms 1 m / 3 m, street lamps 11 m / 17 m. Up to {catalogs.limits.max_lights} lights per map.</span>
           {l.inner_range >= l.range && <span className="small bad">"Fully bright to" must be less than "Dark at".</span>}

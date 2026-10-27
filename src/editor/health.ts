@@ -38,6 +38,25 @@ export const useHealth = create<HealthState>(() => ({
   report: null, key: '', projectId: '', running: false, progress: null, error: null, overlay: 'off', focus: null, ms: 0, stairs: 0, slivers: null,
 }))
 
+/** Nothing found yet: a new map's state, so one map's findings never show on another. */
+const NONE = { report: null, key: '', stairs: 0, slivers: null, overlay: 'off', focus: null, error: null } as const
+
+// Another map opened: what the last check found was about the other one.
+useEditor.subscribe((s, prev) => {
+  const id = s.project?.id ?? ''
+  if (id !== (prev.project?.id ?? '') && useHealth.getState().projectId !== id) useHealth.setState({ ...NONE, projectId: id })
+})
+
+/** What the last check found, when it is about the open map (nothing otherwise). */
+export function useFindings(): Pick<HealthState, 'report' | 'stairs' | 'slivers'> {
+  const id = useEditor((s) => s.project?.id ?? '')
+  const mine = useHealth((s) => s.projectId === id)
+  const report = useHealth((s) => s.report)
+  const stairs = useHealth((s) => s.stairs)
+  const slivers = useHealth((s) => s.slivers)
+  return mine ? { report, stairs, slivers } : { report: null, stairs: 0, slivers: null }
+}
+
 /** True when the map changed since the report was made. */
 export function useHealthStale(): boolean {
   const project = useEditor((s) => s.project)
@@ -59,6 +78,8 @@ export async function runHealthCheck(overlay?: OverlayKind) {
     const stairs = solid ? tallSteps(project, solid) : 0
     const slivers = solid ? findSlivers(solid.tris, solid.flags) : null
     const tex = await textureBudget(project, pictureSize).catch(() => null)
+    // Another map was opened while it ran: this report is not about it.
+    if (useEditor.getState().project?.id !== project.id) { useHealth.setState({ running: false, progress: null }); return }
     if (tex) {
       report.textures = tex
       if (tex.over) {
@@ -73,6 +94,21 @@ export async function runHealthCheck(overlay?: OverlayKind) {
   } catch (err) {
     useHealth.setState({ running: false, progress: null, error: (err as Error).message })
   }
+}
+
+/**
+ * Finds the stairs too tall to walk up, or the invisible walls, now, without the whole health check (the Check
+ * tab's "Find stairs" and "Find invisible walls"). Returns what it found, or null when another map opened meanwhile.
+ */
+export async function findNow(what: 'stairs' | 'walls'): Promise<{ stairs?: number; slivers?: SliverReport } | null> {
+  const project = useEditor.getState().project
+  if (!project) return null
+  const solid = await solidTriangles(project)
+  if (useEditor.getState().project?.id !== project.id) return null
+  const found = what === 'stairs' ? { stairs: tallSteps(project, solid) } : { slivers: findSlivers(solid.tris, solid.flags) }
+  const same = useHealth.getState().projectId === project.id
+  useHealth.setState({ ...(same ? {} : NONE), projectId: project.id, ...found })
+  return found
 }
 
 /** How many flights and single steps too tall to walk up the map has without a ramp over them. */
@@ -114,7 +150,7 @@ export function attachHealthOverlay(viewer: Viewer): () => void {
     const h = useHealth.getState()
     const project = useEditor.getState().project
     // Another map opened: its report is gone.
-    if (h.report && project && h.projectId !== project.id) { useHealth.setState({ report: null, key: '', overlay: 'off', focus: null }); return }
+    if (project && h.projectId !== project.id && (h.report || h.stairs || h.slivers)) { useHealth.setState({ ...NONE, projectId: project.id }); return }
     const want = [h.report, h.overlay, h.focus]
     if (want.every((v, i) => v === last[i])) return
     last = want

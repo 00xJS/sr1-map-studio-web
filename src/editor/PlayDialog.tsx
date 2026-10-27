@@ -1,6 +1,6 @@
 // One button to get a map into the game: checks it, names it, builds it and
 // installs it (or downloads a zip where the browser can't write folders).
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useEditor } from './store'
 import { useExport } from './useExport'
 import { ExportProgressBar } from './ExportProgressBar'
@@ -9,12 +9,16 @@ import { Modal } from '../ui'
 import { blockers } from '../lib/checklist'
 import { downloadBlob } from '../lib/exporter'
 import { installSupported } from '../lib/install'
+import { dataPackStatus, type DataPackStatus } from '../lib/datapack'
+import { maxMapName } from '../lib/project'
+import { autoNamed, exportBlocks } from './exportBlocks'
 
 const DEFAULT_TITLE = 'My Map'
 
-/** A file name for the map folder: letters and digits, 11 at most, unlikely to clash. */
-export function fileNameFor(title: string) {
-  const stem = title.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 7) || 'map'
+/** A file name for the map folder: letters and digits, `max` at most (11, or 10 with early surface registration),
+ *  unlikely to clash. */
+export function fileNameFor(title: string, max = 11) {
+  const stem = title.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, max - 4) || 'map'
   return stem + Math.floor(1000 + Math.random() * 9000)
 }
 
@@ -26,14 +30,16 @@ export function PlayDialog({ onClose, onSamples }: { onClose: () => void; onSamp
   const exp = useExport()
   const s = project.settings
   const [title, setTitle] = useState(s.display_name === DEFAULT_TITLE && project.name !== 'Untitled map' ? project.name.slice(0, 40) : s.display_name)
-  const blocked = blockers(items)
+  const [pack, setPack] = useState<DataPackStatus | null>(null)
+  useEffect(() => { dataPackStatus().then(setPack).catch(() => setPack(null)) }, [])
+  const blocks = exportBlocks(s, pack)
+  const blocked = [...blockers(items), ...blocks]
   const open = items.filter((c) => c.state !== 'done')
 
   // Runs once the folder is chosen: fill in the names the game needs.
   const applyNames = () => useEditor.getState().update('Name map', (d) => {
     d.settings.display_name = title.trim().slice(0, 40) || DEFAULT_TITLE
-    const base = d.settings.base_name.trim()
-    if (!base || base === 'mymap' || base.length > 11 || /[^a-zA-Z0-9_]/.test(base)) d.settings.base_name = fileNameFor(d.settings.display_name)
+    if (autoNamed(d.settings.base_name)) d.settings.base_name = fileNameFor(d.settings.display_name, maxMapName(d.settings))
   })
   const fix = (f: Parameters<typeof applyFix>[0]) => { onClose(); applyFix(f) }
   const canInstall = installSupported()
@@ -64,6 +70,7 @@ export function PlayDialog({ onClose, onSamples }: { onClose: () => void; onSamp
               <Checklist items={open} onFix={fix} />
             </div>
           )}
+          {blocks.length > 0 && <div className="callout bad"><div className="col">{blocks.map((b) => <span key={b} className="small">{b}</span>)}</div></div>}
           <label className="col">
             <span className="small muted">Name in the game's map list</span>
             <input value={title} maxLength={40} onChange={(e) => setTitle(e.target.value)} />

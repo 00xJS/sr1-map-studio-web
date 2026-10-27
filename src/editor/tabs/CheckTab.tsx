@@ -2,10 +2,10 @@
 // tall stairs, invisible walls), worst first, each with its own fix, and Fix all.
 import { Vector3 } from 'three'
 import { useEditor } from '../store'
-import { useHealth, useHealthStale } from '../health'
+import { findNow, useFindings, useHealth, useHealthStale } from '../health'
 import { Controls, HealthDetails, Headline, OverlayButtons, focusSpawn } from '../HealthPanel'
 import { useApplyFix, useChecklist } from '../Checklist'
-import { buildIssues, autoFixes, type Issue } from '../checkIssues'
+import { WHY, buildIssues, autoFixes, type AutoFix, type Issue } from '../checkIssues'
 import { fixAll, fixOne } from '../checkFixes'
 import { getViewer } from '../Viewport'
 import { More, Why } from '../More'
@@ -38,9 +38,7 @@ function show(what: NonNullable<Issue['show']>['what']) {
 /** The ranked list, built from the checklist, the last health check and its stair and wall finds. */
 export function useIssues(onSamples: () => void) {
   const checklist = useChecklist()
-  const report = useHealth((s) => s.report)
-  const stairs = useHealth((s) => s.stairs)
-  const slivers = useHealth((s) => s.slivers)
+  const { report, stairs, slivers } = useFindings()
   const removeWalls = useEditor((s) => s.project?.settings.remove_invisible_walls !== false)
   const go = useApplyFix(onSamples)
   return { issues: buildIssues({ checklist, report, stairs, slivers, removeWalls }), go }
@@ -48,7 +46,8 @@ export function useIssues(onSamples: () => void) {
 
 export function CheckTab({ onSamples }: { onSamples: () => void }) {
   const { issues, go } = useIssues(onSamples)
-  const report = useHealth((s) => s.report)
+  const { report } = useFindings()
+  const hasMap = useEditor((s) => (s.project?.scene_items.length ?? 0) > 0)
   const running = useHealth((s) => s.running)
   const stale = useHealthStale()
   const allSettings = useEditor((s) => s.allSettings)
@@ -58,12 +57,19 @@ export function CheckTab({ onSamples }: { onSamples: () => void }) {
   const fixes = autoFixes(issues)
 
   const doAll = () => run(async () => {
-    const said = await fixAll(fixes)
-    toast(`Fixed in one step (Undo puts it all back): ${said.join('; ')}.`, 'ok', 10000)
+    const { done, failed } = await fixAll(fixes)
+    const did = done.length ? `Fixed in one step (Undo puts it all back): ${done.join('; ')}.` : ''
+    toast([did, failed.length ? `Couldn't fix: ${failed.join('; ')}.` : ''].filter(Boolean).join(' '), failed.length ? 'bad' : 'ok', 12000)
   })
-  const doOne = (x: Issue) => run(async () => {
-    const said = await fixOne(x.auto!.fix)
+  const doFix = (fix: AutoFix) => run(async () => {
+    const said = await fixOne(fix)
     toast(said.charAt(0).toUpperCase() + said.slice(1) + '.', 'ok', 7000)
+  })
+  const find = (what: 'stairs' | 'walls') => run(async () => {
+    const r = await findNow(what)
+    if (!r) return
+    const n = what === 'stairs' ? r.stairs! : r.slivers!.count
+    toast(n ? `Found ${n}: see the list.` : what === 'stairs' ? 'No stairs too tall to walk up.' : 'No invisible walls on this map.', n ? 'info' : 'ok', 6000)
   })
 
   return (
@@ -88,23 +94,34 @@ export function CheckTab({ onSamples }: { onSamples: () => void }) {
                 <span className="mark" aria-hidden>{MARK[x.rank]}</span>
                 <span className="grow stack tight">
                   <span>{x.text} {x.why && <Why>{x.why}</Why>}</span>
+                  {x.places && x.places.length > 0 && (
+                    <span className="small">Look at: {x.places.map((pl, i) => <button key={i} className="link" onClick={() => lookAt(pl)} aria-label={`Look at spot ${i + 1}`}>{i + 1}</button>)}</span>
+                  )}
                 </span>
                 <span className="row issue-actions">
                   {x.show && <button className="sm quiet" onClick={() => show(x.show!.what)}>{x.show.label}</button>}
-                  {x.auto && <button className="sm" disabled={busy} onClick={() => doOne(x)}>{x.auto.label}</button>}
+                  {x.auto && <button className="sm" disabled={busy} onClick={() => doFix(x.auto!.fix)}>{x.auto.label}</button>}
                   {x.go && <button className="sm" onClick={() => go(x.go!.fix)}>{x.go.label}</button>}
                 </span>
               </li>
             ))}
           </ul>
         ) : <span className="small ok">Nothing to fix{report ? '' : ' on the checklist'}.</span>}
+        <div className="row wrap">
+          <span className="small muted">Check one thing now:</span>
+          <button className="sm quiet" disabled={busy || !hasMap} onClick={() => find('stairs')} title={WHY.stairs}>Find stairs</button>
+          <button className="sm quiet" disabled={busy || !hasMap} onClick={() => find('walls')} title={WHY.walls}>Find invisible walls</button>
+          <button className="sm quiet" disabled={busy || !hasMap} onClick={() => doFix({ kind: 'spawns' })} title={WHY.spawns}>Fix spawns and weapons</button>
+        </div>
       </div>
 
       <div className="section">
         <span className="section-title">When it's built</span>
-        <Check checked={removeWalls} onChange={(v) => useEditor.getState().update('Remove invisible walls', (d) => { d.settings.remove_invisible_walls = v })}>
-          <span className="stack tight"><span>Remove invisible walls</span><span className="faint small">Leaves paper-thin triangles out of the collision, so players don't bump into nothing.</span></span>
-        </Check>
+        <div data-setting="Remove invisible walls">
+          <Check checked={removeWalls} onChange={(v) => useEditor.getState().update('Remove invisible walls', (d) => { d.settings.remove_invisible_walls = v })}>
+            <span className="stack tight"><span>Remove invisible walls</span><span className="faint small">Leaves paper-thin triangles out of the collision, so players don't bump into nothing.</span></span>
+          </Check>
+        </div>
       </div>
 
       <More id="check" title="Every detail">
