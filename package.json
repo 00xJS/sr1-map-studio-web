@@ -14,7 +14,8 @@
     "test:full": "vitest run --mode full",
     "typecheck": "tsc -b",
     "lint": "eslint .",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "thumbs": "node scripts/render-thumbs.mjs"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
