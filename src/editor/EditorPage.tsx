@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useEditor, saveNow, readFlag, writeFlag, selectedItems } from './store'
+import { useEditor, saveNow, readFlag, writeFlag } from './store'
 import { Viewport, getViewer } from './Viewport'
 import { choosePreset, setLook, useLook } from './look'
 import { PRESETS } from '../lib/gameLight'
@@ -13,7 +13,7 @@ import { ShortcutsOverlay } from './ShortcutsOverlay'
 import { VersionsDialog } from './VersionsDialog'
 import { toggleOverlay, useOverlays } from './overlays'
 import { autoVersion } from '../lib/versions'
-import { TOOL_KEYS, chooseTool } from './Tools'
+import { handleKey } from './shortcuts'
 import * as act from './actions'
 import { ScenePanel } from './panels/ScenePanel'
 import { LayersPanel } from './panels/LayersPanel'
@@ -87,50 +87,9 @@ export default function EditorPage() {
 function useShortcuts() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement
-      const typing = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT'
       const st = useEditor.getState()
       if (st.walking || modalOpen()) return
-      const mod = e.ctrlKey || e.metaKey
-      if (mod && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? st.redo() : st.undo() }
-      else if (mod && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); st.redo() }
-      else if (mod && e.shiftKey && e.key.toLowerCase() === 's') { e.preventDefault(); toggleOverlay('versions', true) }
-      else if (mod && e.key.toLowerCase() === 's') { e.preventDefault(); saveNow(true).then(() => toast('Saved in this browser', 'ok', 1800)) }
-      else if (mod && e.key.toLowerCase() === 'd' && !typing) {
-        e.preventDefault()
-        if (selectedItems().length) { try { act.duplicateItems(selectedItems()) } catch (err) { toastError(err) } }
-      }
-      else if (typing) return
-      else if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) { e.preventDefault(); toggleOverlay('keys') }
-      else if (mod && e.key.toLowerCase() === 'c') {
-        if (!selectedItems().length || window.getSelection()?.toString()) return
-        e.preventDefault()
-        try { const n = act.copyItems(selectedItems()); toast(`Copied ${n} object${n === 1 ? '' : 's'}. Ctrl+V pastes, in this map or another.`, 'ok', 2200) } catch (err) { toastError(err) }
-      }
-      else if (mod && e.key.toLowerCase() === 'v') {
-        e.preventDefault()
-        try { if (!act.pasteItems()) toast('Nothing copied yet: pick objects and press Ctrl+C.', 'info', 2200) } catch (err) { toastError(err) }
-      }
-      else if (mod && e.key.toLowerCase() === 'g') {
-        e.preventDefault()
-        try { e.shiftKey ? act.ungroupItems(selectedItems()) : act.groupItems(selectedItems()) } catch (err) { toastError(err) }
-      }
-      else if (mod && e.key.toLowerCase() === 'a') {
-        e.preventDefault()
-        st.selectItems(st.project?.scene_items.map((_, i) => i) ?? [])
-      }
-      else if (e.key === 'Delete' || e.key === 'Backspace') {
-        if (st.multi.length > 1) { e.preventDefault(); act.removeItems(st.multi) }
-        else if (st.selection) { e.preventDefault(); act.removeSelected() }
-      }
-      else if (e.key === 'Escape') chooseTool('select')
-      else if (e.key === '1') chooseTool('select')
-      else if (e.key === '2') chooseTool('rotate')
-      else if (e.key === '3') chooseTool('scale')
-      // While placing shapes and prefabs, R turns the ghost (Shift+R the other way) instead of picking the Road tool.
-      else if (!mod && st.tool === 'shape' && e.key.toLowerCase() === 'r') { e.preventDefault(); st.set({ placeRot: (((st.placeRot + (e.shiftKey ? -15 : 15)) % 360) + 360) % 360 }) }
-      else if (!mod && TOOL_KEYS[e.key.toLowerCase()]) chooseTool(TOOL_KEYS[e.key.toLowerCase()])
-      else if (e.key.toLowerCase() === 'g') st.set({ snap: !st.snap })
+      handleKey(e, st)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
