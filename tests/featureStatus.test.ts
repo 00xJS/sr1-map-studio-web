@@ -13,8 +13,8 @@ describe('feature status', () => {
     const offenders: string[] = []
     for (const f of files('src')) {
       if (f.endsWith('featureStatus.ts')) continue
-      readFileSync(f, 'utf8').split('\n').forEach((line, i) => {
-        const code = line.replace(/\/\/.*$/, '').replace(/^\s*\*.*$/, '') // comments may say it
+      readFileSync(f, 'utf8').split(/\r?\n/).forEach((line, i) => {
+        const code = line.replace(/\/\/.*$/, '').replace(/^\s*\/?\*.*$/, '') // comments may say it
         if (/not yet tried in game|new, untested|\(experimental\)|chip">new</i.test(code) && !code.includes('PIMP_EXIT =')) offenders.push(`${f}:${i + 1}`)
       })
     }

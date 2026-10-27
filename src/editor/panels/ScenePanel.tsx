@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { thingKey, useEditor } from '../store'
 import * as act from '../actions'
 import { Check, Field, FileButton, NumberInput, Status, Vec3Input, confirmDialog, infoDialog, toastError, useBusy } from '../../ui'
-import { triedInGame } from '../../lib/featureStatus'
+import { statusParen, triedInGame } from '../../lib/featureStatus'
 import { catalogs } from '../../lib/catalogs'
 import { isCustomNative, isGlass, isProp, type SceneItem, type Vec3 } from '../../lib/project'
 import { loadModel } from '../../lib/assets'
@@ -256,7 +256,7 @@ function ProfilePreset({ it, index }: { it: SceneItem; index: number }) {
   if (!presets) return null
   const value = presets.some(([p]) => p === it.native_profile) ? it.native_profile! : presets[0][0]
   return (
-    <Field label={(wood ? 'How it breaks' : 'Weight preset') + (triedInGame(wood ? 'breakable_wood' : 'physics_props') ? '' : ' (not yet tried in game)')}
+    <Field label={(wood ? 'How it breaks' : 'Weight preset') + statusParen(wood ? 'breakable_wood' : 'physics_props')}
       hint="Stock presets from the game's own object table. Health and weight come with each preset: a map can't set its own numbers.">
       <select value={value} onChange={(e) => update('Object preset', (d) => { d.scene_items[index].native_profile = e.target.value })}>
         {presets.map(([p, label]) => <option key={p} value={p}>{label}</option>)}
