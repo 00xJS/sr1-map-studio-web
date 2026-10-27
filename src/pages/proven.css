@@ -1,0 +1,17 @@
+/* What's been tried in game (/proven). */
+.proven h2 { font-size: 20px; }
+.feature-list, .test-checklist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.feature-list li { display: flex; flex-direction: column; gap: 3px; padding-top: 10px; border-top: 1px solid var(--line); }
+.feature-list li:first-child { border-top: 0; padding-top: 0; }
+.feature-list a.chip:hover { text-decoration: none; border-color: var(--accent); }
+.test-steps { margin: 0; padding-left: 18px; display: grid; gap: 3px; color: var(--text-muted); }
+.test-checklist li { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; }
+.test-checklist .box { font-size: 18px; line-height: 1; color: var(--text-muted); flex: none; }
+
+/* Print checklist: only the card being printed, black on white. */
+@media print {
+  body.printing-sheet * { visibility: hidden; }
+  body.printing-sheet .print-sheet.printing, body.printing-sheet .print-sheet.printing * { visibility: visible; color: #000 !important; background: none !important; border-color: #888 !important; }
+  body.printing-sheet .print-sheet.printing { position: absolute; left: 0; top: 0; width: 100%; border: 0; }
+  body.printing-sheet .print-sheet.printing .no-print { display: none; }
+}
