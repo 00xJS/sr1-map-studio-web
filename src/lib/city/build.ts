@@ -16,6 +16,9 @@ import type { CityCut, CityMap } from '../gameObjects/worker'
 import { chunksIn, type Rect } from './city'
 import { splitParts } from './parts'
 import { mapLimit } from '../hubRules'
+import { collisionFromProject } from '../analysis/collision'
+import { Bvh } from '../analysis/bvh'
+import { bvhRay, openHeading } from '../markerPlan'
 
 /** Pictures encoded at once while a cut is saved. */
 const PICTURES_AT_ONCE = 8
@@ -163,6 +166,7 @@ export async function cityProject(r: Rect, map: CityMap, onProgress: (t: string)
     texPath[m] = f.vpath
   })
   const items: SceneItem[] = []
+  const models = new Map<string, ReturnType<typeof parseObj>>()
   const { cacheModel } = await import('../assets')
   const counts = new Map<string, number>()
   for (const [i, pc] of pieces.entries()) {
@@ -179,7 +183,9 @@ export async function cityProject(r: Rect, map: CityMap, onProgress: (t: string)
     const obj = await storeFile(new Blob([text], { type: 'model/obj' }), safe(label) + '.obj', 'game')
     obj.ref.origin = 'game'
     p.files[obj.vpath] = obj.ref
-    cacheModel(obj.vpath, parseObj(text))
+    const model = parseObj(text)
+    cacheModel(obj.vpath, model)
+    models.set(obj.vpath, model)
     const faces = lookFaces(pc, (m) => local.get(m)!)
     const gameLook = await storeLook(mesh, own.map((m) => matName[m]), own.map((m) => texPath[m]), (t) => layerPath.get(t.toLowerCase()) ?? null, label, p.files)
     items.push({
@@ -213,10 +219,13 @@ export async function cityProject(r: Rect, map: CityMap, onProgress: (t: string)
   // Spawns and weapons on open street level, in editor space (the exporter mirrors X back).
   const spots = cut.standable.map(([x, y, z]): Vec3 => [-u(x), u(y), u(z)])
   const spawns = spread(spots, 12)
+  const solid = collisionFromProject({ ...p, scene_items: items }, (path) => models.get(path))
+  const ray = bvhRay(new Bvh(solid.tris, solid.flags))
   const known = new Set(catalogs.weapons.map(([, id]) => id))
   const weapons = spread(spots, 10, spawns)
   const markers: Marker[] = [
-    ...spawns.map((at) => ({ ...newMarker('Shared spawn', [at[0], at[1] + 0.1, at[2]]), yaw: +((Math.atan2(-at[0], at[2]) * 180) / Math.PI).toFixed(1) })),
+    // Each spawn looks the way it sees farthest through the city's own collision (the middle where it sees as far).
+    ...spawns.map((at) => ({ ...newMarker('Shared spawn', [at[0], at[1] + 0.1, at[2]]), yaw: openHeading(ray, [at[0], at[1] + u(1.62), at[2]]) })),
     ...weapons.map((at, i) => { const id = WEAPONS.filter((x) => known.has(x))[i % WEAPONS.length] ?? 'ak47'; return { ...newMarker('Weapon pickup', [at[0], at[1] + 0.1, at[2]]), weapon: id, label: id } }),
   ]
   p.markers = markers

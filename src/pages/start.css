@@ -1,0 +1,26 @@
+/* The Start a map dialog (SamplePicker.tsx) and the Open or import menu (OpenOrImport.tsx). */
+.start-ways { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+.start-way { display: flex; align-items: flex-start; gap: 12px; text-align: left; white-space: normal; padding: 14px; font-weight: 400; min-height: 96px; }
+.start-way .icon { font-size: 26px; line-height: 1; flex: none; }
+.start-way .txt { display: flex; flex-direction: column; gap: 4px; }
+.start-way .txt b { font-size: 15px; }
+.start-actions:empty { display: none; }
+
+.sk { background: linear-gradient(90deg, var(--bg-input) 0%, var(--line) 50%, var(--bg-input) 100%); background-size: 200% 100%; border-radius: 8px; animation: sk-shimmer 1.4s infinite linear; }
+@keyframes sk-shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+@media (prefers-reduced-motion: reduce) { .sk { animation: none; } }
+
+.preview-box { position: relative; background: #101014; border-radius: 8px; aspect-ratio: 1; overflow: hidden; }
+.preview-angle { width: 100%; height: 100%; object-fit: contain; display: block; }
+.preview-fill { position: absolute; inset: 0; border-radius: 0; }
+.preview-top { position: absolute; right: 6px; bottom: 6px; width: 32%; aspect-ratio: 1; background: #0b0b0e; border-radius: 6px; border: 1px solid #2a2a30; }
+.preview-bar { position: absolute; left: 0; right: 0; top: 0; padding: 6px 8px; display: flex; flex-direction: column; gap: 5px; background: linear-gradient(rgba(10, 8, 12, 0.85), rgba(10, 8, 12, 0)); }
+.preview-building { position: absolute; inset: 0; display: flex; flex-direction: column; justify-content: center; gap: 10px; padding: 24px; background: rgba(10, 8, 12, 0.72); text-align: center; }
+.grade { padding: 1px 7px; border-radius: 4px; background: var(--bg-input); }
+.grade-A, .grade-B { color: var(--ok, #6c6); }
+.grade-C { color: var(--warn, #e0b050); }
+.grade-D, .grade-E { color: var(--bad, #e06060); }
+
+.open-menu { min-width: 250px; }
+.open-menu .menu-head { padding: 4px 8px 2px; }
+header.topnav .open-menu { left: auto; right: 0; }

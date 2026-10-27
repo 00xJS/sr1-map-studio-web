@@ -2,13 +2,16 @@
 // the open map's real collision. Ones inside something, in the air or on floor nobody can walk to move to the nearest
 // usable spot; spawns and weapons are added up to what a full match wants. One undo step.
 import { useEditor, currentProject } from './store'
-import { solidTriangles } from './stairActions'
+import { isRamps, solidTriangles } from './stairActions'
 import { prepareMap } from '../lib/analysis/analyze'
-import { waterAreas } from '../lib/analysis/collision'
+import { collisionFromProject, waterAreas } from '../lib/analysis/collision'
+import { findStairs, rampPieces, scaleRuns } from '../lib/stairRamps'
+import { compoundObj } from '../lib/shapes'
+import { parseObj } from '../lib/geometry'
 import { loadModel } from '../lib/assets'
 import type { ObjModel } from '../lib/geometry'
 import { planMarkers, type MarkerPlan } from '../lib/markerPlan'
-import { newMarker } from '../lib/project'
+import { newMarker, type Project, type SceneItem, type Vec3 } from '../lib/project'
 import { FFA_SPAWNS } from '../lib/levels'
 
 /** Free-for-all spawns and weapons a map should have for a full 12-player match. */
@@ -16,11 +19,38 @@ export const WANT = { spawns: Math.max(12, FFA_SPAWNS), weapons: 12 }
 
 export interface SpawnFix { moved: number; added: { spawns: number; weapons: number }; reasons: string[]; floor: number }
 
-/** Plans the fix on the open map and applies it. */
-export async function fixSpawnsAndWeapons(): Promise<SpawnFix> {
-  const project = currentProject()
-  if (!project) return { moved: 0, added: { spawns: 0, weapons: 0 }, reasons: [], floor: 0 }
-  const input = await solidTriangles(project)
+/** What the fix would do to a project, in its own units: markers to move and markers to add. */
+export interface SpawnFixPlan { plan: MarkerPlan; scale: number }
+
+/**
+ * The invisible ramps the map's checks will put over stairs too tall to run up (stairActions.ts addStairRamps), as
+ * collision only: so a map planned before they are added doesn't count the floors up those stairs as out of reach.
+ */
+function rampCollision(project: Project, input: { tris: Float32Array; flags: Uint8Array }) {
+  const k = (project.settings.world_scale || 0.5) / 0.5
+  const runs = scaleRuns(findStairs(k === 1 ? input.tris : input.tris.map((v) => v * k), input.flags), 1 / k)
+  if (!runs.length) return null
+  const mat = 'stair_ramp'
+  const origin: Vec3 = [0, 0, 0]
+  const model = parseObj(compoundObj(rampPieces(runs, origin, mat)))
+  const item: SceneItem = { uid: 'ramps', name: 'ramps', path: '/ramps', position: origin, rotation: [0, 0, 0], scale: 1, textures: {}, alpha: { [mat]: true } }
+  return collisionFromProject({ ...project, scene_items: [item], markers: [] }, () => model)
+}
+
+/**
+ * Plans the fix on a project's real collision without touching it (the editor's open map, or a map just built and
+ * not open yet). Reads the project's models from this device. With `ramps`, it plans for the map as it will be once
+ * its stairs get their invisible ramps (a map whose checks run when it opens).
+ */
+export async function planSpawnFix(project: Project, opts: { ramps?: boolean } = {}): Promise<SpawnFixPlan> {
+  let input = await solidTriangles(project, opts.ramps ? (it) => !isRamps(it) : undefined)
+  const extra = opts.ramps ? rampCollision(project, input) : null
+  if (extra) {
+    const tris = new Float32Array(input.tris.length + extra.tris.length), flags = new Uint8Array(input.flags.length + extra.flags.length)
+    tris.set(input.tris); tris.set(extra.tris, input.tris.length)
+    flags.set(input.flags); flags.set(extra.flags, input.flags.length)
+    input = { ...input, tris, flags }
+  }
   // The planner works in the usual editor units (0.5 m each): a map at another world scale is measured in game metres.
   const k = (project.settings.world_scale || 0.5) / 0.5
   const markers = project.markers.map((m) => ({ type: m.type, position: m.position.map((v) => v * k) as typeof m.position, weapon: m.weapon }))
@@ -31,23 +61,38 @@ export async function fixSpawnsAndWeapons(): Promise<SpawnFix> {
     try { wetModels.set(p, await loadModel(project, p)) } catch { /* missing: left out */ }
   }))
   const wet = waterAreas(project, (p) => wetModels.get(p)).map((a) => a.map((v) => v * k) as typeof a)
-  const plan: MarkerPlan = planMarkers(prep, markers, { ...WANT, wet })
+  return { plan: planMarkers(prep, markers, { ...WANT, wet }), scale: k }
+}
+
+/** Makes the planned moves and additions on `d` (a draft inside an undo step, or a project not open yet). */
+export function applySpawnFix(d: Project, { plan, scale: k }: SpawnFixPlan) {
   const back = (p: [number, number, number]) => p.map((v) => +(v / k).toFixed(3)) as [number, number, number]
-  const spawns = plan.added.filter((a) => a.type !== 'Weapon pickup').length, weapons = plan.added.length - spawns
-  if (plan.moved.length || plan.added.length) {
-    useEditor.getState().update('Fix spawns and weapons', (d) => {
-      for (const mv of plan.moved) d.markers[mv.index].position = back(mv.to)
-      for (const a of plan.added) {
-        const m = newMarker(a.type, back(a.at))
-        m.yaw = a.yaw
-        if (a.weapon) { m.weapon = a.weapon; m.label = a.weapon }
-        d.markers.push(m)
-      }
-    })
+  for (const mv of plan.moved) d.markers[mv.index].position = back(mv.to)
+  for (const a of plan.added) {
+    const m = newMarker(a.type, back(a.at))
+    m.yaw = a.yaw
+    if (a.weapon) { m.weapon = a.weapon; m.label = a.weapon }
+    d.markers.push(m)
   }
+}
+
+/** What a plan comes to, for the build log. */
+export function spawnFixSummary({ plan }: SpawnFixPlan): SpawnFix & { text: string } {
+  const spawns = plan.added.filter((a) => a.type !== 'Weapon pickup').length, weapons = plan.added.length - spawns
   const reasons = [...new Set(plan.moved.map((m) => m.why))]
-  useEditor.getState().log(plan.floor
+  const text = plan.floor
     ? `Spawns and weapons: ${plan.moved.length} moved${reasons.length ? ` (${reasons.join('; ')})` : ''}, ${spawns} spawn${spawns === 1 ? '' : 's'} and ${weapons} weapon${weapons === 1 ? '' : 's'} added.`
-    : 'Spawns and weapons: no floor a player can stand on was found.')
-  return { moved: plan.moved.length, added: { spawns, weapons }, reasons, floor: plan.floor }
+    : 'Spawns and weapons: no floor a player can stand on was found.'
+  return { moved: plan.moved.length, added: { spawns, weapons }, reasons, floor: plan.floor, text }
+}
+
+/** Plans the fix on the open map and applies it. */
+export async function fixSpawnsAndWeapons(): Promise<SpawnFix> {
+  const project = currentProject()
+  if (!project) return { moved: 0, added: { spawns: 0, weapons: 0 }, reasons: [], floor: 0 }
+  const fix = await planSpawnFix(project)
+  if (fix.plan.moved.length || fix.plan.added.length) useEditor.getState().update('Fix spawns and weapons', (d) => applySpawnFix(d, fix))
+  const { text, ...out } = spawnFixSummary(fix)
+  useEditor.getState().log(text)
+  return out
 }
