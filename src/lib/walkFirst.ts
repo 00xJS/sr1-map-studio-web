@@ -20,15 +20,22 @@ export const lastWalkFirst = (): WalkFirst | null => read().at(-1) ?? null
 /** The player starts it: it stays as one of their maps. */
 export function keepWalkFirst(id: string) { write(read().filter((x) => x.id !== id)) }
 
-/** Deletes one temporary map (unless it was changed since), or every one but `except`. */
-export async function sweepWalkFirst(only?: string, except?: string): Promise<void> {
-  const left: WalkFirst[] = []
-  for (const w of read()) {
-    if ((only && w.id !== only) || w.id === except) { left.push(w); continue }
-    try {
-      const rec = await db.getProject(w.id)
-      if (rec && rec.updated_at === w.at) await db.deleteProject(w.id)
-    } catch { left.push(w) }
-  }
-  write(left)
+/** Deletes one temporary map (unless it was changed since), or every one but `except`. One sweep at a time. */
+let sweeping: Promise<void> = Promise.resolve()
+export function sweepWalkFirst(only?: string, except?: string): Promise<void> {
+  // Only the maps noted when it was asked for: one walked while it waits or runs is left alone.
+  const asked = read()
+  return (sweeping = sweeping.then(async () => {
+    const done = new Set<string>()
+    for (const w of asked) {
+      if ((only && w.id !== only) || w.id === except) continue
+      try {
+        const rec = await db.getProject(w.id)
+        if (rec && rec.updated_at === w.at) await db.deleteProject(w.id)
+        done.add(w.id)
+      } catch { /* kept for the next sweep */ }
+    }
+    // Read again: a map walked while this one ran stays noted.
+    write(read().filter((x) => !done.has(x.id)))
+  }))
 }

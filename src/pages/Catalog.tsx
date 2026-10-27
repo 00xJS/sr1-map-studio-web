@@ -15,6 +15,8 @@ import { keepWalkFirst, lastWalkFirst, noteWalkFirst, sweepWalkFirst, type WalkF
 /** The latest batch of samples added (all on the same day) is the one marked New. */
 const LATEST = SAMPLES.reduce((d, s) => (s.added && s.added > d ? s.added : d), '')
 const isNew = (s: Sample) => !!LATEST && s.added === LATEST
+/** The catalogue's clean-up on leaving, put off a moment so a page that comes straight back can call it off. */
+let leaving: ReturnType<typeof setTimeout> | undefined
 
 type Players = 'any' | 'small' | 'full'
 type Size = 'any' | 'small' | 'medium' | 'large'
@@ -53,12 +55,14 @@ export default function Catalog() {
   const [walked, setWalked] = useState<WalkFirst | null>(null)
   const walking = useRef<string>()
   useEffect(() => {
+    // Back again before the last visit's clean-up ran (React mounts twice in development): nothing is let go.
+    clearTimeout(leaving)
     void loadStats().then(setStats)
     const w = lastWalkFirst()
     // Only the last one walked is asked about; any older ones are cleared away.
     void sweepWalkFirst(undefined, w?.id).then(async () => { if (w && (await db.getProject(w.id))) setWalked(w) })
-    // Leaving the page without an answer lets it go (not the one just opened to walk).
-    return () => { void sweepWalkFirst(undefined, walking.current) }
+    // Leaving the page without an answer lets it go (not the one just opened to walk), once it has really gone.
+    return () => { const keep = walking.current; leaving = setTimeout(() => void sweepWalkFirst(undefined, keep)) }
   }, [])
   const fits = (s: Sample) => {
     const st = stats[s.id]

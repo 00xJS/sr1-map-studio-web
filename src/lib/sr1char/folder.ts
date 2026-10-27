@@ -5,6 +5,7 @@
 // so the next walk can open it again, and the built character is kept in memory for this tab.
 import { db } from '../db'
 import { openVpp, type Vpp } from './vpp'
+import { SETUP_CHANGED } from '../setupEvents'
 // The model builder needs three.js: loaded when a player is built, not with every page that reads game files.
 import type { PlayerModel } from './player'
 
@@ -15,6 +16,8 @@ const SKIP_DIRS = new Set(['build', '.git', 'node_modules', 'saves', 'screenshot
 const DIR_ORDER = ['packfiles', 'game', 'dist']
 const dirRank = (name: string) => { const i = DIR_ORDER.indexOf(name.toLowerCase()); return i < 0 ? DIR_ORDER.length : i }
 const KEY = 'sr1-game-folder'
+/** Tells the Connect page and its prompts (lib/setup.ts) that the remembered folder changed. */
+const changed = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event(SETUP_CHANGED)) }
 
 type Handle = FileSystemDirectoryHandle & {
   values(): AsyncIterable<FileSystemDirectoryHandle | FileSystemFileHandle>
@@ -82,7 +85,7 @@ export async function rememberedGameFolder(): Promise<{ name: string; ready: boo
   return { name: h.name, ready: await permitted(h, false).catch(() => false) }
 }
 
-export async function forgetGameFolder() { walked = null; await db.setMeta(KEY, null) }
+export async function forgetGameFolder() { walked = null; await db.setMeta(KEY, null); changed() }
 
 /** The game folder's files by lower-case name (the first found, packfiles folders first), walked once per folder per tab. */
 let walked: { name: string; files: Promise<Map<string, FileSystemFileHandle>> } | null = null
@@ -113,6 +116,7 @@ export async function pickGameFolder(): Promise<string | null> {
   walked = null
   if (!(await filesOf(h)).has('misc2.vpp_xbox2')) throw new Error(`No Saints Row packfiles in "${h.name}". Choose the Saints Reborn folder, or dist\\game\\packfiles inside it.`)
   await db.setMeta(KEY, h).catch(() => {})
+  changed()
   return h.name
 }
 
@@ -134,7 +138,7 @@ export async function gameFolderFiles(names: string[], ask: boolean): Promise<Ma
   const files = await filesOf(h)
   const found = new Map<string, File>()
   for (const n of names) { const f = files.get(n); if (f) found.set(n, await f.getFile()) }
-  if (found.size) await db.setMeta(KEY, h).catch(() => {})
+  if (found.size) { await db.setMeta(KEY, h).catch(() => {}); changed() }
   return found
 }
 
@@ -152,6 +156,9 @@ export async function chooseGameFolder(): Promise<PlayerModel | null> {
   catch (e) { if ((e as Error).name === 'AbortError') return null; throw e }
   const found = await findInHandle(h)
   if (!found.has('misc2.vpp_xbox2')) throw new Error(`No Saints Row packfiles in "${h.name}". Choose the Saints Reborn folder, or dist\\game\\packfiles inside it.`)
+  // Another folder (even one of the same name): the next file lookup walks it afresh.
+  walked = null
   await db.setMeta(KEY, h).catch(() => {})
+  changed()
   return loadPlayer(found, h.name)
 }

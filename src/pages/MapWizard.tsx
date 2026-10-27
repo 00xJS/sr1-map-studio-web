@@ -11,7 +11,8 @@ import { gamePiecesSuit } from '../lib/gameObjects/wizardPieces'
 import { useGameSource, type GameSource } from './BuildWith'
 import { toastError } from '../ui'
 import type { Preview } from '../lib/wizardPreview'
-import { PASS, TRIES, grade, nextSeeds, wizardBuild, type CityInfo, type GameLibrary } from '../lib/wizardClient'
+import { PASS, TRIES, grade, isSuperseded, wizardBuild, type CityInfo, type GameLibrary } from '../lib/wizardClient'
+import { choicesKey, gateScore, newGate, scoreGate, type Gate } from '../lib/wizardGate'
 import { FooterActions } from './FooterActions'
 
 const PLAYERS = [4, 6, 8, 10, 12]
@@ -83,44 +84,34 @@ function libraryOf(src: GameSource): GameLibrary | null {
   return { key: `${k}:${src.version}:${version}`, entries: src.entries, labels: src.labels, labelsVersion: src.version, cityLabels: { groups, modules } }
 }
 
-/** The quality gate for one set of choices: the seed the player got, and each seed's score so far. */
-interface Gate { base: number; scores: [number, number][]; done: boolean }
-
 export function MapWizard({ busy, progress = null, footer = null, onCreate, initial, game = false }: { busy: boolean; progress?: string | null; footer?: HTMLElement | null; onCreate: (s: Sample) => void; initial?: WizardOptions; game?: boolean }) {
   const [o, setO] = useState<WizardOptions>(() => initial ?? { setting: 'downtown', layout: 'blocks', players: 10, density: 'normal', seed: newSeed() })
   const [name, setName] = useState(initial?.name ?? '')
-  const gate = useRef<Gate>({ base: o.seed, scores: [], done: false })
-  const [, redraw] = useState(0)
-  /** New choices: the gate starts again from the seed showing. */
-  const set = (patch: Partial<WizardOptions>) => setO((x) => { const n = { ...x, ...patch }; gate.current = { base: n.seed, scores: [], done: false }; return n })
-  const reroll = () => set({ seed: newSeed() })
   // Game pieces (chosen at the top of the dialog, BuildWith.tsx): the player's library and their labels for it.
   const src = useGameSource()
   const gameOn = game && !!src.entries && gamePiecesSuit(o.setting)
   const lib = gameOn ? libraryOf(src) : null
+  // The choices a score is about (wizardGate.ts): new ones, or other pieces, start the gate again from the seed showing.
+  const key = choicesKey(o, lib?.key ?? 'site')
+  const [gate, setGate] = useState<Gate>(() => newGate(key, o.seed))
+  if (gate.key !== key) setGate(newGate(key, o.seed))
+  const set = (patch: Partial<WizardOptions>) => setO((x) => ({ ...x, ...patch }))
+  const reroll = () => { const seed = newSeed(); setGate(newGate(key, seed)); set({ seed }) }
   // Built in the worker; the last map stays up until the next one is in.
-  const [built, setBuilt] = useState<{ o: WizardOptions; sample: Sample; city?: CityInfo } | null>(null)
+  const [built, setBuilt] = useState<{ o: WizardOptions; key: string; sample: Sample; city?: CityInfo } | null>(null)
   const [error, setError] = useState('')
   useEffect(() => {
     let live = true
     setError('')
-    wizardBuild(o, lib).then((r) => { if (live) setBuilt({ o, ...r }) }, (e) => { if (live) setError(e instanceof Error ? e.message : String(e)) })
+    wizardBuild(o, lib).then((r) => { if (live) setBuilt({ o, key, ...r }) }, (e) => { if (live && !isSuperseded(e)) setError(e instanceof Error ? e.message : String(e)) })
     return () => { live = false }
   }, [o, lib?.key])
-  /** The check's score for the map showing: under the bar, the next seed; after the last, the best of them. */
-  const scored = (seed: number, health: number | null) => {
-    const g = gate.current
-    if (g.done || g.scores.some(([s]) => s === seed)) return
-    if (health === null) { g.done = true; redraw((n) => n + 1); return }
-    g.scores.push([seed, health])
-    if (health >= PASS) g.done = true
-    else if (g.scores.length < TRIES) setO((x) => ({ ...x, seed: nextSeeds(g.base, TRIES - 1)[g.scores.length - 1] }))
-    else {
-      g.done = true
-      const best = g.scores.reduce((a, b) => (b[1] > a[1] ? b : a))
-      if (best[0] !== seed) setO((x) => ({ ...x, seed: best[0] }))
-    }
-    redraw((n) => n + 1)
+  /** The check's score for the map showing: under the bar, the next seed; after the last, the best of them. Ignored unless it is for what is showing now. */
+  const scored = (forKey: string, seed: number, health: number | null) => {
+    if (forKey !== key || seed !== o.seed) return
+    const r = scoreGate(gate, forKey, seed, health)
+    if (r.gate !== gate) setGate(r.gate)
+    if (r.next !== null) setO((x) => ({ ...x, seed: r.next! }))
   }
   const sample = built?.sample, city = built?.city
   const create = async () => {
@@ -129,8 +120,8 @@ export function MapWizard({ busy, progress = null, footer = null, onCreate, init
     if (city) try { await connect(true) } catch (e) { toastError(e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder so the wizard can bring in the models from your game.') : e); return }
     onCreate({ ...sample, name: name.trim() || sample.name, ...(city?.used && city.problems.length ? { problems: city.problems } : {}) })
   }
-  const g = gate.current
-  const searching = !g.done && g.scores.length > 0 ? g.scores.length : 0
+  const current = !!built && built.o === o && built.key === key
+  const searching = !gate.done && gate.scores.length > 0 ? gate.scores.length : 0
   const level = busyOf(o)
   const size = sample && mapSize(sample)
   const count = (...t: string[]) => (sample ? sample.markers.filter(([m]) => t.includes(m)).length : 0)
@@ -182,7 +173,7 @@ export function MapWizard({ busy, progress = null, footer = null, onCreate, init
         </label>
       </div>
       <div className="col" style={{ gap: 6, flex: '1 1 300px', alignItems: 'stretch', minWidth: 0 }}>
-        {sample && built ? <MapPreview sample={sample} seed={built.o.seed} progress={progress} searching={searching} gate={g} onScored={scored} /> : <div className="sk" style={{ aspectRatio: '1' }} aria-busy="true" />}
+        {sample && built ? <MapPreview sample={sample} seed={built.o.seed} forKey={built.key} progress={progress} searching={searching} gate={gate} onScored={scored} /> : <div className="sk" style={{ aspectRatio: '1' }} aria-busy="true" />}
         {error && <span className="small warn">The wizard couldn't build this one ({error}). Reroll for another.</span>}
         {sample ? <Sketch s={sample} /> : <div className="sk" style={{ aspectRatio: '1', maxWidth: 420 }} />}
         {size && (
@@ -197,7 +188,7 @@ export function MapWizard({ busy, progress = null, footer = null, onCreate, init
       </div>
       <FooterActions footer={footer}>
         <button onClick={reroll} disabled={busy} title="Same choices, a different map">🎲 Reroll</button>
-        <button className="primary" disabled={busy || !sample || built?.o !== o} onClick={() => void create()}>Create this map</button>
+        <button className="primary" disabled={busy || !current} onClick={() => void create()}>Create this map</button>
       </FooterActions>
     </div>
   )
@@ -236,7 +227,7 @@ const stageDone = (p: Preview | null) => !p ? 0.05 : p.stage === 'shells' ? 0.15
  * then each game model as it comes in, then the checks the editor runs once it is open (wizardPreview.ts). Its
  * health goes to `onScored` for the quality gate; while the map is being built, its progress is drawn over it.
  */
-function MapPreview({ sample, seed, progress, searching, gate, onScored }: { sample: Sample; seed: number; progress: string | null; searching: number; gate: Gate; onScored: (seed: number, health: number | null) => void }) {
+function MapPreview({ sample, seed, forKey, progress, searching, gate, onScored }: { sample: Sample; seed: number; forKey: string; progress: string | null; searching: number; gate: Gate; onScored: (key: string, seed: number, health: number | null) => void }) {
   const [p, setP] = useState<Preview | null>(null)
   const [tries, setTries] = useState(0)
   const report = useRef(onScored)
@@ -247,7 +238,7 @@ function MapPreview({ sample, seed, progress, searching, gate, onScored }: { sam
     setP((q) => q && { angle: q.angle, top: q.top, stage: 'shells', models: [0, 0] })
     const update = (q: Preview) => {
       setP(q)
-      if (q.stage === 'done' && !told) { told = true; report.current(seed, q.health ?? null) }
+      if (q.stage === 'done' && !told) { told = true; report.current(forKey, seed, q.health ?? null) }
     }
     // A moment's pause, so dragging the busy slider doesn't start a preview per step.
     const t = setTimeout(() => void import('../lib/wizardPreview').then((m) => { if (!gone) stop = m.previewMap(sample, update) }), 350)
@@ -260,8 +251,8 @@ function MapPreview({ sample, seed, progress, searching, gate, onScored }: { sam
     : p.stage === 'shells' ? 'Drawing the shapes…'
       : p.stage === 'models' ? `Bringing in models from your game (${p.models[0]}/${p.models[1]})…`
         : p.stage === 'checks' ? 'Checking it the way the editor will…' : ''
-  const shown = gate.scores.find(([s]) => s === seed)?.[1] ?? p?.health
-  const tried = gate.done && gate.scores.length > 1 ? gate.scores.length : 0
+  const shown = gateScore(gate, forKey, seed) ?? p?.health
+  const tried = gate.done && gate.key === forKey && gate.scores.length > 1 ? gate.scores.length : 0
   return (
     <div className="col" style={{ gap: 6 }}>
       <div className="preview-box">

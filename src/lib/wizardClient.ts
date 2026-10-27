@@ -1,6 +1,8 @@
-// The map wizard's worker from the page's side (wizard.worker.ts): one worker, the newest request wins (an older one
-// still running is answered but dropped), and the player's game library goes over only when it changes. Where a
-// worker can't start, the map is built here instead (wizardJob.ts), the same build.
+// The map wizard's worker from the page's side (wizard.worker.ts): one worker building one map at a time. The newest
+// request wins: one waiting to be sent when a newer comes in is dropped (its promise rejects as superseded), so
+// dragging the busy slider builds the last step, not every one. The player's game library goes over only when it
+// changes. Where a worker can't start, or stops with an error, the map is built here instead (wizardJob.ts), the
+// same build.
 import type { WizardOptions } from './mapWizard'
 import type { WizardReply, WizardRequest } from './wizard.worker'
 import { buildWizard, type CityInfo, type GameLibrary } from './wizardJob'
@@ -8,41 +10,73 @@ import type { Sample } from './sampleKit'
 
 export type { CityInfo, GameLibrary }
 
+type Built = { sample: Sample; city?: CityInfo }
+interface Job { o: WizardOptions; game: GameLibrary | null; resolve: (r: Built) => void; reject: (e: Error) => void }
+
 let worker: Worker | null | undefined
 let sentKey = ''
 let nextId = 1
-const waiting = new Map<number, { resolve: (r: { sample: Sample; city?: CityInfo }) => void; reject: (e: Error) => void }>()
+/** The request the worker is building, and the newest one waiting for it. */
+let running: (Job & { id: number }) | null = null
+let queued: Job | null = null
+
+/** Rejects a request a newer one replaced. */
+export class Superseded extends Error { constructor() { super('A newer map was asked for') } }
+export const isSuperseded = (e: unknown) => e instanceof Superseded
+
+/** Builds on the main thread, a tick later (the worker's stand-in). */
+const here = (j: Job) => setTimeout(() => { try { j.resolve(buildWizard(j.o, j.game)) } catch (e) { j.reject(e instanceof Error ? e : new Error(String(e))) } })
 
 function start(): Worker | null {
   if (worker !== undefined) return worker
   try {
-    worker = new Worker(new URL('./wizard.worker.ts', import.meta.url), { type: 'module' })
-    worker.onmessage = (e: MessageEvent<WizardReply>) => {
-      const m = e.data, w = waiting.get(m.id)
-      if (!w) return
-      waiting.delete(m.id)
-      if (m.kind === 'built') w.resolve({ sample: m.sample, city: m.city })
-      else w.reject(new Error(m.message))
+    const w = new Worker(new URL('./wizard.worker.ts', import.meta.url), { type: 'module' })
+    w.onmessage = (e: MessageEvent<WizardReply>) => {
+      const m = e.data, j = running
+      if (!j || j.id !== m.id) return
+      running = null
+      if (m.kind === 'built') j.resolve({ sample: m.sample, city: m.city })
+      else j.reject(new Error(m.message))
+      next()
     }
-    worker.onerror = () => { for (const w of waiting.values()) w.reject(new Error("The map wizard couldn't run")); waiting.clear() }
+    // A worker that can't load (or dies) is dropped for good: what it had, and everything after, is built here.
+    w.onerror = () => {
+      w.terminate()
+      worker = null
+      const left = [running, queued].filter((j): j is Job => !!j)
+      running = queued = null
+      left.forEach(here)
+    }
+    worker = w
   } catch {
     worker = null
   }
   return worker
 }
 
-/** A map from the wizard's choices, built off the main thread; `game` with the player's library, when given. */
-export function wizardBuild(o: WizardOptions, game: GameLibrary | null): Promise<{ sample: Sample; city?: CityInfo }> {
-  const w = start()
-  if (!w) return new Promise((resolve) => setTimeout(() => resolve(buildWizard(o, game))))
-  if (game && game.key !== sentKey) {
-    sentKey = game.key
-    w.postMessage({ kind: 'library', lib: game } satisfies WizardRequest)
+/** Sends the waiting request, once the worker is free. */
+function next() {
+  const w = worker
+  if (running || !queued) return
+  const j = queued
+  queued = null
+  if (!w) { here(j); return }
+  if (j.game && j.game.key !== sentKey) {
+    sentKey = j.game.key
+    w.postMessage({ kind: 'library', lib: j.game } satisfies WizardRequest)
   }
-  const id = nextId++
+  running = { ...j, id: nextId++ }
+  w.postMessage({ kind: 'build', id: running.id, o: j.o, game: !!j.game } satisfies WizardRequest)
+}
+
+/** A map from the wizard's choices, built off the main thread; `game` with the player's library, when given. */
+export function wizardBuild(o: WizardOptions, game: GameLibrary | null): Promise<Built> {
   return new Promise((resolve, reject) => {
-    waiting.set(id, { resolve, reject })
-    w.postMessage({ kind: 'build', id, o, game: !!game } satisfies WizardRequest)
+    const job: Job = { o, game, resolve, reject }
+    if (!start()) { here(job); return }
+    queued?.reject(new Superseded())
+    queued = job
+    next()
   })
 }
 

@@ -2,13 +2,16 @@
 // the open map's real collision. Ones inside something, in the air or on floor nobody can walk to move to the nearest
 // usable spot; spawns and weapons are added up to what a full match wants. One undo step.
 import { useEditor, currentProject } from './store'
-import { solidTriangles } from './stairActions'
+import { isRamps, solidTriangles } from './stairActions'
 import { prepareMap } from '../lib/analysis/analyze'
-import { waterAreas } from '../lib/analysis/collision'
+import { collisionFromProject, waterAreas } from '../lib/analysis/collision'
+import { findStairs, rampPieces, scaleRuns } from '../lib/stairRamps'
+import { compoundObj } from '../lib/shapes'
+import { parseObj } from '../lib/geometry'
 import { loadModel } from '../lib/assets'
 import type { ObjModel } from '../lib/geometry'
 import { planMarkers, type MarkerPlan } from '../lib/markerPlan'
-import { newMarker, type Project } from '../lib/project'
+import { newMarker, type Project, type SceneItem, type Vec3 } from '../lib/project'
 import { FFA_SPAWNS } from '../lib/levels'
 
 /** Free-for-all spawns and weapons a map should have for a full 12-player match. */
@@ -20,11 +23,34 @@ export interface SpawnFix { moved: number; added: { spawns: number; weapons: num
 export interface SpawnFixPlan { plan: MarkerPlan; scale: number }
 
 /**
- * Plans the fix on a project's real collision without touching it (the editor's open map, or a map just built from
- * the Start dialog before it opens). Reads the project's models from this device.
+ * The invisible ramps the map's checks will put over stairs too tall to run up (stairActions.ts addStairRamps), as
+ * collision only: so a map planned before they are added doesn't count the floors up those stairs as out of reach.
  */
-export async function planSpawnFix(project: Project): Promise<SpawnFixPlan> {
-  const input = await solidTriangles(project)
+function rampCollision(project: Project, input: { tris: Float32Array; flags: Uint8Array }) {
+  const k = (project.settings.world_scale || 0.5) / 0.5
+  const runs = scaleRuns(findStairs(k === 1 ? input.tris : input.tris.map((v) => v * k), input.flags), 1 / k)
+  if (!runs.length) return null
+  const mat = 'stair_ramp'
+  const origin: Vec3 = [0, 0, 0]
+  const model = parseObj(compoundObj(rampPieces(runs, origin, mat)))
+  const item: SceneItem = { uid: 'ramps', name: 'ramps', path: '/ramps', position: origin, rotation: [0, 0, 0], scale: 1, textures: {}, alpha: { [mat]: true } }
+  return collisionFromProject({ ...project, scene_items: [item], markers: [] }, () => model)
+}
+
+/**
+ * Plans the fix on a project's real collision without touching it (the editor's open map, or a map just built and
+ * not open yet). Reads the project's models from this device. With `ramps`, it plans for the map as it will be once
+ * its stairs get their invisible ramps (a map whose checks run when it opens).
+ */
+export async function planSpawnFix(project: Project, opts: { ramps?: boolean } = {}): Promise<SpawnFixPlan> {
+  let input = await solidTriangles(project, opts.ramps ? (it) => !isRamps(it) : undefined)
+  const extra = opts.ramps ? rampCollision(project, input) : null
+  if (extra) {
+    const tris = new Float32Array(input.tris.length + extra.tris.length), flags = new Uint8Array(input.flags.length + extra.flags.length)
+    tris.set(input.tris); tris.set(extra.tris, input.tris.length)
+    flags.set(input.flags); flags.set(extra.flags, input.flags.length)
+    input = { ...input, tris, flags }
+  }
   // The planner works in the usual editor units (0.5 m each): a map at another world scale is measured in game metres.
   const k = (project.settings.world_scale || 0.5) / 0.5
   const markers = project.markers.map((m) => ({ type: m.type, position: m.position.map((v) => v * k) as typeof m.position, weapon: m.weapon }))

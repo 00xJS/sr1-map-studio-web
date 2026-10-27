@@ -2,8 +2,11 @@
 // with the File System Access API (Chrome, Edge, Opera). The folder handle
 // is remembered in IndexedDB; the browser asks again for permission when needed.
 import { db } from './db'
+import { SETUP_CHANGED } from './setupEvents'
 
 const KEY = 'maps-folder'
+/** Tells the Connect page and its prompts (setup.ts) that the remembered folder changed. */
+const changed = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event(SETUP_CHANGED)) }
 
 type DirHandle = FileSystemDirectoryHandle & {
   values?(): AsyncIterable<FileSystemDirectoryHandle | FileSystemFileHandle>
@@ -18,7 +21,7 @@ export async function rememberedMapsFolder(): Promise<string | null> {
   return h ? h.name : null
 }
 
-export async function forgetMapsFolder() { await db.setMeta(KEY, null) }
+export async function forgetMapsFolder() { await db.setMeta(KEY, null); changed() }
 
 /** Accepts the maps folder itself, dist, or the SaintsReborn folder. */
 async function resolveMaps(picked: DirHandle): Promise<DirHandle> {
@@ -46,6 +49,7 @@ export async function mapsFolder(choose = false): Promise<DirHandle> {
   const picked = await (window as any).showDirectoryPicker({ id: 'saintsreborn-maps', mode: 'readwrite' }) as DirHandle
   const maps = await resolveMaps(picked)
   await db.setMeta(KEY, maps)
+  changed()
   return maps
 }
 

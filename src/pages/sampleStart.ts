@@ -17,6 +17,9 @@ export async function startFromSample(id: string, compact: boolean, onProgress?:
     try { await connect(true) } catch (e) { throw e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder so the models can come in from your game.') : e }
   }
   const p = game ? await buildFrom(game, onProgress) : await buildSample(id, onProgress, { compact })
+  // The same spawn and weapon fix as the Start a map dialog's (startBuild.ts).
+  const { fixSpawnsBeforeOpen } = await import('./startBuild')
+  await fixSpawnsBeforeOpen(p, !!game, onProgress)
   await db.putProject({ id: p.id, name: p.name, updated_at: p.updated_at, project: p })
   if (game) queueEdits(p.id, { actions: [], label: 'Game pieces', checks: true })
   void requestPersistence()

@@ -6,6 +6,7 @@ import { create } from 'zustand'
 import { dataPackStatus, type DataPackStatus } from './datapack'
 import { rememberedGameFolder } from './sr1char/folder'
 import { rememberedMapsFolder } from './install'
+import { SETUP_CHANGED } from './setupEvents'
 
 export type SetupItem = 'datapack' | 'gameFolder' | 'library' | 'mapsFolder' | 'aiKey'
 
@@ -41,8 +42,15 @@ export function useSetup<T>(pick: (s: SetupState) => T): T {
   return useSetupStore(pick)
 }
 
-// Another tab saving or forgetting an AI key.
-if (typeof window !== 'undefined') window.addEventListener('storage', (e) => { if (e.key === KEY_STORE) useSetupStore.setState({ aiKey: hasKey() }) })
+// Read again when something changes it elsewhere: another tab's AI key, a folder chosen or forgotten in the editor,
+// or coming back to this tab (a key saved in the editor's AI panel, a folder's permission given or taken).
+if (typeof window !== 'undefined') {
+  const again = () => { if (useSetupStore.getState().loaded && !loading) void refreshSetup() }
+  window.addEventListener('storage', (e) => { if (e.key === KEY_STORE) useSetupStore.setState({ aiKey: hasKey() }) })
+  window.addEventListener(SETUP_CHANGED, again)
+  window.addEventListener('focus', again)
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') again() })
+}
 
 /** What each thing unlocks, for the Connect page's rows and the prompts. */
 export const UNLOCKS: Record<SetupItem, { label: string; unlocks: string }> = {
