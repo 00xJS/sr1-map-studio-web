@@ -1,6 +1,8 @@
 -- Runs companion-mod/playtest.lua against fake game memory, for tests/playtestLua.test.ts (in fengari, a Lua VM in
 -- JavaScript). In: PLAYTEST_SRC (the recorder), NOTE (MAP_STUDIO_EXPORT.txt, or nil), MOD_FOLDER (nil = the mod
--- loader didn't say), SCENARIO ("rooftop" or "reenter"), KEEP, INDEX (an index.txt already there, or nil).
+-- loader didn't say), SCENARIO ("rooftop", "reenter" or "ramp"), KEEP, INDEX (an index.txt already there, or
+-- nil), DELETED (a name in INDEX whose file is gone), TAKEN (that many of this second's log names already used),
+-- READ_ONLY (a folder no file can be written in).
 -- Out: RESULT, the files written ("### <path>" before each), and LOG, the wml.log lines.
 
 local T = 0
@@ -33,6 +35,9 @@ io.open = function(path, mode)
     local text = table.concat(f)
     return { close = function() end, lines = function() return text:gmatch("[^\n]+") end }
   end
+  if READ_ONLY and path:gsub("\\", "/"):sub(1, #READ_ONLY + 1) == READ_ONLY .. "/" then
+    return nil, path .. ": Permission denied"
+  end
   local buf = {}
   if not files[path] then order[#order + 1] = path end
   files[path] = buf
@@ -46,8 +51,12 @@ if INDEX and MOD_FOLDER then
   files[index], order[#order + 1] = { INDEX }, index
   for name in INDEX:gmatch("[^\n]+") do
     local p = MOD_FOLDER .. SEP .. "playtest" .. SEP .. name
-    files[p], order[#order + 1] = { "old\n" }, p
+    if name ~= DELETED and not files[p] then files[p], order[#order + 1] = { "old\n" }, p end
   end
+end
+for n = 1, TAKEN or 0 do
+  local p = MOD_FOLDER .. SEP .. "playtest" .. SEP .. "rooftop-20261027-180211" .. (n > 1 and "-" .. n or "") .. ".jsonl"
+  files[p], order[#order + 1] = { "old\n" }, p
 end
 
 local reload = {
@@ -110,6 +119,22 @@ elseif SCENARIO == "reenter" then
     playing, state = not (f >= 30 and f < 40), (f >= 30 and f < 40) and 2 or 5
     x = x + 3 * dt
     frame()
+  end
+  playing, state = false, 2
+  frame()
+elseif SCENARIO == "ramp" then
+  -- Down a long ramp at 3 m/s (far slower than a fall), then off its end, 16 m to the street. The frame rate
+  -- climbs from 40 to 60 at the ramp's top, and again during the drop.
+  y = 40
+  while T < 15 do
+    down, pressed = { W = true }, {}
+    local fps = (T < 2 or T >= 10 and T < 11) and 40 or 60
+    if T >= 1 and T < 9 then y = y - 3 / fps
+    elseif T >= 10 and y > 0 then vy = vy - 9.8 / fps; y = math.max(0, y + vy / fps)
+    end
+    x = x + 3 / fps
+    frame()
+    T = T + 1 / fps
   end
   playing, state = false, 2
   frame()

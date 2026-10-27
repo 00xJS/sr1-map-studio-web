@@ -56,8 +56,11 @@ local function pointer(v) return v >= 0x40000000 and v < 0xFFFF0000 end
 -- Seconds, smooth. os.clock is wall time on Windows. Elsewhere it is CPU
 -- time and os.time counts whole seconds, so the frames since os.time last
 -- ticked make up the fraction, at the frame rate of the last whole second.
+-- When the frame rate rises, the fraction runs out early and the clock
+-- stands at .999 until os.time ticks; held counts those frames, so a
+-- measurement over a span with one in it can be thrown away.
 -- Called once a frame (P.update), paused or not.
-local whole, frames_in, fps = nil, 0, 60
+local whole, frames_in, fps, held = nil, 0, 60, 0
 local function clock()
   if windows then return os.clock() end
   local s = os.time()
@@ -66,7 +69,12 @@ local function clock()
     whole, frames_in = s, 0
   end
   frames_in = frames_in + 1
-  return whole + math.min((frames_in - 1) / fps, 0.999)
+  local fraction = (frames_in - 1) / fps
+  if fraction > 0.999 then
+    held = held + 1
+    return whole + 0.999
+  end
+  return whole + fraction
 end
 local now = 0           -- this frame's clock()
 
@@ -117,15 +125,18 @@ local function export_note(map)
   local dir = reload.folder(map)
   local text = dir and reload.read_file(reload.join(dir, "MAP_STUDIO_EXPORT.txt"))
   if not text then return {} end
+  -- Each field starts a line, as readExportNote has it.
+  text = "\n" .. text
+  local function field(pattern) return text:match("\n" .. pattern) end
   local note = {}
-  note.exported = text:match("Exported by [^\r\n]- on (%S+)")
-  note.project = text:match("Project id: *([%w%-_]+)")
-  local ox, oy, oz = text:match("Map origin: *(%S+) +(%S+) +(%S+)")
+  note.exported = field("Exported by [^\r\n]- on (%S+)")
+  note.project = field("Project id: *([%w%-_]+)")
+  local ox, oy, oz = field("Map origin: *(%S+) +(%S+) +(%S+)")
   if ox then note.origin = { tonumber(ox), tonumber(oy), tonumber(oz) } end
-  note.world_scale = tonumber(text:match("World scale: *(%S+)") or "")
-  local mirror = text:match("Mirror X: *(%a+)")
+  note.world_scale = tonumber(field("World scale: *(%S+)") or "")
+  local mirror = field("Mirror X: *(%a+)")
   if mirror then note.mirror_x = mirror == "on" end
-  note.floor_y = tonumber(text:match("Lowest floor: *(%S+)") or "")
+  note.floor_y = tonumber(field("Lowest floor: *(%S+)") or "")
   return note
 end
 
@@ -151,14 +162,19 @@ end
 
 -- Keeps the newest `keep` logs: index.txt beside them lists the ones this
 -- mod wrote, oldest first (Lua can't list a folder), and the oldest go.
+-- name, the log just opened, is the newest wherever else the index has it,
+-- so it is never the one deleted.
 local function remember(dir, name)
   local index = dir .. SEP .. (dir == mod_folder and "playtest-index.txt" or "index.txt")
-  local list = {}
+  local list, seen = {}, { [name] = true }
   local f = io.open(index, "r")
   if f then
     for line in f:lines() do
-      -- Only plain log names: the index can't point anywhere else.
-      if line:match("^[%w_%-]+%.jsonl$") then list[#list + 1] = line end
+      -- Only plain log names, each once: the index can't point anywhere else.
+      if line:match("^[%w_%-]+%.jsonl$") and not seen[line] then
+        seen[line] = true
+        list[#list + 1] = line
+      end
     end
     f:close()
   end
@@ -198,7 +214,7 @@ local function open(map, pos)
   local t = now
   local note = export_note(map)
   rec = { file = file, map = map, started = t, note = note, last = pos, next_pos = t, prev_t = t,
-    top = pos[2], low = pos[2], low_at = t, v_at = t, v_y = pos[2], fall_speed = 0, below = false,
+    top = pos[2], low = pos[2], low_at = t, v_at = t, v_y = pos[2], v_held = held, fall_speed = 0, below = false,
     anchor = pos, anchor_at = t, stuck = false, usual = 0, frames = 0, last_push = -100, push_at = -100, marks = 0 }
   write("start", pos, { "date", os.date("!%Y-%m-%dT%H:%M:%SZ"), "project", note.project, "exported", note.exported,
     "origin", note.origin, "world_scale", note.world_scale, "mirror_x", note.mirror_x, "floor_y", note.floor_y })
@@ -219,14 +235,15 @@ local function dist(a, b, flat)
 end
 
 -- Falls: the highest point since the player last stood still in height, the
--- fastest drop since then (over 0.1 s windows), and a landing once the height
--- has stopped going down for 0.3 s.
+-- fastest drop since then (over 0.1 s windows, leaving out any the clock
+-- stood still in: they lasted longer than they say), and a landing once the
+-- height has stopped going down for 0.3 s.
 local function falls(t, pos)
   local y = pos[2]
   if y > rec.top then rec.top = y end
   if t - rec.v_at >= 0.1 then
-    rec.fall_speed = math.max(rec.fall_speed, (rec.v_y - y) / (t - rec.v_at))
-    rec.v_at, rec.v_y = t, y
+    if held == rec.v_held then rec.fall_speed = math.max(rec.fall_speed, (rec.v_y - y) / (t - rec.v_at)) end
+    rec.v_at, rec.v_y, rec.v_held = t, y, held
   end
   if y < rec.low - 0.05 then
     rec.low, rec.low_at = y, t
@@ -292,11 +309,11 @@ end
 
 local function record(t, pos)
   -- Back from the pause menu, or a long hitch: time went on without the player.
-  if paused or t - rec.prev_t > 1.5 then rec.anchor_at, rec.low_at, rec.v_at, rec.v_y = t, t, t, pos[2] end
+  if paused or t - rec.prev_t > 1.5 then rec.anchor_at, rec.low_at, rec.v_at, rec.v_y, rec.v_held = t, t, t, pos[2], held end
   rec.prev_t = t
   if dist(pos, rec.last) > TELEPORT_METRES then
     write("respawn", pos, { "from", rec.last })
-    rec.top, rec.low, rec.low_at, rec.v_at, rec.v_y, rec.fall_speed = pos[2], pos[2], t, t, pos[2], 0
+    rec.top, rec.low, rec.low_at, rec.v_at, rec.v_y, rec.v_held, rec.fall_speed = pos[2], pos[2], t, t, pos[2], held, 0
     rec.anchor, rec.anchor_at, rec.stuck, rec.below = pos, t, false, false
   else
     falls(t, pos)
