@@ -346,7 +346,7 @@ async function storeShape(shape: Shape) {
 }
 
 /** Drop file records nothing refers to any more (e.g. a shape's previous OBJ). */
-function pruneFiles(d: Project) {
+export function pruneFiles(d: Project) {
   const live = new Set(referencedPaths(d))
   for (const path of Object.keys(d.files)) if (!live.has(path)) delete d.files[path]
 }
@@ -390,7 +390,7 @@ export async function updateShape(index: number, patch: Partial<Shape>) {
 }
 
 /** Builds a prefab as one scene object at a spot, turned by rot. */
-async function prefabItem(key: string, params: Record<string, number | string>, at: Vec3, rot: number) {
+export async function prefabItem(key: string, params: Record<string, number | string>, at: Vec3, rot: number) {
   const def = ALL_PREFABS[key]
   const { materialize } = await import('../lib/samples')
   const { prefabParams, tagPrefab } = await import('../lib/prefabs')

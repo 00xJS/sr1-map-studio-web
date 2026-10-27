@@ -93,8 +93,8 @@ const MAX_HEIGHT: Record<WizardSetting, number> = {
  * building can be named after one of its parts ("Window") by those rules.
  */
 /** Names the first identity rules give some lights, signs and frames they count as buildings: not buildings. */
-const NOT_BUILDINGS = new Set(['Light', 'Graffiti', 'Post', 'Fence', 'Sign', 'Billboard', 'Pole', 'Lamp'])
-const PART_NAMES = new Set(['Wall', 'Window', 'Door', 'Trim', 'Grass', 'Ground', 'Road', 'Sidewalk', 'Kerb', 'Roof', 'Floor', 'Metal panel', 'Wood panel',
+export const NOT_BUILDINGS = new Set(['Light', 'Graffiti', 'Post', 'Fence', 'Sign', 'Billboard', 'Pole', 'Lamp'])
+export const PART_NAMES = new Set(['Wall', 'Window', 'Door', 'Trim', 'Grass', 'Ground', 'Road', 'Sidewalk', 'Kerb', 'Roof', 'Floor', 'Metal panel', 'Wood panel',
   'Post', 'Highway', 'Tiles', 'Front', 'Handles', 'Building', 'Invisible blocker'])
 /**
  * Lowest building, metres: a plot's building is what players hide behind, so a kiosk or a canopy doesn't take one
