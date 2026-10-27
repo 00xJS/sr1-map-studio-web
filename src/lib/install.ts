@@ -2,6 +2,7 @@
 // with the File System Access API (Chrome, Edge, Opera). The folder handle
 // is remembered in IndexedDB; the browser asks again for permission when needed.
 import { db } from './db'
+import { readExportNote } from './playtest'
 
 const KEY = 'maps-folder'
 
@@ -51,6 +52,14 @@ export async function mapsFolder(choose = false): Promise<DirHandle> {
 
 export async function mapFolderExists(maps: DirHandle, folder: string): Promise<boolean> {
   try { await maps.getDirectoryHandle(folder); return true } catch { return false }
+}
+
+/** The project whose export is installed in maps/<folder>, from its MAP_STUDIO_EXPORT.txt (none for older exports and other maps). */
+export async function installedProjectId(maps: DirHandle, folder: string): Promise<string | undefined> {
+  try {
+    const file = await (await (await maps.getDirectoryHandle(folder)).getFileHandle('MAP_STUDIO_EXPORT.txt')).getFile()
+    return readExportNote(await file.text()).projectId
+  } catch { return undefined }
 }
 
 /** An early surface registration pair (py/surface_registration.py): named from its contents, so each export makes a new one. */

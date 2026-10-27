@@ -506,7 +506,10 @@ def _export(s, log):
         'surface_textures': early['textures'] if early else 0,
         **extras,
     }
-    return {'map_name': base, 'out_dir': str(out), 'files': files, 'summary': summary}
+    # Game metres = mirror((editor - origin) * world scale): what a playtest log needs to find its spots in the editor.
+    floor = (min(float(v[1]) for v in mesh['verts']) - fixed_origin[1]) * ws
+    return {'map_name': base, 'out_dir': str(out), 'files': files, 'summary': summary,
+            'origin': [float(x) for x in fixed_origin], 'floor_y': floor}
 
 
 def extract_bbchunk(chunk_path, peg_path, out_obj):
