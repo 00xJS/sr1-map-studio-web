@@ -43,7 +43,7 @@ export function WeatherHud({ viewer }: { viewer: Viewer | null }) {
     let live = true
     dryBoxes().then((b) => { if (live) setDry(b) }, () => { if (live) setDry([]) })
     return () => { live = false }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+     
   }, [])
   useEffect(() => {
     viewer?.rain.set({ amount, boxes: [...markers, ...(dry ?? [])], showBoxes: show, ws: project.settings.world_scale })

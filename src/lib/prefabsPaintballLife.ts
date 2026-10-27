@@ -8,20 +8,10 @@
 // turned by rot; pieces with a front face +Z. Signs and banners use the
 // generated 'banner' texture, so nothing here needs an image file.
 import { CY, PB, box, cyl, sack, lying, stairs, type Part, type Tex } from './sampleKit'
-import { group, local, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { type ParamDef, type Params, type PrefabDef } from './prefabs'
 import { BANNERS } from './procedural'
+import { pf, pfp, type Lf as L } from './prefabKit'
 
-type L = (dx: number, dy: number, dz: number) => [number, number, number]
-const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
-const pf = (name: string, make: (L: L) => Part[]) =>
-  (x: number, z: number, rot: number, y: number) => group(id(name, x, y, z), local(x, y, z, rot, make))
-const pfp = (name: string, params: ParamDef[], make: (L: L, p: Params) => Part[]) => ({
-  params,
-  make: (x: number, z: number, rot: number, y: number, given?: Params) => {
-    const p = Object.fromEntries(params.map((d) => [d.key, given?.[d.key] ?? d.default]))
-    return group(id(name, x, y, z), local(x, y, z, rot, (L) => make(L, p)))
-  },
-})
 
 /** Wording on a sign: one of the generated banner texture's slogans ('' for the splat alone), stretched once over a face `aspect` times wider than tall. The print reads right on the face toward +Z. */
 export const say = (text: string, aspect: number, color: string, accent: string, wear = 0.1): Tex =>

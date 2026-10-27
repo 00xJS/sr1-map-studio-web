@@ -8,6 +8,7 @@ import { useEditor } from './store'
 import { toastError } from '../ui'
 import { peak, steepest, type Brush } from '../lib/terrain'
 import type { SceneItem } from '../lib/project'
+import { fmtUnits } from '../lib/units'
 
 const BRUSHES: [Brush, string, string][] = [
   ['raise', 'Raise', 'Pull the ground up into hills (hold Shift to dig instead)'],
@@ -79,10 +80,11 @@ export function GroundToolOptions({ tool }: { tool: 'sculpt' | 'road' }) {
 /** Inspector panel for a terrain: how high and steep it is, and a way into sculpting. */
 export function TerrainPanel({ it }: { it: SceneItem }) {
   const s = it.shape!
+  const scale = useEditor((st) => st.project?.settings.world_scale)
   return (
     <div className="group">
       <span className="section-title">Terrain</span>
-      <span className="small muted">{s.cells?.[0]} × {s.cells?.[1]} cells · highest point {(peak(s) / 2).toFixed(1)} m · steepest slope {steepest(s).toFixed(0)}°</span>
+      <span className="small muted">{s.cells?.[0]} × {s.cells?.[1]} cells · highest point {fmtUnits(peak(s), scale)} · steepest slope {steepest(s).toFixed(0)}°</span>
       <div className="row"><button className="sm primary" onClick={() => chooseTool('sculpt')} title="T">Sculpt it</button></div>
       <span className="faint small">Grass covers the flats, dirt the slopes and stones the steepest, highest ground. Change each under Look.</span>
     </div>

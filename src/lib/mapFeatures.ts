@@ -4,6 +4,7 @@
 // while the map loads. None of these has been tried in game yet.
 import type { Project, SceneItem } from './project'
 import { storeFile } from './files'
+import { statusSentence } from './featureStatus'
 
 /**
  * Background sound: the sound file of one of the game's own multiplayer maps,
@@ -30,7 +31,7 @@ export const ambienceHint = (file: string | undefined) => {
   const o = AMBIENCE_OPTIONS.find((x) => x.file === file)
   if (!o) return 'No background sound, like other custom maps.'
   return (o.even ? 'One sound bed that covers your whole map. ' : "That map's sound spots play at random places in yours. ")
-    + 'Borrowed from your game when the map loads. New: not yet tried in game.'
+    + 'Borrowed from your game when the map loads.' + statusSentence('ambience')
 }
 
 /** Stock profiles a movable prop can use (weight presets). Health and weight come with the profile. */
@@ -65,8 +66,8 @@ export const BREAKING_PRESETS: [profile: string, label: string][] = [
 
 /** Plain-language hint for the swimmable water setting. */
 export const waterHint = (it: Pick<SceneItem, 'water_materials'>) => it.water_materials?.length
-  ? 'Its water part becomes water players can swim in: no collision, see-through, the water surface at its top and at least 2 m deep. Not yet tried in game.'
-  : 'Players can swim in it: it loses its collision, turns see-through, and its top is the water surface (at least 2 m deep). Use a box that fills a basin; water outside a basin just sits on the ground. Not yet tried in game.'
+  ? 'Its water part becomes water players can swim in: no collision, see-through, the water surface at its top and at least 2 m deep.' + statusSentence('water')
+  : 'Players can swim in it: it loses its collision, turns see-through, and its top is the water surface (at least 2 m deep). Use a box that fills a basin; water outside a basin just sits on the ground.' + statusSentence('water')
 
 // ---------------- loading screen ----------------
 

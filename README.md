@@ -10,8 +10,10 @@ Nothing to install. Open the site, start a map, press **Play**.
 
 ## Start a map in seconds
 
-**Map wizard.** Pick a setting (Downtown, Industrial, Paintball or Cyber), a layout (city blocks,
-a big plaza, three lanes, a ring arena or high ground), how many players and how busy you want it.
+**Map wizard.** Pick one of nine settings (downtown, industrial, suburbs, docks, construction,
+military, rundown, paintball or cyber), one of ten layouts (city blocks, a big plaza, three lanes, a
+ring arena, high ground, a neighbourhood, crossroads, compounds, a maze or a cover field), how many
+players and how busy you want it.
 You see the map from above before you build it. Don't like it? Press **Reroll** for a new one.
 Every map comes out fair: both teams get the same layout, turned around.
 
@@ -26,7 +28,7 @@ drop-offs and lights already placed. Start one and change anything.
 
 ## Build it your way
 
-- **Click to place.** Floors, walls, ramps, stairs, pillars and roofs, or 140+ ready-made pieces:
+- **Click to place.** Floors, walls, ramps, stairs, pillars and roofs, or about 670 ready-made pieces:
   buildings, cars, buses, trees, ponds, street lamps, bus stops, paintball bunkers, containers,
   forklifts, neon pillars, jump pads and more.
 - **Rooms you can walk into.** Shops, bars, offices, apartments, garages, a warehouse with a

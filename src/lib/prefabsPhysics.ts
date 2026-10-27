@@ -5,6 +5,7 @@
 import { PB, box, cyl, lying, ramp, type Part, type Tex } from './sampleKit'
 import { group, local, type PrefabDef } from './prefabs'
 import type { PhysicsShape } from './physicsProps'
+import { id } from './prefabKit'
 
 /** What a part becomes: a physics prop with this preset (and shape), or a ball made from its size. */
 export interface PhysicsTag { preset: string; shape?: PhysicsShape; bottomHeavy?: boolean; ball?: boolean }
@@ -12,7 +13,6 @@ export type PhysicsPart = Part & { physics?: PhysicsTag }
 
 export const isPhysicsSet = (def: PrefabDef): boolean => !!(def as { physicsSet?: boolean }).physicsSet
 
-const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
 const prop = (part: Part, preset: string, shape?: PhysicsShape, bottomHeavy?: boolean): PhysicsPart =>
   ({ ...part, physics: { preset, ...(shape ? { shape } : {}), ...(bottomHeavy ? { bottomHeavy } : {}) } })
 /** A ball `d` across, its bottom at `at` (built as a sphere when placed). */

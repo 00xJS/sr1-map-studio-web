@@ -2,6 +2,7 @@
 // simple editor. The stored values stay the exporter's names.
 import type { GameMode } from './project'
 import { RETAIL_MARKER_HINTS } from './retailModes'
+import { statusSentence } from './featureStatus'
 
 export const MARKER_LABELS: Record<string, string> = {
   'Shared spawn': 'Player spawn',
@@ -35,5 +36,5 @@ export const MODE_HINTS: Record<GameMode, string> = {
   'Big Ass Chains': 'Take chains from beaten players and cash them in.',
   'Team Big Ass Chains': 'Big Ass Chains in two teams.',
   'Protect Tha Pimp': 'One team guards the pimp, the other hunts him.',
-  'Blinged Out Ride': 'Teams earn cash to bling their ride, then drive it into the victory garage. Needs its own markers. New, untested.',
+  'Blinged Out Ride': 'Teams earn cash to bling their ride, then drive it into the victory garage. Needs its own markers.' + statusSentence('blinged_out_ride'),
 }

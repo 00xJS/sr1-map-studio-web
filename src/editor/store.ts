@@ -125,14 +125,14 @@ export const useEditor = create<EditorState>((set, get) => ({
     const merging = opts?.merge && lastMerge && lastMerge.key === opts.merge && now - lastMerge.at < 1500
     lastMerge = opts?.merge ? { key: opts.merge, at: now } : null
     const past = merging ? get().past : [...get().past, { project: cur, label }].slice(-LIMIT)
-    set({ project: next, past, future: [], saveState: 'unsaved' })
+    set({ project: next, ...reanchor(get(), cur, next), past, future: [], saveState: 'unsaved' })
   },
   undo() {
     const { past, project, future } = get()
     const prev = past[past.length - 1]
     if (!prev || !project) return
     lastMerge = null
-    set({ project: prev.project, multi: keepIn(get().multi, prev.project), past: past.slice(0, -1), future: [{ project, label: prev.label }, ...future], saveState: 'unsaved' })
+    set({ project: prev.project, ...reanchor(get(), project, prev.project), past: past.slice(0, -1), future: [{ project, label: prev.label }, ...future], saveState: 'unsaved' })
     get().log('Undo: ' + prev.label)
   },
   redo() {
@@ -140,12 +140,13 @@ export const useEditor = create<EditorState>((set, get) => ({
     const next = future[0]
     if (!next || !project) return
     lastMerge = null
-    set({ project: next.project, multi: keepIn(get().multi, next.project), future: future.slice(1), past: [...past, { project, label: next.label }], saveState: 'unsaved' })
+    set({ project: next.project, ...reanchor(get(), project, next.project), future: future.slice(1), past: [...past, { project, label: next.label }], saveState: 'unsaved' })
     get().log('Redo: ' + next.label)
   },
   jumpTo(steps) {
     let { past, project, future } = get()
     if (!project || !steps) return
+    const from = project
     lastMerge = null
     for (; steps < 0 && past.length; steps++) {
       const prev = past[past.length - 1]
@@ -159,7 +160,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       project = next.project
       future = future.slice(1)
     }
-    set({ project, multi: keepIn(get().multi, project), past, future, saveState: 'unsaved' })
+    set({ project, ...reanchor(get(), from, project), past, future, saveState: 'unsaved' })
   },
   select(selection) {
     if (selection?.kind !== 'item') { set({ selection, multi: [] }); return }
@@ -224,7 +225,41 @@ useEditor.subscribe((s, prev) => {
 
 export const currentProject = () => useEditor.getState().project
 
-const keepIn = (multi: number[], p: Project) => { const m = multi.filter((i) => i < p.scene_items.length); return m.length > 1 ? m : [] }
+type Anchored = Pick<EditorState, 'selection' | 'multi' | 'lastItem'>
+type Listed = { uid?: string }
+
+const listOf = (p: Project, kind: 'item' | 'marker' | 'light'): Listed[] =>
+  kind === 'item' ? p.scene_items : kind === 'marker' ? p.markers : p.lights
+
+/** Where the thing at `index` in `from` sits in `to`: found by its uid, so adding, removing or reordering
+ * (an edit, an undo, a redo) never leaves the selection on a different thing. -1 when it's gone. A thing
+ * rebuilt in place under a new uid keeps its spot when the list didn't change length. */
+function follow(from: Listed[], to: Listed[], index: number): number {
+  const uid = from[index]?.uid
+  if (to[index] && to[index].uid === uid) return index
+  if (uid) { const i = to.findIndex((x) => x.uid === uid); if (i >= 0) return i }
+  return from.length === to.length && index < to.length ? index : -1
+}
+
+/** A merge key for edits to one thing, by its uid: index-based keys would merge edits to two different
+ * things once a delete or undo shifts the list. */
+export function thingKey(kind: 'item' | 'marker' | 'light', index: number): string {
+  const p = useEditor.getState().project
+  return `${kind}:${(p && listOf(p, kind)[index]?.uid) ?? '#' + index}`
+}
+
+/** The selection, multi-selection and last item carried from one version of the project to the next. */
+export function reanchor(s: Anchored, from: Project, to: Project): Anchored {
+  if (from === to) return { selection: s.selection, multi: s.multi, lastItem: s.lastItem }
+  let selection = s.selection
+  if (selection) {
+    const i = follow(listOf(from, selection.kind), listOf(to, selection.kind), selection.index)
+    selection = i >= 0 ? { kind: selection.kind, index: i } : null
+  }
+  const multi = s.multi.map((i) => follow(from.scene_items, to.scene_items, i)).filter((i) => i >= 0)
+  const lastItem = s.lastItem >= 0 ? follow(from.scene_items, to.scene_items, s.lastItem) : -1
+  return { selection, multi: multi.length > 1 ? multi : [], lastItem }
+}
 
 /** Indices of the objects in the same group as this one (just this one when it isn't grouped). */
 export function groupOf(project: Project | null, index: number): number[] {

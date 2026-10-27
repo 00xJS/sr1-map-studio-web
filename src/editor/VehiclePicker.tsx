@@ -43,20 +43,20 @@ export function VehiclePicker({ value, onChange }: { value: string; onChange: (i
   const choices = vehicleChoices()
   const known = choices.some((c) => c.id.toLowerCase() === id)
   const row = (c: { id: string; name: string }) => (
-    <div key={c.id} className={'list-item' + (c.id.toLowerCase() === id ? ' selected' : '')} onClick={() => { onChange(c.id); setOpen(false) }} title={c.id}>
+    <button type="button" key={c.id} className={'list-item' + (c.id.toLowerCase() === id ? ' selected' : '')} aria-pressed={c.id.toLowerCase() === id} onClick={() => { onChange(c.id); setOpen(false) }} title={c.id}>
       <PrefabThumb shape={'vehicle:' + c.id.toLowerCase()} size={40} />
       <span className="grow">{c.name}</span>
       <span className="meta mono">{sizeText(sizes[c.id.toLowerCase()])}</span>
-    </div>
+    </button>
   )
   return (
     <div className="vehicle-picker" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-      <div className="list-item" style={{ border: '1px solid var(--line-strong)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-input)' }} onClick={() => setOpen(!open)} role="button" aria-expanded={open} title={value}>
+      <button type="button" className="list-item" style={{ border: '1px solid var(--line-strong)', borderRadius: 'var(--radius-sm)', background: 'var(--bg-input)' }} onClick={() => setOpen(!open)} aria-expanded={open} title={value}>
         <PrefabThumb shape={'vehicle:' + id} size={40} />
         <span className="grow">{vehicleName(value)}{!known && <span className="faint"> (custom ID)</span>}</span>
         <span className="meta mono">{sizeText(sizes[id])}</span>
         <span className="faint">{open ? '▴' : '▾'}</span>
-      </div>
+      </button>
       {open && (
         <div className="list" style={{ maxHeight: 320 }}>
           <div className="list-head">Used in retail multiplayer maps</div>
