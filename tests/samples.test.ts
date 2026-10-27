@@ -70,7 +70,10 @@ describe('sample marker placement', () => {
       const markers = s.markers.map(([type, at, patch]) => ({ ...newMarker(type, at), ...patch }))
       expect(checkModes({ modes: s.modes }, markers).errors).toEqual([])
       expect(count('Red team spawn')).toBe(count('Blue team spawn'))
-      expect(count('Red team spawn')).toBeGreaterThanOrEqual(6)
+      // Team spawns only where a mode uses them (Protect Tha Pimp, Blinged Out Ride).
+      const teams = s.modes.some((m) => m === 'Protect Tha Pimp' || m === 'Blinged Out Ride')
+      if (teams) expect(count('Red team spawn')).toBeGreaterThanOrEqual(6)
+      else expect(count('Red team spawn')).toBe(0)
       expect(count('Shared spawn')).toBeGreaterThanOrEqual(8)
       expect(count('Weapon pickup')).toBeGreaterThanOrEqual(10)
       // The drop-off moves between 4 spots, as on the game's own maps; maps without a Chains mode get none.

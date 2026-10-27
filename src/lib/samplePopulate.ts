@@ -234,6 +234,7 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   const seen = t.shelter && walk ? exposureOf(walk.bvh, pool) : null
   const sheltered = (limit: number) => (p: Vec3) => !seen || Math.max(seen(p), seen(flip(p))) <= limit
 
+  const usesTeams = s.modes.some((m) => m === 'Protect Tha Pimp' || m === 'Blinged Out Ride')
   // Team spawns: spread across each team's end of the map, out of sight of the other team's spawns where there's room.
   const eye = (p: Vec3) => [p[0], p[1] + 0.1 + PLAYER.standEye, p[2]]
   const hidden = (p: Vec3) => !walk || of('Blue team spawn').concat([flip(p)]).every((b) => walk.bvh.blocked(...(eye(b) as Vec3), ...(eye(p) as Vec3), OPAQUE))
@@ -242,7 +243,9 @@ export function populate(s: Sample, t: PopulateTargets = FULL_TARGETS, floor: Sa
   const teamPasses = [[true, 6, true, 0.12], [true, 4, true, 0.2], [true, 6, true, 1], [true, 4, true, 1], [false, 6, true, 1], [false, 6, false, 1]] as const
   for (const [strict, gap, clear, open] of seen ? teamPasses : teamPasses.filter(([, , , o]) => o === 1)) {
     const cover = sheltered(open)
-    for (let need = t.perTeam - of('Red team spawn').length; need > 0; need--) {
+    // Only modes that use team spawns get them (Protect Tha Pimp, Blinged Out Ride); Brawl and Chains, team versions
+    // too, spawn everyone at Player spawns, as the game's own maps do.
+    for (let need = usesTeams ? t.perTeam - of('Red team spawn').length : 0; need > 0; need--) {
       const [p] = pick(pool, of('Red team spawn'), 1, gap, (q) => q[2] < -depth * 0.3 && (!clear || clearOf(busy, q)) && (!strict || hidden(q)) && cover(q), mirrorOk)
       if (!p) break
       markers.push(['Red team spawn', p, { yaw: 180 }], ['Blue team spawn', flip(p), { yaw: 0 }])

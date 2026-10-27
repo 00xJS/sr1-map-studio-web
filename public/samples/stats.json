@@ -3,7 +3,7 @@
   "widthM": 80,
   "depthM": 80,
   "players": 12,
-  "spawns": 36,
+  "spawns": 20,
   "weapons": 23,
   "lights": 24
  },
