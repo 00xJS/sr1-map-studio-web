@@ -23,6 +23,7 @@ import { NOON, type GameLight } from '../lib/gameLight'
 import { cappedFog, installFogCap } from './fogCap'
 import { syncVehicle } from './vehicleModels'
 import { hiddenSet, layerHidden } from '../lib/layers'
+import { Rain } from './rain'
 
 /**
  * How the view is lit. 'game': as the game lights a multiplayer map (a warm sun with shadows, a cool fill, a flat
@@ -163,7 +164,7 @@ export class Viewer {
     this.scene.add(this.hemi, this.sunLight, this.sunLight.target, this.fillLight, this.ambientLight, this.mapLights)
     this.applyLook()
     this.grid = new THREE.GridHelper(200, 40, 0x6b2a5a, 0x2b1c2b)
-    this.scene.add(this.grid, this.root, this.markerRoot, this.lightRoot, this.box, this.pivot, this.batch.root)
+    this.scene.add(this.grid, this.root, this.markerRoot, this.lightRoot, this.box, this.pivot, this.batch.root, this.rain.root)
     this.box.visible = false
     this.camera.position.set(30, 25, 30)
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement)
@@ -213,6 +214,7 @@ export class Viewer {
     if (this.walker) {
       const now = performance.now()
       this.walker.step((now - this.lastFly) / 1000)
+      this.rain.step(Math.min((now - this.lastFly) / 1000, 0.1), this.camera.position)
       this.physics?.step(Math.min((now - this.lastFly) / 1000, 0.1))
       this.lastFly = now
       this.followSun(this.walker.pos)
@@ -552,6 +554,9 @@ export class Viewer {
 
   get walking() { return !!this.walker }
 
+  /** The walk-through's rain (editor/rain.ts): set how hard it rains and where it stops. */
+  readonly rain = new Rain()
+
   /** Solid scene objects the walker bumps into (not ones marked pass-through). */
   private solids(): THREE.Object3D[] {
     const out: THREE.Object3D[] = []
@@ -615,6 +620,7 @@ export class Viewer {
 
   stopWalk() {
     if (!this.walker) return
+    this.rain.stop()
     this.physics?.dispose()
     this.physics = null
     this.walker.dispose()

@@ -17,6 +17,7 @@ import type { PlayerModel } from '../lib/sr1char/player'
 import { placePendingDecal } from './PhotoDialog'
 import { ghostFor } from './ghost'
 import { PhysicsHud } from './PhysicsHud'
+import { WeatherHud } from './WeatherHud'
 import { attachHealthOverlay } from './health'
 import { attachGroundTools } from './groundTools'
 import { dropHasMap } from '../lib/mapFolder/files'
@@ -206,6 +207,7 @@ function WalkHud() {
         <b>Walking the map <span className="small" style={{ fontWeight: 'normal', opacity: 0.8 }}>· {state.crouched ? 'Crouching' : 'Standing'}{state.tired ? ' · out of sprint' : ''} · head {(state.head / 2).toFixed(2)} m · eyes {(state.eye / 2).toFixed(2)} m</span></b>
         <span className="small">{state.locked ? 'WASD run · Shift sprint (3 s, then it refills) · Space jump · C crouch · V third person · R back to start · Esc frees the mouse' : 'Click the map to look around with the mouse'}</span>
         <PhysicsHud viewer={active} />
+        <WeatherHud viewer={active} />
         <div className="row">
           {spawns.length > 0 && <>
             <button className="sm" onClick={() => go(-1)}>◀</button>

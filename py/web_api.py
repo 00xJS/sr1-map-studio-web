@@ -538,6 +538,21 @@ def map_tool(op, spec_json):
         return _fail(exc)
 
 
+def dry_boxes(path):
+    """The rain blockers "Keep interiors dry" would add (py/interiors.py), for the editor's weather preview.
+
+    `path` holds the map's solid triangles as float32, 9 per triangle, in metres on the editor's axes (the boxes
+    come back on the same axes: [[x0, y0, z0], [x1, y1, z1]], biggest first).
+    """
+    try:
+        import numpy as np
+        import interiors
+        tris = np.fromfile(path, dtype='<f4').reshape(-1, 3, 3).astype(np.float64)
+        return _ok([[list(map(float, lo)), list(map(float, hi))] for lo, hi in interiors.boxes(tris)])
+    except Exception as exc:
+        return _fail(exc)
+
+
 def texture_preview(path, max_size=1024):
     """PNG bytes for formats a browser cannot show (TGA, DDS, TIFF)."""
     from PIL import Image

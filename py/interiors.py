@@ -140,7 +140,8 @@ def _hits(tris, x0, z0, cell, nx, nz):
         end = at + max(1, int(np.searchsorted(csum, 2_000_000)))
         t = order[at:end]
         at = end
-        c = count[t]
+        # np.repeat takes its counts as the platform's index type: 32-bit in the browser's Python (Pyodide).
+        c = count[t].astype(np.intp)
         idx = np.repeat(np.arange(t.size), c)
         k = np.arange(idx.size) - np.repeat(np.cumsum(c) - c, c)
         ti = t[idx]
