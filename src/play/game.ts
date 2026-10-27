@@ -99,7 +99,8 @@ export function availableRuns(markers: Marker[]): { mode: RunMode; label: string
   const out: { mode: RunMode; label: string; count: number }[] = [{ mode: 'roam', label: RUN_LABELS.roam, count: 0 }]
   if (weapons) out.push({ mode: 'weapons', label: RUN_LABELS.weapons, count: weapons })
   if (drops) out.push({ mode: 'dropoffs', label: RUN_LABELS.dropoffs, count: drops })
-  if (weapons + drops >= 2) out.push({ mode: 'race', label: RUN_LABELS.race, count: weapons || drops })
+  // A race is for weapons when the map has any, else drop-offs: offered once that set has two to race for.
+  if ((weapons || drops) >= 2) out.push({ mode: 'race', label: RUN_LABELS.race, count: weapons || drops })
   return out
 }
 

@@ -180,15 +180,44 @@ describe('local play links', () => {
     await expect(api.submitTime(token, { mode: 'weapons', name: 'Cheat', ms: 1000, ghost: quick.ghost })).rejects.toThrow(/can’t go on the board/)
     const board = await api.getBoard(token, 'weapons')
     expect(board.map((b) => b.name)).toEqual(['Quick', 'Slow'])
-    expect(await api.getGhost(board[0].id)).toEqual(quick.ghost)
+    expect(await api.getGhost(token, board[0].id)).toEqual(quick.ghost)
     expect(await api.getBoard(token, 'dropoffs')).toEqual([])
   })
 
-  it('counts plays', async () => {
+  it('counts a play once per address, link and day', async () => {
     await signIn('player')
     const { token } = await api.createShare(doc('Played'), 'p1', { listed: true })
     await api.recordPlay(token)
     await api.recordPlay(token)
-    expect((await api.listGallery({ sort: 'played', page: 1, pageSize: 10 })).items[0].plays).toBe(2)
+    expect((await api.listGallery({ sort: 'played', page: 1, pageSize: 10 })).items[0].plays).toBe(1)
+  })
+
+  it('keeps counting anonymous links after one is removed', async () => {
+    for (let i = 0; i < SHARE_RULES.anonPerDay; i++) await api.createShare(doc(), 'p' + i)
+    await api.deleteShare(api.myShares()[0].token)
+    await expect(api.createShare(doc(), 'px')).rejects.toThrow(/a day/)
+  })
+
+  it('refuses to update a hidden link, and hiding drops its preview', async () => {
+    await signIn('owner')
+    const { token } = await api.createShare(doc('Hide me'), 'p1', { listed: true, thumb: webp() })
+    await api.reportShare(token, 'spam', '')
+    await signIn('mod')
+    await api.resolveShareReport((await api.listShareReports()).find((r) => r.token === token)!, 'hide')
+    const row = dbs.get('sr1-local-shares')!.db.stores.get('shares')!.get(token) as { thumb: unknown; listed: boolean }
+    expect(row).toMatchObject({ thumb: null, listed: false })
+    await signIn('owner')
+    await expect(api.createShare(doc('Hide me'), 'p1', { token, thumb: webp() })).rejects.toThrow(/moderator hid/)
+  })
+
+  it('drops a board’s times when the map changes', async () => {
+    const { token } = await api.createShare(doc('Race'), 'p1')
+    const r = new GhostRecorder()
+    let t = 0
+    for (let x = 0.4; x < 20; x += 0.9, t += 100) r.add(t, [x, 0, 0], 0)
+    r.finish(t, [20, 0, 0], 0)
+    await api.submitTime(token, { mode: 'weapons', name: 'A', ms: t, ghost: r.samples })
+    await api.createShare(doc('Race, changed'), 'p1', { token })
+    expect(await api.getBoard(token, 'weapons')).toEqual([])
   })
 })

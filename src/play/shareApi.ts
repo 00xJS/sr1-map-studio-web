@@ -10,6 +10,7 @@ import { backendMode, getBackend, type HubAuthor, type ReportReason } from '../l
 import { isValidThumbnail, supabaseProjectUrl } from '../lib/hubRules'
 import type { RunMode } from './game'
 import { checkTime, cleanName, type GhostSample } from './ghost'
+import { wallsOf } from './ghostWalls'
 import { SHARE_RULES, SHARE_TOKEN, fromBase64, galleryReady, newShareToken, packShare, shareMeta, toBase64, unpackShare, validateShareDoc, type ShareDoc } from './share'
 
 export const hostedShares = backendMode !== 'none'
@@ -42,13 +43,13 @@ function saveMine(list: MyShare[]) {
 // ---------------- local test server ----------------
 
 const LOCAL_DB = 'sr1-local-shares'
-const LOCAL_STORES = ['shares', 'reports', 'ratings', 'times'] as const
+const LOCAL_STORES = ['shares', 'reports', 'ratings', 'times', 'log'] as const
 type LocalStore = (typeof LOCAL_STORES)[number]
 /** The local server sees every visitor of this browser as one address. */
 const LOCAL_IP = 'this-browser'
 function localDb(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const req = indexedDB.open(LOCAL_DB, 2)
+    const req = indexedDB.open(LOCAL_DB, 3)
     req.onupgradeneeded = () => { for (const s of LOCAL_STORES) if (!req.result.objectStoreNames.contains(s)) req.result.createObjectStore(s) }
     req.onsuccess = () => resolve(req.result)
     req.onerror = () => reject(req.error)
@@ -67,11 +68,13 @@ export interface LocalRow {
   token: string; owner: string | null; owner_name?: string; title: string; data: string; created_at: string; updated_at?: string
   anon?: boolean; expires_at?: string | null; ip_hash?: string | null; key_hash?: string | null
   listed?: boolean; hidden?: boolean; thumb?: Blob | null; thumb_at?: string | null; shot?: boolean; plays?: number
-  modes?: string[]; players?: number; rating_sum?: number; rating_count?: number
+  modes?: string[]; players?: number; rating_sum?: number; rating_count?: number; data_hash?: string
 }
 interface LocalReport { id: string; token: string; reason: ReportReason; details: string; reporter: string | null; ip_hash: string | null; status: ShareReport['status']; created_at: string }
 interface LocalRating { token: string; user_id: string; stars: number }
 interface LocalTime { id: string; token: string; mode: RunMode; name: string; ms: number; ghost: GhostSample[]; player: string | null; ip_hash: string | null; created_at: string }
+/** share_log: what the limits count (removing a link doesn't give its place back). */
+interface LocalLog { id: string; kind: 'create' | 'update' | 'play'; ip_hash: string; token: string; created_at: string }
 
 async function sha256(text: string) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
@@ -94,6 +97,20 @@ async function localExpire() {
 
 const isWebp = (head: Uint8Array) => head.length > 12 && String.fromCharCode(...head.subarray(8, 12)) === 'WEBP'
 
+async function localLogged(kind: LocalLog['kind'], within: number, token?: string) {
+  return (await localAll<LocalLog>('log')).filter((l) => l.kind === kind && l.ip_hash === LOCAL_IP && ago(l.created_at, within) && (!token || l.token === token)).length
+}
+async function localLog(kind: LocalLog['kind'], token: string) {
+  const id = crypto.randomUUID()
+  await localPut('log', id, { id, kind, ip_hash: LOCAL_IP, token, created_at: new Date().toISOString() } satisfies LocalLog)
+}
+/** A board's times were run on the old map: they go when the map changes. */
+async function localMapChanged(token: string, oldHash: string | undefined, newHash: string) {
+  if (oldHash === newHash) return
+  for (const t of await localAll<LocalTime>('times')) if (t.token === token) await localDel('times', t.id)
+}
+const HIDDEN = 'A moderator hid this link, so it can’t be changed. You can still remove it.'
+
 // ---------------- the Supabase server ----------------
 
 const SUPA = () => {
@@ -105,10 +122,17 @@ async function rest(path: string, init: RequestInit = {}, auth?: string | null):
   const { url, key } = SUPA()
   return fetch(`${url}/rest/v1/${path}`, { ...init, headers: { 'Content-Type': 'application/json', apikey: key, Authorization: `Bearer ${auth || key}`, ...(init.headers || {}) } })
 }
-async function rpc<T>(name: string, args: Record<string, unknown>): Promise<T> {
-  const res = await rest(`rpc/${name}`, { method: 'POST', body: JSON.stringify(args) })
-  if (!res.ok) throw new Error(`The server didn’t answer (HTTP ${res.status}).`)
-  return res.json()
+/** The server doesn't have this yet (migration 0004 not applied): the feature isn't open. */
+export class NotOpenYet extends Error {}
+async function rpc<T>(name: string, args: Record<string, unknown>, auth?: string | null): Promise<T> {
+  const res = await rest(`rpc/${name}`, { method: 'POST', body: JSON.stringify(args) }, auth)
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}))
+    if (res.status === 404 || body?.code === 'PGRST202' || body?.code === '42883') throw new NotOpenYet('That isn’t open yet on this site.')
+    throw new Error(typeof body?.message === 'string' && res.status < 500 ? body.message : `The server didn’t answer (HTTP ${res.status}).`)
+  }
+  const text = await res.text()
+  return (text ? JSON.parse(text) : null) as T
 }
 async function userToken(): Promise<string | null> {
   const b = await getBackend()
@@ -171,20 +195,28 @@ async function localCreate(data: string, user: { id: string; name: string } | nu
   if (opts.listed && !galleryReady(checked)) throw new ShareRejected('Only maps built entirely from the site’s own shapes and prefabs can go in the gallery.')
   const now = new Date().toISOString()
   const meta = shareMeta(checked)
-  const row = { title: checked.title, data, updated_at: now, modes: meta.modes, players: meta.players, ...(thumb ? { thumb: new Blob([thumb], { type: 'image/webp' }), thumb_at: now, shot: !!opts.shot } : {}) }
+  const data_hash = await sha256(data)
+  const row = { title: checked.title, data, data_hash, updated_at: now, modes: meta.modes, players: meta.players, ...(thumb ? { thumb: new Blob([thumb], { type: 'image/webp' }), thumb_at: now, shot: !!opts.shot } : {}) }
   const rows = await localAll<LocalRow>('shares')
   if (!user) {
     if (opts.token && key) {
       const old = await localGet<LocalRow>('shares', opts.token)
-      if (live(old) && old.anon && old.key_hash === await sha256(key)) {
-        await localPut('shares', old.token, { ...old, ...row })
-        return { token: old.token, key, expires_at: old.expires_at! }
+      if (old?.anon && old.key_hash === await sha256(key)) {
+        if (old.hidden) throw new ShareRejected(HIDDEN)
+        if (live(old)) {
+          if ((await localLogged('update', 86400_000)) >= SHARE_RULES.anonUpdatesPerDay) throw new ShareRejected(`Without an account you can update links ${SHARE_RULES.anonUpdatesPerDay} times a day. Sign in for more, or try again tomorrow.`)
+          await localLog('update', old.token)
+          await localMapChanged(old.token, old.data_hash, data_hash)
+          await localPut('shares', old.token, { ...old, ...row })
+          return { token: old.token, key, expires_at: old.expires_at! }
+        }
       }
     }
-    const recent = rows.filter((r) => r.ip_hash === LOCAL_IP && ago(r.created_at, 86400_000)).length
-    if (recent >= SHARE_RULES.anonPerDay) throw new ShareRejected(`Without an account you can make ${SHARE_RULES.anonPerDay} play links a day. Sign in for more, or try again tomorrow.`)
+    // Counted from the log, not the links that still exist: removing one doesn't give its place back.
+    if ((await localLogged('create', 86400_000)) >= SHARE_RULES.anonPerDay) throw new ShareRejected(`Without an account you can make ${SHARE_RULES.anonPerDay} play links a day. Sign in for more, or try again tomorrow.`)
     const token = newShareToken(), editKey = newShareToken()
     const expires_at = new Date(Date.now() + SHARE_RULES.anonDays * 86400_000).toISOString()
+    await localLog('create', token)
     await localPut('shares', token, { ...row, token, owner: null, anon: true, expires_at, ip_hash: LOCAL_IP, key_hash: await sha256(editKey), created_at: now, plays: 0 } satisfies LocalRow)
     return { token, key: editKey, expires_at }
   }
@@ -193,6 +225,8 @@ async function localCreate(data: string, user: { id: string; name: string } | nu
   }
   const old = opts.token ? await localGet<LocalRow>('shares', opts.token) : undefined
   if (old && old.owner === user.id) {
+    if (old.hidden) throw new ShareRejected(HIDDEN)
+    await localMapChanged(old.token, old.data_hash, data_hash)
     await localPut('shares', old.token, { ...old, ...row, listed: !!opts.listed, owner_name: user.name })
     return { token: old.token }
   }
@@ -244,9 +278,12 @@ export function readShare(bytes: Uint8Array): ShareDoc {
 /** Counts one play of a link (once per page load is plenty). */
 export async function recordPlay(token: string) {
   if (backendMode === 'local') {
+    // One play per address, link and day, as the share function counts them.
     const row = await localGet<LocalRow>('shares', token)
-    if (live(row)) await localPut('shares', token, { ...row, plays: (row.plays ?? 0) + 1 })
-  } else if (backendMode === 'supabase') await rpc('record_share_play', { p_token: token }).catch(() => {})
+    if (!live(row) || (await localLogged('play', 86400_000, token)) > 0) return
+    await localLog('play', token)
+    await localPut('shares', token, { ...row, plays: (row.plays ?? 0) + 1 })
+  } else if (backendMode === 'supabase') await fn('/api/share/play', { token }).catch(() => {})
 }
 
 /** The share as a file (gzip JSON) for sites without hosting. */
@@ -298,21 +335,16 @@ export async function resolveShareReport(r: ShareReport, action: 'dismiss' | 'hi
     const user = await b.getUser()
     if (!user?.is_moderator) throw new Error('Only moderators can do this.')
     if (action === 'dismiss') { await localPut('reports', r.id, { ...(await localGet<LocalReport>('reports', r.id))!, status: 'dismissed' }); return }
+    // Hidden at once: it stops opening, leaves the gallery and loses its preview picture.
     const row = await localGet<LocalRow>('shares', r.token)
-    if (row) await localPut('shares', r.token, { ...row, hidden: true, listed: false })
+    if (row) await localPut('shares', r.token, { ...row, hidden: true, listed: false, thumb: null, thumb_at: null, shot: false })
     for (const o of await localAll<LocalReport>('reports')) if (o.token === r.token && o.status === 'open') await localPut('reports', o.id, { ...o, status: 'actioned' })
     return
   }
-  const auth = await userToken()
+  if (action === 'hide') { await fn('/api/share/hide', { token: r.token }); return }
   const me = (await b.getUser())?.id
-  const done = { resolved_at: new Date().toISOString(), resolved_by: me }
-  const patch = async (path: string, body: unknown) => {
-    const res = await rest(path, { method: 'PATCH', body: JSON.stringify(body), headers: { Prefer: 'return=minimal' } }, auth)
-    if (!res.ok) throw new Error(`That didn’t work (HTTP ${res.status}).`)
-  }
-  if (action === 'dismiss') return patch(`share_reports?id=eq.${r.id}`, { status: 'dismissed', ...done })
-  await patch(`shares?token=eq.${r.token}`, { hidden: true })
-  await patch(`share_reports?token=eq.${r.token}&status=eq.open`, { status: 'actioned', ...done })
+  const res = await rest(`share_reports?id=eq.${r.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'dismissed', resolved_at: new Date().toISOString(), resolved_by: me }), headers: { Prefer: 'return=minimal' } }, await userToken())
+  if (!res.ok) throw new Error(`That didn’t work (HTTP ${res.status}).`)
 }
 
 // ---------------- the gallery ----------------
@@ -347,6 +379,7 @@ export async function listGallery(q: { search?: string; sort: GallerySort; page:
       })),
     }
   }
+  // Throws NotOpenYet until migration 0004 is applied: the page says the gallery isn't open yet.
   const rows: any[] = await rpc('list_gallery', { p_search: q.search || '', p_sort: q.sort, p_limit: q.pageSize, p_offset: (q.page - 1) * q.pageSize })
   let mine = new Map<string, number>()
   const auth = user ? await userToken() : null
@@ -390,11 +423,8 @@ export async function rateShare(token: string, stars: number) {
     await localPut('shares', token, { ...row, rating_sum: sum, rating_count: count })
     return
   }
-  const auth = await userToken()
-  const res = stars
-    ? await rest('share_ratings?on_conflict=token,user_id', { method: 'POST', body: JSON.stringify({ token, user_id: user.id, stars }), headers: { Prefer: 'resolution=merge-duplicates,return=minimal' } }, auth)
-    : await rest(`share_ratings?token=eq.${token}&user_id=eq.${user.id}`, { method: 'DELETE' }, auth)
-  if (!res.ok) throw new Error(`Rating didn’t work (HTTP ${res.status}).`)
+  // The server checks the link is listed, visible, unexpired and someone else's.
+  await rpc('rate_share', { p_token: token, p_stars: stars }, await userToken())
 }
 
 // ---------------- time-trial boards ----------------
@@ -410,14 +440,18 @@ export async function getBoard(token: string, mode: RunMode, limit = 10): Promis
       .map(({ id, name, ms, created_at }) => ({ id, name, ms, created_at }))
   }
   if (backendMode !== 'supabase') return []
-  const rows = await rpc<any[]>('share_board', { p_token: token, p_mode: mode, p_limit: limit })
+  const rows = await rpc<any[]>('share_board', { p_token: token, p_mode: mode, p_limit: limit }).catch((e) => { if (e instanceof NotOpenYet) return []; throw e })
   return rows.map((r) => ({ id: String(r.id), name: r.name, ms: r.ms, created_at: r.created_at }))
 }
 
-export async function getGhost(id: string): Promise<GhostSample[] | null> {
-  if (backendMode === 'local') return (await localGet<LocalTime>('times', id))?.ghost ?? null
+/** A board time's ghost: needs the link's token as well as the time, like the server. */
+export async function getGhost(token: string, id: string): Promise<GhostSample[] | null> {
+  if (backendMode === 'local') {
+    const t = await localGet<LocalTime>('times', id)
+    return t?.token === token && live(await localGet<LocalRow>('shares', token)) ? t.ghost : null
+  }
   if (backendMode !== 'supabase') return null
-  const g = await rpc<unknown>('share_ghost', { p_id: Number(id) })
+  const g = await rpc<unknown>('share_ghost', { p_token: token, p_id: Number(id) })
   return Array.isArray(g) ? (g as GhostSample[]) : null
 }
 
@@ -432,7 +466,7 @@ export async function submitTime(token: string, e: { mode: RunMode; ms: number; 
   if (!live(share)) throw new ShareRejected(GONE)
   const { doc } = validateShareDoc(unpackShare(fromBase64(share.data)))
   if (!doc) throw new ShareRejected('This map can’t take times.')
-  const problems = checkTime(entry, doc.project.markers)
+  const problems = checkTime(entry, doc.project.markers, wallsOf(doc) ?? undefined)
   if (problems.length) throw new ShareRejected('This time can’t go on the board.', problems)
   const all = await localAll<LocalTime>('times')
   if (all.filter((t) => t.ip_hash === LOCAL_IP && ago(t.created_at, 3600_000)).length >= SHARE_RULES.timesPerHour) throw new ShareRejected('That’s a lot of times in an hour. Try again later.')

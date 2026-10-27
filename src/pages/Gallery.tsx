@@ -6,7 +6,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useUser } from '../lib/backend'
 import { MODE_NAMES } from '../play/share'
-import { hostedShares, listGallery, rateShare, reportShare, type GalleryItem, type GallerySort } from '../play/shareApi'
+import { NotOpenYet, hostedShares, listGallery, rateShare, reportShare, type GalleryItem, type GallerySort } from '../play/shareApi'
 import { remixShare } from '../play/remixShare'
 import { toast, toastError, useBusy } from '../ui'
 import { HubCard } from './Hub'
@@ -50,10 +50,14 @@ export default function Gallery() {
     return () => clearTimeout(t)
   }, [text])
 
-  const load = () => listGallery({ search, sort, page, pageSize: PAGE_SIZE })
+  const [closed, setClosed] = useState(false)
   useEffect(() => {
     let live = true
-    load().then((r) => live && setRes(r), (e) => live && toastError(e))
+    listGallery({ search, sort, page, pageSize: PAGE_SIZE }).then((r) => live && setRes(r), (e) => {
+      if (!live) return
+      if (e instanceof NotOpenYet) setClosed(true)
+      else toastError(e)
+    })
     return () => { live = false }
   }, [search, sort, page, user?.id])
 
@@ -61,6 +65,12 @@ export default function Gallery() {
     <div className="page page-narrow">
       <h1>Gallery</h1>
       <p className="muted">The gallery needs a server, and this site has none. Share a map by sending its <code>.sr1play</code> file (<b>Share</b> in the editor).</p>
+    </div>
+  )
+  if (closed) return (
+    <div className="page page-narrow">
+      <h1>Gallery</h1>
+      <p className="muted">The gallery isn’t open yet. Play links still work: choose <b>Share</b> in the editor to make one.</p>
     </div>
   )
 

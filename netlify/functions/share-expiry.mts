@@ -1,7 +1,8 @@
 // Scheduled daily: deletes play links made without an account once they
 // expire (30 days, see SHARE_RULES.anonDays), with their reports, ratings,
-// board times (cascade) and preview pictures. Also takes down the preview
-// pictures of links a moderator hid.
+// board times (cascade) and preview pictures. Also clears the share function's
+// limit log after two days, and (as a backstop: hiding removes it at once)
+// the preview pictures of links a moderator hid.
 import { createClient } from '@supabase/supabase-js'
 import { supabaseProjectUrl } from '../../src/lib/hubRules'
 
@@ -30,6 +31,8 @@ export default async (): Promise<Response> => {
     await admin.storage.from('share-thumbs').remove(hidden.data.map((r) => `${r.token}.webp`)).catch(() => {})
     unpictured = hidden.data.length
   }
+  const old = await admin.from('share_log').delete().lt('created_at', new Date(Date.now() - 2 * 86400_000).toISOString())
+  if (old.error) console.error('Clearing the limit log failed', old.error.message)
   console.log(`Expired play links removed: ${removed}; hidden previews removed: ${unpictured}`)
   return new Response(JSON.stringify({ removed, unpictured }), { headers: { 'Content-Type': 'application/json' } })
 }

@@ -53,7 +53,10 @@ describe('the gallery takes only maps made on the site', () => {
   it('works out what a link preview shows', () => {
     expect(shareMeta(doc())).toEqual({ modes: ['roam', 'weapons'], players: 2 })
     const d = doc()
-    d.project.markers.push(at('Chains drop-off', [0, 0, 20]))
+    d.project.markers.push(at('Chains drop-off', [0, 0, 20]), at('Chains drop-off', [0, 0, 40]))
+    // One weapon: a race would be for that one weapon, so none is offered.
+    expect(shareMeta(d).modes).toEqual(['roam', 'weapons', 'dropoffs'])
+    d.project.markers.push(at('Weapon pickup', [30, 0, 0], { weapon: 'shotgun' }))
     expect(shareMeta(d).modes).toEqual(['roam', 'weapons', 'dropoffs', 'race'])
   })
 })
@@ -167,6 +170,32 @@ describe('race the bots', () => {
   it('is offered once a map has two things to race for', () => {
     expect(availableRuns(ms).map((r) => r.mode)).toContain('race')
     expect(availableRuns(ms.slice(0, 2)).map((r) => r.mode)).not.toContain('race')
+  })
+  it('is offered for the set it races: weapons when there are any, else drop-offs', () => {
+    const drops = [at('Chains drop-off', [0, 0, 20]), at('Chains drop-off', [0, 0, 40])]
+    const oneWeapon = [ms[0], ms[1], ...drops]
+    expect(availableRuns(oneWeapon).map((r) => r.mode)).not.toContain('race')
+    expect(availableRuns([ms[0], ...drops]).find((r) => r.mode === 'race')?.count).toBe(2)
+    expect(newRun([ms[0], ...drops], 'race', [0, 0, 0]).race).toBe('dropoff')
+  })
+  it('lets a bot give up on a marker it can’t reach from the floor', () => {
+    const high = [ms[0], at('Weapon pickup', [8, 20, 0], { weapon: 'ak47' }), at('Weapon pickup', [-20, 0, 0], { weapon: 'shotgun' })]
+    const n = 21
+    const pos = new Float32Array(n * 3)
+    for (let i = 0; i < n; i++) pos[i * 3] = -20 + i * 2
+    const edgeStart = new Int32Array(n + 1), to: number[] = [], cost: number[] = []
+    for (let i = 0; i < n; i++) { edgeStart[i] = to.length; for (const j of [i - 1, i + 1]) if (j >= 0 && j < n) { to.push(j); cost.push(2) } }
+    edgeStart[n] = to.length
+    const field = (goal: number) => Float32Array.from({ length: n }, (_, i) => Math.abs(i - goal) * 2)
+    // The high weapon's node is right under it (x = 8): touching it would need the bot 20 units up.
+    const g: RaceGraph = { pos, edgeStart, edgeTo: Int32Array.from(to), edgeCost: Float32Array.from(cost), goals: Int32Array.from([14, 0]), fields: [field(14), field(0)], starts: Int32Array.from([12]) }
+    const r = newRun(high, 'race', [0, 0, 0])
+    const bots = new RaceBots(g, targets(r).map((p) => p.id), 1, [12])
+    stepRun(r, [0.5, 0, 0], 0)
+    let took = false
+    for (let k = 0; k < 80 && !took; k++) { bots.step(0.1, r); took = stepBot(r, 1, bots.bots[0].at, k).length > 0 }
+    expect(took).toBe(true)
+    expect(targets(r).find((p) => p.weapon === 'shotgun')!.by).toBe(1)
   })
   it('gives each pickup to whoever reaches it first and ends when all are taken', () => {
     const r = newRun(ms, 'race', [0, 0, 0])

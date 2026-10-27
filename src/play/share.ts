@@ -52,6 +52,8 @@ export const SHARE_RULES = {
   timesPerHour: 60,
   /** Times kept per board. */
   boardKeep: 50,
+  /** Times an anonymous link can be updated from one address a day (SHARE_ANON_UPDATES_PER_DAY). */
+  anonUpdatesPerDay: 30,
 }
 
 export const SHARE_LIMITS = {
@@ -195,7 +197,7 @@ export function shareMeta(doc: ShareDoc): { modes: string[]; players: number } {
   const weapons = ms.filter((m) => m.type === 'Weapon pickup').length, drops = ms.filter((m) => m.type === 'Chains drop-off').length
   if (weapons) modes.push('weapons')
   if (drops) modes.push('dropoffs')
-  if (weapons + drops >= 2) modes.push('race')
+  if ((weapons || drops) >= 2) modes.push('race') // the set a race is run for (game.ts newRun)
   const spawns = ms.filter((m) => m.type === 'Shared spawn' || m.type === 'Red team spawn' || m.type === 'Blue team spawn').length
   return { modes, players: Math.min(12, spawns) }
 }

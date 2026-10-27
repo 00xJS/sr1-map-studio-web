@@ -53,6 +53,8 @@ export interface Bot {
   goal: number
   /** Breaks ties between equally good steps differently for each bot. */
   jitter: number
+  /** Pickups it gave up on: no way down the field, or a marker it can't touch from the floor (too high or low). */
+  given: Set<number>
 }
 
 /** Moves bots over a race graph. Pure apart from the graph; the session draws them. */
@@ -63,7 +65,7 @@ export class RaceBots {
     const starts = startNodes.filter((n) => n >= 0)
     for (let i = 0; i < count && starts.length; i++) {
       const n = starts[i % starts.length]
-      this.bots.push({ id: i + 1, at: this.xyz(n), heading: 0, speed: 0, node: n, next: -1, k: 0, goal: -1, jitter: (i * 0.37) % 1 })
+      this.bots.push({ id: i + 1, at: this.xyz(n), heading: 0, speed: 0, node: n, next: -1, k: 0, goal: -1, jitter: (i * 0.37) % 1, given: new Set() })
     }
   }
 
@@ -77,21 +79,24 @@ export class RaceBots {
       const before: Vec3 = [...b.at]
       if (run.started === null || run.finished !== null) { b.speed = 0; continue }
       // Re-aim whenever the current goal is gone (or at every node, in case another got nearer).
-      if (b.goal < 0 || !want[b.goal] || b.next < 0) b.goal = this.nearest(b.node, want)
+      if (b.goal < 0 || !want[b.goal] || b.next < 0) b.goal = this.nearest(b, want)
       let left = dt * RUN_SPEED
       for (let guard = 0; left > 1e-6 && b.goal >= 0 && guard < 64; guard++) {
         const f = this.g.fields[b.goal]
         const target = want[b.goal]!
         if (b.next < 0) {
-          if (f[b.node] <= 0) { left = this.approach(b, target, left); break }
+          if (f[b.node] <= 0) {
+            if (!this.approach(b, target, left)) { b.given.add(b.goal); b.goal = -1 }
+            break
+          }
           b.next = this.downhill(b, f)
-          if (b.next < 0) { b.goal = -1; break }
+          if (b.next < 0) { b.given.add(b.goal); b.goal = -1; break }
           b.k = 0
         }
         const cost = Math.max(1e-3, this.edgeCost(b.node, b.next))
         const need = (1 - b.k) * cost
         if (left < need) { b.k += left / cost; left = 0 }
-        else { left -= need; b.node = b.next; b.next = -1; b.k = 0; b.goal = this.nearest(b.node, want) }
+        else { left -= need; b.node = b.next; b.next = -1; b.k = 0; b.goal = this.nearest(b, want) }
       }
       if (b.next >= 0) {
         const a = this.xyz(b.node), c = this.xyz(b.next)
@@ -103,12 +108,12 @@ export class RaceBots {
     }
   }
 
-  /** The reachable untaken target with the shortest walk, or -1. */
-  private nearest(node: number, want: (Pickup | null)[]): number {
+  /** The reachable untaken target with the shortest walk (not one it gave up on), or -1. */
+  private nearest(b: Bot, want: (Pickup | null)[]): number {
     let best = -1, cost = Infinity
     for (let i = 0; i < want.length; i++) {
-      if (!want[i] || this.g.goals[i] < 0) continue
-      const c = this.g.fields[i][node]
+      if (!want[i] || this.g.goals[i] < 0 || b.given.has(i)) continue
+      const c = this.g.fields[i][b.node]
       if (c < cost) { cost = c; best = i }
     }
     return best
@@ -133,13 +138,16 @@ export class RaceBots {
     return Math.hypot(...this.xyz(v).map((x, i) => x - this.xyz(u)[i]) as Vec3)
   }
 
-  /** At the goal's node: walk straight at the marker until touching it. Returns the distance left over. */
-  private approach(b: Bot, p: Pickup, left: number): number {
-    if (touches(p, b.at)) return 0
+  /**
+   * At the goal's node: walk straight at the marker until touching it. False when standing right under (or over)
+   * it still doesn't touch it: the marker is out of reach from this floor, so the bot should go for another.
+   */
+  private approach(b: Bot, p: Pickup, left: number): boolean {
+    if (touches(p, b.at)) return true
     const dx = p.at[0] - b.at[0], dz = p.at[2] - b.at[2], d = Math.hypot(dx, dz)
     const go = Math.min(left, Math.max(0, d - p.radius * 0.5))
-    if (go <= 0) return 0
+    if (go <= 0) return false
     b.at = [b.at[0] + (dx / d) * go, b.at[1], b.at[2] + (dz / d) * go]
-    return left - go
+    return true
   }
 }

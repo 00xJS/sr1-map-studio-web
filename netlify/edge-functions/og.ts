@@ -16,27 +16,36 @@ const projectUrl = (raw: string) => raw.trim().replace(/\/+$/, '').replace(/\/(r
 
 interface ShareHead { title: string; modes: string[] | null; players: number | null; thumb: string | null; shot: boolean | null }
 
+/** How long a page waits for the link's details before going out with the site's own preview. */
+const WAIT_MS = 800
+/** After the lookup fails (slow, down, or the database without migration 0004), pages skip it this long. */
+const RETRY_MS = 10 * 60_000
+let skipUntil = 0
+
 async function lookUp(token: string): Promise<{ row: ShareHead; base: string } | null> {
   const base = projectUrl(Netlify.env.get('VITE_SUPABASE_URL') || Netlify.env.get('SUPABASE_URL') || '')
   const key = (Netlify.env.get('VITE_SUPABASE_ANON_KEY') || '').trim()
-  if (!base || !key) return null
+  if (!base || !key || Date.now() < skipUntil) return null
   const res = await fetch(`${base}/rest/v1/rpc/get_share?select=title,modes,players,thumb,shot`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: key, Authorization: `Bearer ${key}` },
     body: JSON.stringify({ p_token: token }),
-    signal: AbortSignal.timeout(2500),
+    signal: AbortSignal.timeout(WAIT_MS),
   }).catch(() => null)
-  if (!res?.ok) return null
+  if (!res?.ok) { skipUntil = Date.now() + RETRY_MS; return null }
   const rows = await res.json().catch(() => null)
   const row = Array.isArray(rows) ? rows[0] : rows
   return row && typeof row.title === 'string' ? { row, base } : null
 }
 
-/** Sets a meta tag's content, adding the tag when the page has none. */
-function meta(html: string, attr: 'property' | 'name', key: string, value: string): string {
+/**
+ * Sets a meta tag's content, adding the tag when the page has none. Replacements are functions, so a `$&`,
+ * `` $` `` or `$'` in a map's title stays text instead of pulling the page's own HTML into the head.
+ */
+export function meta(html: string, attr: 'property' | 'name', key: string, value: string): string {
   const tag = `<meta ${attr}="${key}" content="${esc(value)}" />`
   const re = new RegExp(`<meta\\s+${attr}="${key.replace(/[.:]/g, '\\$&')}"[^>]*>`, 'i')
-  return re.test(html) ? html.replace(re, tag) : html.replace('</head>', `    ${tag}\n  </head>`)
+  return re.test(html) ? html.replace(re, () => tag) : html.replace('</head>', () => `    ${tag}\n  </head>`)
 }
 
 export default async (req: Request, context: { next(): Promise<Response> }) => {
@@ -55,7 +64,7 @@ export default async (req: Request, context: { next(): Promise<Response> }) => {
   const image = row.thumb ? `${base}/storage/v1/object/public/share-thumbs/${token}.webp?v=${new Date(row.thumb).getTime()}` : `${url.origin}/og.jpg`
 
   let html = await res.text()
-  html = html.replace(/<title>[^<]*<\/title>/i, `<title>${esc(title)}</title>`)
+  html = html.replace(/<title>[^<]*<\/title>/i, () => `<title>${esc(title)}</title>`)
   html = meta(html, 'name', 'description', description)
   html = meta(html, 'property', 'og:title', title)
   html = meta(html, 'property', 'og:description', description)

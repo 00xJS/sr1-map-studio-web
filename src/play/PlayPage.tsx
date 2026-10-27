@@ -265,7 +265,7 @@ function PlayView({ project, mapKey, shared, back, token }: Source) {
     const mine = loadGhost(store, mapKey, mode)
     const top = token ? (boards[mode] ?? await getBoard(token, mode, 1).catch(() => []))[0] : undefined
     const mineMs = mine ? mine[mine.length - 1][0] : Infinity
-    if (top && top.ms < mineMs) return (await getGhost(top.id).catch(() => null)) ?? mine
+    if (top && top.ms < mineMs) return (await getGhost(token!, top.id).catch(() => null)) ?? mine
     return mine
   }
 

@@ -6,6 +6,8 @@
 -- their signed-in owner chose to list. Anonymous links (made without an
 -- account) expire after 30 days; a scheduled function
 -- (netlify/functions/share-expiry.mts) deletes them and their thumbnails.
+-- Moderators hide links through the share function too, so the preview
+-- picture goes at once (storage objects can only be removed through its API).
 
 alter table public.shares
   alter column owner drop not null,
@@ -25,6 +27,8 @@ alter table public.shares
   add column thumb timestamptz,
   add column shot boolean not null default false,
   add column plays integer not null default 0,
+  -- SHA-256 of the stored share: a board's times only count for the map they were run on.
+  add column data_hash text,
   -- What the link page shows before the map loads (link previews, the gallery).
   add column modes text[] not null default '{}',
   add column players smallint not null default 0 check (players between 0 and 64),
@@ -38,11 +42,25 @@ create index shares_gallery on public.shares (created_at desc) where listed and 
 create index shares_expiry on public.shares (expires_at) where expires_at is not null;
 create index shares_ip on public.shares (ip_hash, created_at desc) where ip_hash is not null;
 
--- Moderators see every link (the moderation queue shows titles) and can hide one.
+-- Moderators see every link (the moderation queue shows titles). Hiding one goes through the share function.
 create policy "shares: moderators read" on public.shares for select to authenticated using (public.is_moderator());
-create policy "shares: moderators hide" on public.shares for update to authenticated using (public.is_moderator()) with check (public.is_moderator());
-revoke update on public.shares from anon, authenticated;
-grant update (hidden) on public.shares to authenticated;
+revoke insert, update on public.shares from anon, authenticated;
+
+-- What the share function counts for its limits: links made and updated without an account, and plays
+-- (one per address, link and day). Salted address hashes only; rows older than two days are deleted daily.
+create table public.share_log (
+  id bigint generated always as identity primary key,
+  kind text not null check (kind in ('create', 'update', 'play')),
+  ip_hash text not null,
+  token text,
+  created_at timestamptz not null default now()
+);
+
+create index share_log_ip on public.share_log (ip_hash, kind, created_at desc);
+create index share_log_token on public.share_log (token, ip_hash, kind, created_at desc);
+
+alter table public.share_log enable row level security;
+revoke all on public.share_log from anon, authenticated;
 
 -- A share by its token, unless it expired or a moderator hid it. The link
 -- preview (netlify/edge-functions/og.ts) asks for the small columns only.
@@ -83,14 +101,14 @@ $$;
 
 grant execute on function public.list_gallery(text, text, integer, integer) to anon, authenticated;
 
--- Someone opened a link to play it.
+-- Someone opened a link to play it. Only the share function calls this, once per address, link and day.
 create function public.record_share_play(p_token text) returns void
 language sql security definer set search_path = '' as $$
   update public.shares s set plays = s.plays + 1
   where s.token = p_token and not s.hidden and (s.expires_at is null or s.expires_at > now());
 $$;
 
-grant execute on function public.record_share_play(text) to anon, authenticated;
+revoke all on function public.record_share_play(text) from public, anon, authenticated;
 
 -- Preview pictures: public, small WebP images written only by the share function (checked first).
 -- Like the Showcase's screenshots, the only game graphics that go public are an author's own in-game screenshot.
@@ -146,21 +164,34 @@ create index share_ratings_user on public.share_ratings (user_id);
 
 alter table public.share_ratings enable row level security;
 
+-- Raters can't see other people's links, so rating goes through rate_share() rather than table rights.
 create policy "Users see their share ratings" on public.share_ratings
   for select to authenticated using (user_id = auth.uid() or public.is_moderator());
-create policy "Users rate other people's gallery maps" on public.share_ratings
-  for insert to authenticated with check (
-    user_id = auth.uid() and exists (
-      select 1 from public.shares s where s.token = share_ratings.token and s.listed and not s.hidden
-        and (s.expires_at is null or s.expires_at > now()) and s.owner is distinct from auth.uid()));
-create policy "Users change their share rating" on public.share_ratings
-  for update to authenticated using (user_id = auth.uid()) with check (user_id = auth.uid());
-create policy "Users and moderators remove share ratings" on public.share_ratings
-  for delete to authenticated using (user_id = auth.uid() or public.is_moderator());
 
 revoke all on public.share_ratings from anon, authenticated;
-grant select, insert, delete on public.share_ratings to authenticated;
-grant update (stars) on public.share_ratings to authenticated;
+grant select on public.share_ratings to authenticated;
+
+-- 1 to 5 stars for someone else's listed, visible, unexpired link; 0 takes the rating back.
+create function public.rate_share(p_token text, p_stars integer) returns void
+language plpgsql security definer set search_path = '' as $$
+declare me uuid := auth.uid();
+begin
+  if me is null then raise exception 'Sign in to rate maps.' using errcode = '42501'; end if;
+  if p_stars is null or p_stars < 0 or p_stars > 5 then raise exception 'Ratings are 1 to 5 stars.' using errcode = '22023'; end if;
+  if not exists (select 1 from public.shares s where s.token = p_token and s.listed and not s.hidden
+                   and (s.expires_at is null or s.expires_at > now()) and s.owner is distinct from me) then
+    raise exception 'This map can''t be rated.' using errcode = '42501';
+  end if;
+  if p_stars = 0 then
+    delete from public.share_ratings where token = p_token and user_id = me;
+  else
+    insert into public.share_ratings (token, user_id, stars) values (p_token, me, p_stars)
+    on conflict (token, user_id) do update set stars = excluded.stars;
+  end if;
+end $$;
+
+revoke all on function public.rate_share(text, integer) from public, anon;
+grant execute on function public.rate_share(text, integer) to authenticated;
 
 create function public.share_ratings_total() returns trigger
 language plpgsql security definer set search_path = '' as $$
@@ -219,12 +250,14 @@ language sql stable security definer set search_path = '' as $$
   limit least(greatest(p_limit, 1), 50)
 $$;
 
-create function public.share_ghost(p_id bigint) returns jsonb
+-- A ghost needs its link's token as well as its row, so nobody can walk the ids to find unlisted links' runs.
+create function public.share_ghost(p_token text, p_id bigint) returns jsonb
 language sql stable security definer set search_path = '' as $$
   select t.ghost
   from public.share_times t join public.shares s on s.token = t.token
-  where t.id = p_id and not s.hidden and (s.expires_at is null or s.expires_at > now())
+  where t.token = p_token and t.id = p_id and not s.hidden and (s.expires_at is null or s.expires_at > now())
 $$;
 
 grant execute on function public.share_board(text, text, integer) to anon, authenticated;
-grant execute on function public.share_ghost(bigint) to anon, authenticated;
+revoke all on function public.share_ghost(text, bigint) from public;
+grant execute on function public.share_ghost(text, bigint) to anon, authenticated;

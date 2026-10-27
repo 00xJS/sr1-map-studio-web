@@ -74,12 +74,16 @@ export interface TimeEntry { mode: RunMode; ms: number; name: string; ghost: unk
 const MAX_SPEED = SPRINT_SPEED * 1.35
 /** Extra distance allowed between two samples whatever the time (editor units). */
 const SLACK = 0.6
-/** Pressing R puts you back at a spawn: a jump that ends this near one is allowed. */
+/** Pressing R (or falling off the world) puts you back at the run's spawn: a jump that ends this near it is allowed. */
 const SPAWN_NEAR = 3
+/** Height above the feet of the wall check: above any step, ledge or low wall a jump gets over (editor units). */
+const BODY = 2.4
+/** The side rays of the wall check, either side of the path: a corner cut between two samples misses one of them. */
+const SIDE = 0.5
 const SPAWNS = ['Shared spawn', 'Red team spawn', 'Blue team spawn']
 
 export const cleanName = (name: unknown): string =>
-  typeof name === 'string' ? name.replace(/[\x00-\x1f\x7f]/g, '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX) : ''
+  typeof name === 'string' ? name.replace(/\p{Cc}/gu, '').replace(/\s+/g, ' ').trim().slice(0, NAME_MAX) : ''
 
 /** Distance on the ground from p to the segment a-b, and how far along it the nearest point is (0..1). */
 function toSegment(p: Vec3, a: GhostSample, b: GhostSample): { d: number; k: number } {
@@ -89,12 +93,16 @@ function toSegment(p: Vec3, a: GhostSample, b: GhostSample): { d: number; k: num
   return { d: Math.hypot(p[0] - (ax + dx * k), p[2] - (az + dz * k)), k }
 }
 
+/** True when the straight line a -> b crosses the map's solid collision (ghostWalls.ts builds one from a share). */
+export type WallTest = (a: Vec3, b: Vec3) => boolean
+
 /**
  * Problems with a time for a link's board (empty when it can go on): the run
  * exists on this map, the ghost is well formed, starts at a spawn, ends at the
- * time given, never moves faster than a sprint, and passes every target.
+ * time given, never moves faster than a sprint, passes every target and, with
+ * `walls`, never goes through a wall.
  */
-export function checkTime(e: TimeEntry, markers: Marker[]): string[] {
+export function checkTime(e: TimeEntry, markers: Marker[], walls?: WallTest): string[] {
   const problems: string[] = []
   if (e.mode !== 'weapons' && e.mode !== 'dropoffs') return ['Only weapon and drop-off runs have boards.']
   const kind = e.mode === 'weapons' ? 'weapon' : 'dropoff'
@@ -113,19 +121,34 @@ export function checkTime(e: TimeEntry, markers: Marker[]): string[] {
   const end = samples[samples.length - 1][0]
   if (Math.abs(end - e.ms) > 250) problems.push('The recording doesn\'t match the time.')
   const spawns = markers.filter((m) => SPAWNS.includes(m.type)).map((m) => m.position)
-  const nearSpawn = (s: GhostSample) => spawns.some((p) => Math.hypot(p[0] - s[1], p[2] - s[3]) <= SPAWN_NEAR)
-  if (spawns.length && !nearSpawn(samples[0])) problems.push('The run doesn\'t start at a spawn.')
+  const gap = (p: Vec3, s: GhostSample) => Math.hypot(p[0] - s[1], p[2] - s[3])
+  // The run's own spawn: the one it starts at. Going back (R) only ever leads there.
+  const home = spawns.reduce<Vec3 | null>((best, p) => (!best || gap(p, samples[0]) < gap(best, samples[0]) ? p : best), null)
+  if (home && gap(home, samples[0]) > SPAWN_NEAR) problems.push('The run doesn\'t start at a spawn.')
   // Never faster than a sprint for long, and no faster than a sprint on average (sprinting only lasts 3 s).
   let walked = 0
+  const back = new Set<number>()
   for (let i = 1; i < samples.length; i++) {
     const a = samples[i - 1], b = samples[i]
     const d = Math.hypot(b[1] - a[1], b[3] - a[3])
     if (d > MAX_SPEED * ((b[0] - a[0]) / 1000) + SLACK) {
-      if (nearSpawn(b)) continue
+      if (home && gap(home, b) <= SPAWN_NEAR) { back.add(i); continue }
       problems.push('The run moves faster than a player can.')
       break
     }
     walked += d
+  }
+  // Through a wall: the line between two samples at body height crosses collision, and so do lines either side of it.
+  if (walls) {
+    for (let i = 1; i < samples.length; i++) {
+      if (back.has(i)) continue
+      const a = samples[i - 1], b = samples[i]
+      const dx = b[1] - a[1], dz = b[3] - a[3], len = Math.hypot(dx, dz)
+      if (len < 1e-3) continue
+      const nx = (-dz / len) * SIDE, nz = (dx / len) * SIDE
+      const ray = (o: number) => walls([a[1] + nx * o, a[2] + BODY, a[3] + nz * o], [b[1] + nx * o, b[2] + BODY, b[3] + nz * o])
+      if (ray(0) && ray(1) && ray(-1)) { problems.push('The run goes through a wall.'); break }
+    }
   }
   if (end > 0 && walked / (end / 1000) > SPRINT_SPEED * 1.05 && !problems.some((p) => p.includes('faster'))) problems.push('The run moves faster than a player can.')
   // Every target passed on the way (between samples too: a sprint covers 2 units in 100 ms).
