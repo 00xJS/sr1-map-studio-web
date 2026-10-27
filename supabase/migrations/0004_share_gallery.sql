@@ -22,10 +22,9 @@ alter table public.shares
   add column listed boolean not null default false,
   -- Hidden by a moderator: the link stops working.
   add column hidden boolean not null default false,
-  -- When the preview picture (storage: share-thumbs/<token>.webp) was last stored; null for none. It is drawn
-  -- from the share itself, or (shot) an in-game screenshot the author took of the map.
+  -- When the preview picture (storage: share-thumbs/<token>.webp) was last stored; null for none. The site
+  -- draws it from the share itself, for signed-in links only.
   add column thumb timestamptz,
-  add column shot boolean not null default false,
   add column plays integer not null default 0,
   -- SHA-256 of the stored share: a board's times only count for the map they were run on.
   add column data_hash text,
@@ -67,9 +66,9 @@ revoke all on public.share_log from anon, authenticated;
 drop function public.get_share(text);
 create function public.get_share(p_token text)
 returns table (title text, data text, created_at timestamptz, updated_at timestamptz, expires_at timestamptz,
-               thumb timestamptz, shot boolean, modes text[], players smallint, listed boolean, plays integer)
+               thumb timestamptz, modes text[], players smallint, listed boolean, plays integer)
 language sql stable security definer set search_path = '' as $$
-  select s.title, s.data, s.created_at, s.updated_at, s.expires_at, s.thumb, s.shot, s.modes, s.players, s.listed, s.plays
+  select s.title, s.data, s.created_at, s.updated_at, s.expires_at, s.thumb, s.modes, s.players, s.listed, s.plays
   from public.shares s
   where p_token ~ '^[A-Za-z0-9_-]{22}$' and s.token = p_token
     and not s.hidden and (s.expires_at is null or s.expires_at > now())
@@ -81,11 +80,11 @@ grant execute on function public.get_share(text) to anon, authenticated;
 -- The gallery: listed, not hidden, not expired. Sorted 'new', 'top' (rated, with a
 -- few imaginary 3.5-star votes so one 5-star rating doesn't win outright) or 'played'.
 create function public.list_gallery(p_search text default '', p_sort text default 'new', p_limit integer default 48, p_offset integer default 0)
-returns table (token text, title text, thumb timestamptz, shot boolean, modes text[], players smallint, plays integer,
+returns table (token text, title text, thumb timestamptz, modes text[], players smallint, plays integer,
                rating real, rating_count integer, owner uuid, author_name text, author_avatar text,
                created_at timestamptz, updated_at timestamptz, total bigint)
 language sql stable security definer set search_path = '' as $$
-  select s.token, s.title, s.thumb, s.shot, s.modes, s.players, s.plays, s.rating, s.rating_count, s.owner,
+  select s.token, s.title, s.thumb, s.modes, s.players, s.plays, s.rating, s.rating_count, s.owner,
          p.display_name, p.avatar_url, s.created_at, s.updated_at, count(*) over ()
   from public.shares s
   left join public.profiles p on p.id = s.owner
@@ -110,10 +109,10 @@ $$;
 
 revoke all on function public.record_share_play(text) from public, anon, authenticated;
 
--- Preview pictures: public, small WebP images written only by the share function (checked first).
--- Like the Showcase's screenshots, the only game graphics that go public are an author's own in-game screenshot.
+-- Preview pictures: public 640×360 WebP images the site draws from a share, written only by the share
+-- function (checked first: src/play/share.ts previewProblem). No uploaded pictures or screenshots.
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-values ('share-thumbs', 'share-thumbs', true, 2097152, array['image/webp', 'image/png', 'image/jpeg'])
+values ('share-thumbs', 'share-thumbs', true, 262144, array['image/webp'])
 on conflict (id) do update set public = true, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
 -- reports --------------------------------------------------------------------

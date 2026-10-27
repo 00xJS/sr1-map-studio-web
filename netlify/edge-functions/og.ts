@@ -14,7 +14,7 @@ const MODES: Record<string, string> = { roam: 'Free roam', weapons: 'Weapon run'
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const projectUrl = (raw: string) => raw.trim().replace(/\/+$/, '').replace(/\/(rest|auth|storage|functions)\/v1$/i, '')
 
-interface ShareHead { title: string; modes: string[] | null; players: number | null; thumb: string | null; shot: boolean | null }
+interface ShareHead { title: string; modes: string[] | null; players: number | null; thumb: string | null }
 
 /** How long a page waits for the link's details before going out with the site's own preview. */
 const WAIT_MS = 800
@@ -26,7 +26,7 @@ async function lookUp(token: string): Promise<{ row: ShareHead; base: string } |
   const base = projectUrl(Netlify.env.get('VITE_SUPABASE_URL') || Netlify.env.get('SUPABASE_URL') || '')
   const key = (Netlify.env.get('VITE_SUPABASE_ANON_KEY') || '').trim()
   if (!base || !key || Date.now() < skipUntil) return null
-  const res = await fetch(`${base}/rest/v1/rpc/get_share?select=title,modes,players,thumb,shot`, {
+  const res = await fetch(`${base}/rest/v1/rpc/get_share?select=title,modes,players,thumb`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: key, Authorization: `Bearer ${key}` },
     body: JSON.stringify({ p_token: token }),
@@ -74,10 +74,10 @@ export default async (req: Request, context: { next(): Promise<Response> }) => {
   html = meta(html, 'name', 'twitter:description', description)
   html = meta(html, 'name', 'twitter:image', image)
   if (row.thumb) {
-    // Stored previews are 1280×720 (src/play/sharePreview.ts), not the site picture's size.
-    html = meta(html, 'property', 'og:image:width', '1280')
-    html = meta(html, 'property', 'og:image:height', '720')
-    html = meta(html, 'property', 'og:image:alt', row.shot ? `An in-game screenshot of ${row.title}` : `A view of ${row.title}`)
+    // Stored previews are 640×360 (PREVIEW_W/H in src/play/share.ts), not the site picture's size.
+    html = meta(html, 'property', 'og:image:width', '640')
+    html = meta(html, 'property', 'og:image:height', '360')
+    html = meta(html, 'property', 'og:image:alt', `A view of ${row.title}, drawn by the site`)
   }
   const headers = new Headers(res.headers)
   headers.delete('content-length')

@@ -8,8 +8,9 @@
 // Saints Row, can ride along: there are no image bytes in a share at all.
 import { gunzipSync, gzipSync, strFromU8, strToU8 } from 'fflate'
 import { gameSignature, MB } from '../lib/hubRules'
-import { isDataPackPath, normalizeProject, type Project } from '../lib/project'
+import { isDataPackPath, normalizeProject, type Project, type Vec3 } from '../lib/project'
 import { LIBRARY_ID, cleanRecipe, fromLegacy, textureRecipeProblem, type TextureRecipe } from '../lib/recipes'
+import type { CompoundPiece, Shape } from '../lib/shapes'
 
 export interface ShareDoc {
   format: 'sr1-map-studio-share'
@@ -23,7 +24,19 @@ export interface ShareDoc {
   textures: Record<string, TextureRecipe>
   /** How each model was made, by model key. Links made before this was recorded have none (they count as imported). */
   made?: Record<string, MadeKind>
+  /**
+   * The settings each model the site made was built from, by model key. The share function rebuilds
+   * them and lists the map in the gallery only if every one comes out as the model in the share
+   * (src/play/shareBuilds.ts).
+   */
+  builds?: Record<string, ModelBuild>
 }
+
+/** What the site built a model from: a block-out shape, a compound of shapes, or a prefab and its settings. */
+export type ModelBuild =
+  | { kind: 'shape'; shape: Shape }
+  | { kind: 'compound'; pieces: CompoundPiece[] }
+  | { kind: 'prefab'; key: string; params: Record<string, number | string>; at: Vec3; rot: number }
 
 /** A block-out shape, a compound of shapes, a prefab from the site's library, or a model someone imported. */
 export type MadeKind = 'shape' | 'compound' | 'prefab' | 'import'
@@ -184,6 +197,13 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
       if (!Object.hasOwn(d.models, k) || !MADE_KINDS.includes(v)) { problems.push('The share’s list of how models were made is not valid.'); break }
     }
   }
+  if (d.builds !== undefined) {
+    // Checked in full only when the map is listed (shareBuilds.ts); here just its shape and size.
+    const ok = !!d.builds && typeof d.builds === 'object' && !Array.isArray(d.builds)
+      && Object.entries(d.builds).every(([k, b]) => Object.hasOwn(d.models, k) && !!b && typeof b === 'object' && ['shape', 'compound', 'prefab'].includes((b as ModelBuild).kind))
+    if (!ok) problems.push('The share’s model settings are not valid.')
+    else if (JSON.stringify(d.builds).length > SHARE_LIMITS.projectChars) problems.push('The share’s model settings are too large.')
+  }
   const uniq = [...new Set(problems)]
   if (uniq.length) return { problems: uniq, doc: null }
   const clean = Object.fromEntries(textures.map(([k, r]) => [k, cleanRecipe(fromLegacy(r) as TextureRecipe)]))
@@ -203,6 +223,45 @@ export function shareMeta(doc: ShareDoc): { modes: string[]; players: number } {
 }
 
 export const MODE_NAMES: Record<string, string> = { roam: 'Free roam', weapons: 'Weapon run', dropoffs: 'Drop-off run', race: 'Race the bots' }
+
+// ---------------- preview pictures ----------------
+
+/**
+ * A link's preview picture: only the site's own render of the share (sharePreview.ts), as a WebP of
+ * exactly this size, and only for signed-in authors. Links made without an account show the site's
+ * own picture (public/og.jpg).
+ */
+export const PREVIEW_W = 640
+export const PREVIEW_H = 360
+export const MAX_PREVIEW_BYTES = 256 * 1024
+
+/** Chunks a preview may hold: the image and its transparency, nothing else (no metadata, no animation). */
+const PREVIEW_CHUNKS = new Set(['VP8 ', 'VP8L', 'VP8X', 'ALPH'])
+
+/** Null for a WebP the share function stores as a preview; otherwise what is wrong with it. */
+export function previewProblem(b: Uint8Array): string | null {
+  const tag = (at: number) => String.fromCharCode(b[at], b[at + 1], b[at + 2], b[at + 3])
+  const u32 = (at: number) => (b[at] | (b[at + 1] << 8) | (b[at + 2] << 16) | (b[at + 3] << 24)) >>> 0
+  if (b.length > MAX_PREVIEW_BYTES) return 'is too large'
+  if (b.length < 30 || tag(0) !== 'RIFF' || tag(8) !== 'WEBP' || u32(4) !== b.length - 8) return 'is not a WebP picture'
+  let size: [number, number] | null = null
+  for (let at = 12; at < b.length;) {
+    if (at + 8 > b.length) return 'is not a WebP picture'
+    const kind = tag(at), len = u32(at + 4), body = at + 8
+    if (!PREVIEW_CHUNKS.has(kind) || body + len > b.length) return 'holds more than a picture'
+    if (kind === 'VP8 ' && !size && len >= 10 && b[body + 3] === 0x9d && b[body + 4] === 0x01 && b[body + 5] === 0x2a)
+      size = [(b[body + 6] | (b[body + 7] << 8)) & 0x3fff, (b[body + 8] | (b[body + 9] << 8)) & 0x3fff]
+    else if (kind === 'VP8L' && !size && len >= 5 && b[body] === 0x2f) {
+      const bits = u32(body + 1)
+      size = [(bits & 0x3fff) + 1, ((bits >>> 14) & 0x3fff) + 1]
+    } else if (kind === 'VP8X') {
+      if (at !== 12 || len < 10 || (b[body] & ~0x10)) return 'holds more than a picture' // alpha only: no animation, colour profile or metadata
+    }
+    at = body + len + (len & 1)
+  }
+  if (!size) return 'is not a WebP picture'
+  return size[0] === PREVIEW_W && size[1] === PREVIEW_H ? null : `must be ${PREVIEW_W}×${PREVIEW_H}`
+}
 
 // ---------------- packing ----------------
 

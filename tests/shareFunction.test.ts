@@ -1,12 +1,15 @@
 // The share function itself (netlify/functions/share.mts) against an
 // in-memory Supabase: removing links, limits, hiding, plays, board times
-// through walls, and a database without migration 0004. Also the link
-// preview's head rewrite (netlify/edge-functions/og.ts).
+// through walls, the gallery's rebuild check, preview pictures, and a
+// database without migration 0004. Also the link preview's head rewrite
+// (netlify/edge-functions/og.ts).
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { newMarker, newProject, type Vec3 } from '../src/lib/project'
 import { GhostRecorder, checkTime } from '../src/play/ghost'
 import { wallsOf } from '../src/play/ghostWalls'
+import { shapeObj, type Shape } from '../src/lib/shapes'
 import { SHARE_RULES, cleanObj, packShare, toBase64, type ShareDoc } from '../src/play/share'
+import { fakeWebp } from './fakeWebp'
 
 // ---------------- a small Supabase ----------------
 
@@ -24,7 +27,7 @@ const db = vi.hoisted(() => ({
   plays: [] as string[],
 }))
 
-const NEW_SHARES = ['token', 'owner', 'title', 'data', 'size_bytes', 'created_at', 'updated_at', 'anon', 'expires_at', 'ip_hash', 'key_hash', 'listed', 'hidden', 'thumb', 'shot', 'plays', 'data_hash', 'modes', 'players']
+const NEW_SHARES = ['token', 'owner', 'title', 'data', 'size_bytes', 'created_at', 'updated_at', 'anon', 'expires_at', 'ip_hash', 'key_hash', 'listed', 'hidden', 'thumb', 'plays', 'data_hash', 'modes', 'players']
 const OLD_SHARES = ['token', 'owner', 'title', 'data', 'size_bytes', 'created_at', 'updated_at']
 function schema(fresh: boolean) {
   db.columns = fresh
@@ -144,7 +147,14 @@ function doc(title = 'Walled'): ShareDoc {
   return { format: 'sr1-map-studio-share', version: 1, title, created_at: '2026-10-27T00:00:00Z', project: p, models: { 'mesh/0': cleanObj(WALL)! }, textures: {}, made: { 'mesh/0': 'shape' } }
 }
 const data = (d = doc()) => toBase64(packShare(d))
-const webp = () => toBase64(new Uint8Array([0x52, 0x49, 0x46, 0x46, 40, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20, ...new Array(48).fill(1)]))
+const webp = (w = 640, h = 360, extra: [string, number[]][] = []) => toBase64(fakeWebp(w, h, extra))
+
+/** A floor made on the site: a box shape, with the settings that build it. */
+const FLOOR: Shape = { kind: 'box', size: [60, 1, 60], tile: 4 }
+function siteDoc(model = cleanObj(shapeObj(FLOOR))!): ShareDoc {
+  const d = doc('Site made')
+  return { ...d, models: { 'mesh/0': model }, made: { 'mesh/0': 'shape' }, builds: { 'mesh/0': { kind: 'shape', shape: FLOOR } } }
+}
 
 /** A run along `path` at running speed, sampled every 100 ms. */
 function run(path: Vec3[]) {
@@ -179,27 +189,68 @@ describe('the share function', () => {
     expect(ipPrefix('nonsense')).toBeNull()
   })
 
-  it('makes a link without an account, with an edit key, an expiry and its preview', async () => {
+  it('makes a link without an account, with an edit key and an expiry, and no preview of its own', async () => {
     const r = await call('', { title: 'x', data: data(), thumb: webp() })
     expect(r.status).toBe(200)
     expect(r.body.key).toMatch(/^[\w-]{22}$/)
     const row = db.tables.shares[0]
     expect(row).toMatchObject({ token: r.body.token, anon: true, owner: null })
     expect(row.ip_hash).toMatch(/^[0-9a-f]{64}$/)
-    expect(row.thumb).toBeTruthy()
-    expect(db.stored.has(`${r.body.token}.webp`)).toBe(true)
+    expect(row.thumb ?? null).toBeNull()
+    expect(db.stored.size).toBe(0)
+  })
+
+  it('keeps a signed-in preview only as a 640×360 WebP with nothing else in it', async () => {
+    const big = await call('', { title: 'x', data: data(), thumb: webp(1280, 720) }, { jwt: 'alice' })
+    expect(big.status).toBe(422)
+    expect(big.body.error).toMatch(/640×360/)
+    const png = await call('', { title: 'x', data: data(), thumb: toBase64(new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...new Array(40).fill(0)])) }, { jwt: 'alice' })
+    expect(png.status).toBe(422)
+    const exif = await call('', { title: 'x', data: data(), thumb: webp(640, 360, [['EXIF', [1, 2, 3, 4]]]) }, { jwt: 'alice' })
+    expect(exif.body.error).toMatch(/more than a picture/)
+    const flagged = await call('', { title: 'x', data: data(), thumb: webp(640, 360, [['VP8X', [0x08, 0, 0, 0, 127, 2, 0, 103, 1, 0]]]) }, { jwt: 'alice' })
+    expect(flagged.body.error).toMatch(/more than a picture/)
+    expect(db.stored.size).toBe(0)
+    const ok = await call('', { title: 'x', data: data(), thumb: webp() }, { jwt: 'alice' })
+    expect(ok.status).toBe(200)
+    expect(db.stored.has(`${ok.body.token}.webp`)).toBe(true)
+  })
+
+  it('lists a map only when every model rebuilds from its settings as the model in the share', async () => {
+    const honest = await call('', { title: 'x', data: data(siteDoc()), listed: true }, { jwt: 'alice' })
+    expect(honest.status).toBe(200)
+    expect(db.tables.shares[0].listed).toBe(true)
+    // Float rounding is allowed.
+    const nudged = cleanObj(shapeObj(FLOOR))!.replace(/^v (\S+)/m, (_, x) => `v ${Number(x) + 0.0004}`)
+    expect((await call('', { title: 'x', data: data(siteDoc(nudged)), listed: true }, { jwt: 'alice' })).status).toBe(200)
+
+    // An imported model relabelled as the shape, a vertex moved, a model with no settings, and one that says it's imported.
+    const relabelled = await call('', { title: 'x', data: data(siteDoc(cleanObj(WALL)!)), listed: true }, { jwt: 'alice' })
+    expect(relabelled.status).toBe(422)
+    expect(relabelled.body.problems.join()).toMatch(/doesn’t match/)
+    const moved = cleanObj(shapeObj(FLOOR))!.replace(/^v (\S+)/m, (_, x) => `v ${Number(x) + 0.5}`)
+    expect((await call('', { title: 'x', data: data(siteDoc(moved)), listed: true }, { jwt: 'alice' })).body.problems.join()).toMatch(/doesn’t match/)
+    const bare = { ...siteDoc(), builds: undefined }
+    expect((await call('', { title: 'x', data: data(bare), listed: true }, { jwt: 'alice' })).body.problems.join()).toMatch(/no settings/)
+    const imported = { ...siteDoc(), made: { 'mesh/0': 'import' as const } }
+    expect((await call('', { title: 'x', data: data(imported), listed: true }, { jwt: 'alice' })).body.problems.join()).toMatch(/imported models/)
+    // Unlisted, the same map is still a fine link.
+    expect((await call('', { title: 'x', data: data(siteDoc(moved)) }, { jwt: 'alice' })).status).toBe(200)
+    expect(db.tables.shares.filter((r) => r.listed)).toHaveLength(2)
   })
 
   it('removes a preview only with the link it belongs to', async () => {
-    const a = await call('', { title: 'x', data: data(), thumb: webp() })
+    const a = await call('', { title: 'x', data: data() }, { jwt: 'bob' })
     const mine = await call('', { title: 'x', data: data(), thumb: webp() }, { jwt: 'alice' })
-    // A wrong key, or someone else's link: nothing goes, picture included.
+    db.stored.set(`${a.body.token}.webp`, 'bob’s preview')
+    for (const r of db.tables.shares) if (r.token === a.body.token) r.thumb = new Date().toISOString()
+    // A key, or someone else's link: nothing goes, picture included.
     expect((await call('', { token: a.body.token, key: 'A'.repeat(22) }, { method: 'DELETE' })).status).toBe(200)
     expect((await call('', { token: mine.body.token }, { method: 'DELETE', jwt: 'bob' })).status).toBe(200)
     expect(db.removed).toEqual([])
     expect(db.tables.shares).toHaveLength(2)
-    // The right key, and the owner.
-    await call('', { token: a.body.token, key: a.body.key }, { method: 'DELETE' })
+    // The owners.
+    await call('', { token: a.body.token }, { method: 'DELETE', jwt: 'bob' })
     await call('', { token: mine.body.token }, { method: 'DELETE', jwt: 'alice' })
     expect(db.removed.sort()).toEqual([`${a.body.token}.webp`, `${mine.body.token}.webp`].sort())
     expect(db.tables.shares).toHaveLength(0)
@@ -311,7 +362,7 @@ describe('the link preview', () => {
   async function preview(title: string, ok = true) {
     vi.resetModules()
     ;(globalThis as any).Netlify = { env: { get: (k: string) => ({ VITE_SUPABASE_URL: 'https://example.supabase.co', VITE_SUPABASE_ANON_KEY: 'anon' } as Record<string, string>)[k] } }
-    vi.stubGlobal('fetch', async () => { fetches++; return ok ? new Response(JSON.stringify([{ title, modes: ['roam', 'weapons'], players: 2, thumb: null, shot: false }])) : new Response('{}', { status: 400 }) })
+    vi.stubGlobal('fetch', async () => { fetches++; return ok ? new Response(JSON.stringify([{ title, modes: ['roam', 'weapons'], players: 2, thumb: null }])) : new Response('{}', { status: 400 }) })
     const og = (await import('../netlify/edge-functions/og')).default
     const next = async () => new Response(PAGE, { headers: { 'content-type': 'text/html' } })
     return { og, next }

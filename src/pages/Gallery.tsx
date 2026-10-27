@@ -1,7 +1,8 @@
 // The gallery: play links their signed-in owners chose to list. Only maps
 // whose every model was made on the site (shapes, compounds and prefabs) can
-// be listed, because an imported model travels as its full geometry. Play one
-// in the browser, rate it, report it, or remix it into a map of your own.
+// be listed, because an imported model travels as its full geometry; the share
+// function rebuilds each model to check. Pictures are drawn by the site. Play
+// one in the browser, rate it, report it, or remix it into a map of your own.
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useUser } from '../lib/backend'
@@ -96,7 +97,7 @@ export default function Gallery() {
     <div className="page">
       <div className="hero" style={{ paddingTop: 8 }}>
         <h1>The <b>Gallery</b></h1>
-        <p>Maps you can play right here in the browser, on a computer or a phone, with no game or account. Every map in here was built on this site from its own shapes and prefabs, so none of them carry files from games or other sites. Some pictures are the authors’ own screenshots from Saints Row. Rate the maps you like, or remix one into your own.</p>
+        <p>Maps you can play right here in the browser, on a computer or a phone, with no game or account. Every map in here was built on this site from its own shapes and prefabs, and the site checks each one before it goes in, so none of them carry files from games or other sites. The pictures are drawn by the site from the maps themselves. Rate the maps you like, or remix one into your own.</p>
       </div>
       <div className="row wrap">
         <input className="grow" type="search" placeholder="Search maps and authors…" value={text} onChange={(e) => setText(e.target.value)} style={{ minWidth: 200 }} aria-label="Search maps" />
@@ -117,7 +118,7 @@ export default function Gallery() {
               <div key={m.token} className="col gallery-item" style={{ gap: 6 }}>
                 <HubCard to={`/play/s/${m.token}`} stats={<span title="Times played">▶ {m.plays}</span>}
                   m={{ id: m.token, title: m.title, description: '', tags: [], author: m.author, thumbnail_url: m.thumbnail_url, likes: 0, rating: m.rating, ratings: m.ratings, shots: [], remixes: 0, downloads: m.plays, created_at: m.created_at, updated_at: m.updated_at, remix_of: null }} />
-                <div className="small faint">{m.modes.map((k) => MODE_NAMES[k] ?? k).join(' · ')}{m.players ? ` · ${m.players} spawn${m.players === 1 ? '' : 's'}` : ''} · {plays(m.plays)}{m.shot ? ' · in-game screenshot' : ''}</div>
+                <div className="small faint">{m.modes.map((k) => MODE_NAMES[k] ?? k).join(' · ')}{m.players ? ` · ${m.players} spawn${m.players === 1 ? '' : 's'}` : ''} · {plays(m.plays)}</div>
                 <div className="row wrap small">
                   <Link className="btn sm primary" to={`/play/s/${m.token}`}>Play</Link>
                   <button className="sm" disabled={busy} onClick={() => remix(m.token)}>{progress?.token === m.token ? `${progress.text}…` : 'Remix in editor'}</button>

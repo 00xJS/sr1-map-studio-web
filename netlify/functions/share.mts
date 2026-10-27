@@ -1,18 +1,20 @@
-// POST   /api/share         {title, data, token?, key?, thumb?, shot?, listed?} -> {token, key?, expires_at?}
+// POST   /api/share         {title, data, token?, key?, thumb?, listed?}  -> {token, key?, expires_at?}
 // DELETE /api/share         {token, key?}                                -> {ok}
 // POST   /api/share/report  {token, reason, details}                     -> {ok}
 // POST   /api/share/time    {token, mode, ms, name, ghost}               -> {ok, rank}
 // POST   /api/share/play    {token}                                      -> {ok}
 // POST   /api/share/hide    {token}   (moderators)                       -> {ok}
-//   data: base64 of the gzip share (src/play/share.ts); thumb: base64 WebP preview, drawn from the share or
-//   (shot: true) the author's own in-game screenshot; ghost: src/play/ghost.ts
+//   data: base64 of the gzip share (src/play/share.ts); thumb: base64 WebP preview the site drew from the
+//   share (src/play/sharePreview.ts), signed-in links only; ghost: src/play/ghost.ts
 //
 // Play links. The function unpacks and checks every share with the same rules
 // as the browser (no files, plain OBJ geometry, texture recipes only) before
 // storing it, and is the only thing that can write to public.shares, its
 // reports, its boards and its preview pictures. Anyone can read a share with
 // its token through the get_share RPC; only links their signed-in owner listed
-// show in the gallery.
+// show in the gallery, and a map is listed only after the function rebuilds
+// every model from the settings in the share and gets the same geometry
+// (src/play/shareBuilds.ts).
 //
 // Without an account a link still works, but expires after SHARE_RULES.anonDays
 // and is limited per salted hash of the maker's address (SHARE_IP_SALT; IPv6 by
@@ -24,10 +26,11 @@
 // Until migration 0004 is applied, signed-in links keep working as before
 // (without previews or the gallery) and everything new answers "not open yet".
 import { createClient, type PostgrestError, type SupabaseClient } from '@supabase/supabase-js'
-import { MAX_THUMB_BYTES, isValidThumbnail, supabaseProjectUrl } from '../../src/lib/hubRules'
+import { isValidThumbnail, supabaseProjectUrl } from '../../src/lib/hubRules'
 import { checkTime, cleanName } from '../../src/play/ghost'
 import { wallsOf } from '../../src/play/ghostWalls'
-import { SHARE_LIMITS, SHARE_RULES, SHARE_TOKEN, fromBase64, galleryReady, newShareToken, shareMeta, unpackShare, validateShareDoc } from '../../src/play/share'
+import { MAX_PREVIEW_BYTES, SHARE_LIMITS, SHARE_RULES, SHARE_TOKEN, fromBase64, newShareToken, previewProblem, shareMeta, unpackShare, validateShareDoc } from '../../src/play/share'
+import { galleryProblems } from '../../src/play/shareBuilds'
 
 const env = (k: string) => process.env[k] || ''
 const num = (k: string, fallback: number) => Number(env(k)) || fallback
@@ -38,7 +41,7 @@ const reject = (status: number, error: string, problems: string[] = []) => json(
 const notOpen = (what: string) => reject(503, `${what} aren’t open yet on this site.`)
 
 /** Base64 grows the gzip by a third; anything bigger than this can't be a valid share (with its preview). */
-const MAX_BODY = Math.ceil((SHARE_LIMITS.packedBytes + MAX_THUMB_BYTES) * 1.4) + 4096
+const MAX_BODY = Math.ceil((SHARE_LIMITS.packedBytes + MAX_PREVIEW_BYTES) * 1.4) + 4096
 const MAX_TIME_BODY = 400_000
 const REASONS = ['game-data', 'stolen', 'offensive', 'spam', 'broken', 'other']
 const THUMBS = 'share-thumbs'
@@ -191,16 +194,22 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
   try { raw = unpackShare(fromBase64(body.data)) } catch (e) { return reject(422, (e as Error).message || 'This is not a play link.') }
   const { problems, doc } = validateShareDoc(raw)
   if (!doc) return reject(422, 'This map can’t be shared yet.', problems)
+  // A preview is the site's own render of the share, for signed-in links only; links without an account
+  // show the site's own picture.
   let thumb: Uint8Array | null = null
-  if (body.thumb != null && fresh) {
+  if (body.thumb != null && fresh && uid) {
     if (typeof body.thumb !== 'string') return reject(400, 'Invalid request body.')
     try { thumb = fromBase64(body.thumb) } catch { return reject(422, 'The preview picture is not valid.') }
-    const webp = thumb.length > 12 && String.fromCharCode(...thumb.subarray(8, 12)) === 'WEBP'
-    if (!webp || !isValidThumbnail(thumb.length, thumb.subarray(0, 64))) return reject(422, 'The preview picture is not valid.')
+    const bad = previewProblem(thumb) ?? (isValidThumbnail(thumb.length, thumb.subarray(0, 64)) ? null : 'is not valid')
+    if (bad) return reject(422, `The preview picture ${bad}.`)
   }
   const listed = body.listed === true && fresh
   if (listed && !uid) return reject(422, 'Sign in to list a map in the gallery.')
-  if (listed && !galleryReady(doc)) return reject(422, 'Only maps built entirely from the site’s own shapes and prefabs can go in the gallery.')
+  if (listed) {
+    // Rebuilt here from the share's own settings: what the page says about how a model was made isn't trusted.
+    const why = galleryProblems(doc)
+    if (why.length) return reject(422, 'This map can’t go in the gallery.', why)
+  }
 
   const meta = shareMeta(doc)
   const dataHash = await sha256(body.data)
@@ -209,7 +218,7 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
     if (!thumb) return {}
     const up = await admin.storage.from(THUMBS).upload(`${token}.webp`, thumb, { contentType: 'image/webp', upsert: true, cacheControl: '300' })
     if (up.error) { console.error('Preview upload failed', up.error.message); return {} }
-    return { thumb: new Date().toISOString(), shot: body.shot === true }
+    return { thumb: new Date().toISOString() }
   }
   /** A board's times were run on the old map: they go when the map changes. */
   const mapChanged = async (token: string, oldHash: string | null) => {
@@ -344,7 +353,7 @@ async function hide(admin: SupabaseClient, uid: string | null, body: any): Promi
   const me = await admin.from('profiles').select('is_moderator').eq('id', uid).maybeSingle()
   if (me.error) throw me.error
   if (!me.data?.is_moderator) return reject(403, 'Only moderators can do this.')
-  const up = await admin.from('shares').update({ hidden: true, listed: false, thumb: null, shot: false }).eq('token', body.token)
+  const up = await admin.from('shares').update({ hidden: true, listed: false, thumb: null }).eq('token', body.token)
   if (up.error) throw up.error
   await removeThumb(admin, body.token)
   const done = await admin.from('share_reports').update({ status: 'actioned', resolved_at: new Date().toISOString(), resolved_by: uid }).eq('token', body.token).eq('status', 'open')

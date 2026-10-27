@@ -11,7 +11,7 @@ import { isValidThumbnail, supabaseProjectUrl } from '../lib/hubRules'
 import type { RunMode } from './game'
 import { checkTime, cleanName, type GhostSample } from './ghost'
 import { wallsOf } from './ghostWalls'
-import { SHARE_RULES, SHARE_TOKEN, fromBase64, galleryReady, newShareToken, packShare, shareMeta, toBase64, unpackShare, validateShareDoc, type ShareDoc } from './share'
+import { SHARE_RULES, SHARE_TOKEN, fromBase64, newShareToken, packShare, previewProblem, shareMeta, toBase64, unpackShare, validateShareDoc, type ShareDoc } from './share'
 
 export const hostedShares = backendMode !== 'none'
 
@@ -67,7 +67,7 @@ const localDel = (store: LocalStore, key: string) => localTx('readwrite', (s) =>
 export interface LocalRow {
   token: string; owner: string | null; owner_name?: string; title: string; data: string; created_at: string; updated_at?: string
   anon?: boolean; expires_at?: string | null; ip_hash?: string | null; key_hash?: string | null
-  listed?: boolean; hidden?: boolean; thumb?: Blob | null; thumb_at?: string | null; shot?: boolean; plays?: number
+  listed?: boolean; hidden?: boolean; thumb?: Blob | null; thumb_at?: string | null; plays?: number
   modes?: string[]; players?: number; rating_sum?: number; rating_count?: number; data_hash?: string
 }
 interface LocalReport { id: string; token: string; reason: ReportReason; details: string; reporter: string | null; ip_hash: string | null; status: ShareReport['status']; created_at: string }
@@ -95,7 +95,6 @@ async function localExpire() {
   for (const r of await localAll<LocalTime>('times')) if (set.has(r.token)) await localDel('times', r.id)
 }
 
-const isWebp = (head: Uint8Array) => head.length > 12 && String.fromCharCode(...head.subarray(8, 12)) === 'WEBP'
 
 async function localLogged(kind: LocalLog['kind'], within: number, token?: string) {
   return (await localAll<LocalLog>('log')).filter((l) => l.kind === kind && l.ip_hash === LOCAL_IP && ago(l.created_at, within) && (!token || l.token === token)).length
@@ -154,10 +153,8 @@ export const thumbUrl = (token: string, at: string | null | undefined) => at ? `
 export interface ShareOptions {
   /** Replace a link you made before. */
   token?: string
-  /** A preview picture (WebP): drawn from the share (sharePreview.ts), or the author's own in-game screenshot. */
+  /** The preview picture the site drew from the share (sharePreview.ts); kept for signed-in links only. */
   thumb?: Blob | null
-  /** The preview is an in-game screenshot the author took. */
-  shot?: boolean
   /** Show it in the gallery (signed in, every model made on the site). */
   listed?: boolean
 }
@@ -169,14 +166,15 @@ export async function createShare(doc: ShareDoc, projectId: string, opts: ShareO
   if (!b) throw new Error('This site has no link server. Download the share file instead.')
   const user = await b.getUser()
   const mine = opts.token ? myShares().find((s) => s.token === opts.token) : undefined
+  // Links without an account show the site's own picture: their preview isn't sent.
   let thumb: Uint8Array | null = null
-  if (opts.thumb) {
+  if (opts.thumb && user) {
     const t = new Uint8Array(await opts.thumb.arrayBuffer())
-    if (isWebp(t) && isValidThumbnail(t.length, t.subarray(0, 64))) thumb = t
+    if (!previewProblem(t) && isValidThumbnail(t.length, t.subarray(0, 64))) thumb = t
   }
   let out: { token: string; key?: string; expires_at?: string }
   if (b.kind === 'local') out = await localCreate(data, user, opts, thumb, mine?.key)
-  else out = await fn('/api/share', { title: doc.title, data, token: opts.token, key: user ? undefined : mine?.key, thumb: thumb ? toBase64(thumb) : undefined, shot: !!(thumb && opts.shot), listed: !!opts.listed })
+  else out = await fn('/api/share', { title: doc.title, data, token: opts.token, key: user ? undefined : mine?.key, thumb: thumb ? toBase64(thumb) : undefined, listed: !!opts.listed })
   if (typeof out?.token !== 'string') throw new Error('Making the link failed. Try again later, or download the share file.')
   saveMine([
     { token: out.token, title: doc.title, created_at: new Date().toISOString(), project_id: projectId, ...(out.key ? { key: out.key, expires_at: out.expires_at } : {}), ...(opts.listed && user ? { listed: true } : {}) },
@@ -192,11 +190,14 @@ async function localCreate(data: string, user: { id: string; name: string } | nu
   const { problems, doc: checked } = validateShareDoc(unpackShare(fromBase64(data)))
   if (!checked) throw new ShareRejected('This map can’t be shared yet.', problems)
   if (opts.listed && !user) throw new ShareRejected('Sign in to list a map in the gallery.')
-  if (opts.listed && !galleryReady(checked)) throw new ShareRejected('Only maps built entirely from the site’s own shapes and prefabs can go in the gallery.')
+  if (opts.listed) {
+    const why = (await import('./shareBuilds')).galleryProblems(checked)
+    if (why.length) throw new ShareRejected('This map can’t go in the gallery.', why)
+  }
   const now = new Date().toISOString()
   const meta = shareMeta(checked)
   const data_hash = await sha256(data)
-  const row = { title: checked.title, data, data_hash, updated_at: now, modes: meta.modes, players: meta.players, ...(thumb ? { thumb: new Blob([thumb], { type: 'image/webp' }), thumb_at: now, shot: !!opts.shot } : {}) }
+  const row = { title: checked.title, data, data_hash, updated_at: now, modes: meta.modes, players: meta.players, ...(thumb && user ? { thumb: new Blob([thumb], { type: 'image/webp' }), thumb_at: now } : {}) }
   const rows = await localAll<LocalRow>('shares')
   if (!user) {
     if (opts.token && key) {
@@ -337,7 +338,7 @@ export async function resolveShareReport(r: ShareReport, action: 'dismiss' | 'hi
     if (action === 'dismiss') { await localPut('reports', r.id, { ...(await localGet<LocalReport>('reports', r.id))!, status: 'dismissed' }); return }
     // Hidden at once: it stops opening, leaves the gallery and loses its preview picture.
     const row = await localGet<LocalRow>('shares', r.token)
-    if (row) await localPut('shares', r.token, { ...row, hidden: true, listed: false, thumb: null, thumb_at: null, shot: false })
+    if (row) await localPut('shares', r.token, { ...row, hidden: true, listed: false, thumb: null, thumb_at: null })
     for (const o of await localAll<LocalReport>('reports')) if (o.token === r.token && o.status === 'open') await localPut('reports', o.id, { ...o, status: 'actioned' })
     return
   }
@@ -351,7 +352,7 @@ export async function resolveShareReport(r: ShareReport, action: 'dismiss' | 'hi
 
 export type GallerySort = 'new' | 'top' | 'played'
 export interface GalleryItem {
-  token: string; title: string; thumbnail_url?: string; shot: boolean; modes: string[]; players: number; plays: number
+  token: string; title: string; thumbnail_url?: string; modes: string[]; players: number; plays: number
   rating: number; ratings: number; my_rating?: number; author: HubAuthor; created_at: string; updated_at: string
 }
 
@@ -371,7 +372,7 @@ export async function listGallery(q: { search?: string; sort: GallerySort; page:
     return {
       total: rows.length,
       items: page.map((r) => ({
-        token: r.token, title: r.title, thumbnail_url: r.thumb ? localThumb(r.token, r.thumb_at ?? '', r.thumb) : undefined, shot: !!r.shot,
+        token: r.token, title: r.title, thumbnail_url: r.thumb ? localThumb(r.token, r.thumb_at ?? '', r.thumb) : undefined,
         modes: r.modes ?? [], players: r.players ?? 0, plays: r.plays ?? 0,
         rating: r.rating_count ? (r.rating_sum ?? 0) / r.rating_count : 0, ratings: r.rating_count ?? 0,
         my_rating: user ? ratings.find((x) => x.token === r.token && x.user_id === user.id)?.stars ?? 0 : undefined,
@@ -390,7 +391,7 @@ export async function listGallery(q: { search?: string; sort: GallerySort; page:
   return {
     total: Number(rows[0]?.total ?? 0),
     items: rows.map((r) => ({
-      token: r.token, title: r.title, thumbnail_url: thumbUrl(r.token, r.thumb), shot: !!r.shot, modes: r.modes ?? [], players: r.players ?? 0, plays: r.plays ?? 0,
+      token: r.token, title: r.title, thumbnail_url: thumbUrl(r.token, r.thumb), modes: r.modes ?? [], players: r.players ?? 0, plays: r.plays ?? 0,
       rating: r.rating ?? 0, ratings: r.rating_count ?? 0, my_rating: user ? mine.get(r.token) ?? 0 : undefined,
       author: { id: r.owner, name: r.author_name || 'Unknown', avatar_url: r.author_avatar || undefined }, created_at: r.created_at, updated_at: r.updated_at,
     })),

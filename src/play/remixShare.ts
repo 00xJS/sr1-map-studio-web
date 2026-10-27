@@ -1,6 +1,8 @@
 // "Remix in editor" for a play link: the share becomes a new map in My maps.
-// Models are stored as they came (plain OBJ geometry), textures are made again
-// from their recipes, as the Showcase does.
+// Models are stored as they came (plain OBJ geometry), or made again from the
+// shape or compound settings the share carries for them, so a remix of a
+// gallery map can go in the gallery too. Textures are made again from their
+// recipes, as the Showcase does.
 import { db } from '../lib/db'
 import { storeFile } from '../lib/files'
 import { uid, type FileRef, type Project } from '../lib/project'
@@ -14,10 +16,12 @@ export async function remixShare(token: string, onProgress?: (text: string) => v
   const files: Record<string, FileRef> = {}
   const models = new Map<string, string>()
   const entries = Object.entries(doc.models)
+  const { buildProblem } = await import('./shareBuilds')
   for (const [i, [k, text]] of entries.entries()) {
     if (i % 20 === 0) onProgress?.(`Storing models (${i + 1}/${entries.length})`)
     const stored = await storeFile(new Blob([text], { type: 'model/obj' }), `${k.replace(/\W+/g, '_')}.obj`)
-    files[stored.vpath] = stored.ref
+    const b = doc.made?.[k] !== 'import' ? doc.builds?.[k] : undefined
+    files[stored.vpath] = b && b.kind !== 'prefab' && !buildProblem(b) ? { ...stored.ref, recipe: b } : stored.ref
     models.set(k, stored.vpath)
   }
   // Recipe-only entries under the share's own keys: rebuildFromRecipes makes the files and repoints the objects.

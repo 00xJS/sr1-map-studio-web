@@ -1,14 +1,22 @@
-// Play links grown up: how models were made (the gallery rule), link metadata,
-// time-trial ghosts and their checks, and racing bots.
+// Play links grown up: how models were made (the gallery rule) and the
+// rebuild that checks it, link metadata, time-trial ghosts and their checks,
+// and racing bots.
 import { describe, expect, it } from 'vitest'
 import type { RaceGraph } from '../src/lib/analysis/analysis.worker'
 import { newMarker, newProject, type Marker, type Vec3 } from '../src/lib/project'
 import { SPRINT_SPEED } from '../src/lib/player'
 import { RaceBots } from '../src/play/bots'
-import { madeKind } from '../src/play/makeShare'
+import { madeKind, modelBuild } from '../src/play/makeShare'
+import { ALL_PREFABS } from '../src/lib/prefabRegistry'
+import { prefabParams, tagPrefab } from '../src/lib/prefabs'
+import { prefabModel } from '../src/lib/prefabModel'
+import { compoundObj, shapeObj, type CompoundPiece, type Shape } from '../src/lib/shapes'
+import { terrainShape } from '../src/lib/terrain'
+import { galleryProblems } from '../src/play/shareBuilds'
 import { availableRuns, newRun, raceScores, stepBot, stepRun, targets } from '../src/play/game'
 import { GHOST_MAX, GhostRecorder, checkTime, cleanName, ghostAt, loadGhost, saveGhost, type GhostSample } from '../src/play/ghost'
-import { cleanObj, galleryReady, shareMeta, validateShareDoc, type ShareDoc } from '../src/play/share'
+import { cleanObj, galleryReady, previewProblem, shareMeta, validateShareDoc, type ModelBuild, type ShareDoc } from '../src/play/share'
+import { fakeWebp } from './fakeWebp'
 
 const OBJ = 'v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n'
 const at = (type: string, p: Vec3, patch: Partial<Marker> = {}) => ({ ...newMarker(type, p), ...patch })
@@ -58,6 +66,74 @@ describe('the gallery takes only maps made on the site', () => {
     expect(shareMeta(d).modes).toEqual(['roam', 'weapons', 'dropoffs'])
     d.project.markers.push(at('Weapon pickup', [30, 0, 0], { weapon: 'shotgun' }))
     expect(shareMeta(d).modes).toEqual(['roam', 'weapons', 'dropoffs', 'race'])
+  })
+})
+
+describe('the gallery rebuilds every model from its settings', () => {
+  const one = (obj: string, build: ModelBuild) => galleryProblems({ models: { m: cleanObj(obj)! }, made: { m: build.kind }, builds: { m: build } })
+  const shape: Shape = { kind: 'cylinder', size: [2, 6, 2], tile: 4, segments: 12, taper: 0.5 }
+  const pieces: CompoundPiece[] = [
+    { shape: { kind: 'box', size: [4, 1, 4], tile: 4 }, at: [0, 0, 0], rot: 0, top: 'm0', side: 'm1' },
+    { shape: { kind: 'ramp', size: [2, 1, 3], tile: 2 }, at: [3, 1, 0], rot: 90, top: 'm0', side: 'm2' },
+  ]
+
+  it('accepts shapes and compounds that come out as the model in the share', () => {
+    expect(one(shapeObj(shape), { kind: 'shape', shape })).toEqual([])
+    expect(one(compoundObj(pieces), { kind: 'compound', pieces })).toEqual([])
+  })
+  it('refuses a model its settings don’t make', () => {
+    expect(one(shapeObj({ ...shape, segments: 13 }), { kind: 'shape', shape }).join()).toMatch(/doesn’t match/)
+    const moved = pieces.map((pc, i) => (i ? { ...pc, at: [3, 1.2, 0] as Vec3 } : pc))
+    expect(one(compoundObj(moved), { kind: 'compound', pieces }).join()).toMatch(/doesn’t match/)
+    expect(one(OBJ, { kind: 'shape', shape }).join()).toMatch(/doesn’t match/)
+  })
+  it('refuses settings out of range before building anything', () => {
+    expect(one(shapeObj(shape), { kind: 'shape', shape: { ...shape, segments: 100000 } }).join()).toMatch(/out of range/)
+    const many = Array.from({ length: 20001 }, () => pieces[0])
+    expect(one(compoundObj(pieces), { kind: 'compound', pieces: many }).join()).toMatch(/too many/)
+    expect(one(OBJ, { kind: 'prefab', key: 'no-such-prefab', params: {}, at: [0, 0, 0], rot: 0 }).join()).toMatch(/doesn’t have/)
+    // A cheap model can't hide an expensive rebuild: the whole share has a budget.
+    const ball: Shape = { kind: 'sphere', size: [1, 1, 1], tile: 1, segments: 128 }
+    const heavy = { models: {} as Record<string, string>, made: {} as Record<string, 'shape'>, builds: {} as Record<string, ModelBuild> }
+    for (let i = 0; i < 200; i++) { heavy.models['m' + i] = OBJ; heavy.made['m' + i] = 'shape'; heavy.builds['m' + i] = { kind: 'shape', shape: ball } }
+    expect(galleryProblems(heavy).join()).toMatch(/too many models to check/)
+  })
+  it('rebuilds a prefab from its key and settings, wherever it stands', () => {
+    const def = ALL_PREFABS.shop
+    const params = prefabParams(def, {})
+    const built = cleanObj(compoundObj(prefabModel(tagPrefab(def.make(10, 20, 30, 0, params), 'shop', params, [10, 0, 20], 30)).pieces))!
+    expect(one(built, { kind: 'prefab', key: 'shop', params, at: [10, 0, 20], rot: 30 })).toEqual([])
+    expect(one(built, { kind: 'prefab', key: 'shop', params, at: [-50, 0, 5], rot: 30 })).toEqual([])
+    const num = def.params!.find((d) => d.kind === 'number' && d.max !== undefined)!
+    expect(one(built, { kind: 'prefab', key: 'shop', params: { ...params, [num.key]: num.max! + 1 }, at: [10, 0, 20], rot: 30 }).join()).toMatch(/out of range/)
+    expect(one(built, { kind: 'prefab', key: 'shop', params: { ...params, nonsense: 1 }, at: [10, 0, 20], rot: 30 }).join()).toMatch(/doesn’t have/)
+  })
+  it('needs a build for every model the share says the site made', () => {
+    expect(galleryProblems({ models: { m: cleanObj(shapeObj(shape))! }, made: { m: 'shape' } }).join()).toMatch(/no settings/)
+    expect(galleryProblems({ models: { m: cleanObj(shapeObj(shape))! }, made: { m: 'compound' }, builds: { m: { kind: 'shape', shape } } }).join()).toMatch(/no settings/)
+    expect(galleryProblems({ models: { m: cleanObj(shapeObj(shape))! }, made: { m: 'import' }, builds: { m: { kind: 'shape', shape } } }).join()).toMatch(/imported/)
+  })
+  it('takes a terrain’s heights from the object when its file’s recipe leaves them out', () => {
+    const ground = { ...terrainShape(20, 20, { cell: 5 }), heights: undefined as number[] | undefined }
+    const full = terrainShape(20, 20, { cell: 5 })
+    full.heights = full.heights!.map((_, i) => (i % 3) * 0.5)
+    const obj = cleanObj(shapeObj(full))!
+    const item = { uid: 't', name: 'Ground', path: 'p', position: [0, 0, 0] as Vec3, rotation: [0, 0, 0] as Vec3, scale: 1, textures: {}, alpha: {}, shape: full }
+    const b = modelBuild(obj, { name: 'terrain.obj', hash: 'h', size: 1, origin: 'user', recipe: { kind: 'shape', shape: ground as Shape } } as any, [item])
+    expect(b).toEqual({ kind: 'shape', shape: full })
+    expect(modelBuild(obj, { name: 'terrain.obj', hash: 'h', size: 1, origin: 'user', recipe: { kind: 'shape', shape: ground as Shape } } as any, [])).toBeNull()
+  })
+})
+
+describe('preview pictures', () => {
+  it('takes only a plain 640×360 WebP', () => {
+    expect(previewProblem(fakeWebp())).toBeNull()
+    expect(previewProblem(fakeWebp(640, 360, [['VP8X', [0x10, 0, 0, 0, 127, 2, 0, 103, 1, 0]], ['ALPH', [0, 1, 2]]]))).toBeNull()
+    expect(previewProblem(fakeWebp(1280, 720))).toMatch(/640×360/)
+    expect(previewProblem(fakeWebp(640, 360, [['XMP ', [1]]]))).toMatch(/more than a picture/)
+    expect(previewProblem(fakeWebp(640, 360, [['VP8X', [0x02, 0, 0, 0, 127, 2, 0, 103, 1, 0]]]))).toMatch(/more than a picture/)
+    expect(previewProblem(new Uint8Array([...fakeWebp(), 0, 0]))).toMatch(/not a WebP/)
+    expect(previewProblem(new Uint8Array(300 * 1024))).toMatch(/too large/)
   })
 })
 

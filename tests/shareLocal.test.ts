@@ -5,7 +5,9 @@
 import { beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import { newMarker, newProject } from '../src/lib/project'
 import { GhostRecorder } from '../src/play/ghost'
+import { shapeObj, type Shape } from '../src/lib/shapes'
 import { SHARE_RULES, cleanObj, type ShareDoc } from '../src/play/share'
+import { fakeWebp } from './fakeWebp'
 
 // ---------------- stand-ins ----------------
 
@@ -49,15 +51,15 @@ Object.assign(globalThis, { indexedDB, localStorage, IDBKeyRange: { bound: (lowe
 
 // ---------------- the map ----------------
 
-const OBJ = 'v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n'
+const BOX: Shape = { kind: 'box', size: [40, 1, 40], tile: 4 }
 function doc(title = 'Local test', made: 'shape' | 'import' = 'shape'): ShareDoc {
   const p = newProject(title)
   p.scene_items.push({ uid: 'a', name: 'Floor', path: 'mesh/0', position: [0, 0, 0], rotation: [0, 0, 0], scale: 1, textures: {}, alpha: {} })
   p.markers.push({ ...newMarker('Shared spawn', [0, 0, 0]) }, { ...newMarker('Weapon pickup', [20, 0, 0]), weapon: 'ak47' })
-  return { format: 'sr1-map-studio-share', version: 1, title, created_at: '2026-10-27T00:00:00Z', project: p, models: { 'mesh/0': cleanObj(OBJ)! }, textures: {}, made: { 'mesh/0': made } }
+  return { format: 'sr1-map-studio-share', version: 1, title, created_at: '2026-10-27T00:00:00Z', project: p, models: { 'mesh/0': cleanObj(shapeObj(BOX))! }, textures: {}, made: { 'mesh/0': made },
+    ...(made === 'shape' ? { builds: { 'mesh/0': { kind: 'shape', shape: BOX } } } : {}) }
 }
-/** A RIFF/WEBP header, enough for the thumbnail checks. */
-const webp = () => new Blob([new Uint8Array([0x52, 0x49, 0x46, 0x46, 40, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20, ...new Array(32).fill(1)])], { type: 'image/webp' })
+const webp = (w = 640, h = 360) => new Blob([fakeWebp(w, h)], { type: 'image/webp' })
 
 let api: typeof import('../src/play/shareApi')
 let backend: import('../src/lib/backend').Backend
@@ -122,14 +124,25 @@ describe('local play links', () => {
   it('lists only signed-in links whose models were all made on the site', async () => {
     await expect(api.createShare(doc(), 'p1', { listed: true })).rejects.toThrow(/Sign in/)
     await signIn('builder')
-    await expect(api.createShare(doc('Imported', 'import'), 'p1', { listed: true })).rejects.toThrow(/shapes and prefabs/)
-    const { token } = await api.createShare(doc('Shapes only'), 'p2', { listed: true, thumb: webp(), shot: true })
+    await expect(api.createShare(doc('Imported', 'import'), 'p1', { listed: true })).rejects.toThrow(/can’t go in the gallery/)
+    const { token } = await api.createShare(doc('Shapes only'), 'p2', { listed: true, thumb: webp() })
     await api.createShare(doc('Unlisted'), 'p3')
     const g = await api.listGallery({ sort: 'new', page: 1, pageSize: 10 })
     expect(g.items.map((i) => i.title)).toEqual(['Shapes only'])
-    expect(g.items[0]).toMatchObject({ token, shot: true, author: { name: 'builder' }, modes: ['roam', 'weapons'], players: 1 })
+    expect(g.items[0]).toMatchObject({ token, author: { name: 'builder' }, modes: ['roam', 'weapons'], players: 1 })
     expect(g.items[0].thumbnail_url).toMatch(/^blob:/)
     expect((await api.listGallery({ search: 'nothing', sort: 'new', page: 1, pageSize: 10 })).total).toBe(0)
+  })
+
+  it('keeps a preview only for signed-in links, at the size the site draws it', async () => {
+    const rows = () => dbs.get('sr1-local-shares')!.db.stores.get('shares')! as Map<string, { thumb?: unknown }>
+    const anon = await api.createShare(doc('Anonymous'), 'p1', { thumb: webp() })
+    expect(rows().get(anon.token)!.thumb).toBeUndefined()
+    await signIn('builder')
+    const big = await api.createShare(doc('Too big'), 'p2', { thumb: webp(1280, 720) })
+    expect(rows().get(big.token)!.thumb).toBeUndefined()
+    const mine = await api.createShare(doc('Mine'), 'p3', { thumb: webp() })
+    expect(rows().get(mine.token)!.thumb).toBeTruthy()
   })
 
   it('rates other people’s gallery maps, not your own', async () => {
