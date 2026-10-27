@@ -64,6 +64,10 @@ export const MAP_UPGRADES: MapUpgrade[] = [
     hint: "Maps exported without one, and converted maps, still point their minimap at the map template's, so the game shows none; maps exported with one before 24 October 2026 show it black. This draws the map from straight above and makes that its minimap on the HUD and the pause map (a black one keeps its picture and is switched on).",
     prepare: minimapSource,
   },
+  {
+    key: 'dry_interiors', title: 'Keep interiors dry',
+    hint: "On a map whose weather changes each match, rain falls inside its buildings and under its roofs. This finds the floor that has a roof or ceiling over it and adds the game's rain blockers there, so the rain stops when you go inside.",
+  },
 ]
 
 export type UpgradeState = { state: 'available' | 'done' | 'unavailable'; why: string }
@@ -82,7 +86,7 @@ export async function checkUpgrades(info: MapInfo): Promise<MapCheck> {
   const job = jobDir()
   const chunk = `${job}/${info.stem}.bbchunk_xbox2`
   await py.writeFiles([{ path: chunk, data: await info.chunk.arrayBuffer() }])
-  const r = await py.call<{ upgrades: Record<string, UpgradeState>; sky: number; lights: unknown[] }>('map_tool', 'inspect', JSON.stringify({ chunk }))
+  const r = await py.call<{ upgrades: Record<string, UpgradeState>; sky: number; lights: unknown[] }>('map_tool', 'inspect', JSON.stringify({ chunk, always_clear: info.identity.alwaysClearWeather }))
   await py.remove([chunk])
   return { upgrades: r.upgrades, sky: r.sky, lights: r.lights.length }
 }
@@ -108,7 +112,7 @@ export async function runUpgrades(info: MapInfo, keys: string[], ask = true): Pr
   const job = jobDir()
   const chunk = `${job}/${info.stem}.bbchunk_xbox2`, peg = `${job}/${info.stem}.peg_xbox2`
   await py.writeFiles([{ path: chunk, data: await info.chunk.arrayBuffer() }, { path: peg, data: await info.peg.arrayBuffer() }])
-  const r = await py.call<{ applied: string[]; skipped: Record<string, string>; log: string[] }>('map_tool', 'upgrade', JSON.stringify({ ...spec, chunk, peg, upgrades: chosen.map((u) => u.key) }))
+  const r = await py.call<{ applied: string[]; skipped: Record<string, string>; log: string[] }>('map_tool', 'upgrade', JSON.stringify({ ...spec, chunk, peg, always_clear: info.identity.alwaysClearWeather, upgrades: chosen.map((u) => u.key) }))
   const [c, p] = await py.readFiles([chunk, peg])
   await py.remove([chunk, peg, ...(typeof spec.minimap_png === 'string' ? [spec.minimap_png] : [])])
   const replace: Record<string, Uint8Array> = {}

@@ -69,7 +69,7 @@ def switch_on(d, name):
         raise ValueError('no minimap floor named ' + name)
     (cx, cy, cz), (sx, sy, sz), _ = floor(d, at)
     x0, x1, z0, z1 = cx - sx / 2, cx + sx / 2, cz - sz / 2, cz + sz / 2
-    if regions.covered(d, x0, x1, z0, z1):
+    if regions.covered(d, x0, x1, z0, z1, cy - sy / 2, cy + sy / 2):
         return d, False
     m = REGION_MARGIN
     out = regions.with_map_region(d, x0 - m, x1 + m, z0 - m, z1 + m, cy - sy / 2, cy + sy / 2)

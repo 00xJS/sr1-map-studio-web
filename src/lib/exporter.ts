@@ -3,7 +3,7 @@
 import { zip as zipAsync, strFromU8, strToU8, type AsyncZippable } from 'fflate'
 import { py } from './py'
 import { dataPackStatus } from './datapack'
-import type { Marker, Project, ProjectSettings } from './project'
+import { dryInteriors, type Marker, type Project, type ProjectSettings } from './project'
 import { checkModes, levelEntries } from './levels'
 import { BOR } from './retailModes'
 import { crateDebrisSpec } from './crateDebris'
@@ -61,6 +61,8 @@ export async function runExport(project: Project, onLog: (t: string) => void, on
     ambience: s.ambience || '', loading_image: s.loading_mode === 'none' ? '' : s.loading_image || '',
     // Rain blockers note when there's no rain to block (py/regions.py).
     always_clear_weather: s.always_clear_weather,
+    // Rain blockers over the floor under roofs and ceilings (py/interiors.py): only when it can rain.
+    dry_interiors: dryInteriors(s),
     // Sliver triangles out of the collision (py/collision_fix.py), unless switched off.
     remove_invisible_walls: s.remove_invisible_walls !== false,
   }
@@ -188,7 +190,8 @@ function exportNotes(p: Project, r: ExportResult) {
     `Native objects: ${s.native_objects} (including ${s.native_props} movable/explosive props)`,
     `Native point lights: ${s.lights} (first gameplay test pending)`,
     ...(s.water_volumes ? [`Swimmable water: ${s.water_volumes} volume(s) (new, not yet tried in game)`] : []),
-    ...(s.regions ? [`Rain blockers and indoor rooms: ${s.regions} (new, not yet tried in game)`] : []),
+    ...(s.regions - (s.dry_boxes ?? 0) > 0 ? [`Rain blockers and indoor rooms: ${s.regions - (s.dry_boxes ?? 0)} (new, not yet tried in game)`] : []),
+    ...(s.dry_boxes ? [`Dry interiors: ${s.dry_boxes} box(es) over the floor under roofs and ceilings, where the rain stops (new, not yet tried in game)`] : []),
     `Sky: ${s.game_sky ? "the game's own sky from mp_bac_01 in your game files (new, not yet tried in game)"
       : p.settings.native_sky ? `native sky preset ${p.settings.native_sky}` : p.settings.sky_texture ? 'fake sky image' : 'none (black in game)'}`,
     '',

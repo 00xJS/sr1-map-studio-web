@@ -38,6 +38,7 @@ from vehicle_catalog_v041 import VEHICLE_CATALOG
 import fast_dxt
 import map_features as features
 import regions
+import interiors
 import minimap_region
 import collision_fix
 import retail_features as retail
@@ -442,9 +443,13 @@ def _export(s, log):
         # Same conversion as the map geometry and the markers.
         convert = lambda p: sr1_cts.convert_xyz(p, ws, mirror, fixed_origin)
         water_count = features.add_water(chunk, features.water_volumes(items, water, _parse, sr1_scene.transform, convert), log)
-    # Rain blockers and indoor rooms (py/regions.py), converted like the markers.
+    # Rain blockers and indoor rooms (py/regions.py), converted like the markers; with dry interiors on, rain
+    # blockers over the floor that has a roof or ceiling over it, found in the map's collision (py/interiors.py).
+    dry = interiors.chunk_boxes(chunk.read_bytes()) if s.get('dry_interiors') else []
+    if s.get('dry_interiors') and not dry:
+        log('Dry interiors: no floor under a roof or ceiling found; nothing to keep dry.')
     region_count = regions.add_regions(chunk, markers, ws, lambda p: sr1_cts.convert_xyz(p, ws, mirror, fixed_origin, space),
-                                       bool(s.get('always_clear_weather', True)), log)
+                                       bool(s.get('always_clear_weather', True)), log, dry)
     if wanted_profiles:
         placements = result.get('native_glass', {}).get('placements', [])
         features.set_profiles(chunk, {placements[j]['source']: name for j, name in wanted_profiles.items()}, log)
@@ -482,6 +487,7 @@ def _export(s, log):
         'lights': result.get('lighting', {}).get('exported', 0),
         'water_volumes': water_count,
         'regions': region_count,
+        'dry_boxes': min(len(dry), region_count),
         'game_sky': int(game_sky),
         **extras,
     }

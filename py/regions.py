@@ -10,6 +10,8 @@ inside every building.
 Two marker types make them:
   Rain blocker  - no rain inside; lighting and sky as outside.
   Indoor room   - no rain, a room's even ambient light, no sky, no sun shadows.
+The export (and a quick upgrade for finished maps) also finds the floor under
+roofs and ceilings itself and puts rain blockers over it: interiors.py.
 
 A marker's box stands on it (its bottom at the marker), is sized in metres
 (width, height, depth) and turns with the marker. Because the test is the
@@ -28,6 +30,7 @@ import struct
 from pathlib import Path
 
 import sr_reborn_core as rc
+import interiors
 from map_features import volume_box, volume_planes
 
 RAIN_BLOCKER = 'Rain blocker'
@@ -157,34 +160,49 @@ MAP_REGION_FLAGS = 0
 COVER_SLACK = 0.01  # metres: the chunk stores 32-bit floats, so 59.52 reads back as 59.5199996
 
 
-def covered(chunk_bytes, x0, x1, z0, z1):
-    """Whether a region of the chunk covers the whole of x0..x1, z0..z1 (game metres, to the centimetre)."""
+def covered(chunk_bytes, x0, x1, z0, z1, y0=None, y1=None):
+    """Whether a region of the chunk covers the whole of x0..x1, z0..z1 (game metres, to the centimetre), and of
+    y0..y1 when given (a roofed room's box covers its floor plan, not the map's height)."""
     e = COVER_SLACK
     for lo, hi, _ in read_regions(chunk_bytes):
-        if lo[0] <= x0 + e and hi[0] >= x1 - e and lo[2] <= z0 + e and hi[2] >= z1 - e:
+        if lo[0] <= x0 + e and hi[0] >= x1 - e and lo[2] <= z0 + e and hi[2] >= z1 - e \
+                and (y0 is None or lo[1] <= y0 + e) and (y1 is None or hi[1] >= y1 - e):
             return True
     return False
+
+
+def insert(chunk_bytes, new, at=None, what='the regions'):
+    """Chunk bytes with regions [(volume, flags, ambient)] put into the list before index `at` (at the end when
+    None); the ones there stay byte for byte. Checks that nothing else changed and that every region reads back."""
+    ch = rc.read_chunk(chunk_bytes)
+    records, blocks = _split(bytes(ch.get(SECTION).data))
+    if len(records) + len(new) > MAX_REGIONS + 1:
+        raise RuntimeError('the map has no room for more regions')
+    at = len(records) if at is None else at
+    before = {s.name: bytes(s.data) for s in ch.secs}
+    ch.get(SECTION).data = bytearray(_join(records[:at] + [_record(v, f, a) for v, f, a in new] + records[at:],
+                                           blocks[:at] + [_block(v) for v, _, _ in new] + blocks[at:]))
+    out = rc.write_chunk(ch)
+    check = rc.read_chunk(out)
+    for s in check.secs:
+        if s.name != SECTION and bytes(s.data) != before[s.name]:
+            raise RuntimeError(f'adding {what} changed another part of the map: ' + s.name)
+    got_records, got_blocks = _split(bytes(check.get(SECTION).data))
+    n = len(new)
+    if got_records[:at] + got_records[at + n:] != records or got_blocks[:at] + got_blocks[at + n:] != blocks \
+            or len(got_records) != len(records) + n:
+        raise RuntimeError(f'{what} did not read back')
+    return bytes(out)
 
 
 def with_map_region(chunk_bytes, x0, x1, z0, z1, y0, y1):
     """Chunk bytes with a map-wide region over x0..x1, y0..y1, z0..z1 added after the regions it has (see above).
     Checks that nothing else changed and that every region reads back."""
-    ch = rc.read_chunk(chunk_bytes)
-    records, blocks = _split(bytes(ch.get(SECTION).data))
-    if len(records) >= MAX_REGIONS + 1:
-        raise RuntimeError('the map has no room for another region')
     vol = ([(x0, z0), (x0, z1), (x1, z1), (x1, z0)], y0, y1)
-    before = {s.name: bytes(s.data) for s in ch.secs}
-    ch.get(SECTION).data = bytearray(_join(records + [_record(vol, MAP_REGION_FLAGS, 0.0)], blocks + [_block(vol)]))
-    out = rc.write_chunk(ch)
-    check = rc.read_chunk(out)
-    for s in check.secs:
-        if s.name != SECTION and bytes(s.data) != before[s.name]:
-            raise RuntimeError('adding the map region changed another part of the map: ' + s.name)
-    got_records, got_blocks = _split(bytes(check.get(SECTION).data))
-    if got_records[:-1] != records or got_blocks[:-1] != blocks or not covered(out, x0, x1, z0, z1):
+    out = insert(chunk_bytes, [(vol, MAP_REGION_FLAGS, 0.0)], what='the map region')
+    if not covered(out, x0, x1, z0, z1):
         raise RuntimeError('the map region did not read back')
-    return bytes(out)
+    return out
 
 
 def read_regions(chunk_bytes):
@@ -221,8 +239,9 @@ def write_regions(chunk_bytes, regions):
     return bytes(out)
 
 
-def add_regions(chunk_path, markers, world_scale, convert, always_clear, log):
-    """Writes the map's rain blockers and indoor rooms into its chunk; returns how many."""
+def add_regions(chunk_path, markers, world_scale, convert, always_clear, log, dry=()):
+    """Writes the map's rain blockers and indoor rooms into its chunk, and `dry`, rain blockers over its roofed
+    floor (interiors.py, game frame boxes, biggest first: the smallest go when the list is full); returns how many."""
     usable = []
     for m, vol in region_volumes(markers, world_scale, convert):
         quad, y0, y1 = vol
@@ -235,17 +254,23 @@ def add_regions(chunk_path, markers, world_scale, convert, always_clear, log):
         else:
             ambient = float(m.get('ambient', DEFAULT_AMBIENT) or DEFAULT_AMBIENT)
             usable.append((vol, FLAGS[m['type']], max(0.0, min(1.0, ambient))))
-    if not usable:
-        return 0
     if len(usable) > MAX_REGIONS:
         log(f'Regions: only the first {MAX_REGIONS} are written ({len(usable)} placed).')
         usable = usable[:MAX_REGIONS]
+    placed = len(usable)
+    dry = list(dry)[:MAX_REGIONS - placed]
+    usable += [(interiors.volume(b), FLAG_INDOOR, 0.0) for b in dry]
+    if not usable:
+        return 0
     # The first box the camera is in wins: smaller ones first, so a room inside a bigger blocker keeps its own look.
     usable.sort(key=lambda r: (lambda lo, hi: (hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2]))(*volume_box(r[0])))
     path = Path(chunk_path)
     path.write_bytes(write_regions(path.read_bytes(), usable))
-    blockers = sum(1 for r in usable if r[1] == FLAGS[RAIN_BLOCKER])
-    log(f'Regions: {blockers} rain blocker(s), {len(usable) - blockers} indoor room(s) (new, not yet tried in game).')
+    blockers = sum(1 for r in usable if r[1] == FLAGS[RAIN_BLOCKER]) - len(dry)
+    if placed:
+        log(f'Regions: {blockers} rain blocker(s), {placed - blockers} indoor room(s) (new, not yet tried in game).')
+    if dry:
+        log(f'Dry interiors: {len(dry)} box(es) over the floor under roofs and ceilings, where rain now stops (new, not yet tried in game).')
     if always_clear and blockers:
         log('Note: this map is always clear, so there is no rain to block; rain blockers matter when the weather changes each match.')
     return len(usable)

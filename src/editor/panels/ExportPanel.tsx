@@ -10,7 +10,7 @@ import { AMBIENCE_OPTIONS, LOADING_SIZE, ambienceHint, loadingMode, type Loading
 import { getViewer } from '../Viewport'
 import { dataPackStatus, hasGroup, type DataPackStatus } from '../../lib/datapack'
 import { downloadBlob } from '../../lib/exporter'
-import { GAME_MODES, SPAWN_TYPES, baseName, type ProjectSettings } from '../../lib/project'
+import { GAME_MODES, SPAWN_TYPES, baseName, dryInteriors, type ProjectSettings } from '../../lib/project'
 import { checkModes, levelEntries, unusedModeMarkers } from '../../lib/levels'
 import { installSupported } from '../../lib/install'
 import { MP_PACK } from '../../lib/gameFiles'
@@ -91,6 +91,13 @@ export function ExportPanel() {
           Always clear weather (noon, clear skies)
         </Check>
         {!s.always_clear_weather && <span className="small muted">Each match gets a random time (noon, midnight, dusk or dawn) and weather. Untested on custom maps: check your sky and lighting at night.</span>}
+        {!s.always_clear_weather && (
+          <Check checked={s.dry_interiors !== false} onChange={(v) => set('dry_interiors', v)}
+            title="The export finds the floor that has a roof or ceiling over it and adds rain blockers there. New, not yet tried in game.">
+            Keep interiors dry
+          </Check>
+        )}
+        {dryInteriors(s) && <span className="small muted">Interiors are kept dry: no rain under roofs and ceilings. For a spot it misses, place a Rain blocker.</span>}
       </div>
 
       <div className="group">
