@@ -28,6 +28,7 @@ import { PhysicsPanel } from './PhysicsPanel'
 import { RetailMarkerFields } from './RetailMarkerFields'
 import { VehiclePicker } from './VehiclePicker'
 import { openPrefabBrowser } from './PrefabBrowser'
+import { SwapPanel } from './SwapPanel'
 
 const TextureStudio = lazy(() => import('./TextureStudio').then((m) => ({ default: m.TextureStudio })))
 const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
@@ -279,6 +280,7 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
         {it.game_object && <span className="small muted">From your game files: usable in your own maps, not shareable (share links, the hub and the Showcase leave it out; backups carry only where it came from).</span>}
       </div>
 
+      <SwapPanel it={it} index={index} />
       {it.prefab && ALL_PREFABS[it.prefab.key]?.params && <PrefabSettings it={it} index={index} />}
       {it.prefab?.key === 'road' && <RoadPanel />}
       {it.shape?.kind === 'terrain' && <TerrainPanel it={it} />}
