@@ -751,11 +751,14 @@ export function identify(e: GameObjectEntry): GameIdentity {
   // sheets standing where that building's walls are), never a thing by itself.
   const paintOnly = e.tex.length > 0 && e.tex.every((t) => PAINT.test(t.toLowerCase()))
     && (e.tex.some((t) => /graf/i.test(t)) || Math.min(...e.size) < 0.3)
-  if (paintOnly) id = { role: 'skip', category: HIDDEN, name: 'Graffiti layer', settings: [] }
+  // A whole building's graffiti stays its building (its kit's lamps and signs belong to it) but by that name, flat in
+  // the catalogue, so nothing places it alone; anything else of nothing but paint is never placed at all.
+  if (paintOnly && kind !== 'whole') id = { role: 'skip', category: HIDDEN, name: 'Graffiti layer', settings: [] }
   else if (kind === 'detail') id = { role: 'piece', category: PIECES, name: 'Building detail', settings: [] }
   else if (kind === 'far') id = { role: 'skip', category: HIDDEN, name: 'Low-detail copy', settings: [] }
   else if (kind === 'whole') {
     id = buildingIdentity(e, [...fromWords])
+    if (paintOnly) id = { ...id, name: 'Graffiti layer' }
   } else {
     const c = classify(f)
     const settings = new Set(c.role === 'skip' ? [] : fromWords)
