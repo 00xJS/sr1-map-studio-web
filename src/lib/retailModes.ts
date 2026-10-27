@@ -4,6 +4,7 @@
 import type { CheckItem } from './checklist'
 import type { GameMode, Marker, Vec3 } from './project'
 import { ITEM_PROP } from './gameObjects/items'
+import { statusSentence } from './featureStatus'
 
 export const BOR: GameMode = 'Blinged Out Ride'
 
@@ -80,7 +81,7 @@ export const RETAIL_MARKER_HINTS: Record<string, string> = {
   [SOUND_ZONE]: 'A sphere or box that plays a sound from your game, like birds, traffic or room tone.',
   [RAIN_BLOCKER]: 'A box where it never rains: put one over a building or under a roof. Rain only falls on maps whose weather changes each match.',
   [INDOOR_ROOM]: 'A box that feels indoors: no rain, an even room light, no sky and no sun shadows.',
-  [ITEM_PROP]: 'A small object the game places by name, like a weapon pickup: a chair, a flag, a barrel… Not yet tried in game.',
+  [ITEM_PROP]: 'A small object the game places by name, like a weapon pickup: a chair, a flag, a barrel…' + statusSentence('item_props'),
 }
 
 /** What Blinged Out Ride still needs, in words ([] when the map has all of it). */

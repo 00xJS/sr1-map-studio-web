@@ -133,7 +133,7 @@ export function HealthSection() {
   return (
     <>
     <div className="group">
-      <span className="section-title">Map health <span className="chip">new</span></span>
+      <span className="section-title">Map health</span>
       {report && !running && <><Headline r={report} /><Findings r={report} max={4} /><OverlayButtons /></>}
       <Controls />
       {report && !running && <button className="sm quiet more" onClick={() => useEditor.getState().set({ advanced: true, tab: 'health' })}>Every spawn and the red vs blue details →</button>}

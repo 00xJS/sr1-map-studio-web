@@ -2,6 +2,7 @@
 import { Component, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { create } from 'zustand'
 import type { Vec3 } from './lib/project'
+import { feature, statusTag, type FeatureId } from './lib/featureStatus'
 
 // ---------------- error boundary ----------------
 
@@ -42,6 +43,15 @@ export function Toasts() {
       {items.map((t) => <div key={t.id} className={'toast ' + t.tone}>{t.text}</div>)}
     </div>
   )
+}
+
+// ---------------- feature status ----------------
+
+/** "Not yet tried in game" for a feature that hasn't been (lib/featureStatus.ts); nothing once it has. */
+export function Status({ id }: { id: FeatureId }) {
+  const f = feature(id)
+  if (f.state === 'proven') return null
+  return <span className="chip status" title={f.note}>{statusTag(id)}</span>
 }
 
 // ---------------- modal / dialogs ----------------

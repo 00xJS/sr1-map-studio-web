@@ -11,7 +11,8 @@ import { Palette, chooseTool } from './Tools'
 import { Checklist, useApplyFix, useChecklist } from './Checklist'
 import { HealthSection } from './HealthPanel'
 import { niceName, paintMaterial } from './paint'
-import { Check, Field, FileButton, NumberInput, toast, toastError, useBusy } from '../ui'
+import { Check, Field, FileButton, NumberInput, Status, toast, toastError, useBusy } from '../ui'
+import { triedInGame } from '../lib/featureStatus'
 import { catalogs } from '../lib/catalogs'
 import { loadModel, textureUrl } from '../lib/assets'
 import { dataPackStatus, hasGroup, type DataPackStatus } from '../lib/datapack'
@@ -102,11 +103,11 @@ function MapOverview({ onSamples, onPlay }: { onSamples: () => void; onPlay: () 
         </div>
         <span className="faint small">{project.settings.always_clear_weather
           ? 'Every match is at noon under a clear sky, like most custom maps.'
-          : 'Like the retail maps: each match rolls noon, midnight, dusk or dawn and the weather. Not yet tried on custom maps, so check how it looks at night.'}</span>
+          : 'Like the retail maps: each match rolls noon, midnight, dusk or dawn and the weather.' + (triedInGame('random_weather') ? '' : ' Not yet tried on custom maps, so check how it looks at night.')}</span>
       </div>
 
       <div className="group">
-        <span className="section-title">Background sound <span className="chip">new</span></span>
+        <span className="section-title">Background sound <Status id="ambience" /></span>
         <select value={project.settings.ambience || ''} onChange={(e) => update('Background sound', (d) => { d.settings.ambience = e.target.value })}>
           <option value="">None</option>
           {AMBIENCE_OPTIONS.map((o) => <option key={o.file} value={o.file}>{o.label}</option>)}
@@ -308,7 +309,7 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
             <span className="col" style={{ gap: 0 }}><span>Solid</span><span className="faint small">Players and cars can't pass through it.</span></span>
           </Check>
           <Check checked={!!it.swimmable_water} onChange={(v) => set('Swimmable water', (d) => { d.swimmable_water = v })}>
-            <span className="col" style={{ gap: 0 }}><span>Swimmable water <span className="chip">new</span></span><span className="faint small">{waterHint(it)}</span></span>
+            <span className="col" style={{ gap: 0 }}><span>Swimmable water <Status id="water" /></span><span className="faint small">{waterHint(it)}</span></span>
           </Check>
         </div>
       )}

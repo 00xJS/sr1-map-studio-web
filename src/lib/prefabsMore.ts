@@ -3,6 +3,7 @@
 // Each is one object (a group) placed with its base at y and turned by rot.
 import { CY, PB, ball, blob, box, cyl, lying, organic, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
 import { group, local, wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { statusParen } from './featureStatus'
 
 const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
 /** Shorthand: a prefab whose parts are given in its local frame. */
@@ -293,7 +294,7 @@ export const MORE_PREFABS: Record<string, PrefabDef & { category: string }> = {
   hoop: { category: 'Sports', label: 'Basketball hoop', hint: 'A hoop on a pole', make: pf('Hoop', (L) => [cyl('Hoop pole', 0.5, 7, L(0, 0, 0), PB.steel, PB.steel, 8), box('Backboard', [4, 3, 0.3], L(0, 6, 0.8), CY.white), { ...cyl('Rim', 1.6, 0.15, L(0, 6.2, 1.8), PB.orange, PB.orange, 12), taper: 1 }]) },
   goal: { category: 'Sports', label: 'Soccer goal', hint: 'A goal frame with netting', make: pf('Goal', (L) => [box('Goal post', [0.4, 4.6, 0.4], L(-7, 0, 0), CY.white), box('Goal post', [0.4, 4.6, 0.4], L(7, 0, 0), CY.white), box('Crossbar', [14.4, 0.4, 0.4], L(0, 4.6, 0), CY.white), box('Goal net', [14, 4.6, 0.1], L(0, 0, -3), NET, NET, 0, 4)]) },
   bleachers: { category: 'Sports', label: 'Bleachers', hint: 'Five rows of seats', ...pfp('Bleachers', [{ key: 'rows', label: 'Rows', kind: 'number', min: 2, max: 12, step: 1, default: 5 }, { key: 'w', label: 'Width', kind: 'number', min: 6, max: 60, step: 1, default: 16 }], (L, p) => [stairs('Bleachers', [+p.w, +p.rows, +p.rows * 1.6], L(0, 0, 0), PB.wood, PB.steel, 0, +p.rows)]) },
-  pool: { category: 'Sports', label: 'Swimming pool', hint: 'A raised pool you can swim in (new, not yet tried in game), with steps in and out and walls low enough to climb', ...pfp('Pool', [
+  pool: { category: 'Sports', label: 'Swimming pool', hint: 'A raised pool you can swim in' + statusParen('water') + ', with steps in and out and walls low enough to climb', ...pfp('Pool', [
     { key: 'w', label: 'Width', kind: 'number', min: 6, max: 60, step: 1, default: 16 },
     { key: 'd', label: 'Length', kind: 'number', min: 8, max: 80, step: 1, default: 24 },
     { key: 'depth', label: 'Water depth', kind: 'number', min: 3, max: POOL_MAX_DEPTH, step: 0.5, default: 4 },

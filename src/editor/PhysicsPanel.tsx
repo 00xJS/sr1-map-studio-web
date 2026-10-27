@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react'
 import { useEditor } from './store'
 import * as act from './actions'
 import { makePhysicsProps, setBottomHeavy, setPhysicsShape } from './physicsActions'
-import { Check, Field, useBusy } from '../ui'
+import { Check, Field, Status, useBusy } from '../ui'
+import { statusSentence } from '../lib/featureStatus'
 import { isCustomNative, isGlass, isProp, type SceneItem } from '../lib/project'
 import { LIBRARY_PRESETS, OBJECT_BUDGET, PHYSICS_PRESETS, PHYSICS_SHAPES, countPhysics, presetOf, shapeOf, type PhysicsPreset, type PhysicsShape } from '../lib/physicsProps'
 import { loadPropLibrary } from '../lib/propLibrary'
@@ -52,7 +53,7 @@ export function PhysicsPanel({ indices }: { indices: number[] }) {
   const apply = (key: string) => run(() => makePhysicsProps(indices, key))
   return (
     <div className="group">
-      <span className="section-title">Physics prop <span className="chip">new</span></span>
+      <span className="section-title">Physics prop <Status id="physics_props" /></span>
       {!preset && (
         <>
           <span className="small muted">
@@ -104,7 +105,7 @@ function PropSettings({ it, index, library }: { it: SceneItem; index: number; li
         {isProp(it) && <button className="sm" disabled={busy} onClick={() => run(() => act.returnStatic(index))}>Back to a normal object</button>}
       </div>
       <span className="faint small">
-        In game, weight, bounce and health come with the behaviour (the game's own object table: a map can't set its own numbers); the exporter fits the shape to your model. Not yet tried in game. The walk-through shows a rough preview.
+        In game, weight, bounce and health come with the behaviour (the game's own object table: a map can't set its own numbers); the exporter fits the shape to your model.{statusSentence('physics_props')} The walk-through shows a rough preview.
       </span>
     </>
   )
