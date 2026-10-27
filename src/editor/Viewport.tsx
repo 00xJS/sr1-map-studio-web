@@ -56,7 +56,7 @@ function placeShape(shape: string, point: Vec3, normal?: Vec3) {
 }
 
 /** A tool click on a surface. Returns true if the active tool handled it. */
-function useTool(point: Vec3, item: number, face: number, normal?: Vec3): boolean {
+function applyTool(point: Vec3, item: number, face: number, normal?: Vec3): boolean {
   const st = useEditor.getState()
   switch (st.tool) {
     case 'shape':
@@ -276,7 +276,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
           st.select({ kind: 'item', index: item })
           st.set({ faceRange: [face, face], tab: 'scene' })
           st.log(`Selected collision source face ${face} on ${st.project?.scene_items[item]?.name}.`)
-        } else useTool(point, item, face, normal)
+        } else applyTool(point, item, face, normal)
       },
       onTransform(kind, index, t, done) {
         const st = useEditor.getState()

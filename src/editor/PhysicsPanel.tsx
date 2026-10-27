@@ -43,12 +43,13 @@ function Limits() {
 export function PhysicsPanel({ indices }: { indices: number[] }) {
   const project = useEditor((s) => s.project)!
   const [run, busy] = useBusy()
+  // Before the early returns: a hook called only for some selections breaks React when the selection changes.
+  const library = useLibraryPresets()
   const items = indices.map((i) => project.scene_items[i]).filter(Boolean)
   if (!items.length || indices.includes(0)) return null
   if (items.some((it) => isGlass(it) && !isCustomNative(it))) return null
   const physical = items.filter((it) => presetOf(it))
   const one = items.length === 1 ? items[0] : null
-  const library = useLibraryPresets()
   const preset = one ? presetOf(one) : null
   const apply = (key: string) => run(() => makePhysicsProps(indices, key))
   return (

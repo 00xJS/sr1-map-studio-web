@@ -12,7 +12,9 @@
     "test": "vitest run",
     "test:game": "vitest run --mode game tests/gameObjects.test.ts tests/gameLook.test.ts tests/city.test.ts tests/sr1char.test.ts tests/gameSky.test.ts tests/mapFolder.test.ts tests/gameLight.test.ts tests/vehicles.test.ts tests/wizardGameInstall.test.ts tests/cityStudy.test.ts tests/placementGame.test.ts tests/wizardModulesGame.test.ts",
     "test:full": "vitest run --mode full",
-    "typecheck": "tsc -b"
+    "typecheck": "tsc -b",
+    "lint": "eslint .",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@dimforge/rapier3d-compat": "^0.21.0",
@@ -27,12 +29,21 @@
     "zustand": "^4.5.5"
   },
   "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@playwright/test": "^1.48.2",
+    "@testing-library/dom": "^10.4.0",
+    "@testing-library/react": "^16.0.1",
     "@types/node": "^22.7.4",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.0",
     "@types/three": "^0.169.0",
     "@vitejs/plugin-react": "^4.3.2",
+    "eslint": "^9.13.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "globals": "^15.11.0",
+    "jsdom": "^25.0.1",
     "typescript": "~5.6.2",
+    "typescript-eslint": "^8.11.0",
     "vite": "^5.4.8",
     "vitest": "^2.1.2"
   }
