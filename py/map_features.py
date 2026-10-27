@@ -560,7 +560,10 @@ def brawl_spawns(cts_text):
         body = ''.join(re.sub(r'(?m)^\+MPTeam[12]\s*\n', '', blk) for blk in blocks)
         return (text[:a] + head + body + text[b:]).replace('\n', nl), 0, len(team)
     gone = {m.group(1) for blk in team for m in [re.search(r'(?m)^\$Start nav:\s*"([^"]+)"', blk)] if m}
-    text = text[:a] + head + ''.join(blk for blk in blocks if blk not in team) + text[b:]
+    # Say so in the file, for anyone reading it: the team spawns weren't lost.
+    note = (f'// {len(team)} team spawn(s) are only in the Protect Tha Pimp / Blinged Out Ride CTS (<map>_ptp.cts, <map>_bor.cts):\n'
+            "// Gangsta Brawl and Big Ass Chains, team versions too, spawn everyone at these Player spawns, as the game's own maps do.\n")
+    text = text[:a] + head + note + ''.join(blk for blk in blocks if blk not in team) + text[b:]
     span = _cts_section(text, '#Navpoints')
     if span and gone:
         a, b = span

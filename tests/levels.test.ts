@@ -100,3 +100,13 @@ describe('packageMetadata', () => {
     expect(x.match(/<MultiplayerLevel>/g)).toHaveLength(2)
   })
 })
+
+describe('team spawns no selected mode uses', () => {
+  it('says the team spawns are left out when neither Protect Tha Pimp nor Blinged Out Ride is on', () => {
+    const markers = [...Array(8)].map((_, i) => at('Shared spawn', { position: [i * 20, 1, 0] })).concat([at('Red team spawn'), at('Blue team spawn', { position: [0, 1, 80] })])
+    const brawl = checkModes({ modes: ['Gangsta Brawl', 'Team Gangsta Brawl'] }, markers)
+    expect(brawl.warnings.join(' ')).toMatch(/2 team spawns are left out of the export/)
+    const ptp = checkModes({ modes: ['Gangsta Brawl', 'Protect Tha Pimp'] }, markers)
+    expect(ptp.warnings.join(' ')).not.toMatch(/left out of the export/)
+  })
+})

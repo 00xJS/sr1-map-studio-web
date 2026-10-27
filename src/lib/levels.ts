@@ -134,6 +134,11 @@ export function checkModes(settings: Pick<ProjectSettings, 'modes'>, markers: Ma
     const close = bunched(shared, SPAWN_GAP)
     if (close) warnings.push(`${close} Player spawns are within ${SPAWN_GAP / 2} m of another, so players can appear next to each other. The game's own maps keep them about 10 to 45 m apart.`)
   }
+  // Team spawns go only into the Protect Tha Pimp and Blinged Out Ride spawn files: with neither mode on, nothing uses them.
+  const teams = count('Red team spawn') + count('Blue team spawn')
+  if (teams && count('Shared spawn') && !modes.includes('Protect Tha Pimp') && !modes.includes(BOR)) {
+    warnings.push(`${teams} team spawn${teams === 1 ? ' is' : 's are'} left out of the export: only Protect Tha Pimp and Blinged Out Ride use team spawns. Gangsta Brawl and Big Ass Chains, team versions too, spawn everyone at Player spawns, as the game's own maps do. Turn on Protect Tha Pimp to use them, or change them to Player spawns.`)
+  }
   const crowded = crowdedSpawns(markers)
   if (crowded.length) warnings.push(crowdedText(markers, crowded))
   if (modes.some((m) => m.includes('Chains'))) {
