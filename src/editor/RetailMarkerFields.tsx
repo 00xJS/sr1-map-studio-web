@@ -1,5 +1,5 @@
 // Settings of the Blinged Out Ride and sound zone markers (see lib/retailModes.ts), shown in both the simple
-// inspector and the advanced Spawns tab, and the button that lets the editor read the player's own game files.
+// inspector, and the button that lets the editor read the player's own game files.
 import { useEffect, useState } from 'react'
 import { useEditor } from './store'
 import { Check, Field, FileButton, NumberInput, useBusy } from '../ui'

@@ -130,7 +130,7 @@ export function ToolOptions() {
   const toolShape = useEditor((s) => s.toolShape)
   const toolSpawn = useEditor((s) => s.toolSpawn)
   const toolWeapon = useEditor((s) => s.toolWeapon)
-  const advanced = useEditor((s) => s.advanced)
+  const allSettings = useEditor((s) => s.allSettings)
   const modes = useEditor((s) => s.project?.settings.modes ?? [])
   const [open, setOpen] = useState(false)
   useEffect(() => { if (tool !== 'paint' && tool !== 'pick') setOpen(false) }, [tool])
@@ -167,7 +167,7 @@ export function ToolOptions() {
       )}
       {tool === 'spawn' && (
         <select value={toolSpawn} onChange={(e) => set({ toolSpawn: e.target.value })} title={MARKER_HINTS[toolSpawn]}>
-          {[...(advanced ? catalogs.marker_types.filter((t) => t !== 'Weapon pickup') : SIMPLE_MARKERS), ...retailToolMarkers(modes)].map((t) => <option key={t} value={t}>{markerLabel(t)}</option>)}
+          {[...(allSettings ? catalogs.marker_types.filter((t) => t !== 'Weapon pickup') : SIMPLE_MARKERS), ...retailToolMarkers(modes)].map((t) => <option key={t} value={t}>{markerLabel(t)}</option>)}
         </select>
       )}
       {(tool === 'sculpt' || tool === 'road') && <GroundToolOptions tool={tool} />}

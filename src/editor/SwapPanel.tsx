@@ -18,7 +18,7 @@ export function SwapPanel({ it, index }: { it: SceneItem; index: number }) {
   const [open, setOpen] = useState(false)
   if (!swappable(it)) return null
   return (
-    <div className="group">
+    <div className="section">
       <button className="quiet section-toggle" onClick={() => setOpen(!open)} aria-expanded={open} title="Other things that would fit where this one stands">
         <span className="section-title">Swap for…</span><span className="faint">{open ? '▾' : '▸'}</span>
       </button>

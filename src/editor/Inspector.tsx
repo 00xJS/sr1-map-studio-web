@@ -1,194 +1,74 @@
-// Simple mode's side panel: one panel that shows whatever is selected, or the
-// map itself (checklist, game modes, adding things, everything in the map)
-// when nothing is.
-import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
+// The inspector: whatever is selected, on top of the side panel. The settings most maps need show straight
+// away; the rest (exact numbers, pivot, collision faces, native props, every marker field) sit in "More
+// settings", which "Show all settings" opens.
+import { lazy, Suspense, useEffect, useState } from 'react'
 import { useEditor, selectedItems, thingKey, type Swatch } from './store'
 import * as act from './actions'
 import { getViewer } from './Viewport'
 import { saveMyPrefab } from './myPrefabs'
-const PhotoDialog = lazy(() => import('./PhotoDialog').then((m) => ({ default: m.PhotoDialog })))
-import { Palette, chooseTool } from './Tools'
-import { Checklist, useApplyFix, useChecklist } from './Checklist'
-import { HealthSection } from './HealthPanel'
+import { Palette } from './Tools'
 import { niceName, paintMaterial } from './paint'
-import { Check, Field, FileButton, NumberInput, Status, toast, toastError, useBusy } from '../ui'
-import { triedInGame } from '../lib/featureStatus'
+import { More } from './More'
+import { Check, Field, FileButton, NumberInput, Status, Vec3Input, confirmDialog, toast, toastError, useBusy } from '../ui'
+import { statusParen, triedInGame } from '../lib/featureStatus'
 import { catalogs } from '../lib/catalogs'
 import { loadModel, textureUrl } from '../lib/assets'
-import { dataPackStatus, hasGroup, type DataPackStatus } from '../lib/datapack'
-import { blockers } from '../lib/checklist'
-import { MARKER_HINTS, MODE_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/labels'
-import { GAME_MODES, isCustomNative, isGlass, type Light, type Marker, type SceneItem, type Vec3 } from '../lib/project'
+import { MARKER_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/labels'
+import { PIMP_EXIT, isCustomNative, isGlass, isProp, type Light, type Marker, type SceneItem, type Vec3 } from '../lib/project'
+import { RETAIL_MARKER_TYPES } from '../lib/retailModes'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
 import { prefabParams } from '../lib/prefabs'
 import { photoAspect } from '../lib/prefabsSigns'
+import { pickupRespawnMs } from '../lib/player'
+import { py } from '../lib/py'
+import { fmtM, toMetres, toUnits } from '../lib/units'
+import { BREAKING_PRESETS, CRATE_PROFILE, MOVABLE_PRESETS, waterHint } from '../lib/mapFeatures'
 import { RoadPanel, TERRAIN_LOOK, TerrainPanel } from './GroundToolOptions'
-import { AMBIENCE_OPTIONS, ambienceHint, waterHint } from '../lib/mapFeatures'
-import { LoadingSetting } from './panels/ExportPanel'
 import { PhysicsPanel } from './PhysicsPanel'
-import { RetailMarkerFields } from './RetailMarkerFields'
+import { CrateDebrisNote, RetailMarkerFields } from './RetailMarkerFields'
 import { VehiclePicker } from './VehiclePicker'
-import { openPrefabBrowser } from './PrefabBrowser'
 import { SwapPanel } from './SwapPanel'
-import { LayerField, LayersPanel } from './panels/LayersPanel'
+import { LayerField } from './panels/LayersPanel'
 
 const TextureStudio = lazy(() => import('./TextureStudio').then((m) => ({ default: m.TextureStudio })))
-const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
 
-/** Opens advanced mode on the tab that holds the rest of the settings. */
-function MoreOptions({ tab, children }: { tab: string; children: ReactNode }) {
-  return <button className="sm quiet more" onClick={() => useEditor.getState().set({ advanced: true, tab })}>{children} →</button>
+export const weaponName = (id: string) => catalogs.weapons.find(([, w]) => w === id)?.[0] ?? id
+const TRIGGERS = new Set(catalogs.trigger_kinds)
+const MARKER_TYPES = [...catalogs.marker_types, ...RETAIL_MARKER_TYPES]
+
+/** The map's world scale, for showing editor units in metres. */
+const useScale = () => useEditor((s) => s.project?.settings.world_scale || 0.5)
+
+/** A position in editor units, shown and typed in metres. */
+function MetresVec3({ value, onChange, step }: { value: Vec3; onChange: (v: Vec3) => void; step?: number }) {
+  const ws = useScale()
+  return <Vec3Input value={value.map((v) => +toMetres(v, ws).toFixed(3)) as Vec3} step={step} onChange={(v) => onChange(v.map((x) => toUnits(x, ws)) as Vec3)} />
 }
 
-export function Inspector({ onSamples, onPlay }: { onSamples: () => void; onPlay: () => void }) {
+/** What is selected, or nothing when nothing is. */
+export function SelectionInspector() {
   const project = useEditor((s) => s.project)!
   const sel = useEditor((s) => s.selection)
   const multi = useEditor((s) => s.multi)
   const item = sel?.kind === 'item' && multi.length < 2 ? project.scene_items[sel.index] : undefined
   const marker = sel?.kind === 'marker' ? project.markers[sel.index] : undefined
   const light = sel?.kind === 'light' ? project.lights[sel.index] : undefined
-  const title = multi.length > 1 ? `${multi.length} objects` : item ? item.name : marker ? markerLabel(marker.type) + (marker.type === 'Weapon pickup' ? `: ${weaponName(marker.weapon)}` : '') : light ? 'Light' : 'Your map'
+  if (!item && !marker && !light && multi.length < 2) return null
+  const title = multi.length > 1 ? `${multi.length} objects` : item ? item.name : marker ? markerLabel(marker.type) + (marker.type === 'Weapon pickup' ? `: ${weaponName(marker.weapon)}` : '') : 'Light'
   return (
-    <>
+    <section className="inspector" aria-label="Selected">
       <div className="inspector-head">
-        {sel && <button className="sm quiet" onClick={() => useEditor.getState().select(null)} title="Back to the map overview (Esc)">← Map</button>}
         <b className="grow ellipsis">{title}</b>
+        <button className="sm quiet" onClick={() => getViewer()?.focusSelection()} title="Zoom to it (F)">Zoom to it</button>
+        <button className="sm quiet icon" onClick={() => useEditor.getState().select(null)} title="Deselect (Esc)" aria-label="Deselect">✕</button>
       </div>
-      <div className="panel inspector" data-tour="panel">
+      <div className="inspector-body stack">
         {item && <ObjectInspector key={item.uid} it={item} index={sel!.index} />}
         {marker && <MarkerInspector key={marker.uid} m={marker} index={sel!.index} />}
         {light && <LightInspector key={light.uid} l={light} index={sel!.index} />}
         {multi.length > 1 && <MultiInspector indices={multi} />}
-        {!item && !marker && !light && multi.length < 2 && <MapOverview onSamples={onSamples} onPlay={onPlay} />}
       </div>
-    </>
-  )
-}
-
-const weaponName = (id: string) => catalogs.weapons.find(([, w]) => w === id)?.[0] ?? id
-
-// ---------------- nothing selected: the map ----------------
-
-function MapOverview({ onSamples, onPlay }: { onSamples: () => void; onPlay: () => void }) {
-  const project = useEditor((s) => s.project)!
-  const update = useEditor((s) => s.update)
-  const items = useChecklist()
-  const fix = useApplyFix(onSamples)
-  const blocked = blockers(items).length > 0
-  const modes = project.settings.modes
-  return (
-    <>
-      <div className="group">
-        <span className="section-title">Ready to play?</span>
-        <Checklist items={items} onFix={fix} />
-        <button className="primary" onClick={onPlay}>{blocked ? 'Play in game…' : '▶ Play in game'}</button>
-      </div>
-
-      <HealthSection />
-
-      <div className="group" id="game-modes">
-        <span className="section-title">Game modes</span>
-        {GAME_MODES.map((m) => (
-          <Check key={m} checked={modes.includes(m)} onChange={(v) => update('Game modes', (d) => { d.settings.modes = GAME_MODES.filter((x) => (x === m ? v : modes.includes(x))) })}>
-            <span className="col" style={{ gap: 0 }}><span>{m}</span><span className="faint small">{MODE_HINTS[m]}</span></span>
-          </Check>
-        ))}
-      </div>
-
-      <div className="group">
-        <span className="section-title">Time and weather</span>
-        <div className="row wrap">
-          <button className={'sm' + (project.settings.always_clear_weather ? ' on' : '')} onClick={() => update('Time and weather', (d) => { d.settings.always_clear_weather = true })}>☀️ Always noon, clear</button>
-          <button className={'sm' + (!project.settings.always_clear_weather ? ' on' : '')} onClick={() => update('Time and weather', (d) => { d.settings.always_clear_weather = false })}>🌗 Changes each match</button>
-        </div>
-        <span className="faint small">{project.settings.always_clear_weather
-          ? 'Every match is at noon under a clear sky, like most custom maps.'
-          : 'Like the retail maps: each match rolls noon, midnight, dusk or dawn and the weather.' + (triedInGame('random_weather') ? '' : ' Not yet tried on custom maps, so check how it looks at night.')}</span>
-      </div>
-
-      <div className="group">
-        <span className="section-title">Background sound <Status id="ambience" /></span>
-        <select value={project.settings.ambience || ''} onChange={(e) => update('Background sound', (d) => { d.settings.ambience = e.target.value })}>
-          <option value="">None</option>
-          {AMBIENCE_OPTIONS.map((o) => <option key={o.file} value={o.file}>{o.label}</option>)}
-        </select>
-        <span className="faint small">{ambienceHint(project.settings.ambience)}</span>
-      </div>
-
-      <div className="group">
-        <span className="section-title">Loading screen</span>
-        <LoadingSetting />
-      </div>
-
-      <AddThings />
-      {project.scene_items.length > 0 && <LayersPanel compact />}
-      <Everything />
-      <p className="faint small">Click anything in the map to change it here. Need every setting? <MoreOptions tab="scene">Advanced mode</MoreOptions></p>
-    </>
-  )
-}
-
-function AddThings() {
-  const project = useEditor((s) => s.project)!
-  const [pack, setPack] = useState<DataPackStatus | null>(null)
-  const [run, busy] = useBusy()
-  const [photo, setPhoto] = useState(false)
-  useEffect(() => { dataPackStatus().then(setPack) }, [])
-  const center = () => (getViewer()?.center() ?? [0, 0, 0]) as Vec3
-  const lib = project.asset_library
-  const tool = (id: string, label: string) => <button className="sm" onClick={() => chooseTool(id)}>{label}</button>
-  return (
-    <div className="group">
-      <span className="section-title">Add to your map</span>
-      <div className="row wrap">
-        {tool('shape', 'Shape')}<button className="sm" onClick={openPrefabBrowser} title="Buildings, cars, trees, bunkers and more, ready to place">Prefabs…</button>{tool('spawn', 'Spawn')}{tool('weapon', 'Weapon')}{tool('light', 'Light')}
-        {hasGroup(pack, 'glass') && <button className="sm" disabled={busy} onClick={() => run(() => act.addGlass(Object.keys(catalogs.glass_styles)[0], center()))}>Glass window</button>}
-      </div>
-      <div className="row wrap">
-        <FileButton className="sm" multiple accept={MODEL_ACCEPT} disabled={busy}
-          title="OBJ (with its MTL and textures), GLB, glTF or FBX from Blender or a model website"
-          onFiles={(f) => run(() => act.importModelFiles(f, project.scene_items.length ? 'add' : 'base'))}>Your own 3D model…</FileButton>
-        <button className="sm" onClick={() => setPhoto(true)} title="Turn a photo into a building front or a cut-out sign">From a photo…</button>
-      </div>
-      {photo && <Suspense fallback={null}><PhotoDialog onClose={() => setPhoto(false)} /></Suspense>}
-      {lib.length > 0 && (
-        <div className="list" style={{ maxHeight: 160 }}>
-          {lib.map((a, i) => (
-            <button type="button" key={a.uid} className="list-item" title="Click to place where the camera is looking" onClick={() => act.placeAsset(i, center()).catch(toastError)}>
-              <span className="grow ellipsis">{a.name}</span><span className="meta">place</span>
-            </button>
-          ))}
-        </div>
-      )}
-      <span className="faint small">Shapes, spawns, weapons and lights: pick the tool, then click the map where you want it.</span>
-    </div>
-  )
-}
-
-function Everything() {
-  const project = useEditor((s) => s.project)!
-  const [open, setOpen] = useState(false)
-  const select = useEditor((s) => s.select)
-  const total = project.scene_items.length + project.markers.length + project.lights.length
-  const row = (key: string, label: ReactNode, onClick: () => void) => <button type="button" key={key} className="list-item" onClick={onClick}><span className="grow ellipsis">{label}</span></button>
-  return (
-    <div className="group">
-      <button className="quiet section-toggle" onClick={() => setOpen(!open)}>
-        <span className="section-title">Everything in your map ({total})</span><span className="faint">{open ? '▾' : '▸'}</span>
-      </button>
-      {open && (
-        <div className="list" style={{ maxHeight: 320 }}>
-          <div className="list-head">Objects</div>
-          {project.scene_items.map((x, i) => row(x.uid, x.name, () => { select({ kind: 'item', index: i }); getViewer()?.focusSelection() }))}
-          <div className="list-head">Spawns &amp; pickups</div>
-          {project.markers.map((m, i) => row(m.uid, <>{markerLabel(m.type)}{m.type === 'Weapon pickup' && <span className="faint">: {weaponName(m.weapon)}</span>}</>, () => select({ kind: 'marker', index: i })))}
-          {!project.markers.length && <div className="list-item faint">None yet</div>}
-          <div className="list-head">Lights</div>
-          {project.lights.map((l, i) => row(l.uid, l.name, () => select({ kind: 'light', index: i })))}
-          {!project.lights.length && <div className="list-item faint">None yet</div>}
-        </div>
-      )}
-    </div>
+    </section>
   )
 }
 
@@ -197,7 +77,7 @@ function Everything() {
 function TexThumb({ path }: { path: string }) {
   const project = useEditor((s) => s.project)
   const [url, setUrl] = useState<string | null>(null)
-  useEffect(() => { setUrl(null); if (path) textureUrl(project, path).then(setUrl) }, [path])
+  useEffect(() => { setUrl(null); if (path) textureUrl(project, path).then(setUrl).catch(() => setUrl(null)) }, [path])
   return url ? <img className="tex-thumb" src={url} alt="" /> : <span className="tex-thumb" />
 }
 
@@ -211,7 +91,7 @@ function SaveMine({ indices, suggest }: { indices: number[]; suggest: string }) 
       toast(`Saved "${p.name}". Find it under Add shape → Prefabs → My prefabs, in any map.`, 'ok', 4000)
     } catch (err) { toastError(err) }
   }
-  if (name === null) return <button className="sm quiet" onClick={() => setName(suggest)} title="Keep these to place again, in this map or any other">★ Save as my prefab</button>
+  if (name === null) return <button className="sm quiet start" onClick={() => setName(suggest)} title="Keep these to place again, in this map or any other">★ Save as my prefab</button>
   return (
     <div className="row">
       <input className="grow" autoFocus value={name} onChange={(e) => setName(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setName(null) }} aria-label="Prefab name" />
@@ -232,13 +112,12 @@ function MultiInspector({ indices }: { indices: number[] }) {
   for (const it of items) counts.set(it.name, (counts.get(it.name) ?? 0) + 1)
   return (
     <>
-      <div className="group">
+      <div className="section">
         <div className="row wrap">
-          <button className="sm" onClick={() => act.turnItems(selectedItems(), -90)} title="Turn them all 90° left, about their middle">↺ Turn</button>
-          <button className="sm" onClick={() => act.turnItems(selectedItems(), 90)} title="Turn them all 90° right">↻ Turn</button>
+          <button className="sm" onClick={() => act.turnItems(selectedItems(), -90)} title="Turn them all 90° left, about their middle">Turn left</button>
+          <button className="sm" onClick={() => act.turnItems(selectedItems(), 90)} title="Turn them all 90° right, about their middle">Turn right</button>
           <button className="sm" onClick={() => run(async () => act.duplicateItems(selectedItems()))} title="Ctrl+D">Duplicate</button>
           <button className="sm" onClick={() => run(async () => { act.copyItems(selectedItems()) })} title="Ctrl+C, then Ctrl+V to paste, even into another map">Copy</button>
-          <button className="sm" onClick={() => getViewer()?.focusSelection()}>Zoom to them</button>
         </div>
         <div className="row wrap">
           {grouped
@@ -251,7 +130,7 @@ function MultiInspector({ indices }: { indices: number[] }) {
         <SaveMine indices={indices} suggest={grouped ? 'My group' : 'My piece'} />
         <span className="faint small">{grouped ? 'A group: clicking any part picks the whole group. ' : ''}Drag the arrows to move them together. Shift+click an object to add or remove it.</span>
       </div>
-      <div className="group">
+      <div className="section">
         <span className="section-title">Picked</span>
         <span className="small muted">{[...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(', ')}</span>
       </div>
@@ -269,19 +148,18 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
   const turn = (deg: number) => set('Turn', (d) => { d.rotation = [d.rotation[0], ((d.rotation[1] + deg) % 360 + 360) % 360, d.rotation[2]] })
   return (
     <>
-      <div className="group">
+      <div className="section">
         <Field label="Name"><input value={it.name} onChange={(e) => set('Rename', (d) => { d.name = e.target.value }, 'name')} /></Field>
         <LayerField indices={[index]} />
         <div className="row wrap">
-          <button className="sm" onClick={() => turn(-90)} title="Turn 90° left">↺ Turn</button>
-          <button className="sm" onClick={() => turn(90)} title="Turn 90° right">↻ Turn</button>
+          <button className="sm" onClick={() => turn(-90)} title="Turn 90° left">Turn left</button>
+          <button className="sm" onClick={() => turn(90)} title="Turn 90° right">Turn right</button>
           <button className="sm" onClick={() => run(async () => act.duplicateItem(index))} title="Make a copy (Ctrl+D)">Duplicate</button>
-          <button className="sm" onClick={() => getViewer()?.focusSelection()}>Zoom to it</button>
           <span className="spacer" />
           <button className="sm danger" onClick={() => act.removeItem(index)}>Delete</button>
         </div>
         <SaveMine indices={[index]} suggest={it.name} />
-        <span className="faint small">Drag the colored arrows in the view to move it. The tools on the left turn and resize it too. Shift+click other objects to pick several.</span>
+        <span className="faint small">Drag the coloured arrows in the view to move it. Shift+click other objects to pick several.</span>
         {it.game_object && <span className="small muted">From your game files: usable in your own maps, not shareable (share links, the hub and the Showcase leave it out; backups carry only where it came from).</span>}
       </div>
 
@@ -291,10 +169,10 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
       {it.shape?.kind === 'terrain' && <TerrainPanel it={it} />}
 
       {fixedGlass
-        ? <div className="group"><span className="section-title">Look</span><span className="small muted">A breakable glass window. It keeps its glass look and size.</span></div>
+        ? <div className="section"><span className="section-title">Look</span><span className="small muted">A breakable glass window. It keeps its glass look and size.</span></div>
         : <LookEditor it={it} index={index} />}
 
-      <div className="group">
+      <div className="section">
         <span className="section-title">Size</span>
         {it.shape ? <ShapeSize it={it} index={index} /> : (
           <Field label="Scale" hint="1 = the size it was made at">
@@ -304,18 +182,183 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
       </div>
 
       {!isGlass(it) && (
-        <div className="group">
+        <div className="section">
           <Check checked={!it.collision_disabled} onChange={(v) => set('Solid', (d) => { d.collision_disabled = !v })}>
-            <span className="col" style={{ gap: 0 }}><span>Solid</span><span className="faint small">Players and cars can't pass through it.</span></span>
+            <span className="stack tight"><span>Solid</span><span className="faint small">Players and cars can't pass through it.</span></span>
           </Check>
           <Check checked={!!it.swimmable_water} onChange={(v) => set('Swimmable water', (d) => { d.swimmable_water = v })}>
-            <span className="col" style={{ gap: 0 }}><span>Swimmable water <Status id="water" /></span><span className="faint small">{waterHint(it)}</span></span>
+            <span className="stack tight"><span>Swimmable water <Status id="water" /></span><span className="faint small">{waterHint(it)}</span></span>
           </Check>
         </div>
       )}
       <PhysicsPanel indices={[index]} />
-      <MoreOptions tab="scene">More options: breakable, movable or explosive, exact position</MoreOptions>
+      <More id="object">
+        <Transform it={it} index={index} />
+        {!isGlass(it) && <CollisionSettings it={it} index={index} />}
+        {index > 0 && <NativeControls it={it} index={index} />}
+      </More>
     </>
+  )
+}
+
+const STEPS = [['Fine', 0.05], ['Normal', 0.5], ['Coarse', 5]] as const
+
+/** Exact position, turn and size, in metres; the pivot; its place in the list. */
+function Transform({ it, index }: { it: SceneItem; index: number }) {
+  const update = useEditor((s) => s.update)
+  const step = useEditor((s) => s.step)
+  const ws = useScale()
+  const count = useEditor((s) => s.project!.scene_items.length)
+  const [run] = useBusy()
+  const fixedGlass = isGlass(it) && !isCustomNative(it)
+  const set = (label: string, fn: (d: SceneItem) => void) => update(label, (d) => { fn(d.scene_items[index] as SceneItem) })
+  return (
+    <div className="section">
+      <div className="row between"><span className="section-title">Position</span>
+        <div className="btn-group" title="How far the arrow keys and Snap move it">
+          {STEPS.map(([label, v]) => <button key={label} className={'sm' + (step === v ? ' on' : '')} onClick={() => useEditor.getState().set({ step: v })} title={fmtM(toMetres(v, ws))}>{label}</button>)}
+        </div>
+      </div>
+      <Field label="Position (metres)"><MetresVec3 value={it.position} step={toMetres(step, ws)} onChange={(v) => set('Move', (d) => { d.position = v })} /></Field>
+      <Field label="Turn (degrees): X tilt, Y heading, Z roll"><Vec3Input value={it.rotation} step={step < 1 ? 5 : 15} onChange={(v) => set('Rotate', (d) => { d.rotation = v })} /></Field>
+      {it.shape && <Field label="Scale"><NumberInput value={it.scale} step={0.1} min={0.001} max={10000} disabled={fixedGlass} onChange={(v) => set('Scale', (d) => { d.scale = v })} /></Field>}
+      <PivotControls it={it} index={index} />
+      <div className="row wrap">
+        <button className="sm" onClick={() => run(() => act.groundItem(index))} title="Put its lowest point at height 0">Stand it on height 0</button>
+        <span className="spacer" />
+        <span className="small muted">In the list</span>
+        <button className="sm" disabled={index === 0} onClick={() => act.moveItem(index, index - 1)} title="Move up the object list" aria-label="Move up the object list">↑</button>
+        <button className="sm" disabled={index === count - 1} onClick={() => act.moveItem(index, index + 1)} title="Move down the object list" aria-label="Move down the object list">↓</button>
+      </div>
+    </div>
+  )
+}
+
+function PivotControls({ it, index }: { it: SceneItem; index: number }) {
+  const ws = useScale()
+  const [custom, setCustom] = useState<Vec3>(it.pivot || [0, 0, 0])
+  const [open, setOpen] = useState(false)
+  useEffect(() => setCustom(it.pivot || [0, 0, 0]), [it.pivot])
+  const [run] = useBusy()
+  return (
+    <div className="stack tight">
+      <div className="row wrap">
+        <span className="small muted">Pivot</span>
+        <button className="sm" onClick={() => run(() => act.setPivot(index, 'center'))} title="The object stays in place; turning and resizing use the new centre.">Centre</button>
+        <button className="sm" onClick={() => run(() => act.setPivot(index, 'bottom'))}>Bottom centre</button>
+        <button className="sm" onClick={() => run(() => act.setPivot(index, 'reset'))}>Reset</button>
+        <button className={'sm' + (open ? ' on' : '')} onClick={() => setOpen(!open)}>Custom…</button>
+      </div>
+      {open && (
+        <div className="row">
+          <div className="grow"><MetresVec3 value={custom} step={0.05} onChange={setCustom} /></div>
+          <button className="sm" onClick={() => run(() => act.setPivot(index, custom))}>Apply</button>
+        </div>
+      )}
+      {it.pivot && it.pivot.some((v) => v) && <span className="faint small">Pivot: {it.pivot.map((v) => fmtM(toMetres(v, ws))).join(', ')} from the model's origin</span>}
+    </div>
+  )
+}
+
+function CollisionSettings({ it, index }: { it: SceneItem; index: number }) {
+  const update = useEditor((s) => s.update)
+  const faceRange = useEditor((s) => s.faceRange)
+  const placeMode = useEditor((s) => s.placeMode)
+  const collisionView = useEditor((s) => s.collisionView)
+  const project = useEditor((s) => s.project)
+  const [count, setCount] = useState(0)
+  useEffect(() => { loadModel(project, it.path).then((m) => setCount(m.faces.length / 3)).catch(() => setCount(0)) }, [it.path])
+  const excluded = it.collision_excluded_faces || []
+  const [a, b] = [Math.min(...faceRange), Math.max(...faceRange)]
+  const edit = (exclude: boolean) => {
+    if (a >= count || b >= count) { toastError(new Error(`Triangle numbers go from 0 to ${Math.max(0, count - 1)}.`)); return }
+    update(exclude ? 'Exclude collision faces' : 'Restore collision faces', (d) => {
+      const cur = new Set(d.scene_items[index].collision_excluded_faces || [])
+      for (let f = a; f <= b; f++) exclude ? cur.add(f) : cur.delete(f)
+      d.scene_items[index].collision_excluded_faces = [...cur].sort((x, y) => x - y)
+    })
+    useEditor.getState().log(`${exclude ? 'Excluded' : 'Restored'} collision for ${b - a + 1} source triangles on ${it.name}.`)
+  }
+  const st = useEditor.getState
+  return (
+    <div className="section">
+      <span className="section-title">Collision and sides</span>
+      <Check checked={!!it.double_sided} onChange={(v) => update('Two-sided', (d) => { d.scene_items[index].double_sided = v })}>Show both sides of this object in the game</Check>
+      <div className="row wrap">
+        <span className="small muted">Solid triangles</span>
+        <button className={'sm' + (collisionView === 'faces' ? ' on' : '')} onClick={() => st().set({ collisionView: collisionView === 'faces' ? 'off' : 'faces' })}>Show collision</button>
+        <button className={'sm' + (placeMode === 'face' ? ' on' : '')} onClick={() => st().set({ placeMode: placeMode === 'face' ? null : 'face', collisionView: 'faces' })}>Pick a triangle in 3D</button>
+      </div>
+      <div className="form-grid">
+        <Field label="First"><NumberInput value={faceRange[0]} step={1} digits={0} min={0} onChange={(v) => st().set({ faceRange: [Math.round(v), faceRange[1]] })} /></Field>
+        <Field label="Last"><NumberInput value={faceRange[1]} step={1} digits={0} min={0} onChange={(v) => st().set({ faceRange: [faceRange[0], Math.round(v)] })} /></Field>
+      </div>
+      <div className="row">
+        <button className="sm" onClick={() => edit(true)}>Make them pass-through</button>
+        <button className="sm" onClick={() => edit(false)}>Make them solid again</button>
+      </div>
+      <span className="faint small">{count.toLocaleString()} triangles; {excluded.length} pass-through. Green = solid, red = pass-through, orange = the chosen range. Pass-through triangles stay visible.</span>
+    </div>
+  )
+}
+
+function NativeControls({ it, index }: { it: SceneItem; index: number }) {
+  const [behavior, setBehavior] = useState<'movable' | 'explosive'>(it.native_prop_behavior || 'movable')
+  const [run, busy] = useBusy()
+  const custom = isCustomNative(it)
+  const glass = isGlass(it)
+  const lim = catalogs.limits
+  return (
+    <div className="section">
+      <span className="section-title">Movable and explosive props</span>
+      <div className="row">
+        <select className="grow" value={behavior} onChange={(e) => setBehavior(e.target.value as 'movable' | 'explosive')} aria-label="Prop behaviour">
+          {Object.entries(catalogs.prop_presets).map(([k, p]) => <option key={k} value={k}>{p.label}</option>)}
+        </select>
+        <button className="sm" disabled={busy || (glass && !custom)} onClick={() => run(() => act.applyNativeProp(index, behavior))}>Apply</button>
+      </div>
+      <span className="faint small">{catalogs.prop_presets[behavior]?.description} Keeps your mesh and texture. One material, 1–{lim.max_native_triangles.toLocaleString()} triangles, {lim.min_native_axis}–{lim.max_native_axis} m on each side in the game. Up to {lim.max_native_objects} native props and glass panes together.</span>
+      <span className="section-title">Breakables <Status id="breakable_glass" /></span>
+      <div className="row wrap">
+        <button className="sm" disabled={busy || (glass && !custom)} onClick={() => run(async () => {
+          if (!custom && !triedInGame('breakable_glass') && !(await confirmDialog('Experimental breakable glass', 'Your mesh, position, rotation and size are kept. The exporter generates an experimental fitted Havok box hull. This is structurally tested, not verified in game. Back up your map and test in a private match.', { confirm: 'Convert' }))) return
+          await act.convertBreakable(index, 'glass')
+        })}>Breakable glass</button>
+        <button className="sm" disabled={busy || (glass && !custom)} onClick={() => run(async () => {
+          if (!custom && !triedInGame('breakable_wood') && !(await confirmDialog('Experimental breakable wood', 'Wood keeps your mesh with a solid look and the _wo (wood) texture suffix. In the game it becomes a loose object that disappears when it breaks (choose how below), with no debris. The fitted Havok box is not verified in game.', { confirm: 'Convert' }))) return
+          await act.convertBreakable(index, 'wood')
+        })}>Breakable wood</button>
+        {glass && <button className="sm" disabled={busy} onClick={() => run(() => act.returnStatic(index))}>Return to static</button>}
+        {glass && !custom && <button className="sm" onClick={() => act.resetGlassSize(index)}>Reset glass size</button>}
+        {custom && <button className="sm" onClick={() => act.makeOpaque(index)}>Make opaque</button>}
+      </div>
+      {custom && it.native_breakable_kind !== 'wood' && !isProp(it) && (
+        <Field label={`Opacity: ${it.native_opacity ?? 100}%`} hint="100% = opaque shader + DXT1. Lower uses the tinted material + DXT5; test transparency in game.">
+          <input type="range" min={0} max={100} value={it.native_opacity ?? 100} onChange={(e) => act.setOpacity(index, +e.target.value)} />
+        </Field>
+      )}
+      {glass && !custom && <span className="faint small">Native pane: {catalogs.glass_size.map((v) => fmtM(v)).join(' × ')}, with its own collision and shatter effect. Its size is fixed.</span>}
+      <ProfilePreset it={it} index={index} />
+    </div>
+  )
+}
+
+/** Stock break / weight preset of a movable prop or breakable-wood object. */
+function ProfilePreset({ it, index }: { it: SceneItem; index: number }) {
+  const update = useEditor((s) => s.update)
+  if (!isCustomNative(it)) return null
+  const wood = it.native_breakable_kind === 'wood' && !isProp(it)
+  const presets = wood ? BREAKING_PRESETS : it.native_prop_behavior === 'movable' ? MOVABLE_PRESETS : null
+  if (!presets) return null
+  const value = presets.some(([p]) => p === it.native_profile) ? it.native_profile! : presets[0][0]
+  return (
+    <Field label={(wood ? 'How it breaks' : 'Weight preset') + statusParen(wood ? 'breakable_wood' : 'physics_props')}
+      hint="Stock presets from the game's own object table. Health and weight come with each preset: a map can't set its own numbers.">
+      <select value={value} onChange={(e) => update('Object preset', (d) => { d.scene_items[index].native_profile = e.target.value })}>
+        {presets.map(([p, label]) => <option key={p} value={p}>{label}</option>)}
+      </select>
+      {value === CRATE_PROFILE && <CrateDebrisNote />}
+    </Field>
   )
 }
 
@@ -334,25 +377,30 @@ function LookEditor({ it, index }: { it: SceneItem; index: number }) {
   }, [picking])
   const custom = isCustomNative(it)
   const shown = custom ? mats.slice(0, 1) : mats
-  const label = (mat: string) => (it.shape?.kind === 'terrain' ? TERRAIN_LOOK[mat] ?? mat : it.shape ? (mat === 'top' ? 'Top' : 'Sides') : mat)
+  // Shapes and terrains name their surfaces; a model's are named by the picture on them.
+  const label = (mat: string, k: number, tex: string | undefined) => (it.shape?.kind === 'terrain' ? TERRAIN_LOOK[mat] ?? mat
+    : it.shape ? (mat === 'top' ? 'Top' : 'Sides')
+    : tex ? niceName(tex) : shown.length > 1 ? `Surface ${k + 1}` : 'Surface')
   return (
-    <div className="group">
+    <div className="section">
       <span className="section-title">Look</span>
-      {shown.map((mat) => {
+      {shown.map((mat, k) => {
         const tex = custom ? it.glass_custom_texture : it.textures?.[mat]
+        const named = !!it.shape
         return (
-          <div key={mat} className="col" style={{ gap: 6 }}>
-          <div className="row look-row">
-            <TexThumb path={tex || ''} />
-            <div className="col grow" style={{ gap: 0, minWidth: 0 }}>
-              <span className="small">{label(mat)}</span>
-              <span className={'small ellipsis ' + (tex ? 'faint' : 'bad')}>{tex ? niceName(tex) : 'No texture yet'}</span>
+          <div key={mat} className="stack tight">
+            <div className="row look-row">
+              <TexThumb path={tex || ''} />
+              <div className="stack tight grow" title={named ? undefined : `Material ${mat}`}>
+                <span className="ellipsis">{label(mat, k, tex)}</span>
+                {named && tex && <span className="small ellipsis faint">{niceName(tex)}</span>}
+                {!tex && <span className="small bad">No texture yet</span>}
+              </div>
+              <button className={'sm' + (picking === mat ? ' on' : '')} onMouseDown={(e) => e.stopPropagation()} onClick={() => setPicking(picking === mat ? null : mat)}>Change ▾</button>
+              <button className="sm quiet" onClick={() => setStudio(mat)} title="Use a photo, your camera, or make your own colours">Photo…</button>
             </div>
-            <button className={'sm' + (picking === mat ? ' on' : '')} onMouseDown={(e) => e.stopPropagation()} onClick={() => setPicking(picking === mat ? null : mat)}>Change ▾</button>
-            <button className="sm quiet" onClick={() => setStudio(mat)} title="Use a photo, your camera, or make your own colors">Photo…</button>
-          </div>
-          {picking === mat && <Palette onClose={() => setPicking(null)} current={tex ? 'file:' + tex : undefined}
-            onPick={(s: Swatch) => run(() => paintMaterial(index, mat, s))} />}
+            {picking === mat && <Palette onClose={() => setPicking(null)} current={tex ? 'file:' + tex : undefined}
+              onPick={(s: Swatch) => run(() => paintMaterial(index, mat, s))} />}
           </div>
         )
       })}
@@ -362,22 +410,25 @@ function LookEditor({ it, index }: { it: SceneItem; index: number }) {
   )
 }
 
+/** A shape's size and pattern, in metres. */
 function ShapeSize({ it, index }: { it: SceneItem; index: number }) {
   const [run] = useBusy()
+  const ws = useScale()
   const shape = it.shape!
   const set = (patch: Partial<typeof shape>) => run(() => act.updateShape(index, patch))
   const dim = (i: number, label: string) => (
-    <Field label={label}><NumberInput value={shape.size[i]} step={0.5} min={0.1} max={2000} onChange={(v) => {
+    <Field label={label}><NumberInput value={+toMetres(shape.size[i], ws).toFixed(3)} step={0.25} min={toMetres(0.1, ws)} max={toMetres(2000, ws)} onChange={(v) => {
       const size = [...shape.size] as Vec3
-      size[i] = v
+      size[i] = toUnits(v, ws)
       set({ size })
     }} /></Field>
   )
   return (
     <>
-      <div className="form-grid" style={{ gridTemplateColumns: '1fr 1fr 1fr' }}>{dim(0, 'Width')}{dim(1, 'Height')}{dim(2, 'Depth')}</div>
+      <div className="form-grid three">{dim(0, 'Width (m)')}{dim(1, 'Height (m)')}{dim(2, 'Depth (m)')}</div>
       {shape.kind === 'stairs' && <Field label="Steps"><NumberInput value={shape.segments ?? 8} step={1} digits={0} min={1} max={64} onChange={(v) => set({ segments: Math.round(v) })} /></Field>}
-      <Field label="Pattern size" hint="Smaller = smaller bricks and tiles">
+      {shape.kind === 'cylinder' && <Field label="Sides"><NumberInput value={shape.segments ?? 16} step={1} digits={0} min={3} max={64} onChange={(v) => set({ segments: Math.round(v) })} /></Field>}
+      <Field label={`Pattern size: repeats every ${fmtM(toMetres(shape.tile, ws))}`} hint="Smaller = smaller bricks and tiles">
         <input type="range" min={0.5} max={16} step={0.5} value={shape.tile} onChange={(e) => set({ tile: +e.target.value })} />
       </Field>
     </>
@@ -398,10 +449,11 @@ function MarkerInspector({ m, index }: { m: Marker; index: number }) {
   const turn = (deg: number) => set('Turn', (d) => { d.yaw = ((Math.round(d.yaw + deg) % 360) + 360) % 360 })
   return (
     <>
-      <div className="group">
+      <div className="section">
         {m.type !== 'Weapon pickup' && (
           <Field label="What it is" hint={MARKER_HINTS[m.type]}>
             <select value={m.type} onChange={(e) => set('Marker type', (d) => { d.type = e.target.value })}>
+              {m.type === PIMP_EXIT && <option value={PIMP_EXIT}>Pimp exit (not in the game, change this)</option>}
               {types.map((t) => <option key={t} value={t}>{markerLabel(t)}</option>)}
             </select>
           </Field>
@@ -416,18 +468,18 @@ function MarkerInspector({ m, index }: { m: Marker; index: number }) {
         )}
         {m.type === 'Vehicle spawn' && (
           <Field label="Vehicle">
-            <VehiclePicker value={m.vehicle} onChange={(id) => set('Vehicle', (d) => { d.vehicle = id })} />
+            <VehiclePicker value={m.vehicle} onChange={(id) => set('Vehicle', (d) => { d.vehicle = id.trim() || 'car_2dr_sports03' })} />
           </Field>
         )}
         <RetailMarkerFields m={m} index={index} set={set} />
-        <div className="row">
+        <div className="row wrap">
           <span className="small muted">Faces</span>
           <svg viewBox="-10 -10 20 20" width="26" height="26" style={{ transform: `rotate(${m.yaw}deg)` }} aria-hidden>
             <circle r="9" fill="none" stroke="var(--line-strong)" /><path d="M0 -7 L4 2 L0 0 L-4 2Z" fill="var(--accent)" />
           </svg>
           <span className="small mono">{((Math.round(m.yaw) % 360) + 360) % 360}°</span>
-          <button className="sm" onClick={() => turn(-45)}>↺</button>
-          <button className="sm" onClick={() => turn(45)}>↻</button>
+          <button className="sm" onClick={() => turn(-45)} title="Turn 45° left">Turn left</button>
+          <button className="sm" onClick={() => turn(45)} title="Turn 45° right">Turn right</button>
         </div>
         <div className="row wrap">
           <button className="sm" onClick={() => {
@@ -440,8 +492,86 @@ function MarkerInspector({ m, index }: { m: Marker; index: number }) {
         </div>
         <span className="faint small">Drag the arrows in the view to move it.</span>
       </div>
-      <MoreOptions tab="spawns">More options: exact position, triggers, NPCs</MoreOptions>
+      <More id="marker">
+        <MarkerMore m={m} set={set} />
+      </More>
     </>
+  )
+}
+
+type SetMarker = (label: string, fn: (d: Marker) => void, merge?: string) => void
+
+/** Every other marker field: all the marker types, exact position, triggers, NPCs. */
+function MarkerMore({ m, set }: { m: Marker; set: SetMarker }) {
+  const ws = useScale()
+  const [preview, setPreview] = useState('')
+  const [run] = useBusy()
+  const trig = TRIGGERS.has(m.type)
+  return (
+    <div className="section">
+      <Field label="Every kind of marker">
+        <select value={m.type} onChange={(e) => set('Marker type', (d) => { d.type = e.target.value })}>
+          {m.type === PIMP_EXIT && <option value={PIMP_EXIT}>Pimp exit (not in the game, change this)</option>}
+          {MARKER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+        </select>
+      </Field>
+      <Field label="Position (metres)"><MetresVec3 value={m.position} onChange={(v) => set('Move marker', (d) => { d.position = v })} /></Field>
+      <Field label="Facing (degrees)"><NumberInput value={m.yaw} step={15} digits={1} onChange={(v) => set('Rotate marker', (d) => { d.yaw = v })} /></Field>
+      {m.type === 'Weapon pickup' && (
+        <div className="form-grid">
+          <Check checked={!!m.respawn_ms} title="Off: the game's own time for this weapon (15 s; a sniper rifle 20 s; an RPG 30 s)"
+            onChange={(v) => set('Respawn time', (d) => { if (v) d.respawn_ms = pickupRespawnMs(d.weapon); else delete d.respawn_ms })}>
+            Own time to come back
+          </Check>
+          {m.respawn_ms
+            ? <Field label="Comes back after (s)"><NumberInput value={m.respawn_ms / 1000} step={5} digits={1} min={1} max={600} onChange={(v) => set('Respawn time', (d) => { d.respawn_ms = Math.round(v * 1000) }, 'respawn')} /></Field>
+            : <span className="small faint">Comes back {pickupRespawnMs(m.weapon) / 1000} s after it's taken, as in the game.</span>}
+        </div>
+      )}
+      {m.type !== 'Weapon pickup' && m.type !== 'Vehicle spawn' && (
+        <Field label="Label or note"><input value={m.label} onChange={(e) => set('Label', (d) => { d.label = e.target.value }, 'label')} /></Field>
+      )}
+      {trig && (
+        <div className="form-grid">
+          <Field label="Trigger radius (m)"><NumberInput value={+toMetres(m.radius, ws).toFixed(3)} step={0.1} min={toMetres(0.05, ws)} max={toMetres(1000, ws)} onChange={(v) => set('Radius', (d) => { d.radius = toUnits(v, ws) })} /></Field>
+          <Field label="Delay (ms)"><NumberInput value={m.delay_ms} step={1000} digits={0} min={0} onChange={(v) => set('Delay', (d) => { d.delay_ms = Math.round(v) })} /></Field>
+          <Field label="Max fires (0 = no limit)"><NumberInput value={m.max_fires} step={1} digits={0} min={0} onChange={(v) => set('Max fires', (d) => { d.max_fires = Math.round(v) })} /></Field>
+          <Check checked={m.disabled} onChange={(v) => set('Initially disabled', (d) => { d.disabled = v })}>Starts switched off</Check>
+          {m.type === 'Sphere trigger (custom)' && <Field label="Trigger action"><input value={m.trigger_action} onChange={(e) => set('Trigger action', (d) => { d.trigger_action = e.target.value }, 'action')} /></Field>}
+        </div>
+      )}
+      {m.type === 'Special spawn' && (
+        <Field label="NPC activity">
+          <input list="special" value={m.special_type} onChange={(e) => set('Activity', (d) => { d.special_type = e.target.value }, 'special')} />
+          <datalist id="special">{catalogs.special_spawn_types.map((t) => <option key={t} value={t} />)}</datalist>
+        </Field>
+      )}
+      {m.type === 'Human NPC spawn' && (
+        <div className="form-grid">
+          <Field label="Character">
+            <input list="chars" value={m.char_type} onChange={(e) => set('Character', (d) => { d.char_type = e.target.value }, 'char')} />
+            <datalist id="chars">{catalogs.human_char_types.map((t) => <option key={t} value={t} />)}</datalist>
+          </Field>
+          <Field label="Group"><input value={m.group} placeholder="e.g. gang_a" onChange={(e) => set('Group', (d) => { d.group = e.target.value }, 'group')} /></Field>
+          <Field label="Leash distance (m)"><NumberInput value={+toMetres(m.leash_distance, ws).toFixed(2)} step={1} min={0} max={toMetres(10000, ws)} onChange={(v) => set('Leash', (d) => { d.leash_distance = toUnits(v, ws) })} /></Field>
+        </div>
+      )}
+      <div className="row wrap">
+        <button className="sm" onClick={() => {
+          const { project: p, lastItem } = useEditor.getState()
+          const sel = p!.scene_items[lastItem]
+          if (!sel) { toastError(new Error('Select an object first, then this marker.')); return }
+          set('Marker from object', (d) => { d.position = [...sel.position] as Vec3; d.yaw = sel.rotation[1] })
+        }} title="Copies the position and heading of the object you selected last">Move to the last object</button>
+        <button className="sm" onClick={() => run(async () => {
+          const p = useEditor.getState().project!
+          await py.syncProject(p)
+          const r = await py.sceneOp<{ xyz: Vec3; orient: number; origin: Vec3 }>('marker_preview', { marker: m, items: p.scene_items, world_scale: p.settings.world_scale, mirror_x: p.settings.mirror_x, marker_game_coords: p.settings.marker_game_coords })
+          setPreview(`In-game XYZ <${r.xyz.map((v) => v.toFixed(3)).join(' ')}> · orient [${r.orient.toFixed(6)}] rad`)
+        })}>Show game coordinates</button>
+      </div>
+      {preview && <span className="mono small muted">{preview}</span>}
+    </div>
   )
 }
 
@@ -453,25 +583,26 @@ const LIGHT_PRESETS: [string, Vec3][] = [['Warm', [1, 0.85, 0.65]], ['White', [1
 
 function LightInspector({ l, index }: { l: Light; index: number }) {
   const update = useEditor((s) => s.update)
+  const ws = useScale()
   const set = (label: string, fn: (d: Light) => void, merge?: string) => update(label, (d) => { fn(d.lights[index]) }, merge ? { merge: merge + thingKey('light', index) } : undefined)
   return (
     <>
-      <div className="group">
+      <div className="section">
         <Check checked={l.enabled} onChange={(v) => set('Toggle light', (d) => { d.enabled = v })}>On</Check>
-        <Field label="Color">
+        <Field label="Colour">
           <div className="row wrap">
             {LIGHT_PRESETS.map(([name, c]) => (
               <button key={name} className={'sm' + (toHex(c) === toHex(l.color) ? ' on' : '')} onClick={() => set('Light color', (d) => { d.color = c })}>
                 <span className="swatch" style={{ background: toHex(c) }} />{name}
               </button>
             ))}
-            <input type="color" value={toHex(l.color)} title="Any color" onChange={(e) => set('Light color', (d) => { d.color = fromHex(e.target.value) }, 'color')} style={{ width: 40, padding: 2 }} />
+            <input type="color" value={toHex(l.color)} title="Any colour" aria-label="Any colour" onChange={(e) => set('Light color', (d) => { d.color = fromHex(e.target.value) }, 'color')} />
           </div>
         </Field>
         <Field label={`Brightness: ${l.intensity.toFixed(1)}`}>
           <input type="range" min={0} max={10} step={0.1} value={l.intensity} onChange={(e) => set('Brightness', (d) => { d.intensity = +e.target.value }, 'intensity')} />
         </Field>
-        <Field label={`Reach: ${l.range.toFixed(0)}`} hint="How far the light spreads">
+        <Field label={`Reach: ${fmtM(toMetres(l.range, ws))}`} hint="How far the light spreads">
           <input type="range" min={1} max={60} step={1} value={l.range} onChange={(e) => set('Reach', (d) => {
             d.range = +e.target.value
             if (d.inner_range >= d.range) d.inner_range = +(d.range * 0.4).toFixed(2)
@@ -479,14 +610,25 @@ function LightInspector({ l, index }: { l: Light; index: number }) {
         </Field>
         <div className="row"><span className="spacer" /><button className="sm danger" onClick={act.removeSelected}>Delete</button></div>
       </div>
-      <MoreOptions tab="lights">More options: name, exact position, falloff</MoreOptions>
+      <More id="light">
+        <div className="section">
+          <Field label="Name"><input value={l.name} maxLength={80} onChange={(e) => set('Rename light', (d) => { d.name = e.target.value }, 'lname')} /></Field>
+          <Field label="Position (metres)"><MetresVec3 value={l.position} onChange={(v) => set('Move light', (d) => { d.position = v })} /></Field>
+          <div className="form-grid">
+            <Field label="Fully bright to (m)"><NumberInput value={+toMetres(l.inner_range, ws).toFixed(2)} step={0.25} min={0} max={toMetres(1000, ws)} onChange={(v) => set('Inner range', (d) => { d.inner_range = toUnits(v, ws) })} /></Field>
+            <Field label="Dark at (m)"><NumberInput value={+toMetres(l.range, ws).toFixed(2)} step={0.25} min={0.01} max={toMetres(1000, ws)} onChange={(v) => set('Range', (d) => { d.range = toUnits(v, ws) })} /></Field>
+          </div>
+          <span className="faint small">The game's own lights: rooms 1 m / 3 m, street lamps 11 m / 17 m. Up to {catalogs.limits.max_lights} lights per map.</span>
+          {l.inner_range >= l.range && <span className="small bad">"Fully bright to" must be less than "Dark at".</span>}
+        </div>
+      </More>
     </>
   )
 }
 
 // ---------------- a prefab's settings ----------------
 
-/** Size, floors, style, color... of a placed prefab; it rebuilds in place as they change. */
+/** Size, floors, style, colour... of a placed prefab; it rebuilds in place as they change. */
 function PrefabSettings({ it, index }: { it: SceneItem; index: number }) {
   const def = ALL_PREFABS[it.prefab!.key]
   const [values, setValues] = useState(() => prefabParams(def, it.prefab!.params))
@@ -504,11 +646,11 @@ function PrefabSettings({ it, index }: { it: SceneItem; index: number }) {
   const change = (k: string, v: number | string) => setValues((x) => ({ ...x, [k]: v }))
   const params = def.params!.filter((d) => d.kind !== 'path')
   return (
-    <div className="group">
+    <div className="section">
       <div className="row between"><span className="section-title">{def.label} settings</span>{busy && <span className="faint small">Rebuilding…</span>}</div>
       {params.filter((d) => d.kind === 'text').map((d) => (
         <Field key={d.key} label={d.label} hint={d.hint}>
-          <textarea rows={2} maxLength={80} value={String(values[d.key])} onChange={(e) => change(d.key, e.target.value)} style={{ resize: 'vertical', fontFamily: 'inherit' }} />
+          <textarea rows={2} maxLength={80} value={String(values[d.key])} onChange={(e) => change(d.key, e.target.value)} />
         </Field>
       ))}
       <div className="form-grid">
@@ -519,8 +661,8 @@ function PrefabSettings({ it, index }: { it: SceneItem; index: number }) {
               : d.kind === 'color'
                 ? (
                   <div className="row">
-                    <input type="color" value={String(values[d.key] || d.auto?.(values) || '#808080')} onChange={(e) => change(d.key, e.target.value)} style={{ width: 40, padding: 2 }} />
-                    {values[d.key] ? <button className="sm" title="Use the style's own color" onClick={(e) => { e.preventDefault(); change(d.key, '') }}>Reset</button> : <span className="faint small">Style's</span>}
+                    <input type="color" value={String(values[d.key] || d.auto?.(values) || '#808080')} onChange={(e) => change(d.key, e.target.value)} />
+                    {values[d.key] ? <button className="sm" title="Use the style's own colour" onClick={(e) => { e.preventDefault(); change(d.key, '') }}>Reset</button> : <span className="faint small">Style's</span>}
                   </div>
                 )
                 : <NumberInput value={Number(values[d.key])} min={d.min} max={d.max} step={d.step} onChange={(v) => change(d.key, v)} />}

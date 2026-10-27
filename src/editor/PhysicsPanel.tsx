@@ -53,7 +53,7 @@ export function PhysicsPanel({ indices }: { indices: number[] }) {
   const preset = one ? presetOf(one) : null
   const apply = (key: string) => run(() => makePhysicsProps(indices, key))
   return (
-    <div className="group">
+    <div className="section">
       <span className="section-title">Physics prop <Status id="physics_props" /></span>
       {!preset && (
         <>

@@ -19,6 +19,7 @@ export interface Swatch {
   source: { kind: 'generated'; params: import('../lib/procedural').GenParams } | { kind: 'library'; id: string } | { kind: 'file'; vpath: string }
 }
 export type SaveState = 'saved' | 'saving' | 'unsaved' | 'error'
+export type SideTab = 'build' | 'check' | 'game' | 'ship'
 
 interface HistoryEntry { project: Project; label: string; merge?: string }
 
@@ -51,9 +52,10 @@ interface EditorState {
   placeMarkerType: string
   faceRange: [number, number]
   logs: string[]
-  tab: string
-  /** Advanced mode shows every setting in tabs; simple mode one panel for what's selected. */
-  advanced: boolean
+  /** The side panel's tab. */
+  tab: SideTab
+  /** "Show all settings": every "More settings" disclosure starts open, and the build log shows. */
+  allSettings: boolean
   /** Desktop-style free camera instead of orbiting. */
   freeCam: boolean
   /** The view only: the site's own surfaces drawn layered like retail's (even base tile, grime, tint mask). */
@@ -65,6 +67,8 @@ interface EditorState {
   redo(): void
   /** Several undo (negative) or redo (positive) steps at once, as one history move. */
   jumpTo(steps: number): void
+  /** Runs `fn`, then folds every edit it made into one undo step called `label` (Fix all). */
+  transaction(label: string, fn: () => Promise<void>): Promise<void>
   select(s: Selection): void
   /** Shift+click: add an object (and its group) to the selection, or take it out. */
   toggleItem(index: number): void
@@ -106,8 +110,8 @@ export const useEditor = create<EditorState>((set, get) => ({
   placeMarkerType: 'Shared spawn',
   faceRange: [0, 0],
   logs: [],
-  tab: 'scene',
-  advanced: readFlag('sr1-advanced'),
+  tab: 'build',
+  allSettings: readFlag('sr1-advanced'),
   freeCam: readFlag('sr1-freecam'),
   layeredLook: readFlag('sr1-layered'),
   open(project) {
@@ -161,6 +165,17 @@ export const useEditor = create<EditorState>((set, get) => ({
       future = future.slice(1)
     }
     set({ project, ...reanchor(get(), from, project), past, future, saveState: 'unsaved' })
+  },
+  async transaction(label, fn) {
+    const start = get().project
+    try { await fn() } finally {
+      const { past, project } = get()
+      // The entry each run of edits starts from is the project as it was before the first of them.
+      let at = -1
+      for (let i = past.length - 1; i >= 0; i--) if (past[i].project === start) { at = i; break }
+      if (start && project !== start && at >= 0) set({ past: [...past.slice(0, at), { project: start, label }] })
+      lastMerge = null
+    }
   },
   select(selection) {
     if (selection?.kind !== 'item') { set({ selection, multi: [] }); return }
@@ -275,7 +290,7 @@ export function selectedItems(): number[] {
 }
 
 useEditor.subscribe((s, prev) => {
-  if (s.advanced !== prev.advanced) writeFlag('sr1-advanced', s.advanced)
+  if (s.allSettings !== prev.allSettings) writeFlag('sr1-advanced', s.allSettings)
   if (s.freeCam !== prev.freeCam) writeFlag('sr1-freecam', s.freeCam)
   if (s.layeredLook !== prev.layeredLook) writeFlag('sr1-layered', s.layeredLook)
 })
