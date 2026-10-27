@@ -13,3 +13,5 @@ __pycache__/
 .claude/worktrees/
 public/pyodide/
 .cache/
+test-results/
+playwright-report/
