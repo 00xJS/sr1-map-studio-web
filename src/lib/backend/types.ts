@@ -13,6 +13,12 @@ export interface User {
   email?: string
 }
 
+/**
+ * Id of the hidden cloud save holding the user's My prefabs (lib/sync.ts).
+ * Cloud ids are per user, so every account has its own. listCloudProjects leaves it out.
+ */
+export const LIBRARY_PROJECT_ID = 'sr1ms-my-prefabs'
+
 export interface CloudProjectMeta {
   id: string
   name: string
@@ -110,6 +116,7 @@ export interface Backend {
   signOut(): Promise<void>
   updateProfile(name: string): Promise<User>
 
+  /** The user's map saves, newest first (never the My prefabs library). */
   listCloudProjects(): Promise<CloudProjectMeta[]>
   getCloudProject(id: string): Promise<{ project: Project; updated_at: string } | null>
   /** Throws ConflictError if expectedUpdatedAt is given and the server copy is newer. */

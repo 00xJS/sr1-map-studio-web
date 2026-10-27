@@ -4,7 +4,7 @@
 import { createClient, type Session, type SupabaseClient } from '@supabase/supabase-js'
 import type { Project } from '../project'
 import {
-  ConflictError, PublishRejected,
+  ConflictError, LIBRARY_PROJECT_ID, PublishRejected,
   type Backend, type CloudProjectMeta, type HubMapDetail, type HubMapMeta, type HubQuery, type HubReport, type PublishInput, type ReportReason, type User,
 } from './types'
 
@@ -92,7 +92,7 @@ export class SupabaseBackend implements Backend {
 
   async listCloudProjects(): Promise<CloudProjectMeta[]> {
     const uid = await this.uid()
-    const rows: any[] = check(await this.sb.from('cloud_projects').select('id, name, updated_at, size_bytes, has_thumb').order('updated_at', { ascending: false })) ?? []
+    const rows: any[] = check(await this.sb.from('cloud_projects').select('id, name, updated_at, size_bytes, has_thumb').neq('id', LIBRARY_PROJECT_ID).order('updated_at', { ascending: false })) ?? []
     const thumbs = await this.signedUrls(rows.filter((r) => r.has_thumb).map((r) => `u/${uid}/thumbs/${r.id}.webp`))
     return rows.map((r) => ({ id: r.id, name: r.name, updated_at: r.updated_at, size_bytes: Number(r.size_bytes), thumbnail_url: thumbs.get(`u/${uid}/thumbs/${r.id}.webp`) }))
   }
