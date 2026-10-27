@@ -28,6 +28,7 @@ describe('shipped prefab thumbnails', () => {
     const now = drawingSources(fileURLToPath(new URL('..', import.meta.url)))
     const changed = [...new Set([...Object.keys(now), ...Object.keys(drawnWith)])].filter((f) => now[f] !== drawnWith[f])
     expect(changed, `What the prefab thumbnails are drawn with changed: ${changed.join(', ')}. If prefabs look different now, bump THUMB_VERSION `
-      + 'in src/lib/prefabIndex.ts. Either way, run `npm run thumbs` and commit public/thumbs (unchanged pictures are kept).').toEqual([])
+      + 'in src/lib/prefabIndex.ts (pictures visitors already have are kept until it changes). Either way, run `npm run thumbs` '
+      + '(it draws every picture again; the git diff shows which really changed) and commit public/thumbs.').toEqual([])
   })
 })

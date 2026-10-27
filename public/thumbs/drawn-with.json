@@ -1,10 +1,12 @@
 {
+ "three": "0.169.0",
  "src/lib/prefabRender.ts": "d249899a946d0c17",
  "src/lib/procedural.ts": "77d488980e59c835",
  "src/lib/signFont.ts": "ff7cce81d1a50d80",
  "src/lib/shapes.ts": "00a310ae8122bd1c",
  "src/lib/zfight.ts": "36c9f1a82458c826",
  "src/lib/geometry.ts": "d37427ec9ea56f90",
+ "src/lib/terrain.ts": "a7c3fdf8d0fdfabc",
  "public/textures/thumbs/aerial_grass_rock.jpg": "9ab9ff1c1d1f1c85",
  "public/textures/thumbs/asphalt_01.jpg": "fd0a8331937a609a",
  "public/textures/thumbs/asphalt_02.jpg": "187e4596a8933ab2",

@@ -5,11 +5,12 @@
 //   public/thumbs/<key>.webp       one 160 px picture per prefab
 //   public/thumbs/manifest.json    key → the signature it was drawn from (prefabThumbSig)
 //   public/thumbs/drawn-with.json  a hash of each file they are drawn with (scripts/thumbSources.mjs)
-// Only prefabs whose signature changed are drawn again (--all: every one), so another machine's GPU doesn't
-// rewrite pictures nobody changed. The new set is built in .cache/ and swapped in at the end: a run that fails
+// Only prefabs whose signature changed are drawn again, so another machine's GPU doesn't rewrite pictures nobody
+// changed; every one is drawn when what they are drawn with changed (or with --all), and the git diff shows which
+// pictures really did. The new set is built in .cache/ and swapped in at the end: a run that fails
 // leaves the old one. A prefab whose parts change gets a new signature: the site draws that one live until this
 // is run again, and tests/prefabThumbsShipped.test.ts fails until it is. Nothing from the game is drawn here.
-import { copyFile, cp, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
+import { copyFile, mkdir, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
@@ -20,10 +21,17 @@ import { drawingSources } from './thumbSources.mjs'
 const root = fileURLToPath(new URL('..', import.meta.url))
 const out = join(root, 'public', 'thumbs')
 const tmp = join(root, '.cache', 'thumbs-new')
-const all = process.argv.includes('--all')
+const readJson = async (f) => (existsSync(f) ? JSON.parse((await readFile(f, 'utf8')).replace(/^\uFEFF/, '')) : {})
+
+// Everything is drawn again when the renderer, texture generators or texture previews changed since the last run.
+const sources = drawingSources(root)
+const drewWith = await readJson(join(out, 'drawn-with.json'))
+const sameSources = JSON.stringify(Object.entries(sources).sort()) === JSON.stringify(Object.entries(drewWith).sort())
+const all = process.argv.includes('--all') || !sameSources
+if (!sameSources) console.log('What the thumbnails are drawn with changed since the last run: drawing every one.')
 
 // Pictures already drawn, by the signature they were drawn from (kept when it still matches).
-const old = !all && existsSync(join(out, 'manifest.json')) ? JSON.parse((await readFile(join(out, 'manifest.json'), 'utf8')).replace(/^\uFEFF/, '')) : {}
+const old = all ? {} : await readJson(join(out, 'manifest.json'))
 const have = Object.fromEntries(Object.entries(old).filter(([k]) => existsSync(join(out, k + '.webp'))))
 
 const server = await createServer({ root, logLevel: 'warn', server: { port: 4189, strictPort: false } })
@@ -90,7 +98,7 @@ try {
 
 const sorted = Object.fromEntries(Object.entries(manifest).sort(([a], [b]) => (a < b ? -1 : 1)))
 await writeFile(join(tmp, 'manifest.json'), JSON.stringify(sorted, null, 1) + '\n')
-await writeFile(join(tmp, 'drawn-with.json'), JSON.stringify(drawingSources(root), null, 1) + '\n')
+await writeFile(join(tmp, 'drawn-with.json'), JSON.stringify(sources, null, 1) + '\n')
 
 // Swap the new set in. A folder something still watches can refuse the rename on Windows: copy over instead.
 const gone = join(root, '.cache', 'thumbs-old')
@@ -100,9 +108,11 @@ try {
   await rename(tmp, out)
 } catch {
   if (!existsSync(out)) await rename(gone, out)
-  await cp(tmp, out, { recursive: true, force: true })
+  // The manifest last, so a copy cut short never pairs the new manifest with old pictures.
   const want = new Set(await readdir(tmp))
+  for (const f of want) if (f !== 'manifest.json') await copyFile(join(tmp, f), join(out, f))
   for (const f of await readdir(out)) if (!want.has(f)) await rm(join(out, f))
+  await copyFile(join(tmp, 'manifest.json'), join(out, 'manifest.json'))
   await rm(tmp, { recursive: true, force: true })
 }
 await rm(gone, { recursive: true, force: true })
