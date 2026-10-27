@@ -5,23 +5,11 @@
 // sense. Shapes only turn about the vertical, so frames and tubes are made of
 // level and upright pieces.
 import { CY, PB, box, cyl, lying, ramp, type Part, type Tex } from './sampleKit'
-import { CAR_COLORS, carPaint, group, local, wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { CAR_COLORS, carPaint, wheels, type Params, type PrefabDef } from './prefabs'
+import { pf, pfp, sel, yesNo, solid, type Lf } from './prefabKit'
 
-type Lf = (dx: number, dy: number, dz: number) => [number, number, number]
 
-const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
-const pf = (name: string, make: (L: Lf) => Part[]) =>
-  (x: number, z: number, rot: number, y: number) => group(id(name, x, y, z), local(x, y, z, rot, make))
-const pfp = (name: string, params: ParamDef[], make: (L: Lf, p: Params) => Part[]) => ({
-  params,
-  make: (x: number, z: number, rot: number, y: number, given?: Params) => {
-    const p = Object.fromEntries(params.map((d) => [d.key, given?.[d.key] ?? d.default]))
-    return group(id(name, x, y, z), local(x, y, z, rot, (L) => make(L, p)))
-  },
-})
 
-const sel = (key: string, label: string, options: [string, string][], def: string): ParamDef => ({ key, label, kind: 'select', options, default: def })
-const yesNo = (key: string, label: string, def: 'yes' | 'no'): ParamDef => sel(key, label, [['yes', 'Yes'], ['no', 'No']], def)
 const paintParam = (def: string, options: [string, string][] = CAR_COLORS) => sel('color', 'Paint', options, def)
 
 // ---------------- materials ----------------
@@ -33,7 +21,6 @@ const TAILLIGHT: Tex = { gen: 'paint', tweak: { color: '#c4161c', accent: '#7a0c
 const TRIM: Tex = { gen: 'metal_plate', tweak: { color: '#1d1d20', accent: '#1d1d20', scale: 2, wear: 0.1, seed: 335 }, surface: 15 }
 const CHROME: Tex = { gen: 'metal_plate', tweak: { color: '#b9bcc0', accent: '#8d9094', scale: 1, wear: 0, seed: 336 }, surface: 15 }
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface })
 const glow = (color: string, accent: string, seed: number): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0, seed }, surface: 17 })
 const LIGHT_RED = glow('#e02020', '#801010', 701)
 const LIGHT_BLUE = glow('#2050ff', '#102080', 702)

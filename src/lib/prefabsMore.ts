@@ -2,22 +2,13 @@
 // arenas, obstacle courses, king-of-the-hill towers, forts, street scenes.
 // Each is one object (a group) placed with its base at y and turned by rot.
 import { CY, PB, ball, blob, box, cyl, lying, organic, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
-import { group, local, wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
 import { statusParen } from './featureStatus'
+import { pf, pfp } from './prefabKit'
 
-const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
 /** Shorthand: a prefab whose parts are given in its local frame. */
-const pf = (name: string, make: (L: (dx: number, dy: number, dz: number) => [number, number, number]) => Part[]) =>
-  (x: number, z: number, rot: number, y: number) => group(id(name, x, y, z), local(x, y, z, rot, make))
 
 /** A prefab with settings: returns its params and a make that fills in defaults. */
-const pfp = (name: string, params: ParamDef[], make: (L: (dx: number, dy: number, dz: number) => [number, number, number], p: Params) => Part[]) => ({
-  params,
-  make: (x: number, z: number, rot: number, y: number, given?: Params) => {
-    const p = Object.fromEntries(params.map((d) => [d.key, given?.[d.key] ?? d.default]))
-    return group(id(name, x, y, z), local(x, y, z, rot, (L) => make(L, p)))
-  },
-})
 const BUNKER_TEX: Record<string, Tex> = { red: PB.red, blue: PB.blue, yellow: PB.yellow, green: PB.green, orange: PB.orange, black: PB.black }
 const bunkerColor = (d: string): ParamDef => ({ key: 'color', label: 'Color', kind: 'select', options: [['red', 'Red'], ['blue', 'Blue'], ['yellow', 'Yellow'], ['green', 'Green'], ['orange', 'Orange'], ['black', 'Black']], default: d })
 const NEON_TEX: Record<string, Tex> = { cyan: CY.cyan, pink: CY.pink, purple: CY.purple, lime: CY.lime, orange: CY.orange, white: CY.white }

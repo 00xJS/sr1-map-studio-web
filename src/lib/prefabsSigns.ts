@@ -3,22 +3,12 @@
 // so it shares like any other); a frame shows a stand-in picture until you
 // choose a photo in its panel. Front of both = +Z; on a wall the back is z = 0.
 import { box, cyl, type Part, type Tex } from './sampleKit'
-import { group, local, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { type ParamDef, type Params, type PrefabDef } from './prefabs'
 import { SIGN_STYLES, signText, type SignStyle } from './signFont'
+import { pfp, num, sel, type Lf } from './prefabKit'
 
-type Lf = (dx: number, dy: number, dz: number) => [number, number, number]
 type Def = PrefabDef & { category: string }
 
-const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
-const pfp = (name: string, params: ParamDef[], make: (L: Lf, p: Params) => Part[]) => ({
-  params,
-  make: (x: number, z: number, rot: number, y: number, given?: Params) => {
-    const p = Object.fromEntries(params.map((d) => [d.key, given?.[d.key] ?? d.default]))
-    return group(id(name, x, y, z), local(x, y, z, rot, (L) => make(L, p)))
-  },
-})
-const num = (key: string, label: string, min: number, max: number, def: number, step = 1): ParamDef => ({ key, label, kind: 'number', min, max, step, default: def })
-const sel = (key: string, label: string, options: [string, string][], def: string): ParamDef => ({ key, label, kind: 'select', options, default: def })
 
 const metal = (color: string, seed: number): Tex => ({ gen: 'metal_plate', tweak: { color, accent: color, scale: 1, wear: 0.1, seed }, surface: 15 })
 const POLE = metal('#8d9399', 701)

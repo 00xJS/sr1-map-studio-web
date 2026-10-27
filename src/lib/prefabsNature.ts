@@ -4,20 +4,10 @@
 // Shapes only turn about the vertical, so trunks and logs lie flat or stand
 // upright; crowns are stacked, tapered cylinders like the street tree.
 import { CY, PB, blob, box, cyl, lying, organic, turn, type Part, type Tex } from './sampleKit'
-import { group, local, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { type Params, type PrefabDef } from './prefabs'
+import { pf, pfp, num, sel, solid, type Lf } from './prefabKit'
 
-type Lf = (dx: number, dy: number, dz: number) => [number, number, number]
 
-const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
-const pf = (name: string, make: (L: Lf) => Part[]) =>
-  (x: number, z: number, rot: number, y: number) => group(id(name, x, y, z), local(x, y, z, rot, make))
-const pfp = (name: string, params: ParamDef[], make: (L: Lf, p: Params) => Part[]) => ({
-  params,
-  make: (x: number, z: number, rot: number, y: number, given?: Params) => {
-    const p = Object.fromEntries(params.map((d) => [d.key, given?.[d.key] ?? d.default]))
-    return group(id(name, x, y, z), local(x, y, z, rot, (L) => make(L, p)))
-  },
-})
 
 /** Builds a piece (in its own frame) at (x, z), turned by r, inside another piece's frame. */
 const at = (L: Lf, x: number, z: number, r: number, make: (L: Lf) => Part[], y = 0): Part[] => {
@@ -25,8 +15,6 @@ const at = (L: Lf, x: number, z: number, r: number, make: (L: Lf) => Part[], y =
   return make(L2).map((p) => ({ ...p, rot: ((p.rot ?? 0) + r) % 360 }))
 }
 
-const num = (key: string, label: string, min: number, max: number, def: number, step = 1): ParamDef => ({ key, label, kind: 'number', min, max, step, default: def })
-const sel = (key: string, label: string, options: [string, string][], def: string): ParamDef => ({ key, label, kind: 'select', options, default: def })
 const sizeParam = (def = 1) => num('size', 'Size', 0.5, 3, def, 0.1)
 const seedParam = (def: number) => num('seed', 'Variation', 1, 99, def)
 
@@ -87,7 +75,6 @@ const BAMBOO: Tex = { gen: 'wood_planks', tweak: { color: '#8aa03a', accent: '#5
 const BAMBOO_LEAVES = leaves('#4a8a2a', '#7aaa3a', 630)
 const EMBER: Tex = CY.orange
 const ASH: Tex = { gen: 'concrete', tweak: { color: '#3a3634', accent: '#1e1c1a', wear: 0.7, seed: 631 } }
-const solid = (color: string, accent: string, seed: number): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface: 17 })
 const WHITE = solid('#eeece6', '#d4d0c6', 632)
 const CHECKER: Tex = { gen: 'tiles', tweak: { color: '#c8282a', accent: '#f2eee6', scale: 6, wear: 0.05, seed: 633 }, surface: 17 }
 const WICKER: Tex = { gen: 'wood_planks', tweak: { color: '#b88a4a', accent: '#8a6030', scale: 10, seed: 634 } }

@@ -5,20 +5,10 @@
 // one object. Sizes in units (1 unit = 0.5 m): a player is about 3.6 tall,
 // doors are 4 wide and 5.6 high, stair steps rise 0.6 at most.
 import { CY, PB, box, cyl, lying, stairs, turn, type Part, type Tex } from './sampleKit'
-import { group, local, wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { wheels, type Params, type PrefabDef } from './prefabs'
+import { pf, pfp, num, sel, yesNo, solid, type Lf } from './prefabKit'
 
-type Lf = (dx: number, dy: number, dz: number) => [number, number, number]
 
-const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
-const pf = (name: string, make: (L: Lf) => Part[]) =>
-  (x: number, z: number, rot: number, y: number) => group(id(name, x, y, z), local(x, y, z, rot, make))
-const pfp = (name: string, params: ParamDef[], make: (L: Lf, p: Params) => Part[]) => ({
-  params,
-  make: (x: number, z: number, rot: number, y: number, given?: Params) => {
-    const p = Object.fromEntries(params.map((d) => [d.key, given?.[d.key] ?? d.default]))
-    return group(id(name, x, y, z), local(x, y, z, rot, (L) => make(L, p)))
-  },
-})
 
 /** Builds a piece (in its own frame) at (x, z), turned by r, inside another piece's frame. */
 const at = (L: Lf, x: number, z: number, r: number, make: (L: Lf) => Part[], y = 0): Part[] => {
@@ -31,16 +21,12 @@ const row = (L: Lf, n: number, gap: number, make: (L: Lf, i: number) => Part[]):
 /** Heading that turns a piece's front (+Z) toward the origin from (x, z). */
 const facing = (x: number, z: number) => (Math.atan2(-x, -z) * 180) / Math.PI
 
-const num = (key: string, label: string, min: number, max: number, def: number, step = 1): ParamDef => ({ key, label, kind: 'number', min, max, step, default: def })
-const sel = (key: string, label: string, options: [string, string][], def: string): ParamDef => ({ key, label, kind: 'select', options, default: def })
-const yesNo = (key: string, label: string, def: 'yes' | 'no'): ParamDef => sel(key, label, [['yes', 'Yes'], ['no', 'No']], def)
 
 /** Steps no taller than 0.6 units (0.3 m), so players walk up them. */
 const stepsFor = (h: number) => Math.max(2, Math.ceil(h / 0.6 - 1e-6))
 
 // ---------------- materials ----------------
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface })
 const pattern = (color: string, accent: string, scale: number, seed: number, surface = 17): Tex => ({ gen: 'tiles', tweak: { color, accent, scale, wear: 0.08, seed }, surface })
 const wood = (color: string, accent: string, seed: number): Tex => ({ gen: 'wood_planks', tweak: { color, accent, scale: 3, wear: 0.12, seed }, surface: 21 })
 const metal = (color: string, accent: string, seed: number, wear = 0.1): Tex => ({ gen: 'metal_plate', tweak: { color, accent, scale: 2, wear, seed }, surface: 15 })
