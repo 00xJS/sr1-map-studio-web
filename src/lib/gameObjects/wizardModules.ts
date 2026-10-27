@@ -11,9 +11,11 @@
 // (wizardBuild.ts). Until the Stilwater study fills cityModules(), there is nothing to build from and the wizard
 // falls back to single game models in the layout's own plots (wizardPieces.ts), as before.
 import { PB, box, mirror, turn, type Part } from '../sampleKit'
+import { over } from '../sampleScale'
+import type { Vec3 } from '../project'
 import { KEEP_OUT, busyness, busyOf, rng, type Half, type Rng, type WizardOptions, type WizardSetting } from '../mapWizard'
 import { UNITS_PER_M } from '../player'
-import { cityModules, groups as cityGroups, type CityGroup, type CityModule, type EdgeKind, type ModuleEdge, type ModulePart, type PlacementRule, type Side } from './cityModules'
+import { cityModules, groups as cityGroups, type CityGroup, type CityModule, type EdgeKind, type ModuleEdge, type ModulePart, type PartLayer, type PlacementRule, type Side } from './cityModules'
 import type { GameObjectEntry } from './indexer'
 import { placementRules } from './placement'
 import { withCityLabels, withPlacementLabels, type CityLabels } from './labels'
@@ -344,7 +346,9 @@ export class GameCity implements CityHooks {
       this.modules.push({ m, tris: Math.max(m.tris, c.tris), tex: c.tex, weight })
     }
     this.groupList = []
-    for (const g of o.groups ?? (cl ? withCityLabels(cityGroups(entries), cl.groups) : cityGroups(entries))) {
+    for (const g0 of o.groups ?? (cl ? withCityLabels(cityGroups(entries), cl.groups) : cityGroups(entries))) {
+      const g = onItsWall(g0, (id) => { const e = this.lib.get(id); return !!e && this.rule(e).attach === 'wall' })
+      if (!g) continue
       const c = cost(g.parts), weight = suits(g.settings)
       if (!c || !weight || !g.parts.length || g.anchor === 'roof') continue
       this.groupList.push({ g, tris: c.tris, tex: c.tex, weight: weight * (1 + Math.log10(1 + g.seen) / 2) })
@@ -390,8 +394,8 @@ export class GameCity implements CityHooks {
     this.placeGroups(h, fill)
     this.wallProps(h, fill)
     this.check(h)
-    for (const p of this.placed) h.parts.push(...this.standIns(p.m.parts, p.x, p.z, 1 - p.m.floor[0] * M, p.rot, p.m.name))
-    for (const g of this.placedGroups) h.parts.push(...this.standIns(g.g.parts, g.x, g.z, 1, g.rot, g.g.name))
+    for (const p of this.placed) h.parts.push(...this.standIns(p.m.parts, p.x, p.z, p.rot, p.m.name))
+    for (const g of this.placedGroups) h.parts.push(...this.standIns(g.g.parts, g.x, g.z, g.rot, g.g.name))
     const counts = [...this.palette.entries()].sort((a, b) => b[1] - a[1])
     this.stats.kinds = counts.length
     this.stats.names = counts.map(([id]) => this.modules.find((c) => c.m.id === id)!.m.name)
@@ -549,6 +553,23 @@ export class GameCity implements CityHooks {
     return out
   }
 
+  /**
+   * Whether the module's own models are right behind a thing w across (units) at `t` along `spot`'s wall, from the
+   * floor to `top` metres: a side the study calls a wall may be a low kit wall, or the building set back from it.
+   */
+  private walled(spot: { p: Placed; d: Dir }, t: number, w: number, top: number): boolean {
+    const { p, d } = spot
+    let parts = this.settled.get(p)
+    if (!parts) { parts = this.standIns(p.m.parts, p.x, p.z, p.rot, p.m.name); this.settled.set(p, parts) }
+    const inset = 0.3 * M
+    const at = (u: number): [number, number] => d === 'S' ? [u, p.z1 - inset] : d === 'N' ? [u, p.z0 + inset] : d === 'E' ? [p.x1 - inset, u] : [p.x0 + inset, u]
+    return [-0.4, 0, 0.4].every((f) => {
+      const [x, z] = at(t + f * w)
+      return parts.some((q) => q.at[1] <= FLOOR + 0.3 * M && q.at[1] + q.size[1] >= FLOOR + top * M && over(q, x, z, 0.4 * M))
+    })
+  }
+  private readonly settled = new Map<Placed, Part[]>()
+
   /** A thing w across and dep deep (units) with its back to `spot`'s wall, at `t` along it. */
   private againstWall(spot: { p: Placed; d: Dir }, t: number, w: number, dep: number): Rect {
     const { p, d } = spot
@@ -573,7 +594,7 @@ export class GameCity implements CityHooks {
       const r = this.againstWall(spot, t, w, dep)
       // Room to walk past in front of it.
       const ahead = this.againstWall(spot, t, w, dep + ALLEY)
-      if (!this.free(h, r, M, spot.p) || !this.free(h, ahead, 0, spot.p)) continue
+      if (!this.free(h, r, M, spot.p) || !this.free(h, ahead, 0, spot.p) || !this.walled(spot, t, w, wallTop(c.g, this.lib))) continue
       this.useGroup(c, { ...r, g: c.g, rot, x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2, wall: spot.d })
       h.take({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2, w: r.x1 - r.x0, d: r.z1 - r.z0 })
       k++
@@ -626,7 +647,7 @@ export class GameCity implements CityHooks {
       const t = spot.from + w / 2 + this.r.next() * (spot.to - spot.from - w)
       const r = this.againstWall(spot, t, w, dep)
       const clear = this.againstWall(spot, t, w, dep + Math.max(ALLEY, (rl.clearFront ?? 0) * M))
-      if (!this.free(h, r, M, spot.p) || !this.free(h, clear, 0, spot.p)) continue
+      if (!this.free(h, r, M, spot.p) || !this.free(h, clear, 0, spot.p) || !this.walled(spot, t, w, mount(e) + e.size[2])) continue
       const g: CityGroup = { id: 'wall:' + e.id, name: e.name, kind: 'decor', settings: [], anchor: 'wall', size: own, parts: [{ id: e.id, at: [0, mount(e), 0], yaw: 0, layer: 'prop', ext: own }], seen: e.seen, examples: [] }
       this.placedGroups.push({ ...r, g, rot, x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2, wall: spot.d })
       h.take({ x: (r.x0 + r.x1) / 2, z: (r.z0 + r.z1) / 2, w: r.x1 - r.x0, d: r.z1 - r.z0 })
@@ -656,16 +677,107 @@ export class GameCity implements CityHooks {
 
   // ---- stand-ins ----
 
-  /** Stand-ins for a module's or group's parts, its frame's origin at (x, y, z) turned `rot` (units, degrees). */
-  standIns(parts: ModulePart[], x: number, z: number, y: number, rot: number, from: string): Part[] {
-    return parts.map((q) => {
+  /** Stand-ins for a module's or group's parts, its frame's origin at (x, z) turned `rot` (units, degrees), set down on the floor (settle). */
+  standIns(parts: ModulePart[], x: number, z: number, rot: number, from: string): Part[] {
+    const placed = parts.map((q) => {
       const [dx, dz] = gamePoint(q.at[0], q.at[2], rot)
       // The box only stands in for the model in the passes that follow; the model itself goes exactly here.
       // Its box the part's own size across, where the study gives it.
-      return exactStandIn(this.lib.get(q.id)!, 'Stilwater ' + q.layer, [x + dx, y + q.at[1] * M, z + dz], rot + q.yaw, from, q.ext)
+      return exactStandIn(this.lib.get(q.id)!, 'Stilwater ' + q.layer, [x + dx, FLOOR + q.at[1] * M, z + dz], rot + q.yaw, from, q.ext)
+    })
+    return settle(placed, parts.map((q) => q.layer), (p) => {
+      const e = this.lib.get(p.game!.id), a = e && this.rule(e).attach
+      return a === 'wall' || a === 'hang' ? a : a === 'ground' || a === 'roof' || onGround(e) ? 'ground' : 'hang'
     })
   }
 }
+
+/** The map's floor (units): where a module's building feet go before settle() and what its yards come down onto. */
+const FLOOR = 1
+/** Ground round the building above its feet that the building goes down into the floor for, at most (metres). */
+const MAX_SETTLE = 1.2
+
+/** Stands on the floor (or a roof) rather than on a wall or hanging, where the city has it (sits.ts). */
+const onGround = (e: GameObjectEntry | undefined) => !e?.sits?.n || e.sits.ground + e.sits.roof >= e.sits.wall + e.sits.hang
+
+/**
+ * A module's or group's stand-ins, placed as Stilwater has them, set down on the map's flat floor. Stilwater's
+ * streets slope and step (a house's yard a metre above its foundations, a sidewalk climbing along a block), so
+ * placed exactly as cut its yard's fences, tables and bins stand in the air or sink into the floor. The building
+ * goes down as far as the ground round it stood above its feet (as it is sunk into the street in the city), with
+ * all in and on it; every model standing on the ground outside it (`how`) comes down (or up) onto the floor, and
+ * what stands on that model with it; what hangs on a model moves with the model. A module's wall things outside its
+ * building with none of its models behind them (on a wall the study didn't cut out) are left out. (A group placed
+ * against a wall has that wall behind it.)
+ */
+export function settle(parts: Part[], layers: PartLayer[], how: (p: Part) => 'ground' | 'wall' | 'hang'): Part[] {
+  const shells = parts.filter((_, i) => layers[i] === 'shell')
+  const inShell = (p: Part, margin: number) => shells.some((s) => over(s, p.at[0], p.at[2], margin))
+  const kinds = parts.map(how), ground = kinds.map((k) => k === 'ground')
+  // What a model stood on where it was cut: the highest model under its middle whose top is about at its feet.
+  const support = (i: number) => {
+    const p = parts[i], y = p.at[1]
+    let best = -1
+    parts.forEach((q, j) => {
+      if (j === i || !ground[j] || q.at[1] >= y - 0.05 * M) return
+      const top = q.at[1] + q.size[1]
+      if (top < y - 0.4 * M || top > y + 0.25 * M || !over(q, p.at[0], p.at[2], 0.1 * M)) return
+      if (best < 0 || top > parts[best].at[1] + parts[best].size[1]) best = j
+    })
+    return best
+  }
+  const outside = parts.map((p, i) => layers[i] !== 'shell' && !inShell(p, 0.3 * M))
+  const held = parts.map((_, i) => (outside[i] && ground[i] ? support(i) : -1))
+  // How high the ground round the building stood above its feet: the middle of what stood on it near the building.
+  const feet = shells.length ? Math.min(...shells.map((s) => s.at[1])) : FLOOR
+  const round = parts.map((p, i) => (outside[i] && ground[i] && held[i] < 0 && inShell(p, 3 * M) ? p.at[1] - feet : NaN)).filter((v) => !isNaN(v)).sort((a, b) => a - b)
+  const sinkBy = shells.length && round.length ? Math.min(MAX_SETTLE * M, Math.max(0, round[Math.floor(round.length / 2)])) : 0
+  const lift = parts.map(() => NaN)
+  parts.forEach((p, i) => { if (!outside[i]) lift[i] = FLOOR - feet - sinkBy })
+  // Bottom up, so what a model stood on has moved before it.
+  const order = parts.map((_, i) => i).filter((i) => outside[i] && ground[i]).sort((a, b) => parts[a].at[1] - parts[b].at[1])
+  for (const i of order) lift[i] = held[i] >= 0 && !isNaN(lift[held[i]]) ? lift[held[i]] : FLOOR - parts[i].at[1]
+  // What hangs (a sign on a fence, a lamp on a post): with the nearest model it is on.
+  parts.forEach((p, i) => {
+    if (!isNaN(lift[i])) return
+    let best = -1, bd = Infinity
+    order.forEach((j) => {
+      const q = parts[j]
+      if (!over(q, p.at[0], p.at[2], 0.6 * M)) return
+      const d = Math.hypot(q.at[0] - p.at[0], q.at[2] - p.at[2])
+      if (d < bd) { bd = d; best = j }
+    })
+    lift[i] = best >= 0 ? lift[best] : FLOOR - feet - sinkBy
+  })
+  // On a wall that is there: a model standing next to it (within 0.4 m) as high as its middle.
+  const backed = (p: Part) => parts.some((q, j) => ground[j] && q !== p && q.at[1] <= p.at[1] + 0.1 * M && q.at[1] + q.size[1] >= p.at[1] + p.size[1] / 2
+    && over(q, p.at[0], p.at[2], 0.4 * M + Math.max(p.size[0], p.size[2]) / 2))
+  return parts.flatMap((p, i) => (shells.length && kinds[i] === 'wall' && outside[i] && !backed(p) ? []
+    : Math.abs(lift[i]) < 0.005 ? [p] : [{ ...p, at: [p.at[0], r2(p.at[1] + lift[i]), p.at[2]] as Vec3 }]))
+}
+
+/**
+ * A group with things on a wall among it (a pegboard, a poster over a workbench) goes against a wall: the study
+ * cuts out what stands together, not the wall they hang on, so placed in the open they would hang in the air. Its
+ * back is the side they are on, when they are all along one side (within WALL_EDGE of it); otherwise they are left
+ * out, and so is the group when fewer than two models are left. Groups with nothing on a wall come back as they are.
+ */
+export function onItsWall(g: CityGroup, onWall: (id: string) => boolean): CityGroup | null {
+  const hung = g.parts.filter((p) => onWall(p.id))
+  if (!hung.length || g.anchor === 'wall') return g
+  const [w, d] = g.size
+  const gap: Record<Side, (p: ModulePart) => number> = { '+x': (p) => w / 2 - p.at[0], '-x': (p) => p.at[0] + w / 2, '+z': (p) => d / 2 - p.at[2], '-z': (p) => p.at[2] + d / 2 }
+  const side = (Object.keys(gap) as Side[]).find((k) => hung.every((p) => gap[k](p) <= WALL_EDGE))
+  if (side) return { ...g, anchor: 'wall', back: side }
+  const parts = g.parts.filter((p) => !onWall(p.id))
+  return parts.length >= 2 ? { ...g, parts } : null
+}
+/** How high (metres) a group put against a wall needs the wall: to the top of what hangs on it, or 1.5 m. */
+function wallTop(g: CityGroup, lib: Map<string, GameObjectEntry>): number {
+  return Math.max(1.5, ...g.parts.map((p) => p.at[1] + (lib.get(p.id)?.size[2] ?? 0)).filter((h) => h < 4))
+}
+/** How near a group's side (metres) its wall things must be for it to go with that side against a wall. */
+const WALL_EDGE = 0.6
 
 /** How well each kind of edge does facing a street. */
 const FRONT: Partial<Record<EdgeKind, number>> = { street: 3, sidewalk: 3, open: 1.5, alley: 1, yard: 1, wall: 0.3 }

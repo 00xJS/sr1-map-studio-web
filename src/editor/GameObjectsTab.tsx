@@ -5,6 +5,7 @@
 import { memo, useEffect, useMemo, useState } from 'react'
 import { useEditor } from './store'
 import { PrefabThumb } from './PrefabThumb'
+import { toggleFavourite, usePrefabLists } from './prefabLists'
 import { toast, toastError, useBusy } from '../ui'
 import { buildIndex, forgetIndex, loadIndex, NeedGameFolder, connect, useGameObjects } from '../lib/gameObjects/client'
 import { identify } from '../lib/gameObjects/identity'
@@ -65,7 +66,7 @@ export const tileOf = (e: GameObjectEntry): GameTile => ({
 /** Its names, the game's own record names and its texture names (so "USPSMailBox" finds the mailbox that wears it). */
 const searchText = (e: GameObjectEntry) => normalize([e.name, ...(e.names ?? []), ...(e.raw ?? []), ...(e.tex ?? []).map((t) => t.replace(/\.\w+$/, '')), e.profile, e.cat, e.chunk, displayName(e), ...tagsOf(e)].join(' ')) + ' ' + [...(e.raw ?? []), ...(e.tex ?? []), ...tagsOf(e)].join(' ').toLowerCase()
 
-const Tile = memo(function Tile({ e, on, onChoose, onHover }: { e: GameObjectEntry; on: boolean; onChoose: (t: GameTile) => void; onHover: (t: GameTile | null) => void }) {
+const Tile = memo(function Tile({ e, on, fav, onChoose, onHover }: { e: GameObjectEntry; on: boolean; fav: boolean; onChoose: (t: GameTile) => void; onHover: (t: GameTile | null) => void }) {
   const t = tileOf(e)
   return (
     <div className={'prefab-tile' + (on ? ' on' : '')} onMouseEnter={() => onHover(t)} onMouseLeave={() => onHover(null)}>
@@ -74,6 +75,8 @@ const Tile = memo(function Tile({ e, on, onChoose, onHover }: { e: GameObjectEnt
         <PrefabThumb shape={t.shape} />
         <span className="prefab-label">{t.label}</span>
       </button>
+      <button className={'prefab-fav' + (fav ? ' on' : '')} title={fav ? 'Remove from favourites' : 'Add to favourites'} aria-label={(fav ? 'Remove from favourites: ' : 'Add to favourites: ') + t.label} aria-pressed={fav}
+        onClick={() => toggleFavourite(t.shape)}>★</button>
     </div>
   )
 })
@@ -107,6 +110,7 @@ export function GameObjectsTab({ query, current, onChoose, onHover }: { query: s
   const [cat, setCat] = useState('All')
   const [where, setWhere] = useState('All')
   const [shown, setShown] = useState(PAGE)
+  const { favs, recent } = usePrefabLists()
   useEffect(() => { void loadIndex() }, [])
   // With the index stored and the folder still allowed, open the game files quietly for the pictures.
   useEffect(() => { if (entries && !connected) connect(false).catch(() => {}) }, [entries, connected])
@@ -127,6 +131,13 @@ export function GameObjectsTab({ query, current, onChoose, onHover }: { query: s
     const tags = tagsFor(query)
     return here.filter((e) => (cat === 'All' || e.cat === cat) && (words.every((w) => texts.get(e.id)!.includes(w)) || (tags.length > 0 && tags.every((t) => tagsOf(e).includes(t)))))
   }, [here, cat, query, texts])
+
+  const byId = useMemo(() => new Map((entries ?? []).map((e) => [e.id, e])), [entries])
+  const favSet = useMemo(() => new Set(favs), [favs])
+  // The player's starred and last used objects (shapes "game:<id>"), shown first when not searching.
+  const mine = (shapes: string[]) => shapes.filter((x) => x.startsWith('game:')).map((x) => byId.get(x.slice(5))).filter((e): e is GameObjectEntry => !!e && (where === 'All' || (e.where ?? [CITY]).includes(where)) && (cat === 'All' || e.cat === cat))
+  const favList = query ? [] : mine(favs), recentList = query || cat !== 'All' ? [] : mine(recent)
+  const grid = (l: GameObjectEntry[]) => <div className="prefab-grid">{l.map((e) => <Tile key={e.id} e={e} on={current === 'game:' + e.id} fav={favSet.has('game:' + e.id)} onChoose={onChoose} onHover={onHover} />)}</div>
 
   const head = <p className="faint small game-notice">{NOTICE} Read from your own Saints Reborn install in this browser; nothing is uploaded, and maps that use them can't go on the hub, the Showcase or a share link.</p>
 
@@ -182,10 +193,14 @@ export function GameObjectsTab({ query, current, onChoose, onHover }: { query: s
           </button>
         ))}
       </div>
+      {favList.length > 0 && <><b className="small">★ Favourites <span className="faint">{favList.length}</span></b>{grid(favList)}</>}
+      {recentList.length > 0 && <><b className="small">Recently used</b>{grid(recentList)}</>}
+      {(favList.length > 0 || recentList.length > 0) && list.length > 0 && <b className="small">{cat === 'All' ? 'Everything' : cat}</b>}
       {list.length
-        ? <div className="prefab-grid">{list.slice(0, shown).map((e) => <Tile key={e.id} e={e} on={current === 'game:' + e.id} onChoose={onChoose} onHover={onHover} />)}</div>
+        ? grid(list.slice(0, shown))
         : <div className="prefab-empty col"><span className="muted">Nothing called “{query}”{cat !== 'All' ? ` in ${cat}` : ''}.</span></div>}
       {list.length > shown && <button className="sm" onClick={() => setShown((n) => n + PAGE * 2)}>Show more ({(list.length - shown).toLocaleString()} left)</button>}
+      {!favList.length && !query && <p className="faint small">Tip: ★ an object to keep it at the top.</p>}
       <div className="row wrap faint small" style={{ marginTop: 8 }}>
         <span className="grow">{entries.length.toLocaleString()} objects{info ? ` · read ${new Date(info.builtAt).toLocaleDateString()} in ${Math.round(info.ms / 1000)} s` : ''}</span>
         <button className="sm quiet" title="Read the game files again (after reinstalling or patching the game)" onClick={() => buildIndex(true, true).catch(toastError)}>Read again</button>

@@ -6,10 +6,11 @@ import { describe, expect, it } from 'vitest'
 import type { GameObjectEntry } from '../src/lib/gameObjects/indexer'
 import type { GameIdentity } from '../src/lib/gameObjects/identity'
 import type { CityGroup, CityModule, ModuleEdge, PlacementRule, Side } from '../src/lib/gameObjects/cityModules'
-import { ALLEY, GameCity, cityFrame, edgeToward, footprintOf, gamePoint, joinOk, reachability, rotFor, sideDir, sideFacing, type Dir, type Placed } from '../src/lib/gameObjects/wizardModules'
+import { ALLEY, GameCity, cityFrame, onItsWall, settle, edgeToward, footprintOf, gamePoint, joinOk, reachability, rotFor, sideDir, sideFacing, type Dir, type Placed } from '../src/lib/gameObjects/wizardModules'
 import { GamePieces, TEXTURE_BUDGET, TRI_BUDGET, facingVec, gameParts } from '../src/lib/gameObjects/wizardPieces'
 import { wizardSample, wizardSize, type WizardOptions } from '../src/lib/mapWizard'
 import { over } from '../src/lib/sampleScale'
+import { PB, box } from '../src/lib/sampleKit'
 
 // ---- a made-up library ----
 type Who = Omit<GameIdentity, 'category' | 'name'>
@@ -24,6 +25,7 @@ add('flats', [10, 9, 14], { role: 'building', settings: ['downtown'], building: 
 add('garage', [12, 10, 5], { role: 'building', settings: [], building: { footprint: [12, 10], height: 5, storeys: 1 } }, { tris: 2000 })
 add('walk', [12, 3, 0.2], { role: 'ground', settings: [] }, { tris: 40 })
 add('stairs', [3, 1.5, 5], { role: 'piece', settings: [] }, { tris: 300 })
+add('wideshop', [16, 14, 9], { role: 'building', settings: ['downtown'], building: { footprint: [16, 14], height: 9, storeys: 3 } }, { tris: 4000 })
 add('shed', [14, 12, 6], { role: 'building', settings: ['industrial'], building: { footprint: [14, 12], height: 6, storeys: 1 } })
 // Props for groups and the dressing pass.
 add('bench', [1.8, 0.6, 0.9], { role: 'prop', kind: 'street', settings: [] })
@@ -311,7 +313,9 @@ describe('city modules: other layouts, settings and limits', () => {
   })
 
   it('hangs wall things at the height the game has them, only on walls tall enough', () => {
-    const o = opts({ players: 12, busy: 100 }), c = city(o, { modules: [M_('corner')], groups: [] })
+    // Its walls out to the module's sides (a wall thing goes only where the module's own models are behind it).
+    const walled = { ...M_('corner'), parts: [{ id: 'wideshop', at: [0, 0, 0] as [number, number, number], yaw: 0, layer: 'shell' as const }] }
+    const o = opts({ players: 12, busy: 100 }), c = city(o, { modules: [walled], groups: [] })
     const s = wizardSample(o, c.pieces)
     const signs = gameParts(s).filter((q) => q.game!.id === 'wallsign')
     expect(signs.length).toBeGreaterThan(0)
@@ -404,5 +408,62 @@ describe('city modules: falling back', () => {
     for (const l of lamps) expect(gameParts(s).some((q) => q.game!.id === 'lampbase' && Math.hypot(q.at[0] - l.at[0], q.at[2] - l.at[2]) <= 1.3)).toBe(true)
     expect(gameParts(s).some((p) => p.game!.id === 'lonelamp')).toBe(false)
     expect(byId.size).toBe(entries.length)
+  })
+})
+
+describe('city modules: set down on a flat floor', () => {
+  // Units (2 per metre); the floor at y = 1. A house whose yard stood 0.9 m above its feet on a sloped street.
+  const b = (label: string, at: [number, number, number], size: [number, number, number]) => ({ ...box(label, size, at, PB.concrete, PB.concrete, 0) })
+  it('sinks the building to its yard and brings yard things down onto the floor, with what stands on them', () => {
+    const house = b('house', [0, 1, 0], [20, 20, 20])
+    const table = b('table', [20, 1 + 1.8, 0], [4, 1.5, 2])
+    const cup = b('cup', [20, 1 + 1.8 + 1.5, 0], [0.4, 0.4, 0.4])
+    const fence = b('fence', [0, 1 + 1.8, 16], [16, 2.4, 0.2])
+    const sign = b('sign', [0, 1 + 3, 16.1], [2, 1, 0.1])
+    const lamp = b('lamp', [0, 1 + 6, 0], [1, 1, 1])
+    const out = settle([house, table, cup, fence, sign, lamp], ['shell', 'prop', 'detail', 'fence', 'detail', 'detail'], (p) => (p.label === 'sign' ? 'wall' : 'ground'))
+    const at = (l: string) => out.find((p) => p.label === l)!.at[1]
+    expect(at('house')).toBeCloseTo(1 - 1.8)
+    expect(at('table')).toBeCloseTo(1)
+    expect(at('cup')).toBeCloseTo(1 + 1.5)
+    expect(at('fence')).toBeCloseTo(1)
+    expect(at('sign')).toBeCloseTo(1 + 3 - 1.8)
+    // Inside the building: with it.
+    expect(at('lamp')).toBeCloseTo(1 + 6 - 1.8)
+  })
+  it('goes down no more than 1.2 m, and never up', () => {
+    const house = b('house', [0, 1, 0], [20, 20, 20])
+    const high = settle([house, b('bin', [14, 1 + 6, 0], [1, 1, 1])], ['shell', 'prop'], () => 'ground')
+    expect(high[0].at[1]).toBeCloseTo(1 - 2.4)
+    expect(high[1].at[1]).toBeCloseTo(1)
+    const low = settle([house, b('bin', [14, 1 - 1, 0], [1, 1, 1])], ['shell', 'prop'], () => 'ground')
+    expect(low[0].at[1]).toBeCloseTo(1)
+    expect(low[1].at[1]).toBeCloseTo(1)
+  })
+  it('leaves out wall things with nothing of the module behind them', () => {
+    const house = b('house', [0, 1, 0], [20, 20, 20])
+    const out = settle([house, b('poster', [30, 4, 0], [1, 1, 0.1]), b('onhouse', [10.1, 4, 0], [0.1, 1, 1])], ['shell', 'prop', 'prop'], (p) => (p.label === 'house' ? 'ground' : 'wall'))
+    expect(out.map((p) => p.label)).toEqual(['house', 'onhouse'])
+  })
+})
+
+describe('city groups: wall things go on a wall', () => {
+  it('puts nothing against a side the study calls a wall where the building stands back from it', () => {
+    // The shop (12 x 10) stands 2 m in from the corner module's sides.
+    const o = opts({ players: 12, busy: 100 }), c = city(o, { modules: [M_('corner')], groups: [] })
+    expect(gameParts(wizardSample(o, c.pieces)).some((q) => q.game!.id === 'wallsign')).toBe(false)
+  })
+  const group = (parts: [string, number, number][]): CityGroup => ({ id: 'g', name: 'g', kind: 'cover', settings: [], anchor: 'ground', size: [4.4, 6], seen: 3, examples: [],
+    parts: parts.map(([id, x, z]) => ({ id, at: [x, 0.5, z], yaw: 0, layer: 'prop' })) })
+  const onWall = (id: string) => id.startsWith('poster')
+  it('turns the group so its side with them is against a wall', () => {
+    const g = onItsWall(group([['crate', -1, 1], ['poster1', 2.15, -1], ['poster2', 2.2, 1]]), onWall)!
+    expect([g.anchor, g.back]).toEqual(['wall', '+x'])
+  })
+  it('leaves them out when they are not along one side, and the group when too little is left', () => {
+    expect(onItsWall(group([['crate', -1, 1], ['crate', 1, 1], ['poster1', 0, 0]]), onWall)!.parts.map((p) => p.id)).toEqual(['crate', 'crate'])
+    expect(onItsWall(group([['crate', -1, 1], ['poster1', 0, 0]]), onWall)).toBeNull()
+    const plain = group([['crate', -1, 1], ['crate', 1, 1]])
+    expect(onItsWall(plain, onWall)).toBe(plain)
   })
 })

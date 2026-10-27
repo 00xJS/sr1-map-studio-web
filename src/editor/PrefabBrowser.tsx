@@ -3,13 +3,14 @@
 // Clicking a tile arms the Shape tool with it (toolShape "prefab:<key>" or
 // "mine:<id>"); dragging one onto the map places it there. Opens from the Shape
 // tool's options and from the side panel's "Add to your map".
-import { memo, useEffect, useLayoutEffect, useMemo, useState, useSyncExternalStore, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
+import { memo, useEffect, useLayoutEffect, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react'
 import { create } from 'zustand'
 import { useEditor } from './store'
 import { useMyPrefabs, type MyPrefab } from './myPrefabs'
 import { MINE, normalize, prefabCategories, prefabEntries, searchPrefabs, type PrefabEntry } from '../lib/prefabIndex'
 import { PrefabThumb, ThumbWatch, makeWatcher } from './PrefabThumb'
 import type { ThumbBundle } from '../lib/prefabRender'
+import { markPrefabUsed, toggleFavourite, usePrefabLists } from './prefabLists'
 import { GAME_TAB, GameObjectsTab, tileOf, type GameTile } from './GameObjectsTab'
 import { loadIndex, useGameObjects } from '../lib/gameObjects/client'
 import { entryById } from '../lib/gameObjects/client'
@@ -30,39 +31,6 @@ useEditor.subscribe((s) => { if (s.tool !== 'shape' && usePrefabBrowser.getState
 /** Phones: the browser covers the map, so it closes once a piece is chosen. */
 const narrow = () => typeof matchMedia === 'function' && matchMedia('(max-width: 700px)').matches
 const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
-
-// ---------------- favourites and recently used (this browser only) ----------------
-
-const FAVS = 'sr1ms.prefabFavs'
-const RECENT = 'sr1ms.prefabRecent'
-const EVENT = 'sr1ms-prefablists'
-const RECENT_MAX = 12
-
-function readList(key: string): string[] {
-  try { const v = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(v) ? v.filter((x) => typeof x === 'string') : [] } catch { return [] }
-}
-let lists: { favs: string[]; recent: string[] } | null = null
-const listSnapshot = () => (lists ??= { favs: readList(FAVS), recent: readList(RECENT) })
-const listSubscribe = (fn: () => void) => {
-  const on = () => { lists = null; fn() }
-  window.addEventListener(EVENT, on); window.addEventListener('storage', on)
-  return () => { window.removeEventListener(EVENT, on); window.removeEventListener('storage', on) }
-}
-function writeList(key: string, list: string[]) {
-  try { localStorage.setItem(key, JSON.stringify(list)) } catch { /* storage blocked: lists last until reload */ }
-  lists = { ...listSnapshot(), [key === FAVS ? 'favs' : 'recent']: list }
-  window.dispatchEvent(new Event(EVENT))
-}
-const usePrefabLists = () => useSyncExternalStore(listSubscribe, listSnapshot)
-
-export function toggleFavourite(shape: string) {
-  const { favs } = listSnapshot()
-  writeList(FAVS, favs.includes(shape) ? favs.filter((x) => x !== shape) : [...favs, shape])
-}
-export function markPrefabUsed(shape: string) {
-  const { recent } = listSnapshot()
-  if (recent[0] !== shape) writeList(RECENT, [shape, ...recent.filter((x) => x !== shape)].slice(0, RECENT_MAX))
-}
 
 /** Arms the Shape tool with a prefab or saved piece. */
 function choose(e: Entry) {
