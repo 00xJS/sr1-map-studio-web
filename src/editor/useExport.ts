@@ -5,7 +5,7 @@ import { confirmDialog } from '../ui'
 import { runExport, downloadBlob, type ExportResult } from '../lib/exporter'
 import { py } from '../lib/py'
 import { ExportTimer, exportStages, loadStageTimes, saveStageTimes, type ProgressView } from '../lib/exportProgress'
-import { mapFolderExists, mapsFolder, rememberedMapsFolder, writeMap } from '../lib/install'
+import { mapsFolder, rememberedMapsFolder, replaceNeedsAsking, writeMap } from '../lib/install'
 import { withAutoMinimap } from '../lib/minimap'
 import { withLoadingScreen } from '../lib/mapFeatures'
 import { getViewer } from './Viewport'
@@ -51,7 +51,7 @@ export function useExport() {
       log(`Export complete: ${out.result.files.length} map files.`)
       if (maps) {
         t.enter('install')
-        if (await mapFolderExists(maps, out.folder) && !(await t.outside(confirmDialog('Replace installed map?', `maps/${out.folder} already exists. Its files will be replaced with this export.`, { confirm: 'Replace' })))) {
+        if (await replaceNeedsAsking(maps, out.folder, project.id) && !(await t.outside(confirmDialog('Replace installed map?', `maps/${out.folder} already exists. Its files will be replaced with this export.`, { confirm: 'Replace' })))) {
           setResult({ r: out.result, zip: out.zip, folder: out.folder })
           return
         }

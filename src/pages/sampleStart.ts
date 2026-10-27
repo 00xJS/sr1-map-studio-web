@@ -10,11 +10,16 @@ import { NeedGameFolder, connect } from '../lib/gameObjects/client'
  */
 export async function startFromSample(id: string, compact: boolean, onProgress?: (t: string) => void): Promise<string> {
   const { buildsWithGame, gameSourceNow, gameSampleOf } = await import('./BuildWith')
-  const game = buildsWithGame() ? gameSampleOf(id, compact, await gameSourceNow()) : null
+  // (The library is read first: until the player chooses, a ready library means game pieces.)
+  const src = await gameSourceNow()
+  const game = buildsWithGame() ? gameSampleOf(id, compact, src) : null
   if (game) {
     try { await connect(true) } catch (e) { throw e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder so the models can come in from your game.') : e }
   }
   const p = game ? await buildFrom(game, onProgress) : await buildSample(id, onProgress, { compact })
+  // The same spawn and weapon fix as the Start a map dialog's (startBuild.ts).
+  const { fixSpawnsBeforeOpen } = await import('./startBuild')
+  await fixSpawnsBeforeOpen(p, !!game, onProgress)
   await db.putProject({ id: p.id, name: p.name, updated_at: p.updated_at, project: p })
   if (game) queueEdits(p.id, { actions: [], label: 'Game pieces', checks: true })
   void requestPersistence()

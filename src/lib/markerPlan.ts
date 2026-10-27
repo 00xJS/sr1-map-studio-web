@@ -125,7 +125,7 @@ export function planMarkers(p: Prepared, markers: PlanMarker[], o: PlanOptions):
     if (need <= 0) break
     const near = weaponsNow()
     const ok = good.filter((n) => exposure(n) <= limit && near.every((w) => Math.hypot(w[0] - P[n * 3], w[2] - P[n * 3 + 2]) >= weaponGap))
-    for (const n of spread(ok, spawnsNow(), need, gap, P)) added.push({ type: 'Shared spawn', at: at(n), yaw: openHeading(bvh, eye(n)) })
+    for (const n of spread(ok, spawnsNow(), need, gap, P)) added.push({ type: 'Shared spawn', at: at(n), yaw: openHeading(bvhRay(bvh), eye(n)) })
   }
   // Weapons: spread over the floor, off the spawns.
   const have = markers.filter((m) => m.type === 'Weapon pickup').length
@@ -160,14 +160,28 @@ function spread(pool: number[], taken: Vec3[], count: number, gap: number, P: Fl
   return out
 }
 
-/** The heading (degrees, 0 = facing −Z as the editor's spawns do) with the longest clear view at eye height. */
-function openHeading(bvh: Prepared['bvh'], e: Vec3): number {
-  let best = 0, far = -1
+/** Whether something solid stands on the line from (ax, ay, az) to (bx, by, bz). */
+export type RayTest = (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => boolean
+
+/** Yaw (degrees) facing the middle of the map from p (yaw 0 faces −Z). */
+export const towardMiddle = (p: Vec3) => +((Math.atan2(-p[0], p[2]) * 180) / Math.PI).toFixed(1)
+
+/**
+ * The heading (degrees, 0 = facing −Z as the editor's spawns do) with the longest clear view at eye height `e`, of
+ * eight; among headings that see as far, the one nearest `toward` (by default the middle of the map), so a spawn
+ * in the open still looks at the fight and one by a wall looks away from it.
+ */
+export function openHeading(blocked: RayTest, e: Vec3, toward = towardMiddle(e)): number {
+  let best = 0, far = -1, off = Infinity
   for (let k = 0; k < 8; k++) {
     const a = k * 45, t = (a * Math.PI) / 180
     let d = 2
-    while (d <= 24 && !bvh.blocked(e[0], e[1], e[2], e[0] + Math.sin(t) * d, e[1], e[2] - Math.cos(t) * d, SOLID)) d += 2
-    if (d > far) { far = d; best = a }
+    while (d <= 24 && !blocked(e[0], e[1], e[2], e[0] + Math.sin(t) * d, e[1], e[2] - Math.cos(t) * d)) d += 2
+    const o = Math.abs(((a - toward) % 360 + 540) % 360 - 180)
+    if (d > far || (d === far && o < off)) { far = d; best = a; off = o }
   }
   return best > 180 ? best - 360 : best
 }
+
+/** openHeading's ray test on a ray tree (solid triangles block). */
+export const bvhRay = (bvh: Prepared['bvh']): RayTest => (ax, ay, az, bx, by, bz) => bvh.blocked(ax, ay, az, bx, by, bz, SOLID)

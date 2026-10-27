@@ -2,8 +2,12 @@
 // with the File System Access API (Chrome, Edge, Opera). The folder handle
 // is remembered in IndexedDB; the browser asks again for permission when needed.
 import { db } from './db'
+import { readExportNote } from './playtest'
+import { SETUP_CHANGED } from './setupEvents'
 
 const KEY = 'maps-folder'
+/** Tells the Connect page and its prompts (setup.ts) that the remembered folder changed. */
+const changed = () => { if (typeof window !== 'undefined') window.dispatchEvent(new Event(SETUP_CHANGED)) }
 
 type DirHandle = FileSystemDirectoryHandle & {
   values?(): AsyncIterable<FileSystemDirectoryHandle | FileSystemFileHandle>
@@ -18,7 +22,7 @@ export async function rememberedMapsFolder(): Promise<string | null> {
   return h ? h.name : null
 }
 
-export async function forgetMapsFolder() { await db.setMeta(KEY, null) }
+export async function forgetMapsFolder() { await db.setMeta(KEY, null); changed() }
 
 /** Accepts the maps folder itself, dist, or the SaintsReborn folder. */
 async function resolveMaps(picked: DirHandle): Promise<DirHandle> {
@@ -46,11 +50,29 @@ export async function mapsFolder(choose = false): Promise<DirHandle> {
   const picked = await (window as any).showDirectoryPicker({ id: 'saintsreborn-maps', mode: 'readwrite' }) as DirHandle
   const maps = await resolveMaps(picked)
   await db.setMeta(KEY, maps)
+  changed()
   return maps
 }
 
 export async function mapFolderExists(maps: DirHandle, folder: string): Promise<boolean> {
   try { await maps.getDirectoryHandle(folder); return true } catch { return false }
+}
+
+/** The project whose export is installed in maps/<folder>, from its MAP_STUDIO_EXPORT.txt (none for older exports and other maps). */
+export async function installedProjectId(maps: DirHandle, folder: string): Promise<string | undefined> {
+  try {
+    const file = await (await (await maps.getDirectoryHandle(folder)).getFileHandle('MAP_STUDIO_EXPORT.txt')).getFile()
+    return readExportNote(await file.text()).projectId
+  } catch { return undefined }
+}
+
+/**
+ * Whether installing over maps/<folder> needs the "Replace installed map?" question: only when the folder is there
+ * and isn't this project's own last install (the companion mod then reloads that one in the match by itself).
+ */
+export async function replaceNeedsAsking(maps: DirHandle, folder: string, projectId: string): Promise<boolean> {
+  if (!(await mapFolderExists(maps, folder))) return false
+  return (await installedProjectId(maps, folder)) !== projectId
 }
 
 /** An early surface registration pair (py/surface_registration.py): named from its contents, so each export makes a new one. */

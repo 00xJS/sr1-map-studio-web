@@ -11,14 +11,19 @@ testing maps from SR1 Map Studio faster and makes them sound right.
   from its files. Installing the map again from SR1 Map Studio's **Install to
   game** button reloads it by itself. Edit, install, and you're walking around
   the new version a few seconds later, with no need to restart the game.
+- **Playtest log.** Every match you play is recorded to a small file: where
+  you went, where you fell, got stuck or the camera was pushed in, and the
+  spots you marked with **End**. SR1 Map Studio reads it to show those spots
+  on the map.
 
 > **Status: new and not yet tested in game.** If something goes wrong, turn on
 > `debug` (see Settings) and look at `mods/wml.log`.
 
 ## Install
 
-1. Copy the `companion-mod` folder into `SaintsReborn/dist/mods`. You can
-   rename it, for example to `SR1MapStudioCompanion`.
+1. Copy the `companion-mod` folder into `SaintsReborn/dist/mods`, with the
+   `playtest` folder in it. You can rename it, for example to
+   `SR1MapStudioCompanion`.
 2. Run `SaintsReborn/dist/WhompaysModLoader.exe`, tick **SR1 Map Studio
    Companion** and press **Play**.
 
@@ -47,6 +52,45 @@ it up.
 
 Reload only the map you play **on your own**. If friends are in the match,
 their game doesn't reload with yours.
+
+## Playtest log
+
+While you play a multiplayer match (not the lobby), the mod writes
+`playtest/<map>-<date>-<time>.jsonl` in its folder. Each load of the map,
+including a reload, starts a new file. Pausing pauses the recording. The
+newest 20 logs are kept (`playtest_keep`); `playtest/index.txt` lists them,
+and older ones are deleted when a new one starts.
+
+Each line is one event, as JSON, with `t` (seconds since the recording
+started), `map`, `pos` (x, y, z in game metres) and `heading`:
+
+| `ev` | When | Extra fields |
+|---|---|---|
+| `start` | The match is in play | `date`, and from the map's `MAP_STUDIO_EXPORT.txt`: `project`, `exported`, `origin`, `world_scale`, `mirror_x`, `floor_y` |
+| `pos` | Once a second | |
+| `push` | The camera was pushed in by something in the way | `by` (metres), `usual`, `wanted`, `camera` |
+| `fall` | A drop of more than 8 m | `drop`, `from_y`, `speed` |
+| `fall` | Falling 3 m below the map's lowest floor | `below_floor`, `floor_y`, `from_y` |
+| `stuck` | A move key (WASD or the arrows) held for 2 s without getting half a metre | `seconds`, `keys` |
+| `mark` | You pressed **End** | `n` |
+| `respawn` | You moved more than 15 m in one frame (died, or the match moved you) | `from` |
+| `end` | The match ended, the map reloaded or you left | `reason` |
+
+Press **End** wherever something is wrong (a wall you can't see, a gap, a bad
+spawn) and SR1 Map Studio shows the spot. The mod only reads the game's
+memory; it changes nothing. Turn it off with `playtest_log = false`. Old logs
+can be deleted at any time.
+
+Keys (move keys for `stuck`, End for `mark`) only count while the game window
+has focus, so typing in SR1 Map Studio or anywhere else logs nothing.
+
+Example:
+
+```
+{"t":0,"ev":"start","map":"studiotest","pos":[12.5,0.02,-3.1],"heading":1.571,"date":"2026-10-27T18:02:11Z","project":"5d0c…","world_scale":0.5,"mirror_x":true,"floor_y":-0.25}
+{"t":1,"ev":"pos","map":"studiotest","pos":[12.9,0.02,-2.4],"heading":1.571}
+{"t":6.42,"ev":"mark","map":"studiotest","pos":[18.2,0.02,4.7],"heading":0.8,"n":1}
+```
 
 ## Surfaces
 
@@ -78,6 +122,8 @@ Edit `mod.ini` in the mod's folder:
 | `poll_seconds` | `1.0` | How often to check for a new install. |
 | `watch_folder` | `""` | The map's folder in `dist/maps` (for example `Studio Test`), if the mod can't find it by itself. |
 | `hud_messages` | `false` | Show "Map reloaded" on the screen. |
+| `playtest_log` | `true` | Record each match to `playtest/` (see Playtest log). |
+| `playtest_keep` | `20` | How many playtest logs to keep (`0` = all). |
 | `debug` | `false` | Write every step to `mods/wml.log`. |
 
 ## Troubleshooting
@@ -96,6 +142,10 @@ Set `debug = true` in `mod.ini`, play, and open `SaintsReborn/dist/mods/wml.log`
   `differs from before the reload`, or your character doesn't look like
   yours, report it with the log (with `debug = true` it lists the clothes,
   body sliders and colours before and after).
+
+- `Playtest: recording <map> to <file>` starts each recorded match, and
+  `Playtest: mark N at [...]` follows each End. `can't write` means the
+  mod's folder is read-only.
 
 ## Online
 

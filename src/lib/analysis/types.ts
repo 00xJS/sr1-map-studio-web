@@ -13,6 +13,8 @@ export interface AnalysisMarker {
   position: Vec3
   uid?: string
   weapon?: string
+  /** Spawns: the way it faces, degrees (0 faces −Z, as the editor's markers do). */
+  yaw?: number
 }
 
 export interface AnalysisInput {
@@ -77,6 +79,8 @@ export interface SpawnReport {
   enemyWalkM: number | null
   /** Shortest walk to a weapon, metres. */
   weaponWalkM: number | null
+  /** How far ahead the wall it faces stands, metres, when one stands within FACING_WALL_M of its eyes. */
+  facesWallM?: number
   risk: Risk
   reasons: string[]
 }

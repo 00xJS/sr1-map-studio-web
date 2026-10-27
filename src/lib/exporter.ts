@@ -3,7 +3,7 @@
 import { zip as zipAsync, strFromU8, strToU8, type AsyncZippable } from 'fflate'
 import { py } from './py'
 import { dataPackStatus, hasGroup } from './datapack'
-import { dryInteriors, type Marker, type Project, type ProjectSettings } from './project'
+import { dryInteriors, type Marker, type Project, type ProjectSettings, type Vec3 } from './project'
 import { checkModes, levelEntries } from './levels'
 import { BOR } from './retailModes'
 import { statusParen } from './featureStatus'
@@ -11,6 +11,7 @@ import { crateDebrisSpec } from './crateDebris'
 import { gameSkySpec } from './gameSky'
 import { exportedItems } from './layers'
 import { PICKUP_RESPAWN_MS, pickupRespawnMs } from './player'
+import { exportFactLines } from './playtest'
 
 /**
  * entries: the zip's files by path ("<folder>/levels/..."), for installing without unzipping.
@@ -22,6 +23,10 @@ export interface ExportResult {
   map_name: string
   files: string[]
   summary: Record<string, number>
+  /** The frame of the map's geometry: game metres = mirror_x((editor - origin) * world_scale). */
+  origin?: Vec3
+  /** The lowest point of the map's geometry, in game metres. */
+  floor_y?: number
 }
 
 const strip = <T extends { uid?: string }>(x: T) => { const { uid: _u, ...rest } = x; return rest }
@@ -193,6 +198,8 @@ function exportNotes(p: Project, r: ExportResult) {
   return [
     `Exported by SR1 Map Studio (web) on ${new Date().toISOString()}`,
     `Project: ${p.name}`,
+    // For the companion mod's playtest log and for installing over this project's own map without asking.
+    ...(r.origin ? exportFactLines({ projectId: p.id, origin: r.origin, worldScale: p.settings.world_scale || 0.5, mirrorX: p.settings.mirror_x, floorY: r.floor_y ?? 0 }) : [`Project id: ${p.id}`]),
     '',
     `Render: ${s.render_triangles?.toLocaleString()} triangles in ${s.render_meshes} mesh(es), ${s.material_batches} material batches`,
     `Collision: ${s.collision_triangles?.toLocaleString()}/${s.source_triangles?.toLocaleString()} source triangles`,
