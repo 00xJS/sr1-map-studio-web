@@ -39,14 +39,14 @@ export function PlayDialog({ onClose, onSamples }: { onClose: () => void; onSamp
   const canInstall = installSupported()
 
   return (
-    <Modal title="Play in game" onClose={exp.busy ? undefined : onClose}>
+    <Modal title="Install in game" onClose={exp.busy ? undefined : onClose}>
       {exp.result ? (
         <div className="callout ok"><div className="col">
           <b>{exp.result.installedTo ? 'Your map is in the game!' : 'Your map is ready'}</b>
           <span className="small">{exp.result.installedTo
             ? <>Installed to <code>{exp.result.installedTo}</code>. Start (or restart) Saints Reborn and look for <b>{project.settings.display_name}</b> in a private party.</>
             : <>Unzip <b>{exp.result.folder}</b> into <code>SaintsReborn/dist/maps</code>, then start the game and look for <b>{project.settings.display_name}</b> in a private party.</>}</span>
-          {exp.result.installedTo && <span className="small muted">Changed something? Press Play again and it replaces the installed copy.</span>}
+          {exp.result.installedTo && <span className="small muted">Changed something? Install in game again replaces the installed copy.</span>}
           <div className="row"><button className="sm" onClick={async () => { const r = exp.result!; downloadBlob(await r.zip(), `${r.folder}.zip`) }}>Download a copy (.zip)</button><span className="spacer" /><button className="sm primary" onClick={onClose}>Back to editing</button></div>
         </div></div>
       ) : exp.busy ? (
@@ -68,7 +68,7 @@ export function PlayDialog({ onClose, onSamples }: { onClose: () => void; onSamp
             <span className="small muted">Name in the game's map list</span>
             <input value={title} maxLength={40} onChange={(e) => setTitle(e.target.value)} />
           </label>
-          {exp.error && <div className="callout bad"><div className="col"><b>It didn't build</b><pre className="small mono" style={{ margin: 0 }}>{exp.error}</pre><span className="small muted">Tell us in Discord with a screenshot of this, or try Advanced mode's build log for details.</span></div></div>}
+          {exp.error && <div className="callout bad"><div className="col"><b>It didn't build</b><pre className="small mono" style={{ margin: 0 }}>{exp.error}</pre><span className="small muted">Tell us in Discord with a screenshot of this. Show all settings (in the ⋯ menu) shows the build log with the details.</span></div></div>}
           {canInstall ? (
             <div className="col">
               <button className="primary big" disabled={blocked.length > 0} onClick={() => exp.run('install', false, applyNames)}>▶ Put it in my game</button>
@@ -83,7 +83,7 @@ export function PlayDialog({ onClose, onSamples }: { onClose: () => void; onSamp
               <span className="faint small">Use Chrome or Edge on a computer to install it straight into your game.</span>
             </div>
           )}
-          <span className="faint small">Sky, minimap and other map settings: <button className="link" onClick={() => { onClose(); useEditor.getState().set({ advanced: true, tab: 'export' }) }}>Advanced mode → Map &amp; export</button></span>
+          <span className="faint small">Sky, minimap and the other settings for the game: <button className="link" onClick={() => { onClose(); useEditor.getState().set({ tab: 'game' }) }}>the Game tab</button></span>
         </>
       )}
     </Modal>

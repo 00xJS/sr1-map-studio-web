@@ -8,8 +8,8 @@ const STEPS: Step[] = [
   { at: '[data-tour="camera"]', place: 'left', title: 'Look around', text: 'Left-drag in the view to spin the camera, right-drag to slide it, and scroll to zoom. These buttons do the same.' },
   { at: '[data-tour="tools"]', place: 'right', title: 'Pick a tool, then click the map', text: 'Just like Paint. Shape adds floors, walls and ramps. Spawn and Weapon place where players appear and what they pick up. Eraser deletes.' },
   { at: '[data-tour="paint"]', place: 'right', title: 'Paint it', text: 'Choose a texture from the bar at the top, then click any wall or floor. Pick copies a texture you already used.' },
-  { at: '[data-tour="panel"]', place: 'left', title: 'Change what you click', text: 'This panel shows whatever you clicked: its look, size, and a Delete button. Click empty space to see what your map still needs.' },
-  { at: '[data-tour="play"]', place: 'bottom', title: 'Play it', text: 'When your map is ready, press Play to put it in your game.' },
+  { at: '[data-tour="panel"]', place: 'left', title: 'Change what you click', text: 'Whatever you click shows here, on top: its look, size and a Delete button. The tabs build the map, check it, set it up for the game and send it out.' },
+  { at: '[data-tour="play"]', place: 'bottom', title: 'Put it in your game', text: 'When your map is ready, Install in game builds it and puts it in your game. Walk and Play in browser try it out first.' },
 ]
 
 const CARD = 300

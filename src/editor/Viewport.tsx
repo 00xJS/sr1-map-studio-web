@@ -22,13 +22,13 @@ import { attachHealthOverlay } from './health'
 import { attachGroundTools } from './groundTools'
 import { dropHasMap } from '../lib/mapFolder/files'
 import { openMapDrop } from '../lib/mapFolder/store'
-import { coarsePointer } from '../lib/touch'
+import { coarsePointer, useNarrow } from '../lib/touch'
+import { fmtM, toMetres } from '../lib/units'
 
 let active: Viewer | null = null
 /** The editor's viewer (for camera center, snapping and thumbnails). */
 export const getViewer = () => active
 
-const TAB_FOR = { item: 'scene', marker: 'spawns', light: 'lights' } as const
 /** Touch screen without a mouse (tablets, phones). */
 const coarse = coarsePointer()
 
@@ -231,6 +231,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
   const placeMode = useEditor((s) => s.placeMode)
   const walking = useEditor((s) => s.walking)
   const freeCam = useEditor((s) => s.freeCam)
+  const narrow = useNarrow()
   const [dropping, setDropping] = useState(false)
 
   useEffect(() => {
@@ -239,10 +240,10 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
       onPick(sel, additive) {
         const st = useEditor.getState()
         if (additive && sel?.kind === 'item') { st.toggleItem(sel.index); return }
+        // The inspector shows on top of whichever tab is open.
         st.select(sel)
-        if (sel) st.set({ tab: TAB_FOR[sel.kind] })
       },
-      onFlySpeed(speed) { toast(`Free camera speed: ${speed.toFixed(1)} units/s`, 'info', 1200) },
+      onFlySpeed(speed) { toast(`Free camera speed: ${fmtM(toMetres(speed, useEditor.getState().project?.settings.world_scale))} a second`, 'info', 1200) },
       onTransformMany(updates, done) {
         useEditor.getState().update('Move objects', (d) => {
           for (const u of updates) {
@@ -268,13 +269,13 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
         }
         if (st.placeMode === 'marker') {
           addMarker(st.placeMarkerType, point)
-          st.set({ placeMode: null, tab: 'spawns' })
+          st.set({ placeMode: null })
         } else if (st.placeMode === 'light') {
           try { addLight([point[0], point[1] + 1.5, point[2]] as Vec3) } catch (e) { toastError(e) }
-          st.set({ placeMode: null, tab: 'lights' })
+          st.set({ placeMode: null })
         } else if (st.placeMode === 'face' && item >= 0 && face >= 0) {
           st.select({ kind: 'item', index: item })
-          st.set({ faceRange: [face, face], tab: 'scene' })
+          st.set({ faceRange: [face, face] })
           st.log(`Selected collision source face ${face} on ${st.project?.scene_items[item]?.name}.`)
         } else applyTool(point, item, face, normal)
       },
@@ -351,7 +352,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
     >
       <div ref={host} style={{ position: 'absolute', inset: 0 }} />
       {walking ? <WalkHud /> : <>
-      <ToolStrip />
+      {!narrow && <ToolStrip />}
       <ToolOptions />
       <PrefabBrowser />
       {placeMode && (
@@ -368,7 +369,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
               <button className="primary" onClick={onSamples}>Start from a sample map…</button>
               <button onClick={() => { chooseTool('shape'); useEditor.getState().set({ toolShape: 'floor' }) }}>Draw from scratch: place a floor</button>
             </div>
-            <p className="faint small">Or drop your own 3D model here (OBJ with its MTL and textures, GLB, glTF or FBX), or bring in a map from your game with <b>Assets → Import a map from the game</b>.</p>
+            <p className="faint small">Or drop your own 3D model here (OBJ with its MTL and textures, GLB, glTF or FBX), or bring in a map from your game: Build tab → <b>Library, imports and every texture</b>.</p>
           </div>
         </div>
       )}

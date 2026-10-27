@@ -1,11 +1,13 @@
-// Editor top-bar button: save the open project to the cloud and show its sync state.
+// Cloud sync for the open project: kept mounted by the editor's top bar, it puts its state (and what clicking
+// does) in useCloudItem, which the bar's ⋯ menu shows as an item; a conflict opens its own dialog here.
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useNavigate } from 'react-router-dom'
 import { accountsEnabled, ConflictError, useUser } from '../lib/backend'
 import { db, type ProjectRecord } from '../lib/db'
 import { hasUnsyncedChanges, pullProject, pushProject } from '../lib/sync'
 import { Modal, timeAgo, toast, useBusy } from '../ui'
 import { saveNow, useEditor } from './store'
+import { useCloudItem } from './cloudItem'
 
 type Cloud = Pick<ProjectRecord, 'updated_at' | 'cloud'>
 
@@ -22,8 +24,9 @@ function ConflictDialog({ remote, onChoose }: { remote: string; onChoose: (c: 'o
   )
 }
 
-export function CloudButton({ projectId }: { projectId: string }) {
+export function CloudSync({ projectId }: { projectId: string }) {
   const user = useUser()
+  const nav = useNavigate()
   const saveState = useEditor((s) => s.saveState)
   const [rec, setRec] = useState<Cloud | null>(null)
   const [conflict, setConflict] = useState<string | null>(null)
@@ -34,9 +37,6 @@ export function CloudButton({ projectId }: { projectId: string }) {
   const refresh = () => db.getProject(projectId).then((r) => setRec(r ? { updated_at: r.updated_at, cloud: r.cloud } : null))
   useEffect(() => { void refresh() }, [projectId, saveState, user?.id])
   useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30000); return () => clearInterval(t) }, [])
-
-  if (!accountsEnabled) return null
-  if (!user) return <Link to="/account" className="btn sm" title="Sign in to keep a copy of this map in your account">☁ Sign in to sync</Link>
 
   const push = (force = false) => run(async () => {
     try {
@@ -62,15 +62,17 @@ export function CloudButton({ projectId }: { projectId: string }) {
   }
 
   const dirty = !rec || hasUnsyncedChanges(rec)
-  const label = busy ? `Syncing${progress ? ' ' + progress : ''}…`
-    : !rec?.cloud ? 'Save to cloud'
+  const label = !user ? 'Sign in to sync'
+    : busy ? `Syncing${progress ? ' ' + progress : ''}…`
+    : !rec?.cloud ? 'Save to the cloud'
     : dirty ? 'Sync changes' : `Synced ${timeAgo(rec.cloud.synced_at)}`
-  return (
-    <>
-      <button className="sm" disabled={busy} onClick={() => push()} title={rec?.cloud ? `Last synced ${new Date(rec.cloud.synced_at).toLocaleString()}` : 'Keep a copy in your account'}>
-        <span className={'status-dot' + (rec?.cloud ? (dirty ? ' warn' : ' ok') : '')} />{label}
-      </button>
-      {conflict && <ConflictDialog remote={conflict} onChoose={choose} />}
-    </>
-  )
+  const tone = !user || !rec?.cloud ? '' : dirty ? 'warn' : 'ok'
+  const title = !user ? 'Sign in to keep a copy of this map in your account' : rec?.cloud ? `Last synced ${new Date(rec.cloud.synced_at).toLocaleString()}` : 'Keep a copy in your account'
+  useEffect(() => {
+    if (!accountsEnabled) return
+    useCloudItem.setState({ item: { label: '☁ ' + label, tone, title, busy, run: () => (user ? void push() : nav('/account')) } })
+  })
+  useEffect(() => () => useCloudItem.setState({ item: null }), [])
+  if (!accountsEnabled) return null
+  return conflict ? <ConflictDialog remote={conflict} onChoose={choose} /> : null
 }

@@ -49,6 +49,7 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: 'Ctrl+Z', what: 'Undo', group: 'Editing', whileTyping: true, test: ({ mod, key, e, typing }) => mod && key === 'z' && !e.shiftKey && !typing, run: ({ st }) => st.undo() },
   { keys: 'Ctrl+Shift+Z / Ctrl+Y', what: 'Redo', group: 'Editing', whileTyping: true, test: ({ mod, key, e, typing }) => mod && !typing && (key === 'y' || (key === 'z' && e.shiftKey)), run: ({ st }) => st.redo() },
   { keys: 'Ctrl+Shift+S', what: 'Saved versions', group: 'Map', whileTyping: true, test: ({ mod, key, e }) => mod && e.shiftKey && key === 's', run: () => toggleOverlay('versions', true) },
+  { keys: 'Ctrl+K', what: 'Find a tool, prefab, setting or action', group: 'Map', whileTyping: true, test: ({ mod, key }) => mod && key === 'k', run: () => toggleOverlay('palette') },
   { keys: 'Ctrl+S', what: 'Save now', group: 'Map', whileTyping: true, test: ({ mod, key }) => mod && key === 's', run: () => { void saveNow(true).then(() => toast('Saved in this browser', 'ok', 1800)) } },
   { keys: 'Ctrl+D', what: 'Duplicate', group: 'Editing', whileTyping: true, test: ({ mod, key, typing }) => mod && key === 'd' && !typing, run: () => { if (selectedItems().length) tryIt(() => act.duplicateItems(selectedItems())) } },
   { keys: '?', what: 'This sheet', group: 'Map', test: ({ e }) => e.key === '?' || (e.shiftKey && e.code === 'Slash'), run: () => toggleOverlay('keys') },
