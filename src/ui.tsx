@@ -79,7 +79,7 @@ export function Modal(props: { title: ReactNode; onClose?: () => void; children:
       if (modalStack[modalStack.length - 1] !== me) return
       if (e.key === 'Escape') { e.stopPropagation(); onClose.current?.(); return }
       if (e.key !== 'Tab' || !box.current) return
-      const all = [...box.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => x.offsetParent !== null)
+      const all = [...box.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => !x.closest('[hidden], [aria-hidden="true"], details:not([open]) > :not(summary)'))
       if (!all.length) { e.preventDefault(); return }
       const first = all[0], last = all[all.length - 1]
       if (e.shiftKey && (document.activeElement === first || !box.current.contains(document.activeElement))) { e.preventDefault(); last.focus() }
