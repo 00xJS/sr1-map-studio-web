@@ -49,3 +49,19 @@ def classify_bitmap_name(name):
         return 0
     code = m.group(1).lower()
     return SUFFIXES.index(code) if code in SUFFIXES else 0
+
+
+def native_surface_id(item):
+    """The profile owns a native prop's surface, independent of its opaque shader."""
+    behavior = item.get('native_prop_behavior')
+    if behavior:
+        import sr1_prop_catalog as catalog
+        profile = {'movable': 'Crate Small', 'explosive': 'Propanesmall'}.get(behavior)
+        if profile is None:
+            profile = catalog.CATALOG['presets'][behavior]['profile']
+        material = catalog.ROWS[profile]['properties']['Material']
+        normalized = material.replace(' - ', ' ')
+        if normalized not in NAMES:
+            raise ValueError('Unsupported native profile surface: ' + material)
+        return NAMES.index(normalized)
+    return 21 if item.get('native_breakable_kind') == 'wood' else 8

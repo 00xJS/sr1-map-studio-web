@@ -6,6 +6,7 @@ import { db } from './db'
 const KEY = 'maps-folder'
 
 type DirHandle = FileSystemDirectoryHandle & {
+  values?(): AsyncIterable<FileSystemDirectoryHandle | FileSystemFileHandle>
   queryPermission?(o: { mode: 'readwrite' }): Promise<PermissionState>
   requestPermission?(o: { mode: 'readwrite' }): Promise<PermissionState>
 }
@@ -52,18 +53,33 @@ export async function mapFolderExists(maps: DirHandle, folder: string): Promise<
   try { await maps.getDirectoryHandle(folder); return true } catch { return false }
 }
 
-/** Writes "<folder>/..." entries under the maps folder. Returns how many files were written. */
+/** An early surface registration pair (py/surface_registration.py): named from its contents, so each export makes a new one. */
+export const SURFACE_PAIR = /^sf_[0-9a-f]{12}\.(bbchunk|peg)_xbox2$/i
+
+/**
+ * Writes "<folder>/..." entries under the maps folder. Returns how many files were written.
+ * Surface registration pairs from earlier exports of this map (about 50 MB each) are removed from its levels folder.
+ */
 export async function writeMap(maps: DirHandle, entries: Record<string, Uint8Array>): Promise<number> {
   let n = 0
+  const levels = new Map<FileSystemDirectoryHandle, Set<string>>()
   for (const [path, data] of Object.entries(entries)) {
     const parts = path.split('/')
     let dir: FileSystemDirectoryHandle = maps
     for (const part of parts.slice(0, -1)) dir = await dir.getDirectoryHandle(part, { create: true })
-    const file = await dir.getFileHandle(parts[parts.length - 1], { create: true })
+    const name = parts[parts.length - 1]
+    const file = await dir.getFileHandle(name, { create: true })
     const w = await file.createWritable()
     await w.write(data)
     await w.close()
     n++
+    if (parts.length > 1 && parts[parts.length - 2] === 'levels') levels.set(dir, (levels.get(dir) ?? new Set()).add(name.toLowerCase()))
+  }
+  for (const [dir, written] of levels) {
+    if (![...written].some((f) => SURFACE_PAIR.test(f))) continue
+    const stale: string[] = []
+    for await (const h of (dir as DirHandle).values?.() ?? []) if (h.kind === 'file' && SURFACE_PAIR.test(h.name) && !written.has(h.name.toLowerCase())) stale.push(h.name)
+    for (const f of stale) await dir.removeEntry(f).catch(() => {})
   }
   return n
 }

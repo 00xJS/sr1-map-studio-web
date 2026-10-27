@@ -36,6 +36,26 @@ def validate_map(folder, name):
     _,_,entries=peg.parse_peg(folder/f'{name}.peg_xbox2')
     if core.chunk_strings(chunk)!=[entry.name for entry in entries]:
         raise ValueError('BBChunk and PEG texture tables disagree. The export is incomplete or contains files from different builds.')
+    if len(city)==3060416:
+        environment=city[0x3ec:0x3fc].split(b'\0')[0].decode('ascii')
+        if environment.startswith('sf_'):
+            for ext in ('bbchunk_xbox2','peg_xbox2'):
+                if not (folder/f'{environment}.{ext}').is_file():
+                    raise ValueError('Surface registration resource is missing: '+environment+'.'+ext)
+            core.read_chunk((folder/f'{environment}.bbchunk_xbox2').read_bytes())
+            _,header,early=peg.parse_peg(folder/f'{environment}.peg_xbox2',include_frames=True)
+            if len({e.name.lower() for e in early})!=header.count:
+                raise ValueError('Surface registration directory count mismatch.')
+            lookup={e.name:e for e in early}
+            # Generated diffuse textures must be registered with exactly the
+            # bytes used by the final map. Stock effect textures remain native.
+            import sr1_physical_materials as physical
+            prefixes=(name[:8].lower()+'_','ng_'+name[:7]+'_','ng_'+name+'_')
+            for entry in entries:
+                if entry.name.startswith(prefixes) and re.search(r'_('+'|'.join(physical.SUFFIXES)+r')\.tga$',entry.name):
+                    preloaded=lookup.get(entry.name)
+                    if preloaded is None or preloaded.raw[4:]!=entry.raw[4:] or preloaded.payload!=entry.payload:
+                        raise ValueError('Surface texture is missing or differs from its early registration: '+entry.name)
 
 def _publish(stage, output, backup, replace=os.replace):
     """Rollback handled errors during publication, including a locked destination."""

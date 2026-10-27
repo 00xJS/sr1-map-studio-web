@@ -143,6 +143,13 @@ export interface ProjectSettings {
   /** The game's own sky (clouds, sun, moon, stars) read from the player's game files at export; unset means on. sky_texture is the fallback. */
   game_sky?: boolean
   bbcity_donor: string
+  /**
+   * Early surface registration (desktop v1.15's "Register surface impacts early"): the map's surface textures are
+   * copied into a map-specific environment pair (sf_….bbchunk_xbox2 / .peg_xbox2) that a full-size city file loads
+   * first, so footsteps and bullet impacts follow each texture's surface (py/surface_registration.py). Map file
+   * names are 10 characters at most. Unset counts as off. Experimental, untested in game.
+   */
+  surface_preload?: boolean
   cts_template: string
   marker_game_coords: boolean
   modes: GameMode[]
@@ -202,8 +209,14 @@ export interface Project {
 
 export const uid = () => crypto.randomUUID()
 
-/** The export adds the game's own sky (see gameSky.ts): on unless turned off; a native sky preset brings its own instead. */
-export const gameSkyWanted = (s: Pick<ProjectSettings, 'game_sky' | 'native_sky'>) => s.game_sky !== false && !s.native_sky
+/**
+ * The export adds the game's own sky (see gameSky.ts): on unless turned off. A native sky preset brings its own instead,
+ * and so does early surface registration (its environment pair is a stock sky).
+ */
+export const gameSkyWanted = (s: Pick<ProjectSettings, 'game_sky' | 'native_sky' | 'surface_preload'>) => s.game_sky !== false && !s.native_sky && !s.surface_preload
+
+/** Longest map file name: 11 characters, 10 with early surface registration (its environment pair is named from it). */
+export const maxMapName = (s: Pick<ProjectSettings, 'surface_preload'>) => s.surface_preload ? 10 : 11
 
 /** The export keeps interiors dry (dry_interiors): on unless turned off, and only on a map where it can rain. */
 export const dryInteriors = (s: Pick<ProjectSettings, 'dry_interiors' | 'always_clear_weather'>) => !s.always_clear_weather && s.dry_interiors !== false

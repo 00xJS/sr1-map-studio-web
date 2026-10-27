@@ -7,7 +7,7 @@ import { importModels } from './importers'
 import { cacheModel } from './assets'
 import { gameObjectPaths } from './gameObjects/policy'
 import {
-  defaultSettings, newProject, normalizeProject, referencedPaths, uid,
+  defaultSettings, maxMapName, newProject, normalizeProject, referencedPaths, uid,
   type Light, type Marker, type Project, type SceneItem, type Asset, type FileRef,
 } from './project'
 
@@ -153,6 +153,11 @@ export async function importDesktopProject(files: File[]): Promise<DesktopImport
   const sky = winBase(d.native_sky_chunk)
   if (sky.startsWith('sr_alwayshwyf01')) s.native_sky = 'sr_alwayshwyf01'
   else if (sky.startsWith('sr_custom000001')) s.native_sky = 'sr_custom000001'
+  // v1.15 saves its "Register surface impacts early" checkbox; older projects have none (off here).
+  if (d.surface_preload === true) {
+    s.surface_preload = true
+    if (s.base_name.length > maxMapName(s)) notes.push(`Early surface registration needs a map file name of ${maxMapName(s)} characters or fewer: shorten "${s.base_name}" in the Export tab.`)
+  }
 
   project.settings = s
   project.scene_items = items

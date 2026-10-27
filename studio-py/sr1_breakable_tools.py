@@ -76,7 +76,15 @@ def check_scene(items, world_scale, parser):
             if signature in seen:
                 report['warnings'].append(name + ': overlaps ' + seen[signature] + ' exactly; move the duplicate apart before testing.')
             seen[signature] = name
-            report['objects'].append({'name': name, 'size': dims, 'behavior': item.get('native_prop_behavior','glass shatter')})
+            behavior = item.get('native_prop_behavior')
+            if behavior:
+                preset = props.PRESETS[behavior]
+                info = preset['description']
+                if item.get('native_prop_requested'):
+                    report['warnings'].append(name + ': legacy numeric requests are inactive; the selected stock profile supplies all gameplay values.')
+            else:
+                info = 'glass shatter'
+            report['objects'].append({'name': name, 'size': dims, 'behavior': info})
         except Exception as exc:
             report['errors'].append(name + ': ' + str(exc))
     if report['count'] > MAX_NATIVE_OBJECTS:

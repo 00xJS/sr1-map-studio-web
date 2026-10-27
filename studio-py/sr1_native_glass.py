@@ -14,6 +14,7 @@ import sr_reborn_core as c
 import sr_reborn_bridge as bridge
 import sr1_cts
 import sr1_scene
+import sr1_physical_materials as physical
 import peg_xbox2_beaver as peg
 from sr1_native_limits import MAX_NATIVE_OBJECTS, MAX_NATIVE_TRIANGLES, MIN_NATIVE_AXIS, MAX_NATIVE_AXIS
 
@@ -429,7 +430,7 @@ def transplant(chunk_path, peg_path, items, world_scale, origin, mirror_x, map_n
             if not 0 <= opacity <= 100:
                 raise ValueError('Breakable mesh opacity must be between 0 and 100 percent.')
             payload=(Path(item['native_mesh_obj']).read_bytes()+Path(custom).read_bytes()
-                     +repr((item['scale'],world_scale,mirror_x,flip_obj_v,opacity,item.get('native_breakable_kind','glass'))).encode('ascii'))
+                     +repr((item['scale'],world_scale,mirror_x,flip_obj_v,opacity,item.get('native_breakable_kind','glass'),physical.native_surface_id(item))).encode('ascii'))
             return 'mesh_' + hashlib.sha256(payload).hexdigest()[:16]
         if custom:
             return 'custom_' + hashlib.sha256(Path(custom).read_bytes() + item.get('glass_style','tinted').encode('ascii')).hexdigest()[:16]
@@ -451,15 +452,16 @@ def transplant(chunk_path, peg_path, items, world_scale, origin, mirror_x, map_n
     custom_vb_slots = iter(vb_slots[1:])
     additions, texture_remap = [], {}
     existing_names = {e.name: e for e in existing}
-    def import_texture(index, original_name=False):
+    def import_texture(index, original_name=False, surface_id=None):
         name = ds[index] if index is not None else 'smoke_normal04.tga'
-        cache_key = (name, original_name)
+        cache_key = (name, original_name, surface_id)
         if cache_key in texture_remap:
             return texture_remap[cache_key]
         entry = next((e for e in de if e.name == name), None)
         if entry is None:
             raise ValueError('Prefab texture missing: ' + name)
-        dest_name = name if original_name else f'ng_{map_name}_{index}.tga'
+        suffix = '_'+physical.SUFFIXES[surface_id] if surface_id is not None else ''
+        dest_name = name if original_name else f'ng_{map_name}_{index}{suffix}.tga'
         if len(dest_name.encode('ascii')) >= peg.NAME_LEN:
             raise ValueError('Native glass texture name exceeds format capacity.')
         if dest_name in existing_names:
@@ -525,7 +527,8 @@ def transplant(chunk_path, peg_path, items, world_scale, origin, mirror_x, map_n
             original_index=c.U32(material.parts[0], j * 12 + 4)
             if j == 0 and style.startswith(('custom_', 'mesh_')):
                 image_path=custom_style_paths[style]
-                target_name=f'ng_{map_name[:7]}_{style[-8:]}_{"wo" if wood_mode else "gh"}.tga'
+                surface_id = physical.native_surface_id(custom_mesh_items[style]) if style in custom_mesh_items else 8
+                target_name=f'ng_{map_name[:7]}_{style[-8:]}_{physical.SUFFIXES[surface_id]}.tga'
                 idx=c.add_strings(ch, [target_name])[0]
                 # The wood material is cloned from the destination (not the
                 # prefab); use the proven prefab DXT1 directory entry to
@@ -549,7 +552,7 @@ def transplant(chunk_path, peg_path, items, world_scale, origin, mirror_x, map_n
                 # destination map's own texture table. Preserve these indices.
                 idx=original_index
             else:
-                idx=import_texture(original_index)
+                idx=import_texture(original_index, surface_id=8 if j == 0 else None)
             c.Wr32(material.parts[0],j * 12 + 4,idx)
         mid = len(g.mats)
         g.mats.append(material)
@@ -664,6 +667,7 @@ def transplant(chunk_path, peg_path, items, world_scale, origin, mirror_x, map_n
                                experimental_custom_mesh=is_custom(item),
                                breakable_kind=item.get('native_breakable_kind','glass'),
                                collision_shape=collision_selector,
+                               surface_id=physical.native_surface_id(item),
                                collider='EXPERIMENTAL FITTED CONVEX BOX HULL' if is_custom(item) else 'native pane'))
     ch.get('block556').data=physics_bank
     ch.get('static_records').data = bytearray(recs[:count * 80]) + b''.join(n + b'\0' for n in names)

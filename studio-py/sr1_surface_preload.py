@@ -51,93 +51,118 @@ def patch_bbcity_reference(path,stem):
     return {'old':old.rstrip(b'\0').decode('ascii'),'new':stem,'file':str(path)}
 
 def build_pair(sky_chunk,sky_peg,map_peg,map_names,output_dir,stem):
-    """Build an environment pair from donor + exact packed map texture entries.
+    """Append map textures while preserving every retail frame, alias and byte.
 
-    Existing entries and their payloads are preserved, with offsets rewritten
-    because the directory grows. All new entries are complete copies (except
-    physical payload offset) from the already-final map PEG.
+    PEG count is UNIQUE names; total_entries is the physical directory length.
+    The old writer truncated 26 frame-related entries and reassembled incomplete
+    payloads. Retain the full directory and the entire original data region.
     """
-    sky_chunk=Path(sky_chunk);sky_peg=Path(sky_peg);map_peg=Path(map_peg)
+    sky_chunk,sky_peg,map_peg=map(Path,(sky_chunk,sky_peg,map_peg))
     out=Path(output_dir);out.mkdir(parents=True,exist_ok=True)
-    name=stem
-    chunk_out=out/(name+'.bbchunk_xbox2')
-    peg_out=out/(name+'.peg_xbox2')
-    data,sh,sky_entries=peg.parse_peg(sky_peg)
-    _,mh,map_entries=peg.parse_peg(map_peg)
-    if sh.version!=8 or sh.platform!=3 or mh.version!=8 or mh.platform!=3:
+    data,sh,sky_entries=peg.parse_peg(sky_peg,include_frames=True)
+    map_data,mh,map_entries=peg.parse_peg(map_peg,include_frames=True)
+    if (sh.version,sh.platform,mh.version,mh.platform)!=(8,3,8,3):
         raise RuntimeError('Expected SR1 Xbox2 PEG v8 platform 3')
-    if sky_chunk.open('rb').read(4)!=bytes.fromhex('bbcaca12'):
-        raise RuntimeError('Environment donor BBChunk signature invalid')
-    if sh.dir_size<peg.HEADER_SIZE+sh.count*peg.ENTRY_SIZE:
-        raise RuntimeError('Environment PEG directory inconsistent')
+    chunk_bytes=sky_chunk.read_bytes()
+    if chunk_bytes[:8]!=bytes.fromhex('bbcaca1200000055'):
+        raise RuntimeError('Expected a version-85 environment BBChunk')
+    if not sky_entries:raise RuntimeError('Empty sky PEG')
+    unique_sky={e.name.lower() for e in sky_entries}
+    if len(unique_sky)!=sh.count:
+        raise RuntimeError('Sky unique-name count disagrees with its header')
     map_lookup={}
-    for e in map_entries:
-        map_lookup.setdefault(e.name.lower(),e)
-    known={e.name.lower() for e in sky_entries}
-    added=[]
+    for entry in map_entries:map_lookup.setdefault(entry.name.lower(),[]).append(entry)
+    added=[];known=set(unique_sky)
     for target in dict.fromkeys(str(s) for s in map_names):
         low=target.lower()
-        if low not in map_lookup:
-            raise RuntimeError('Map texture missing from final map PEG: '+target)
+        if low not in map_lookup or len(map_lookup[low])!=1:
+            raise RuntimeError('Missing or ambiguous map surface texture: '+target)
         if _suffix(target) not in KNOWN_SURFACE_SUFFIXES:
-            raise RuntimeError('Map texture does not have a supported physical-surface suffix: '+target)
-        if low in known:
-            raise RuntimeError('Map surface texture already exists in environment PEG; avoid conflicting registrations: '+target)
-        entry=map_lookup[low]
+            raise RuntimeError('Unsupported physical-surface suffix: '+target)
+        if low in known:raise RuntimeError('Surface conflicts with an environment texture: '+target)
+        entry=map_lookup[low][0]
         if not entry.payload or entry.frame_size!=len(entry.payload):
-            raise RuntimeError('Map surface texture has invalid/empty texture payload: '+target)
+            raise RuntimeError('Invalid map texture payload: '+target)
         if struct.unpack_from('>H',entry.raw,0x0a)[0]!=0:
-            raise RuntimeError('PEG serialized reserved field is not zero for: '+target)
-        added.append(entry)
-        known.add(low)
-    if not added:
-        raise RuntimeError('No surface textures selected for early registration')
-    built=[(bytearray(e.raw),e.payload) for e in sky_entries]
-    built.extend((bytearray(e.raw),e.payload) for e in added)
-    count=len(built)
-    if count>=65536: raise RuntimeError('Environment PEG resource count too large')
-    dir_size=peg.HEADER_SIZE+count*peg.ENTRY_SIZE
-    # Same relocation/alignment as v1.07 dynamic PEG writer and Astra's probe.
-    data_start=max(min(e.data_offset for e in sky_entries),peg.align(dir_size,0x1000))
-    blob=bytearray();offsets=[]
-    # Some native sky PEGs contain important UNINDEXED trailing data after the
-    # last named texture. Astra's confirmed sf_probe preserves these bytes
-    # verbatim before appending custom surfaces (1,630,208 bytes in donor).
-    end_of_named_data=max(e.data_offset+len(e.payload) for e in sky_entries)
-    if end_of_named_data>len(data):
-        raise RuntimeError('Environment PEG resources exceed donor file')
-    donor_tail=data[end_of_named_data:]
-    for slot,(raw,payload) in enumerate(built):
-        if slot==len(sky_entries):
-            blob.extend(donor_tail)
-        padding=(-len(blob))%0x1000
-        if padding:blob.extend(b'\0'*padding)
-        offsets.append(data_start+len(blob))
-        blob.extend(payload)
-    blob.extend(b'\0'*((-len(blob))%0x1000))
-    result=bytearray(data_start+len(blob))
+            raise RuntimeError('Nonzero reserved PEG field: '+target)
+        added.append(entry);known.add(low)
+    if not added:raise RuntimeError('No surface textures selected for early registration')
+    count=sh.count+len(added);total=sh.total_entries+len(added)
+    if total>=65536:raise RuntimeError('Too many environment texture entries')
+    old_start=min(e.data_offset for e in sky_entries)
+    old_end=peg.HEADER_SIZE+sh.total_entries*peg.ENTRY_SIZE
+    if old_start<sh.dir_size or any(data[old_end:old_start]):
+        raise RuntimeError('Unrecognized nonzero data between sky directory and payload')
+    directory=peg.align(peg.HEADER_SIZE+total*peg.ENTRY_SIZE,16)
+    data_start=max(old_start,peg.align(directory,4096))
+    delta=data_start-old_start
+    result=bytearray(data_start)
+    result.extend(data[old_start:])
+    # Retain ALL original directory entries in their original order. Aliased
+    # offsets and animated .mov entries remain untouched except relocation.
+    for i,entry in enumerate(sky_entries):
+        row=bytearray(entry.raw)
+        struct.pack_into('>I',row,0,entry.data_offset+delta)
+        result[24+i*72:96+i*72]=row
+    map_offsets=sorted({e.data_offset for e in map_entries}|{len(map_data)})
+    copied=[]
+    for i,entry in enumerate(added,sh.total_entries):
+        result.extend(b'\0'*((-len(result))%4096))
+        offset=len(result);row=bytearray(entry.raw)
+        struct.pack_into('>I',row,0,offset)
+        result[24+i*72:96+i*72]=row
+        end=min(x for x in map_offsets if x>entry.data_offset)
+        span=map_data[entry.data_offset:end]
+        result.extend(span);copied.append((offset,span))
+    result.extend(b'\0'*((-len(result))%4096))
+    # Retail data_size starts after the physical entries (including padding).
     struct.pack_into('>IHHIIHHHH',result,0,sh.signature,sh.version,sh.platform,
-                     dir_size,len(blob),count,sh.flags,count,sh.alignment)
-    for i,((raw,payload),offset) in enumerate(zip(built,offsets)):
-        struct.pack_into('>I',raw,0,offset)
-        result[peg.HEADER_SIZE+i*peg.ENTRY_SIZE:peg.HEADER_SIZE+(i+1)*peg.ENTRY_SIZE]=raw
-    result[data_start:]=blob
-    peg_out.write_bytes(result)
-    shutil.copy2(sky_chunk,chunk_out)
-    # Compare the new directory and full encoded payload with final map PEG.
-    _,new_header,new_entries=peg.parse_peg(peg_out)
-    if new_header.count!=count or len(new_entries)!=count:
-        raise RuntimeError('Generated surface preload PEG count mismatch')
-    for i,source in enumerate(added):
-        new=new_entries[len(sky_entries)+i]
-        if new.name!=source.name or new.raw[4:]!=source.raw[4:] or new.payload!=source.payload:
-            raise RuntimeError('Surface preload texture does not match main map PEG: '+source.name)
-    for i,source in enumerate(sky_entries):
-        new=new_entries[i]
-        if new.name!=source.name or new.payload!=source.payload or new.raw[4:]!=source.raw[4:]:
-            raise RuntimeError('Sky donor texture changed while building preload PEG: '+source.name)
-    if chunk_out.read_bytes()!=sky_chunk.read_bytes():
-        raise RuntimeError('Original sky BBChunk was modified')
-    return {'resource_name':name,'donor_count':len(sky_entries),'count':count,
-            'added':[x.name for x in added], 'copied_exact_payload':True,
-            'bbchunk':str(chunk_out),'peg':str(peg_out),'peg_bytes':peg_out.stat().st_size}
+                     directory,len(result)-(peg.HEADER_SIZE+total*peg.ENTRY_SIZE),count,
+                     sh.flags,total,sh.alignment)
+    peg_out=out/(stem+'.peg_xbox2');chunk_out=out/(stem+'.bbchunk_xbox2')
+    peg_out.write_bytes(result);chunk_out.write_bytes(chunk_bytes)
+    new_data,new_header,new_entries=peg.parse_peg(peg_out,include_frames=True)
+    if (new_header.count,new_header.total_entries)!=(count,total):raise RuntimeError('Preload counts failed')
+    if new_data[data_start:data_start+len(data)-old_start]!=data[old_start:]:
+        raise RuntimeError('Environment payload region changed')
+    for old,new in zip(sky_entries,new_entries):
+        if new.raw[4:]!=old.raw[4:] or new.data_offset!=old.data_offset+delta:
+            raise RuntimeError('Environment directory changed: '+old.name)
+    for old,new,(offset,span) in zip(added,new_entries[sh.total_entries:],copied):
+        if old.raw[4:]!=new.raw[4:] or new_data[offset:offset+len(span)]!=span:
+            raise RuntimeError('Surface preload bytes changed: '+old.name)
+    return dict(resource_name=stem,donor_count=sh.count,donor_total_entries=sh.total_entries,
+                count=count,total_entries=total,added=[e.name for e in added],
+                copied_exact_payload=True,preserved_all_donor_bytes=True,
+                bbchunk=str(chunk_out),peg=str(peg_out),peg_bytes=len(result),
+                experimental=True,gameplay_verified=False)
+
+
+def content_resource_name(map_name,sky_chunk,sky_peg,map_peg,names):
+    """Avoid reusing cached environment resources after material changes."""
+    h=hashlib.sha256(map_name.encode('ascii'))
+    for path in (sky_chunk,sky_peg,map_peg):
+        with Path(path).open('rb') as stream:
+            for block in iter(lambda:stream.read(1024*1024),b''):h.update(block)
+    h.update('\0'.join(names).encode('ascii'))
+    return 'sf_'+h.hexdigest()[:12]
+
+
+def resolve_inputs(city,sky_chunk,sky_peg):
+    """Resolve the bundled tested recipe; never silently replace an explicit donor."""
+    from sr1_sidecars import _read_full_bbcity_envref
+    here=Path(__file__).resolve().parent
+    city=Path(city) if city else here/'surface_preload_presets/surftest.bbcity_xbox2'
+    data=city.read_bytes();env=_read_full_bbcity_envref(data)
+    if not env or data[0x3fc:0x400]!=(11).to_bytes(4,'big'):
+        raise ValueError('Surface preload requires a compatible full BBCity. Clear the BBCity donor to use the bundled surface-test template.')
+    if not sky_chunk and not sky_peg:
+        if env=='sf_probe0000001':env='sr_custom000001'
+        if env not in ('sr_custom000001','sr_alwayshwyf01'):
+            raise ValueError('Select the original environment BBChunk and PEG for this BBCity.')
+        sky_chunk=here/'native_sky_presets'/(env+'.bbchunk_xbox2')
+        sky_peg=here/'native_sky_presets'/(env+'.peg_xbox2')
+    if not sky_chunk or not sky_peg:raise ValueError('Surface preload needs both sky resources.')
+    for path in (sky_chunk,sky_peg):
+        if not Path(path).is_file():raise ValueError('Missing surface-preload resource: '+str(path))
+    return str(city),str(sky_chunk),str(sky_peg)

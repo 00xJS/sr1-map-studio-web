@@ -18,11 +18,12 @@ import sr1_breakable_tools
 import sr1_obj_core
 import sr1_cts
 import sr1_material_audit
+import sr1_surface_preload
 from sr1_safe_export import safe_export
 
 HERE=Path(__file__).resolve().parent
 DEFAULT_REFERENCE=HERE/'reference_beavercreek'
-EXPORTER_VERSION='0.58-texture-guard'
+EXPORTER_VERSION='1.15-surface-registration'
 
 
 def _normalized_asset_stem(path_like):
@@ -65,7 +66,7 @@ def _sha256(path):
 def export_map(obj_path,texture_mapping,output_dir,map_name='halo_map',reference_dir=None,log=None,
                alpha_mapping=None,world_scale=0.50,sky_texture=None,minimap_texture=None,
                mirror_x=True,flip_obj_v=True,double_sided=False,sky_scale=0.0,
-               breakable_materials=None,breakables_donor=None, markers=None,marker_coordinate_space="scene", cts_template=None, surface_mapping=None,bbcity_donor=None,native_sky_chunk=None,native_sky_peg=None,fixed_origin=None,render_only_scene_indices=None,double_sided_scene_indices=None,render_only_face_indices=None,native_glass=None,lights=None):
+               breakable_materials=None,breakables_donor=None, markers=None,marker_coordinate_space="scene", cts_template=None, surface_mapping=None,bbcity_donor=None,native_sky_chunk=None,native_sky_peg=None,fixed_origin=None,render_only_scene_indices=None,double_sided_scene_indices=None,render_only_face_indices=None,native_glass=None,lights=None,surface_preload=False):
     """OBJ -> SR1 custom map using the v0.20 Reborn multi-batch backend.
 
     Unlike v0.16, materials are draw batches inside a small number of render
@@ -91,7 +92,7 @@ def export_map(obj_path,texture_mapping,output_dir,map_name='halo_map',reference
     alpha_mapping=dict(alpha_mapping or {})
     surface_mapping=dict(surface_mapping or {})
     for material,value in surface_mapping.items():
-        if not isinstance(value,int) or not 0 <= value <= 21:
+        if isinstance(value,bool) or not isinstance(value,int) or not 0 <= value <= 21:
             raise ValueError(f'{material}: physical surface ID must be an integer from 0 to 21')
     obj_path=Path(obj_path); out=Path(output_dir); out.mkdir(parents=True,exist_ok=True)
     ref=Path(reference_dir) if reference_dir else DEFAULT_REFERENCE
@@ -115,6 +116,13 @@ def export_map(obj_path,texture_mapping,output_dir,map_name='halo_map',reference
         native_sky_name=chunk_name
     bbcity_donor=str(bbcity_donor).strip() if bbcity_donor else None
     if bbcity_donor and not Path(bbcity_donor).is_file(): raise RuntimeError('native BBCity donor not found: '+bbcity_donor)
+    preload_sources=None
+    if surface_preload:
+        if len(map_name)>10:raise ValueError('Map-only surface preload needs a map name of 10 characters or fewer.')
+        bbcity_donor,preload_chunk,preload_peg=sr1_surface_preload.resolve_inputs(bbcity_donor,native_sky_chunk,native_sky_peg)
+        preload_sources=(preload_chunk,preload_peg)
+        # The new map-specific pair replaces the original environment reference.
+        native_sky_chunk=native_sky_peg=native_sky_name=''
     minimap_resource=f'{map_name}.tga' if minimap_texture else None
     for n in ('beavercreek.bbchunk_xbox2','beavercreek.peg_xbox2','beavercreek.bbcity_xbox2','beavercreek.pvsv_xbox2'):
         if not (ref/n).is_file(): raise RuntimeError(f'missing reference file: {ref/n}')
@@ -314,8 +322,30 @@ def export_map(obj_path,texture_mapping,output_dir,map_name='halo_map',reference
         out/f'{map_name}.bbchunk_xbox2',lights,float(world_scale),
         bb_report['world_transform']['offset_before_scale'],bool(mirror_x))
     if lights:say(f"    Native point lights: {lighting_report['exported']} embedded; first gameplay test pending")
+    preload_report={'enabled':False,'gameplay_verified':False}
+    if preload_sources:
+        names=[item['name'] for item in bb_report['texture_items']]
+        final_geometry=sr_reborn_core.chunk_geometry(final_chunk)
+        for placement in native_glass_report['placements']:
+            mesh=final_geometry.meshes[placement['mesh']]
+            mid=sr_reborn_core.U16(mesh.subs[0].b16,6)
+            material=final_geometry.mats[mid]
+            name=final_strings[sr_reborn_core.U32(material.parts[0],4)]
+            import sr1_physical_materials as physical
+            if physical.classify_bitmap_name(name)!=placement['surface_id']:
+                raise RuntimeError('Native material surface suffix disagrees with its profile: '+name)
+            names.append(name)
+        names=list(dict.fromkeys(names))
+        stem=sr1_surface_preload.content_resource_name(map_name,*preload_sources,out/f'{map_name}.peg_xbox2',names)
+        preload_report=sr1_surface_preload.build_pair(*preload_sources,out/f'{map_name}.peg_xbox2',names,out,stem)
+        preload_report['city_reference']=sr1_surface_preload.patch_bbcity_reference(out/f'{map_name}.bbcity_xbox2',stem)
+        preload_report.update(enabled=True,packaged=True)
+        side['bbcity']['always_loaded_chunk']=stem
+        say(f"    Surface preload: {len(names)} texture materials; all {preload_report['donor_total_entries']} environment entries preserved. Copy the two sf_ files with the map.")
     say('5/5 Building synchronized READY-TO-INSTALL package...')
     files={ext:str(out/f'{map_name}.{ext}') for ext in ('bbchunk_xbox2','peg_xbox2','bbcity_xbox2','hmap_xbox2','pvsv_xbox2','cts')}
+    if preload_sources:
+        files.update(surface_bbchunk=preload_report['bbchunk'],surface_peg=preload_report['peg'])
     for fp in files.values():
         if not Path(fp).is_file(): raise RuntimeError('missing generated file '+fp)
     manifest={'exporter_version':EXPORTER_VERSION,'backend':'reborn_multibatch','map_name':map_name,
@@ -343,10 +373,12 @@ def export_map(obj_path,texture_mapping,output_dir,map_name='halo_map',reference
     # resource-loading and BBCity reference/rebase logic is verified.
     report['native_sky_resource']={'requested':bool(native_sky_chunk),'packaged':False,
         'warning':'Full retail BBCity donors can reference native sky resources. The selected native sky pair is packaged with the install ZIP when a full retail donor is exported.'}
+    report['surface_preload']=preload_report
+    if preload_sources:report['native_sky_resource']=dict(preload_report,requested=True)
     if bbcity_donor:
         report['native_bbcity_donor_audit']=inspect_bbcity(bbcity_donor)
         if report['native_bbcity_donor_audit']['format']=='full-retail':
-            skyref=report['native_bbcity_donor_audit']['environment_reference']
+            skyref=preload_report['resource_name'] if preload_sources else report['native_bbcity_donor_audit']['environment_reference']
             say('    BBCity environment reference: %s' % skyref)
             if native_sky_chunk and skyref != native_sky_name:
                 say('    WARNING: selected donor references %s, but selected native sky pair is %s' % (skyref,native_sky_name))
@@ -451,5 +483,6 @@ if __name__=='__main__':
     ap=argparse.ArgumentParser(description='Halo/OBJ -> Saints Row 1 custom map compiler (v0.20 double-sided export)')
     ap.add_argument('obj'); ap.add_argument('textures_json'); ap.add_argument('output_dir'); ap.add_argument('--name',default='halo_map')
     ap.add_argument('--reference-dir',default=str(DEFAULT_REFERENCE)); ap.add_argument('--sky',default=''); ap.add_argument('--minimap',default=''); ap.add_argument('--scale',type=float,default=.50)
+    ap.add_argument('--surface-preload',action='store_true',help='Register physical textures early using two map-specific environment files (experimental)')
     a=ap.parse_args(); tex=json.loads(Path(a.textures_json).read_text(encoding='utf-8'))
-    print(json.dumps(export_map(a.obj,tex,a.output_dir,a.name,a.reference_dir,world_scale=a.scale,sky_texture=a.sky,minimap_texture=a.minimap),indent=2,default=str))
+    print(json.dumps(export_map(a.obj,tex,a.output_dir,a.name,a.reference_dir,world_scale=a.scale,sky_texture=a.sky,minimap_texture=a.minimap,surface_preload=a.surface_preload),indent=2,default=str))

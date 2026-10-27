@@ -2,7 +2,7 @@
 // result as a folder you can drop into SaintsReborn/dist/maps.
 import { zip as zipAsync, strFromU8, strToU8, type AsyncZippable } from 'fflate'
 import { py } from './py'
-import { dataPackStatus } from './datapack'
+import { dataPackStatus, hasGroup } from './datapack'
 import { dryInteriors, type Marker, type Project, type ProjectSettings } from './project'
 import { checkModes, levelEntries } from './levels'
 import { BOR } from './retailModes'
@@ -35,9 +35,13 @@ export async function runExport(project: Project, onLog: (t: string) => void, on
   if (missing.length) throw new Error('These files are not on this device yet:\n' + missing.map((m) => m.split('/').pop()).join('\n'))
   const s = project.settings
   let sky: { native_sky_chunk?: string; native_sky_peg?: string } = {}
-  if (s.native_sky) {
+  if (s.surface_preload && !hasGroup(status, 'surface')) throw new Error('Early surface registration needs the surface template from your data pack: add your SR1 Map Studio package again on the Data pack page.')
+  if (s.native_sky || s.surface_preload) {
+    // Early surface registration builds its environment pair from a stock sky (sr_custom000001 unless one is chosen).
     if (!status.groups.sky.have) throw new Error('Native sky presets are not in your data pack.')
     await py.mountSkies()
+  }
+  if (s.native_sky) {
     sky = { native_sky_chunk: `/studio/native_sky_presets/${s.native_sky}.bbchunk_xbox2`, native_sky_peg: `/studio/native_sky_presets/${s.native_sky}.peg_xbox2` }
   }
   const job = Date.now().toString(36)
@@ -51,6 +55,8 @@ export async function runExport(project: Project, onLog: (t: string) => void, on
     base_name: s.base_name, world_scale: s.world_scale, mirror_x: s.mirror_x, flip_obj_v: s.flip_obj_v,
     double_sided: s.double_sided, sky_texture: s.sky_texture, minimap_texture: s.minimap_texture, minimap_rect: s.minimap_rect, sky_scale: s.sky_scale,
     bbcity_donor: s.bbcity_donor, cts_template: s.cts_template, marker_game_coords: s.marker_game_coords, ...sky,
+    // Early surface registration: the map's textures copied into a map-specific sf_ environment pair (py/surface_registration.py).
+    surface_preload: !!s.surface_preload,
     ptp: s.modes.includes('Protect Tha Pimp'),
     // Blinged Out Ride: <map>_bor.cts and <map>_mode.xtbl (py/bor_mode.py).
     bor: s.modes.includes(BOR),
@@ -193,7 +199,9 @@ function exportNotes(p: Project, r: ExportResult) {
     ...(s.regions - (s.dry_boxes ?? 0) > 0 ? [`Rain blockers and indoor rooms: ${s.regions - (s.dry_boxes ?? 0)} (new, not yet tried in game)`] : []),
     ...(s.dry_boxes ? [`Dry interiors: ${s.dry_boxes} box(es) over the floor under roofs and ceilings, where the rain stops (new, not yet tried in game)`] : []),
     `Sky: ${s.game_sky ? "the game's own sky from mp_bac_01 in your game files (new, not yet tried in game)"
-      : p.settings.native_sky ? `native sky preset ${p.settings.native_sky}` : p.settings.sky_texture ? 'fake sky image' : 'none (black in game)'}`,
+      : p.settings.native_sky ? `native sky preset ${p.settings.native_sky}` : p.settings.surface_preload ? 'the stock sr_custom000001 environment of early surface registration'
+      : p.settings.sky_texture ? 'fake sky image' : 'none (black in game)'}`,
+    ...(s.surface_textures ? [`Early surface registration: ${s.surface_textures} texture(s) registered through the two sf_… files in levels/; install them with the map (experimental, not yet tried in game)`] : []),
     '',
     `Weapon pickups come back after ${PICKUP_RESPAWN_MS.normal / 1000} s (sniper rifle ${PICKUP_RESPAWN_MS.sniper / 1000} s, RPG ${PICKUP_RESPAWN_MS.launcher / 1000} s) unless a marker sets its own time.`,
     '',

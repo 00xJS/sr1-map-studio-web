@@ -69,8 +69,8 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
     else if (bunched(shared, SPAWN_GAP)) add({ id: 'ffa-spawns', state: 'suggested', text: `${bunched(shared, SPAWN_GAP)} Player spawns are within ${SPAWN_GAP / 2} m of another: spread them out so players don't appear together` })
   }
 
-  // No sky picture and no native sky: the game draws a black sky (unless the export can add the game's own sky).
-  if (p.scene_items.length && !p.settings.sky_texture && !p.settings.native_sky) add({
+  // No sky picture and no native sky (early surface registration brings one): the game draws a black sky (unless the export can add the game's own sky).
+  if (p.scene_items.length && !p.settings.sky_texture && !p.settings.native_sky && !p.settings.surface_preload) add({
     id: 'sky', state: 'suggested', fix: { kind: 'sky' }, action: 'Add sky',
     text: gameSkyWanted(p.settings) ? "No fallback sky picture: without your game files at export the sky is black. Add one?" : 'No sky: the game shows black overhead. Add one?',
   })

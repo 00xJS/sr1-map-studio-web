@@ -35,6 +35,8 @@ Deploying with Supabase and Netlify: see [docs/DEPLOY.md](docs/DEPLOY.md).
 | `src/lib/gameFiles.ts` | Reads the player's own packfiles in the browser (sound names, crate effect); nothing is stored or uploaded. |
 | `py/native_sky.py`, `src/lib/gameSky.ts` | The game's own sky at export: the five sky objects of retail `mp_bac_01` (Sun, Moon, Stars, Atmosphere, Cloud Layer: records, meshes, materials, pictures) copied from the player's `mp_city_stream.vpp_xbox2` into free slots of the map template, listed in the chunk's sky list; the fake sky box is emptied when it goes in, and stays as the fallback otherwise. The editor's walk-through shows a painted stand-in (`src/editor/skyLook.ts`). Checks: `tests/gameSky.test.ts`; `py -3 tests/native_sky_check.py` (with `SR1_GAME_PACKFILES`, and `SR1_DATA_PACK` for full exports). Untested in game. |
 | `src/lib/gameObjects/` | The "From my game" library: a TypeScript reader for map chunks (`chunk.ts`, the reading half of `sr_reborn_core.read_chunk`), the index of distinct objects (`indexer.ts`), cutting one out with its textures (`extract.ts`, `textures.ts`) in a worker (`worker.ts`), and placing it as an OBJ + PNGs stored with origin `game` (`place.ts`). Backups carry only where each object came from (`policy.ts`); hub, Showcase and share links refuse or leave them out. UI: `src/editor/GameObjectsTab.tsx`, `gameObjectActions.ts`. Tests: `tests/gameObjects.test.ts` (with `npm run test:game` it also indexes a local install when there is one: `SR1_PACKFILES`); full export of a real object: `tests/game_objects_check.py`. In the dev server, `SR1_PACKFILES=<packfiles folder> npx vite` and `await __sr1GameObjects.useDevServer()` in the console stand in for the folder picker (dev only, not in builds). |
+| `py/surface_registration.py` | Early surface registration (desktop v1.15's "Register surface impacts early", Export tab, off by default): upstream copies the map's surface textures into a map-specific `sf_<hash>` environment pair (a stock sky, `sr_custom000001` unless a native sky is chosen) that a full-size city file built from the bundled `surface_preload_presets/surftest.bbcity_xbox2` loads first. This module passes the template and pair from the data pack folder, and after the web's own changes to the map PEG re-runs v1.15's export check on the pair, building it again if a surface texture changed. Map names ≤ 10 characters; the game's own sky is off with it. Check: `tests/surface_registration_check.py` (with `SR1_DATA_PACK`). Untested in game. |
+| `py/prop_library.py`, `src/lib/propLibrary.ts` | v1.15's stock object library (`native_props/expanded_v114`, v1.15 package only): upstream reads it when `sr1_prop_catalog` is imported, before the browser has mounted the data pack, so a stand-in keeps v1.13 behaviour until `refresh()` finds it. With it, the physics props whose profile it lists use the retail object record it copied (`map_features.prepare_breakables`), native objects wear their profile's surface, and the Physics panel lists its other profiles (read from the player's data pack in the browser; nothing from it is committed). |
 | `py/item_props.py` | "Item prop" markers: the game's own items placed by name in the map CTS `#Items` (names read from the player's game in `src/lib/gameObjects/items.ts`). Untested in game. |
 | `py/fast_dxt.py` | Vectorized texture compression, byte-identical to the original and about 40× faster (`py -3 tests/fast_dxt_check.py`). |
 | `py/export_runner.py` | What the worker calls to export: stage progress for the UI, reuse of the last geometry build and of a whole unchanged export, old job folders cleared. |
@@ -52,12 +54,13 @@ Desktop `.sr1map.json` projects can be imported from the home page together with
 
 ## Updating the exporter
 
-Copy the new desktop version's Python modules into `studio-py/`, then run
+Copy the new desktop version's Python modules into `studio-py/` (leave out the Qt UI ones: `sr1_halo_map_studio.py`, `*_ui.py`, and the tests), then run
 `py -3 scripts/dump-catalogs.py` to refresh the marker/weapon/vehicle catalogs, and check
 `src/lib/datapack-manifest.json` against the new `PACKAGE_MANIFEST.json`.
 The speed-ups in `py/export_cache.py`, `py/fast_geometry.py` and `py/export_runner.py` replace
 upstream functions by name, so rerun `tests/export_cache_check.py` and `tests/fast_dxt_check.py`
-(with `SR1_DATA_PACK` set) after an update: they compare against the new originals.
+(with `SR1_DATA_PACK` set) after an update: they compare against the new originals. Run every `tests/*_check.py`
+with both a v1.13 and a v1.15 folder as `SR1_DATA_PACK`: the data pack page accepts either package.
 
 ## Verified
 

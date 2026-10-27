@@ -7,7 +7,7 @@ Native time-of-day/weather behavior is not inferred from this limited format.
 """
 from __future__ import annotations
 from pathlib import Path
-import math, struct
+import math, struct, re
 
 BBCITY_MAGIC=0xBBC17EEE
 BBCITY_VERSION=33
@@ -30,7 +30,8 @@ def _read_full_bbcity_envref(data):
         name=raw[:-1].decode('ascii')
     except UnicodeDecodeError:
         return None
-    return name if name in ('sr_alwayshwyf01','sr_custom000001') else None
+    return name if (name in ('sr_alwayshwyf01','sr_custom000001') or
+                    re.fullmatch(r'sf_[a-z0-9_]{12}', name)) else None
 
 SKIP_COLLISION_WORDS=('sky','cloud','decal','water','glass','lightbeam','flare')
 
