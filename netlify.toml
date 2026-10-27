@@ -17,6 +17,12 @@
   [headers.values]
     Cache-Control = "public, max-age=3600"
 
+# The Python runtime: large, and only changes with the pyodide version in package.json.
+[[headers]]
+  for = "/pyodide/*"
+  [headers.values]
+    Cache-Control = "public, max-age=604800"
+
 [[headers]]
   for = "/assets/*"
   [headers.values]

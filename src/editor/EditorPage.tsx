@@ -56,10 +56,14 @@ export default function EditorPage() {
       if (!rec) { setMissing(true); return }
       const opened = normalizeProject(rec.project)
       useEditor.getState().open(opened)
-      void autoVersion(opened, rec.thumbnail).catch(() => {})
+      void autoVersion(opened, rec.thumbnail).catch((err) => useEditor.getState().log('Saved version on open failed: ' + String(err)))
       document.title = rec.name + ' · SR1 Map Studio'
     })
-    void py.init().catch(() => {})
+    // Warm up the exporter; if it can't start, say so now rather than at export time.
+    void py.init().catch((err) => {
+      useEditor.getState().log('The exporter could not start: ' + String(err))
+      toast("The exporter couldn't start, so maps can't be built for the game until you reload the page. Details are in the build log.", 'bad', 9000)
+    })
     const offLog = py.onLog((t) => useEditor.getState().log(t))
     return () => {
       live = false

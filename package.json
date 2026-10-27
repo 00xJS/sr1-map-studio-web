@@ -5,7 +5,7 @@
   "license": "GPL-3.0-or-later",
   "type": "module",
   "scripts": {
-    "bundle:py": "node scripts/bundle-python.mjs",
+    "bundle:py": "node scripts/bundle-python.mjs && node scripts/bundle-pyodide.mjs",
     "dev": "npm run bundle:py && vite",
     "build": "npm run bundle:py && tsc -b && vite build",
     "preview": "vite preview",
