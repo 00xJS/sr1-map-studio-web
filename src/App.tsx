@@ -18,6 +18,7 @@ const City = lazy(() => import('./pages/City'))
 const GamePiecesCheck = lazy(() => import('./pages/GamePiecesCheck'))
 const AdminLabels = lazy(() => import('./pages/AdminLabels'))
 const OpenMapHost = lazy(() => import('./pages/OpenMapDialog'))
+const Proven = lazy(() => import('./pages/Proven'))
 // Development only: checking the game library's names and roles against pictures.
 const GameLabels = import.meta.env.DEV ? lazy(() => import('./pages/GameLabels')) : null
 
@@ -86,6 +87,7 @@ export default function App() {
           <Route path="/admin/labels" element={<Shell><ErrorBoundary label="The labelling desk hit an error"><Suspense fallback={null}><AdminLabels /></Suspense></ErrorBoundary></Shell>} />
           <Route path="/setup" element={<Shell><Setup /></Shell>} />
           <Route path="/about" element={<Shell><About /></Shell>} />
+          <Route path="/proven" element={<Shell><ErrorBoundary label="The tried-in-game page hit an error"><Suspense fallback={null}><Proven /></Suspense></ErrorBoundary></Shell>} />
           <Route path="/showcase" element={<Shell>{hubEnabled ? <Hub /> : <HubOff />}</Shell>} />
           <Route path="/showcase/:id" element={<Shell>{hubEnabled ? <HubMap /> : <HubOff />}</Shell>} />
           <Route path="/hub" element={<ToShowcase />} />
