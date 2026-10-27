@@ -1,11 +1,11 @@
 // Cloud saves and hub transfers between the local IndexedDB store and the
 // account backend. Files with origin 'game' (the user's own Saints Row data)
 // are never uploaded; /studio/ data-pack paths are never in project.files.
-import { getBackend, ConflictError, PublishRejected, type Backend, type CloudProjectMeta, type HubMapDetail, type User } from './backend'
+import { getBackend, ConflictError, LIBRARY_PROJECT_ID, PublishRejected, type Backend, type CloudProjectMeta, type HubMapDetail, type User } from './backend'
 import { db, sha256, type ProjectRecord } from './db'
-import { checkPublishMeta, checkShots, HEAD_BYTES, projectUploadPlan, showcasePlan, type PublishMeta } from './hubRules'
+import { checkPublishMeta, checkShots, HEAD_BYTES, projectUploadPlan, showcasePlan, type PublishMeta, type UploadPlan } from './hubRules'
 import { libraryIds, rebuildFromRecipes } from './showcase'
-import { normalizeProject, uid, type Project } from './project'
+import { newProject, normalizeProject, uid, type FileRef, type Project, type SceneItem } from './project'
 
 export type Progress = (p: { phase: string; done: number; total: number }) => void
 
@@ -21,6 +21,23 @@ async function eachLimit<T>(items: T[], limit: number, fn: (x: T) => Promise<voi
   let next = 0
   const worker = async () => { while (next < items.length) await fn(items[next++]) }
   await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+}
+
+/**
+ * Upload the plan's user files the server doesn't have yet (game files are never
+ * in the plan's hashes). `blobOf` returns undefined to skip a file.
+ */
+async function uploadMissing(b: Backend, plan: UploadPlan, blobOf: (hash: string) => Promise<Blob | undefined>, onProgress?: Progress) {
+  onProgress?.({ phase: 'Checking files', done: 0, total: plan.hashes.length })
+  const have = await b.hasBlobs(plan.hashes)
+  const missing = plan.hashes.filter((h) => !have.has(h))
+  let done = 0
+  onProgress?.({ phase: 'Uploading files', done, total: missing.length })
+  await eachLimit(missing, 3, async (hash) => {
+    const blob = await blobOf(hash)
+    if (blob) await b.uploadBlob(hash, blob)
+    onProgress?.({ phase: 'Uploading files', done: ++done, total: missing.length })
+  })
 }
 
 /** Local changes not yet in the cloud copy. */
@@ -45,18 +62,12 @@ export async function pushProject(id: string, onProgress?: Progress, opts: { for
   }
   if (opts.force) expectedUpdatedAt = undefined
 
-  onProgress?.({ phase: 'Checking files', done: 0, total: plan.hashes.length })
-  const have = await b.hasBlobs(plan.hashes)
-  const missing = plan.hashes.filter((h) => !have.has(h))
   const names = new Map(plan.upload.map((f) => [f.ref.hash, f.ref.name]))
-  let done = 0
-  onProgress?.({ phase: 'Uploading files', done, total: missing.length })
-  await eachLimit(missing, 3, async (hash) => {
+  await uploadMissing(b, plan, async (hash) => {
     const blob = await db.getBlob(hash)
     if (!blob) throw new Error(`${names.get(hash)} is missing on this device, so it can't be uploaded. Re-import it and try again.`)
-    await b.uploadBlob(hash, blob)
-    onProgress?.({ phase: 'Uploading files', done: ++done, total: missing.length })
-  })
+    return blob
+  }, onProgress)
 
   onProgress?.({ phase: 'Saving project', done: 0, total: 1 })
   const res = await b.putCloudProject(rec.project, rec.thumbnail ?? null, { expectedUpdatedAt })
@@ -191,4 +202,146 @@ export async function openHubMapForView(mapId: string, onProgress?: Progress): P
   await fetchHubFiles(b, map, onProgress)
   b.recordDownload(mapId).catch(() => {})
   return { project: await rebuildFromRecipes(hubProject(map), (done, total) => onProgress?.({ phase: 'Building textures and shapes', done, total })), map }
+}
+
+// ---------------- My prefabs ----------------
+// The pieces a user saved (editor/myPrefabs.ts) follow their account in one
+// hidden cloud save, LIBRARY_PROJECT_ID. Its files are every piece's files, so
+// they go through the same upload plan as a map backup: user files are stored
+// once by hash, game files never leave the device (only their record does).
+// `my_prefabs` holds the pieces and deletion markers; this browser's
+// localStorage stays the working copy, so the pieces work offline and without
+// accounts. Merged by piece id: the newest `saved` wins, and a deletion beats
+// every save before it.
+
+export interface SyncedPrefab { id: string; name: string; saved: string; bundle: { items: SceneItem[]; files: Record<string, FileRef> } }
+export interface PrefabDeletion { id: string; deleted: string }
+export interface PrefabState { pieces: SyncedPrefab[]; deleted: PrefabDeletion[] }
+
+/** Where this browser keeps My prefabs (shared with editor/myPrefabs.ts). */
+export const MY_PREFABS = { key: 'sr1ms.myPrefabs', deletedKey: 'sr1ms.myPrefabs.deleted', event: 'sr1ms-myprefabs' } as const
+/** Deletion markers kept (the newest); older ones could let a long-offline device bring a piece back. */
+const MAX_DELETIONS = 500
+
+/** One device's copy of My prefabs and its file store (tests pass their own). */
+export interface PrefabDevice {
+  read(): PrefabState
+  write(state: PrefabState): void
+  hasBlob(hash: string): Promise<boolean>
+  getBlob(hash: string): Promise<Blob | undefined>
+  putBlob(hash: string, blob: Blob): Promise<void>
+}
+
+const readJson = <T>(key: string): T[] => {
+  try { const v = JSON.parse(localStorage.getItem(key) || '[]'); return Array.isArray(v) ? v : [] } catch { return [] }
+}
+
+export const browserPrefabDevice: PrefabDevice = {
+  read: () => ({ pieces: readJson<SyncedPrefab>(MY_PREFABS.key), deleted: readJson<PrefabDeletion>(MY_PREFABS.deletedKey) }),
+  write(s) {
+    localStorage.setItem(MY_PREFABS.key, JSON.stringify(s.pieces))
+    localStorage.setItem(MY_PREFABS.deletedKey, JSON.stringify(s.deleted))
+    window.dispatchEvent(new Event(MY_PREFABS.event))
+  },
+  hasBlob: (h) => db.hasBlob(h),
+  getBlob: (h) => db.getBlob(h),
+  putBlob: (h, b) => db.putBlob(h, b),
+}
+
+/** Both copies combined. Pieces keep `a`'s order, then `b`'s new ones. */
+export function mergePrefabs(a: PrefabState, b: PrefabState): PrefabState {
+  const gone = new Map<string, string>()
+  for (const d of [...a.deleted, ...b.deleted]) if (!(d.deleted <= (gone.get(d.id) ?? ''))) gone.set(d.id, d.deleted)
+  const pieces = new Map<string, SyncedPrefab>()
+  for (const p of [...a.pieces, ...b.pieces]) { const cur = pieces.get(p.id); if (!cur || p.saved > cur.saved) pieces.set(p.id, p) }
+  const live = [...pieces.values()].filter((p) => !(p.saved <= (gone.get(p.id) ?? '')))
+  const liveIds = new Set(live.map((p) => p.id))
+  const deleted = [...gone].filter(([id]) => !liveIds.has(id)).map(([id, deleted]) => ({ id, deleted }))
+    .sort((x, y) => y.deleted.localeCompare(x.deleted)).slice(0, MAX_DELETIONS)
+  return { pieces: live, deleted }
+}
+
+const stateKey = (s: PrefabState) => JSON.stringify([
+  [...s.pieces].sort((x, y) => x.id.localeCompare(y.id)),
+  [...s.deleted].sort((x, y) => x.id.localeCompare(y.id)),
+])
+
+type LibraryProject = Project & { my_prefabs?: PrefabState }
+
+const libraryState = (p: LibraryProject | undefined): PrefabState => ({ pieces: p?.my_prefabs?.pieces ?? [], deleted: p?.my_prefabs?.deleted ?? [] })
+
+function libraryProject(s: PrefabState, before?: LibraryProject): LibraryProject {
+  const now = new Date().toISOString()
+  // Keyed per piece so two pieces' files never overwrite each other.
+  const files: Record<string, FileRef> = {}
+  for (const p of s.pieces) for (const [path, ref] of Object.entries(p.bundle.files)) files[`${p.id}|${path}`] = ref
+  return {
+    ...newProject('My prefabs'), id: LIBRARY_PROJECT_ID, description: 'Saved pieces (My prefabs). Not a map.',
+    created_at: before?.created_at ?? now, updated_at: now, files, my_prefabs: s,
+  }
+}
+
+export interface PrefabSyncResult {
+  pieces: number
+  /** Game files some pieces use that this device doesn't have (they are never uploaded). */
+  missingGameFiles: string[]
+}
+
+/** One sync of My prefabs between `device` and the signed-in account. */
+export async function syncMyPrefabsWith(b: Backend, device: PrefabDevice): Promise<PrefabSyncResult> {
+  for (let attempt = 0; ; attempt++) {
+    const remote = await b.getCloudProject(LIBRARY_PROJECT_ID)
+    const before = remote?.project as LibraryProject | undefined
+    const theirs = libraryState(before)
+    const merged = mergePrefabs(device.read(), theirs)
+
+    // Files of pieces saved on another device.
+    const refs = merged.pieces.flatMap((p) => Object.values(p.bundle.files))
+    const need: string[] = []
+    for (const h of new Set(refs.filter((r) => r.origin === 'user').map((r) => r.hash))) if (!(await device.hasBlob(h))) need.push(h)
+    await eachLimit(need, 3, async (hash) => {
+      // A file the saving device no longer had was never uploaded; that piece just lacks it.
+      try { await device.putBlob(hash, await b.downloadBlob(hash)) } catch (e) { console.warn('My prefabs: file not downloaded', hash, e) }
+    })
+
+    if (stateKey(merged) !== stateKey(theirs) && (remote || merged.pieces.length || merged.deleted.length)) {
+      const project = libraryProject(merged, before)
+      await uploadMissing(b, projectUploadPlan(project), (h) => device.getBlob(h))
+      try {
+        await b.putCloudProject(project, null, { expectedUpdatedAt: remote?.updated_at })
+      } catch (e) {
+        if (e instanceof ConflictError && attempt < 3) continue
+        throw e
+      }
+    }
+
+    // Re-read: a piece saved while this ran is kept (and sent by the next sync).
+    const now = device.read()
+    const next = mergePrefabs(now, merged)
+    if (stateKey(next) !== stateKey(now)) device.write(next)
+
+    const missingGameFiles = new Set<string>()
+    for (const r of refs) if (r.origin === 'game' && !(await device.hasBlob(r.hash))) missingGameFiles.add(r.name)
+    return { pieces: next.pieces.length, missingGameFiles: [...missingGameFiles] }
+  }
+}
+
+let running: Promise<PrefabSyncResult | null> | null = null
+let again = false
+
+/**
+ * Sync this browser's My prefabs with the signed-in account; null when
+ * accounts are off or nobody is signed in. Calls while one runs are folded
+ * into one more pass.
+ */
+export function syncMyPrefabs(): Promise<PrefabSyncResult | null> {
+  if (running) { again = true; return running }
+  running = (async () => {
+    const b = await getBackend()
+    if (!b || !(await b.getUser())) return null
+    let res: PrefabSyncResult
+    do { again = false; res = await syncMyPrefabsWith(b, browserPrefabDevice) } while (again)
+    return res
+  })().finally(() => { running = null })
+  return running
 }
