@@ -26,11 +26,11 @@ export function LightsPanel() {
         </div>
         <div className="list">
           {project.lights.map((x, i) => (
-            <div key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} onClick={() => useEditor.getState().select({ kind: 'light', index: i })}>
+            <button type="button" key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} aria-pressed={i === index} onClick={() => useEditor.getState().select({ kind: 'light', index: i })}>
               <span className="swatch" style={{ background: toHex(x.color), opacity: x.enabled ? 1 : 0.35 }} />
               <span className="grow">{x.name}</span>
               <span className="meta">{+(x.range * project.settings.world_scale).toFixed(1)} m</span>
-            </div>
+            </button>
           ))}
           {!project.lights.length && <div className="list-item faint">No lights.</div>}
         </div>

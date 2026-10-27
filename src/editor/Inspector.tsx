@@ -153,9 +153,9 @@ function AddThings() {
       {lib.length > 0 && (
         <div className="list" style={{ maxHeight: 160 }}>
           {lib.map((a, i) => (
-            <div key={a.uid} className="list-item" title="Click to place where the camera is looking" onClick={() => act.placeAsset(i, center()).catch(toastError)}>
+            <button type="button" key={a.uid} className="list-item" title="Click to place where the camera is looking" onClick={() => act.placeAsset(i, center()).catch(toastError)}>
               <span className="grow ellipsis">{a.name}</span><span className="meta">place</span>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -169,7 +169,7 @@ function Everything() {
   const [open, setOpen] = useState(false)
   const select = useEditor((s) => s.select)
   const total = project.scene_items.length + project.markers.length + project.lights.length
-  const row = (key: string, label: ReactNode, onClick: () => void) => <div key={key} className="list-item" onClick={onClick}><span className="grow ellipsis">{label}</span></div>
+  const row = (key: string, label: ReactNode, onClick: () => void) => <button type="button" key={key} className="list-item" onClick={onClick}><span className="grow ellipsis">{label}</span></button>
   return (
     <div className="group">
       <button className="quiet section-toggle" onClick={() => setOpen(!open)}>

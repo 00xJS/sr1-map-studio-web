@@ -27,7 +27,7 @@ import { db } from '../lib/db'
 import { normalizeProject, type Project } from '../lib/project'
 import { py } from '../lib/py'
 import { accountsEnabled, hubEnabled } from '../lib/backend'
-import { FileButton, toast, toastError } from '../ui'
+import { FileButton, modalOpen, toast, toastError } from '../ui'
 import { openMapFiles } from '../lib/mapFolder/store'
 import { onQueued, queueEdits, takeEdits, type PendingEdits } from '../lib/pendingEdits'
 import { runAiActions } from './aiActions'
@@ -90,7 +90,7 @@ function useShortcuts() {
       const t = e.target as HTMLElement
       const typing = t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT'
       const st = useEditor.getState()
-      if (st.walking) return
+      if (st.walking || modalOpen()) return
       const mod = e.ctrlKey || e.metaKey
       if (mod && e.key.toLowerCase() === 'z' && !typing) { e.preventDefault(); e.shiftKey ? st.redo() : st.undo() }
       else if (mod && e.key.toLowerCase() === 'y' && !typing) { e.preventDefault(); st.redo() }

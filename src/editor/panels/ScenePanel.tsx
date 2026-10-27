@@ -44,14 +44,14 @@ export function ScenePanel() {
         </div>
         <div className="list" role="listbox">
           {items.map((x, i) => (
-            <div key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} onClick={() => useEditor.getState().select({ kind: 'item', index: i })}>
+            <button type="button" key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} aria-pressed={i === index} onClick={() => useEditor.getState().select({ kind: 'item', index: i })}>
               <span className="faint mono">{String(i).padStart(2, '0')}</span>
               <span className="grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</span>
               {i === 0 && <span className="chip">base</span>}
               {nativeTag(x) && <span className="tag-native">{nativeTag(x)}</span>}
               {x.collision_disabled && <span className="tag-warn">no collision</span>}
               {x.swimmable_water && <span className="tag-native">water</span>}
-            </div>
+            </button>
           ))}
           {!items.length && <div className="list-item faint">No objects yet. Open a base map to begin.</div>}
         </div>

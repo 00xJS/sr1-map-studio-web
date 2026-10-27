@@ -41,12 +41,12 @@ export function MarkersPanel() {
         </div>
         <div className="list">
           {markers.map((x, i) => (
-            <div key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} onClick={() => useEditor.getState().select({ kind: 'marker', index: i })}>
+            <button type="button" key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} aria-pressed={i === index} onClick={() => useEditor.getState().select({ kind: 'marker', index: i })}>
               <span className="faint mono">{String(i + 1).padStart(2, '0')}</span>
               <span className="grow">{x.type}{x.label ? <span className="faint"> · {x.label}</span> : null}</span>
               {x.type === PIMP_EXIT && <span className="tag-warn" title="The game has no pimp exit action; change the type or remove it">unsupported</span>}
               <span className="meta mono">{x.position.map((v) => v.toFixed(1)).join(', ')}</span>
-            </div>
+            </button>
           ))}
           {!markers.length && <div className="list-item faint">No markers. Exports need at least one spawn.</div>}
         </div>
