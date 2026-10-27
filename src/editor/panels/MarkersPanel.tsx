@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useEditor } from '../store'
+import { thingKey, useEditor } from '../store'
 import * as act from '../actions'
 import { getViewer } from '../Viewport'
 import { Check, Field, FileButton, NumberInput, Vec3Input, infoDialog, useBusy } from '../../ui'
@@ -41,12 +41,12 @@ export function MarkersPanel() {
         </div>
         <div className="list">
           {markers.map((x, i) => (
-            <div key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} onClick={() => useEditor.getState().select({ kind: 'marker', index: i })}>
+            <button type="button" key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} aria-pressed={i === index} onClick={() => useEditor.getState().select({ kind: 'marker', index: i })}>
               <span className="faint mono">{String(i + 1).padStart(2, '0')}</span>
               <span className="grow">{x.type}{x.label ? <span className="faint"> · {x.label}</span> : null}</span>
               {x.type === PIMP_EXIT && <span className="tag-warn" title="The game has no pimp exit action; change the type or remove it">unsupported</span>}
               <span className="meta mono">{x.position.map((v) => v.toFixed(1)).join(', ')}</span>
-            </div>
+            </button>
           ))}
           {!markers.length && <div className="list-item faint">No markers. Exports need at least one spawn.</div>}
         </div>
@@ -71,7 +71,7 @@ function MarkerEditor({ m, index }: { m: Marker; index: number }) {
     fn(x)
     if (x.type === 'Weapon pickup') x.label = x.weapon
     if (x.type === 'Vehicle spawn') x.label = x.vehicle
-  }, merge ? { merge: merge + index } : undefined)
+  }, merge ? { merge: merge + thingKey('marker', index) } : undefined)
   const trig = TRIGGERS.has(m.type)
   return (
     <div className="group">

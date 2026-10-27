@@ -32,11 +32,22 @@ export const hubEnabled = accountsEnabled && (env.VITE_HUB === 'on' || (mode ===
 
 const useAuth = create<{ user: User | null; ready: boolean }>(() => ({ user: null, ready: !accountsEnabled }))
 
+// My prefabs follow the account: synced on sign-in and when the site opens signed in.
+let syncedFor: string | undefined
+const syncPrefabs = (user: User | null) => {
+  // Token refreshes report the same user again.
+  if (user?.id === syncedFor) return
+  syncedFor = user?.id
+  if (user) import('../sync').then((m) => m.syncMyPrefabs(), (e) => console.warn('My prefabs did not sync', e))
+}
+
 if (accountsEnabled) {
   getBackend().then(async (b) => {
     if (!b) return
-    b.onAuthChange((user) => useAuth.setState({ user, ready: true }))
-    useAuth.setState({ user: await b.getUser().catch(() => null), ready: true })
+    b.onAuthChange((user) => { useAuth.setState({ user, ready: true }); syncPrefabs(user) })
+    const user = await b.getUser().catch(() => null)
+    useAuth.setState({ user, ready: true })
+    syncPrefabs(user)
   })
 }
 

@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom'
 import { accountsEnabled, useUser, type CloudProjectMeta } from '../lib/backend'
 import { db } from '../lib/db'
 import { fmtBytes } from '../lib/files'
-import { hasUnsyncedChanges, listCloudProjects, pullProject } from '../lib/sync'
+import { hasUnsyncedChanges, listCloudProjects, pullProject, syncMyPrefabs } from '../lib/sync'
 import { confirmDialog, infoDialog, timeAgo, toastError, useBusy } from '../ui'
 
 /** Open a cloud save: reuse an identical local copy, otherwise download it. */
@@ -34,6 +34,7 @@ export function CloudSection() {
 
   useEffect(() => {
     if (!user) { setItems([]); return }
+    void syncMyPrefabs()
     let live = true
     Promise.all([listCloudProjects(), db.listProjects()]).then(([cloud, local]) => {
       const here = new Set(local.map((p) => p.id))

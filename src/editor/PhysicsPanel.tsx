@@ -5,7 +5,8 @@ import { useEffect, useState } from 'react'
 import { useEditor } from './store'
 import * as act from './actions'
 import { makePhysicsProps, setBottomHeavy, setPhysicsShape } from './physicsActions'
-import { Check, Field, useBusy } from '../ui'
+import { Check, Field, Status, useBusy } from '../ui'
+import { statusSentence } from '../lib/featureStatus'
 import { isCustomNative, isGlass, isProp, type SceneItem } from '../lib/project'
 import { LIBRARY_PRESETS, OBJECT_BUDGET, PHYSICS_PRESETS, PHYSICS_SHAPES, countPhysics, presetOf, shapeOf, type PhysicsPreset, type PhysicsShape } from '../lib/physicsProps'
 import { loadPropLibrary } from '../lib/propLibrary'
@@ -42,17 +43,18 @@ function Limits() {
 export function PhysicsPanel({ indices }: { indices: number[] }) {
   const project = useEditor((s) => s.project)!
   const [run, busy] = useBusy()
+  // Before the early returns: a hook called only for some selections breaks React when the selection changes.
+  const library = useLibraryPresets()
   const items = indices.map((i) => project.scene_items[i]).filter(Boolean)
   if (!items.length || indices.includes(0)) return null
   if (items.some((it) => isGlass(it) && !isCustomNative(it))) return null
   const physical = items.filter((it) => presetOf(it))
   const one = items.length === 1 ? items[0] : null
-  const library = useLibraryPresets()
   const preset = one ? presetOf(one) : null
   const apply = (key: string) => run(() => makePhysicsProps(indices, key))
   return (
     <div className="group">
-      <span className="section-title">Physics prop <span className="chip">new</span></span>
+      <span className="section-title">Physics prop <Status id="physics_props" /></span>
       {!preset && (
         <>
           <span className="small muted">
@@ -104,7 +106,7 @@ function PropSettings({ it, index, library }: { it: SceneItem; index: number; li
         {isProp(it) && <button className="sm" disabled={busy} onClick={() => run(() => act.returnStatic(index))}>Back to a normal object</button>}
       </div>
       <span className="faint small">
-        In game, weight, bounce and health come with the behaviour (the game's own object table: a map can't set its own numbers); the exporter fits the shape to your model. Not yet tried in game. The walk-through shows a rough preview.
+        In game, weight, bounce and health come with the behaviour (the game's own object table: a map can't set its own numbers); the exporter fits the shape to your model.{statusSentence('physics_props')} The walk-through shows a rough preview.
       </span>
     </>
   )

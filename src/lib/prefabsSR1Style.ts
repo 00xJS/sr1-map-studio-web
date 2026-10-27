@@ -16,6 +16,7 @@ import type { Vec3 } from './project'
 import { BANNERS } from './procedural'
 import { CY, PB, box, cyl, sack, lying, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
 import { CAR_COLORS, carPaint, group, local, wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { num, sel, yesNo, solid } from './prefabKit'
 
 type Lf = (dx: number, dy: number, dz: number) => Vec3
 type Def = PrefabDef & { category: string }
@@ -49,9 +50,6 @@ const sub = (L: Lf, x: number, z: number, r: number, make: (L: Lf) => Part[], y 
 const row = (L: Lf, n: number, gap: number, make: (L: Lf, i: number) => Part[], z = 0, r = 0): Part[] =>
   [...Array(Math.max(0, n))].flatMap((_, i) => sub(L, (i - (n - 1) / 2) * gap, z, r, (M) => make(M, i)))
 
-const num = (key: string, label: string, min: number, max: number, def: number, step = 1): ParamDef => ({ key, label, kind: 'number', min, max, step, default: def })
-const sel = (key: string, label: string, options: [string, string][], def: string): ParamDef => ({ key, label, kind: 'select', options, default: def })
-const yesNo = (key: string, label: string, def: 'yes' | 'no'): ParamDef => sel(key, label, [['yes', 'Yes'], ['no', 'No']], def)
 
 // ---------------- shapes in metres ----------------
 
@@ -74,7 +72,6 @@ const fit = (p: Part): Part => ({ ...p, fit: true })
 
 // ---------------- materials (seeds 900 and up) ----------------
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface })
 const metal = (color: string, seed: number, wear = 0.25, surface = 15, scale = 2, accent = '#6a3a22'): Tex => ({ gen: 'metal_plate', tweak: { color, accent, scale, wear, seed }, surface })
 const conc = (color: string, seed: number, wear = 0.4, accent = '#5e5a54'): Tex => ({ gen: 'concrete', tweak: { color, accent, wear, seed }, surface: 0 })
 const wood = (color: string, seed: number, scale = 6, wear = 0.3): Tex => ({ gen: 'wood_planks', tweak: { color, accent: '#4a3624', scale, wear, seed }, surface: 21 })

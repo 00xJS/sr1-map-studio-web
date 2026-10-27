@@ -1,7 +1,8 @@
 // Small shared UI pieces: inputs, modals, toasts and confirm dialogs.
-import { Component, useEffect, useRef, useState, type ReactNode } from 'react'
+import { Component, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { create } from 'zustand'
 import type { Vec3 } from './lib/project'
+import { feature, statusTag, type FeatureId } from './lib/featureStatus'
 
 // ---------------- error boundary ----------------
 
@@ -44,18 +45,57 @@ export function Toasts() {
   )
 }
 
+// ---------------- feature status ----------------
+
+/** "Not yet tried in game" for a feature that hasn't been (lib/featureStatus.ts); nothing once it has. */
+export function Status({ id }: { id: FeatureId }) {
+  const f = feature(id)
+  if (f.state === 'proven') return null
+  return <span className="chip status" title={f.note}>{statusTag(id)}</span>
+}
+
 // ---------------- modal / dialogs ----------------
 
+// Open modals, oldest first: Escape and Tab belong to the top one only.
+const modalStack: symbol[] = []
+/** True while any modal is open (the editor's own keys stand aside). */
+export const modalOpen = () => modalStack.length > 0
+
+const FOCUSABLE = 'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 export function Modal(props: { title: ReactNode; onClose?: () => void; children: ReactNode; footer?: ReactNode; wide?: boolean }) {
+  const box = useRef<HTMLDivElement>(null)
+  const titleId = useId()
+  const onClose = useRef(props.onClose)
+  onClose.current = props.onClose
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') props.onClose?.() }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [props.onClose])
+    const me = Symbol('modal')
+    modalStack.push(me)
+    const before = document.activeElement as HTMLElement | null
+    // First focus: whatever asked for it (autoFocus), else the first control, else the dialog itself.
+    const el = box.current
+    if (el && !el.contains(document.activeElement)) (el.querySelector<HTMLElement>('[autofocus]') ?? el.querySelector<HTMLElement>(FOCUSABLE) ?? el).focus()
+    const onKey = (e: KeyboardEvent) => {
+      if (modalStack[modalStack.length - 1] !== me) return
+      if (e.key === 'Escape') { e.stopPropagation(); onClose.current?.(); return }
+      if (e.key !== 'Tab' || !box.current) return
+      const all = [...box.current.querySelectorAll<HTMLElement>(FOCUSABLE)].filter((x) => !x.closest('[hidden], [aria-hidden="true"], details:not([open]) > :not(summary)'))
+      if (!all.length) { e.preventDefault(); return }
+      const first = all[0], last = all[all.length - 1]
+      if (e.shiftKey && (document.activeElement === first || !box.current.contains(document.activeElement))) { e.preventDefault(); last.focus() }
+      else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus() }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => {
+      window.removeEventListener('keydown', onKey, true)
+      modalStack.splice(modalStack.indexOf(me), 1)
+      if (before?.isConnected) before.focus()
+    }
+  }, [])
   return (
     <div className="modal-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) props.onClose?.() }}>
-      <div className={'modal' + (props.wide ? ' wide' : '')} role="dialog" aria-modal="true">
-        <header><h2 className="grow">{props.title}</h2>{props.onClose && <button className="quiet icon" onClick={props.onClose} aria-label="Close">✕</button>}</header>
+      <div ref={box} tabIndex={-1} className={'modal' + (props.wide ? ' wide' : '')} role="dialog" aria-modal="true" aria-labelledby={titleId}>
+        <header><h2 className="grow" id={titleId}>{props.title}</h2>{props.onClose && <button className="quiet icon" onClick={props.onClose} aria-label="Close">✕</button>}</header>
         <div className="content">{props.children}</div>
         {props.footer && <footer>{props.footer}</footer>}
       </div>

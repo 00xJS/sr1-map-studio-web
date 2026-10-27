@@ -15,6 +15,7 @@ import { runHealthCheck, stopHealthCheck, useHealth, useHealthStale, type Overla
 import { MOVE_COLORS, RISK_COLORS } from './healthOverlay'
 import { BOTS } from '../lib/analysis/analyze'
 import type { HealthReport, MoveFinding, MoveKind, SpawnReport, TeamStats } from '../lib/analysis/types'
+import { fmtM } from '../lib/units'
 
 const OVERLAYS: { kind: OverlayKind; label: string; title: string; advanced?: boolean }[] = [
   { kind: 'sight', label: 'Sight lines', title: 'How much of the map sees each spot, standing, from close enough to hit it (most guns: about 50 m); red lines are the longest sight lines (sniper lanes)' },
@@ -132,7 +133,7 @@ export function HealthSection() {
   return (
     <>
     <div className="group">
-      <span className="section-title">Map health <span className="chip">new</span></span>
+      <span className="section-title">Map health</span>
       {report && !running && <><Headline r={report} /><Findings r={report} max={4} /><OverlayButtons /></>}
       <Controls />
       {report && !running && <button className="sm quiet more" onClick={() => useEditor.getState().set({ advanced: true, tab: 'health' })}>Every spawn and the red vs blue details →</button>}
@@ -217,9 +218,9 @@ function GettingAround({ r }: { r: HealthReport }) {
             <span className="small"><span className="health-badge" style={{ background: MOVE_COLORS[k], width: 10, height: 10, display: 'inline-block', marginRight: 6 }} />{MOVE_WORD[k]}</span>
             <div className="list" style={{ maxHeight: 160 }}>
               {moves.map((mv, i) => mv.kind !== k ? null : (
-                <div key={i} className={'list-item' + (overlay === 'moves' && focus === i ? ' selected' : '')} onClick={() => focusMove(moves, i)} title="Show it on the map">
+                <button type="button" key={i} className={'list-item' + (overlay === 'moves' && focus === i ? ' selected' : '')} onClick={() => focusMove(moves, i)} title="Show it on the map">
                   <span className="grow small">{mv.text}</span>
-                </div>
+                </button>
               ))}
             </div>
           </div>
@@ -312,7 +313,7 @@ function Spawns({ r }: { r: HealthReport }) {
       {!r.spawns.length ? <span className="small faint">No spawns yet.</span> : (
         <div className="list" style={{ maxHeight: 320 }}>
           {order.map((s) => (
-            <div key={s.number} className={'list-item' + (focus === s.number ? ' selected' : '')} onClick={() => focusSpawn(s)} title="Show it on the map, with the places that can see it">
+            <button type="button" key={s.number} className={'list-item' + (focus === s.number ? ' selected' : '')} onClick={() => focusSpawn(s)} title="Show it on the map, with the places that can see it">
               <span className="health-badge" style={{ background: RISK_COLORS[s.risk] }}>{s.number}</span>
               <span className="grow col" style={{ gap: 0 }}>
                 <span>{TEAM_WORD[s.team]} spawn {s.number}: {RISK_WORD[s.risk].toLowerCase()}</span>
@@ -321,7 +322,7 @@ function Spawns({ r }: { r: HealthReport }) {
               <span className="meta" style={{ textAlign: 'right' }} title="Share of the map that can see it · walk from the nearest enemy spawn">
                 {Math.round(s.exposure * 100)}% seen<br />{s.enemyWalkM === null ? 'no path' : `${s.enemyWalkM} m`}
               </span>
-            </div>
+            </button>
           ))}
         </div>
       )}
@@ -354,7 +355,7 @@ function Fairness({ r }: { r: HealthReport }) {
   )
 }
 
-const metres = (v: number | null) => (v === null ? '–' : `${v} m`)
+const metres = (v: number | null) => fmtM(v)
 
 function SightAndFlow({ r }: { r: HealthReport }) {
   return (

@@ -5,22 +5,12 @@
 // floor is 7 units (3.5 m) and floors sit at ground level, so every prefab
 // places like the others. Signs are plain colored panels: no names or logos.
 import { CY, PB, box, cyl, lying, ramp, ring, stairs, turn, type Part, type Tex } from './sampleKit'
-import { FLOOR, facadeTex, group, local, wheels, type ParamDef, type Params, type PrefabDef, type Style } from './prefabs'
+import { FLOOR, facadeTex, wheels, type ParamDef, type Params, type PrefabDef, type Style } from './prefabs'
 import { poolParts } from './prefabsMore'
+import { pf, pfp, num, sel, yesNo, solid, type Lf } from './prefabKit'
 
-type Lf = (dx: number, dy: number, dz: number) => [number, number, number]
 type Def = PrefabDef & { category: string }
 
-const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
-const pf = (name: string, make: (L: Lf) => Part[]) =>
-  (x: number, z: number, rot: number, y: number) => group(id(name, x, y, z), local(x, y, z, rot, make))
-const pfp = (name: string, params: ParamDef[], make: (L: Lf, p: Params) => Part[]) => ({
-  params,
-  make: (x: number, z: number, rot: number, y: number, given?: Params) => {
-    const p = Object.fromEntries(params.map((d) => [d.key, given?.[d.key] ?? d.default]))
-    return group(id(name, x, y, z), local(x, y, z, rot, (L) => make(L, p)))
-  },
-})
 
 /** Builds a piece (in its own frame) at (x, z), turned by r, inside another piece's frame. */
 const at = (L: Lf, x: number, z: number, r: number, make: (L: Lf) => Part[], y = 0): Part[] => {
@@ -31,13 +21,9 @@ const at = (L: Lf, x: number, z: number, r: number, make: (L: Lf) => Part[], y =
 const row = (L: Lf, n: number, gap: number, make: (L: Lf, i: number) => Part[], z = 0, r = 0, y = 0): Part[] =>
   [...Array(Math.max(0, n))].flatMap((_, i) => at(L, (i - (n - 1) / 2) * gap, z, r, (M) => make(M, i), y))
 
-const num = (key: string, label: string, min: number, max: number, def: number, step = 1): ParamDef => ({ key, label, kind: 'number', min, max, step, default: def })
-const sel = (key: string, label: string, options: [string, string][], def: string): ParamDef => ({ key, label, kind: 'select', options, default: def })
-const yesNo = (key: string, label: string, def: 'yes' | 'no'): ParamDef => sel(key, label, [['yes', 'Yes'], ['no', 'No']], def)
 
 // ---------------- materials ----------------
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface })
 const DARK_WOOD: Tex = { gen: 'wood_planks', tweak: { color: '#4a3324', accent: '#2e1f15', scale: 3, wear: 0.15, seed: 400 }, surface: 21 }
 const LIGHT_WOOD: Tex = { gen: 'wood_planks', tweak: { color: '#b48a5a', accent: '#8a6640', scale: 4, wear: 0.1, seed: 401 }, surface: 21 }
 const FLOOR_WOOD: Tex = { lib: 'wood_floor', surface: 21 }

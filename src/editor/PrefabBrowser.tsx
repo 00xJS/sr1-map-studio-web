@@ -14,6 +14,7 @@ import { markPrefabUsed, toggleFavourite, usePrefabLists } from './prefabLists'
 import { GAME_TAB, GameObjectsTab, tileOf, type GameTile } from './GameObjectsTab'
 import { loadIndex, useGameObjects } from '../lib/gameObjects/client'
 import { entryById } from '../lib/gameObjects/client'
+import { coarsePointer } from '../lib/touch'
 
 type Entry = PrefabEntry & { saved?: { sig: string; bundle: ThumbBundle } }
 
@@ -30,7 +31,7 @@ useEditor.subscribe((s) => { if (s.tool !== 'shape' && usePrefabBrowser.getState
 
 /** Phones: the browser covers the map, so it closes once a piece is chosen. */
 const narrow = () => typeof matchMedia === 'function' && matchMedia('(max-width: 700px)').matches
-const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+const coarse = coarsePointer()
 
 /** Arms the Shape tool with a prefab or saved piece. */
 function choose(e: Entry) {

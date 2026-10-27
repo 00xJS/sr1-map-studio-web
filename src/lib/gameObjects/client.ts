@@ -77,7 +77,7 @@ function call<T>(msg: Body, onChunk?: (m: Extract<Reply, { type: 'chunk' }>) => 
 
 let devSources: Record<string, PackSource> | null = null
 /** Development only: packfiles the dev server serves from the SR1_PACKFILES folder (see scripts/devGameFiles.ts). */
-export function useDevPackfiles(sources: Record<string, PackSource>) { devSources = sources; connected = null; useGameObjects.setState({ connected: false }) }
+export function setDevPackfiles(sources: Record<string, PackSource>) { devSources = sources; connected = null; useGameObjects.setState({ connected: false }) }
 
 let connected: Promise<string> | null = null
 
@@ -218,7 +218,7 @@ if (import.meta.env.DEV && typeof window !== 'undefined') {
       const sizes = await (await fetch('/__sr1dev/packfiles')).json() as Record<string, number>
       const sources: Record<string, PackSource> = {}
       for (const [k, file] of Object.entries(PACK_FILES)) if (sizes[file]) sources[k] = { url: `${location.origin}/__sr1dev/packfiles/${file}`, size: sizes[file] }
-      useDevPackfiles(sources)
+      setDevPackfiles(sources)
       // The vehicle models for Vehicle spawn markers.
       ;(await import('../vehicles/client')).useDevVehicleSources(sizes)
       // The item table's packfile is small: handed over whole, as if picked by hand.

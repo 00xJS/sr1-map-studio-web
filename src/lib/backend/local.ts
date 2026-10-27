@@ -4,7 +4,7 @@
 import { HEAD_BYTES, checkShots, isValidThumbnail, libraryIdsFrom, prepareShowcase, type HubFile } from '../hubRules'
 import type { Project } from '../project'
 import {
-  ConflictError, PublishRejected,
+  ConflictError, LIBRARY_PROJECT_ID, PublishRejected,
   type Backend, type CloudProjectMeta, type HubMapDetail, type HubMapMeta, type HubQuery, type HubReport, type PublishInput, type ReportReason, type User,
 } from './types'
 
@@ -121,7 +121,7 @@ export class LocalBackend implements Backend {
 
   async listCloudProjects(): Promise<CloudProjectMeta[]> {
     const u = await this.me()
-    const rows = (await all<CloudRow>('cloud')).filter((r) => r.uid === u.id)
+    const rows = (await all<CloudRow>('cloud')).filter((r) => r.uid === u.id && r.id !== LIBRARY_PROJECT_ID)
     return rows
       .sort((a, b) => b.updated_at.localeCompare(a.updated_at))
       .map((r) => ({ id: r.id, name: r.name, updated_at: r.updated_at, size_bytes: r.size_bytes, thumbnail_url: thumbUrl(`c/${u.id}/${r.id}`, r.updated_at, r.thumb) }))

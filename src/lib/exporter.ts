@@ -3,13 +3,15 @@
 import { zip as zipAsync, strFromU8, strToU8, type AsyncZippable } from 'fflate'
 import { py } from './py'
 import { dataPackStatus, hasGroup } from './datapack'
-import { dryInteriors, type Marker, type Project, type ProjectSettings } from './project'
+import { dryInteriors, type Marker, type Project, type ProjectSettings, type Vec3 } from './project'
 import { checkModes, levelEntries } from './levels'
 import { BOR } from './retailModes'
+import { statusParen } from './featureStatus'
 import { crateDebrisSpec } from './crateDebris'
 import { gameSkySpec } from './gameSky'
 import { exportedItems } from './layers'
 import { PICKUP_RESPAWN_MS, pickupRespawnMs } from './player'
+import { exportFactLines } from './playtest'
 
 /**
  * entries: the zip's files by path ("<folder>/levels/..."), for installing without unzipping.
@@ -21,6 +23,10 @@ export interface ExportResult {
   map_name: string
   files: string[]
   summary: Record<string, number>
+  /** The frame of the map's geometry: game metres = mirror_x((editor - origin) * world_scale). */
+  origin?: Vec3
+  /** The lowest point of the map's geometry, in game metres. */
+  floor_y?: number
 }
 
 const strip = <T extends { uid?: string }>(x: T) => { const { uid: _u, ...rest } = x; return rest }
@@ -192,18 +198,20 @@ function exportNotes(p: Project, r: ExportResult) {
   return [
     `Exported by SR1 Map Studio (web) on ${new Date().toISOString()}`,
     `Project: ${p.name}`,
+    // For the companion mod's playtest log and for installing over this project's own map without asking.
+    ...(r.origin ? exportFactLines({ projectId: p.id, origin: r.origin, worldScale: p.settings.world_scale || 0.5, mirrorX: p.settings.mirror_x, floorY: r.floor_y ?? 0 }) : [`Project id: ${p.id}`]),
     '',
     `Render: ${s.render_triangles?.toLocaleString()} triangles in ${s.render_meshes} mesh(es), ${s.material_batches} material batches`,
     `Collision: ${s.collision_triangles?.toLocaleString()}/${s.source_triangles?.toLocaleString()} source triangles`,
     `Native objects: ${s.native_objects} (including ${s.native_props} movable/explosive props)`,
     `Native point lights: ${s.lights} (first gameplay test pending)`,
-    ...(s.water_volumes ? [`Swimmable water: ${s.water_volumes} volume(s) (new, not yet tried in game)`] : []),
-    ...(s.regions - (s.dry_boxes ?? 0) > 0 ? [`Rain blockers and indoor rooms: ${s.regions - (s.dry_boxes ?? 0)} (new, not yet tried in game)`] : []),
-    ...(s.dry_boxes ? [`Dry interiors: ${s.dry_boxes} box(es) over the floor under roofs and ceilings, where the rain stops (new, not yet tried in game)`] : []),
-    `Sky: ${s.game_sky ? "the game's own sky from mp_bac_01 in your game files (new, not yet tried in game)"
+    ...(s.water_volumes ? [`Swimmable water: ${s.water_volumes} volume(s)${statusParen('water')}`] : []),
+    ...(s.regions - (s.dry_boxes ?? 0) > 0 ? [`Rain blockers and indoor rooms: ${s.regions - (s.dry_boxes ?? 0)}${statusParen('rain_blockers')}`] : []),
+    ...(s.dry_boxes ? [`Dry interiors: ${s.dry_boxes} box(es) over the floor under roofs and ceilings, where the rain stops${statusParen('dry_interiors')}`] : []),
+    `Sky: ${s.game_sky ? `the game's own sky from mp_bac_01 in your game files${statusParen('game_sky')}`
       : p.settings.native_sky ? `native sky preset ${p.settings.native_sky}` : p.settings.surface_preload ? 'the stock sr_custom000001 environment of early surface registration'
       : p.settings.sky_texture ? 'fake sky image' : 'none (black in game)'}`,
-    ...(s.surface_textures ? [`Early surface registration: ${s.surface_textures} texture(s) registered through the two sf_… files in levels/; install them with the map (experimental, not yet tried in game)`] : []),
+    ...(s.surface_textures ? [`Early surface registration: ${s.surface_textures} texture(s) registered through the two sf_… files in levels/; install them with the map${statusParen('surface_registration')}`] : []),
     '',
     `Weapon pickups come back after ${PICKUP_RESPAWN_MS.normal / 1000} s (sniper rifle ${PICKUP_RESPAWN_MS.sniper / 1000} s, RPG ${PICKUP_RESPAWN_MS.launcher / 1000} s) unless a marker sets its own time.`,
     '',

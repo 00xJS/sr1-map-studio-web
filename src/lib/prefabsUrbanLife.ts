@@ -7,31 +7,18 @@
 // by rot. Flat pieces (manholes, drains, puddles, litter) are paint-thin, so
 // players and cars cross them.
 import { PB, blob, box, cyl, sack, lying, organic, ramp, turn, type Part, type Tex } from './sampleKit'
-import { car, carPaint, group, local, wheels, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { car, carPaint, group, local, wheels, type Params, type PrefabDef } from './prefabs'
+import { id, pf, pfp, num, sel, solid, type Lf } from './prefabKit'
 
-type Lf = (dx: number, dy: number, dz: number) => [number, number, number]
 
-const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
-const pf = (name: string, make: (L: Lf) => Part[]) =>
-  (x: number, z: number, rot: number, y: number) => group(id(name, x, y, z), local(x, y, z, rot, make))
-const pfp = (name: string, params: ParamDef[], make: (L: Lf, p: Params) => Part[]) => ({
-  params,
-  make: (x: number, z: number, rot: number, y: number, given?: Params) => {
-    const p = Object.fromEntries(params.map((d) => [d.key, given?.[d.key] ?? d.default]))
-    return group(id(name, x, y, z), local(x, y, z, rot, (L) => make(L, p)))
-  },
-})
 /** A piece (in its own frame) at (x, z) turned by r inside another piece's frame. */
 const at = (L: Lf, x: number, z: number, r: number, make: (L: Lf) => Part[], y = 0): Part[] => {
   const L2: Lf = (dx, dy, dz) => { const [ox, oz] = turn(dx, dz, r); return L(x + ox, y + dy, z + oz) }
   return make(L2).map((p) => ({ ...p, rot: ((p.rot ?? 0) + r) % 360 }))
 }
-const num = (key: string, label: string, min: number, max: number, def: number, step = 1): ParamDef => ({ key, label, kind: 'number', min, max, step, default: def })
-const sel = (key: string, label: string, options: [string, string][], def: string): ParamDef => ({ key, label, kind: 'select', options, default: def })
 
 // ---------------- materials ----------------
 
-const solid = (color: string, accent: string, seed: number, surface = 17): Tex => ({ gen: 'paint', tweak: { color, accent, scale: 2, wear: 0.06, seed }, surface })
 const WHITE = solid('#e8e6e0', '#cfccc4', 460)
 const BLACK = solid('#1d1d20', '#141416', 461, 15)
 const GREY = solid('#7d8288', '#5d6268', 462, 15)

@@ -399,6 +399,11 @@ local function watch(ctx, map)
   end
 end
 
+-- For the playtest recorder (playtest.lua).
+R.now, R.state, R.read_file, R.join = now, game_state, read_file, join
+function R.match() return in_match() end
+function R.folder(map) return find_folder(map) end
+
 function R.setup(settings, debug)
   cfg = settings
   if debug then log = wml.log end

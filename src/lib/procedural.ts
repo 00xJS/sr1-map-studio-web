@@ -393,7 +393,7 @@ function pattern(p: GenParams): Pixel {
     }
     case 'paint': return (u, v) => {
       // A plain painted or moulded surface: no lines or grid, just a soft unevenness and a few scuffs.
-      let c = shade(base, 0.94 + 0.09 * fbm(u, v, n, 4, s) + 0.03 * noise(u, v, 128, 128, s + 1))
+      const c = shade(base, 0.94 + 0.09 * fbm(u, v, n, 4, s) + 0.03 * noise(u, v, 128, 128, s + 1))
       const scuff = clamp01((fbm(u, v, n * 2, 4, s + 3) - 0.62) * 3.5) * wear
       return mix(c, accent, 0.5 * scuff)
     }
@@ -402,7 +402,7 @@ function pattern(p: GenParams): Pixel {
       const grout = 0.04
       if (fx < grout || fy < grout) return shade(accent, 0.9 + 0.2 * noise(u, v, 128, 128, s))
       const id = [Math.floor(u * n), Math.floor(v * n)]
-      let c = shade(base, 0.94 + 0.1 * hash(id[0], id[1], s) + 0.06 * fbm(u, v, 8, 4, s + 1))
+      const c = shade(base, 0.94 + 0.1 * hash(id[0], id[1], s) + 0.06 * fbm(u, v, 8, 4, s + 1))
       const dirt = clamp01((fbm(u, v, 4, 4, s + 3) - 0.6) * 4) * wear
       return shade(c, 1 - 0.3 * dirt)
     }
@@ -451,7 +451,7 @@ function pattern(p: GenParams): Pixel {
     }
     case 'grass': return (u, v) => {
       const blades = noise(u, v, 256, 64, s) * 0.6 + noise(u, v, 512, 128, s + 1) * 0.4
-      let c = shade(base, 0.7 + 0.6 * blades)
+      const c = shade(base, 0.7 + 0.6 * blades)
       const dry = clamp01((fbm(u, v, n, 5, s + 3) - 0.55 + wear * 0.2) * 3)
       return mix(c, shade(accent, 0.8 + 0.4 * blades), dry * wear)
     }
@@ -720,7 +720,7 @@ function pattern(p: GenParams): Pixel {
     case 'sand': return (u, v) => {
       const warp = fbm(u, v, 4, 4, s) * 2
       const ripple = 0.5 + 0.5 * Math.sin((v * n + warp) * Math.PI * 2)
-      let c = mix(base, accent, ripple * 0.35 * (0.4 + wear))
+      const c = mix(base, accent, ripple * 0.35 * (0.4 + wear))
       return shade(c, 0.9 + 0.15 * noise(u, v, 512, 512, s + 1) + 0.08 * fbm(u, v, 8, 4, s + 2))
     }
   }
