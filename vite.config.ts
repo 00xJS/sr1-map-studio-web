@@ -6,7 +6,7 @@ import { devMaps } from './scripts/devMaps'
 export default defineConfig(({ mode }) => ({
   plugins: [react(), devGameFiles(), devMaps()],
   worker: { format: 'es' },
-  // The AI chat's relay (netlify/functions/ai.mts) during development: straight through to NVIDIA.
+  // The AI chat's relay (netlify/edge-functions/ai.ts) during development: straight through to NVIDIA.
   // The model list comes back as NVIDIA's own {data: [{id}]}; listModels reads both shapes.
   server: { proxy: { '/api/ai': { target: 'https://integrate.api.nvidia.com', changeOrigin: true, rewrite: (path: string) => (path.startsWith('/api/ai/models') ? '/v1/models' : '/v1/chat/completions') } } },
   build: { target: 'es2022', chunkSizeWarningLimit: 1500 },

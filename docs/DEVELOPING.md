@@ -75,5 +75,5 @@ with both a v1.13 and a v1.15 folder as `SR1_DATA_PACK`: the data pack page acce
 ## Notes
 
 - Python changes (`studio-py/`, `py/`) only reach the browser after `npm run bundle:py`; `npm run dev` runs it on start.
-- The AI assistant calls NVIDIA's chat API through `netlify/functions/ai.mts` (in development, the Vite proxy in `vite.config.ts`). Users bring their own key; the relay stores nothing.
+- The AI assistant calls NVIDIA's chat API through the edge function `netlify/edge-functions/ai.ts` (in development, the Vite proxy in `vite.config.ts`). Users bring their own key; the relay stores nothing.
 - Sample-map previews in `public/samples` are rendered by the editor; regenerate `stats.json` with `UPDATE_STATS=1 npx vitest run tests/sampleStats.test.ts`.
