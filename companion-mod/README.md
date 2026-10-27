@@ -57,7 +57,9 @@ their game doesn't reload with yours.
 
 While you play a multiplayer match (not the lobby), the mod writes
 `playtest/<map>-<date>-<time>.jsonl` in its folder. Each load of the map,
-including a reload, starts a new file. Pausing pauses the recording.
+including a reload, starts a new file. Pausing pauses the recording. The
+newest 20 logs are kept (`playtest_keep`); `playtest/index.txt` lists them,
+and older ones are deleted when a new one starts.
 
 Each line is one event, as JSON, with `t` (seconds since the recording
 started), `map`, `pos` (x, y, z in game metres) and `heading`:
@@ -78,6 +80,9 @@ Press **End** wherever something is wrong (a wall you can't see, a gap, a bad
 spawn) and SR1 Map Studio shows the spot. The mod only reads the game's
 memory; it changes nothing. Turn it off with `playtest_log = false`. Old logs
 can be deleted at any time.
+
+Keys (move keys for `stuck`, End for `mark`) only count while the game window
+has focus, so typing in SR1 Map Studio or anywhere else logs nothing.
 
 Example:
 
@@ -118,6 +123,7 @@ Edit `mod.ini` in the mod's folder:
 | `watch_folder` | `""` | The map's folder in `dist/maps` (for example `Studio Test`), if the mod can't find it by itself. |
 | `hud_messages` | `false` | Show "Map reloaded" on the screen. |
 | `playtest_log` | `true` | Record each match to `playtest/` (see Playtest log). |
+| `playtest_keep` | `20` | How many playtest logs to keep (`0` = all). |
 | `debug` | `false` | Write every step to `mods/wml.log`. |
 
 ## Troubleshooting
