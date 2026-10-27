@@ -22,6 +22,7 @@ import { attachHealthOverlay } from './health'
 import { attachGroundTools } from './groundTools'
 import { dropHasMap } from '../lib/mapFolder/files'
 import { openMapDrop } from '../lib/mapFolder/store'
+import { coarsePointer } from '../lib/touch'
 
 let active: Viewer | null = null
 /** The editor's viewer (for camera center, snapping and thumbnails). */
@@ -29,7 +30,7 @@ export const getViewer = () => active
 
 const TAB_FOR = { item: 'scene', marker: 'spawns', light: 'lights' } as const
 /** Touch screen without a mouse (tablets, phones). */
-const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches
+const coarse = coarsePointer()
 
 /** With Snap on, click-placed things land on the grid. */
 function snapped(p: Vec3): Vec3 {

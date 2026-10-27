@@ -15,6 +15,7 @@ import { runHealthCheck, stopHealthCheck, useHealth, useHealthStale, type Overla
 import { MOVE_COLORS, RISK_COLORS } from './healthOverlay'
 import { BOTS } from '../lib/analysis/analyze'
 import type { HealthReport, MoveFinding, MoveKind, SpawnReport, TeamStats } from '../lib/analysis/types'
+import { fmtM } from '../lib/units'
 
 const OVERLAYS: { kind: OverlayKind; label: string; title: string; advanced?: boolean }[] = [
   { kind: 'sight', label: 'Sight lines', title: 'How much of the map sees each spot, standing, from close enough to hit it (most guns: about 50 m); red lines are the longest sight lines (sniper lanes)' },
@@ -354,7 +355,7 @@ function Fairness({ r }: { r: HealthReport }) {
   )
 }
 
-const metres = (v: number | null) => (v === null ? '–' : `${v} m`)
+const metres = (v: number | null) => fmtM(v)
 
 function SightAndFlow({ r }: { r: HealthReport }) {
   return (

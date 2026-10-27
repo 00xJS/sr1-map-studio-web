@@ -5,7 +5,7 @@ import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } f
 import type { Walker } from '../editor/walk'
 
 /** A touch screen is the main pointer (phones, tablets). */
-export const touchFirst = () => typeof window !== 'undefined' && (window.matchMedia?.('(pointer: coarse)').matches || navigator.maxTouchPoints > 1)
+export { touchFirst } from '../lib/touch'
 
 /** Keeps a finger's moves coming to the control it started on, even when it slides off. */
 const capture = (e: ReactPointerEvent<Element>) => { try { e.currentTarget.setPointerCapture(e.pointerId) } catch { /* pointer already gone */ } }
