@@ -42,6 +42,16 @@ export const SHORT_MAX_RISER = 0.9
 export const SINGLE_MAX_RISER = 1.3
 export const SINGLE_DEG = 35
 const TOP_DEPTH = 2
+/**
+ * Giant steps (a castle's grand stairs, a grandstand, stairs on a map scaled up): risers up to this tall (2.2 m) and
+ * treads up to three times their rise count as stairs, in a flight (two only at a gentle slope, see GIANT_PAIR_DEG);
+ * one such step alone is a ledge or a wall.
+ */
+export const GIANT_RISER = 4.4
+/** Two giant steps alone get a ramp only at this slope or gentler. */
+const GIANT_PAIR_DEG = 35
+/** Curved stairs: each step may turn up to about 30° from the one below it; each then gets its own stretch of ramp. */
+const TURN_DOT = 0.85
 /** Narrowest stairs given a ramp (1 m: a player is about 0.85 m across). */
 export const MIN_WIDTH = 2
 /** The ramp sits this far above the nosings, so the steps' edges never poke through it. */
@@ -80,7 +90,7 @@ export function findStairs(tris: Float32Array, flags?: Uint8Array): StairRun[] {
   if (!n) return []
   const fl = flags ?? new Uint8Array(n).fill(SOLID)
   const bvh = new Bvh(tris, fl)
-  const risers = findRisers(tris, fl, bvh)
+  const risers = findRisers(tris, fl, bvh, GIANT_RISER)
 
   const ys: number[] = [], hit: number[] = []
   // Floor at height y, open above it for a player's height (not the ground under a block, inside something solid).
@@ -106,7 +116,7 @@ export function findStairs(tris: Float32Array, flags?: Uint8Array): StairRun[] {
 }
 
 /** Every step too tall to walk up: one riser per step, with the floor at its foot and its top (editor units). */
-export function findRisers(tris: Float32Array, fl: Uint8Array, bvh = new Bvh(tris, fl)): Riser[] {
+export function findRisers(tris: Float32Array, fl: Uint8Array, bvh = new Bvh(tris, fl), maxRiser = MAX_RISER): Riser[] {
   const n = tris.length / 9
   const ys: number[] = [], hit: number[] = []
   const floorAt = (x: number, z: number, y: number, tol: number) => {
@@ -115,7 +125,7 @@ export function findRisers(tris: Float32Array, fl: Uint8Array, bvh = new Bvh(tri
   }
   /** The first floor below height y at (x, z), down to a riser's height under it, or null. */
   const floorBelow = (x: number, z: number, y: number) => {
-    bvh.column(x, z, y, y - MAX_RISER - 0.1, SOLID, ys, hit)
+    bvh.column(x, z, y, y - maxRiser - 0.1, SOLID, ys, hit)
     return ys.length ? ys[0] : null
   }
 
@@ -151,7 +161,7 @@ export function findRisers(tris: Float32Array, fl: Uint8Array, bvh = new Bvh(tri
       const fx = hx * sign, fz = hz * sign
       const cx = s * hx + tm * px, cz = s * hz + tm * pz
       const yb = floorBelow(cx + fx * 0.3, cz + fz * 0.3, yt - 0.02)
-      if (yb === null || yt - yb < MIN_RISER || yt - yb > MAX_RISER || low > yb + 0.08) continue
+      if (yb === null || yt - yb < MIN_RISER || yt - yb > maxRiser || low > yb + 0.08) continue
       if (!floorAt(cx - fx * 0.3, cz - fz * 0.3, yt, 0.08)) continue
       const up: [number, number] = [-fx, -fz]
       const across = [-up[1], up[0]]
@@ -180,13 +190,19 @@ const chains = new WeakMap<Riser[], Riser[][]>()
 function flights(risers: Riser[]): StairRun[] {
   const overlap = (a: Riser, b: Riser) => Math.min(a.t1, b.t1) - Math.max(a.t0, b.t0)
   const next = risers.map((a) => {
+    const [ax, az] = middle(a)
     let best = -1, bestD = Infinity
     risers.forEach((b, j) => {
-      if (b === a || a.up[0] * b.up[0] + a.up[1] * b.up[1] < 0.99) return
+      const dot = a.up[0] * b.up[0] + a.up[1] * b.up[1]
+      // (A face too narrow to walk up, the side of a step or a bit of trim, never carries a flight on.)
+      if (b === a || dot < TURN_DOT || b.t1 - b.t0 < MIN_WIDTH) return
       if (Math.abs(b.yb - a.yt) > 0.1) return
-      const d = b.r - a.r
-      if (d < MIN_TREAD || d > MAX_TREAD) return
-      if (overlap(a, b) < 0.5 * Math.min(a.t1 - a.t0, b.t1 - b.t0)) return
+      // How far on it is up the stairs, and how far to the side.
+      const [bx, bz] = middle(b)
+      const d = (bx - ax) * a.up[0] + (bz - az) * a.up[1], side = Math.abs(-(bx - ax) * a.up[1] + (bz - az) * a.up[0])
+      if (d < MIN_TREAD || d > Math.max(MAX_TREAD, 3 * (a.yt - a.yb))) return
+      // Straight on: side by side with it. Turning (a curved stair): its middle within the step's width.
+      if (dot >= 0.99 ? overlap(a, b) < 0.5 * Math.min(a.t1 - a.t0, b.t1 - b.t0) : side > Math.max(a.t1 - a.t0, b.t1 - b.t0) / 2) return
       if (d < bestD) { bestD = d; best = j }
     })
     return best
@@ -203,14 +219,46 @@ function flights(risers: Riser[]): StairRun[] {
       chain.push(risers[j])
     }
     if (chain.length < 2) return
-    const run = rampOver(chain)
-    if (!run) return
-    // A run that can't take one ramp (too narrow where its steps overlap, too steep): its steps may be single steps.
-    runs.push(run)
+    // Straight (every step within a couple of degrees of the one below): one ramp over the nosings, or, where that
+    // doesn't fit (a slow turn), a stretch per step as on a curved flight.
+    const straight = chain.every((c, k) => k === 0 || c.up[0] * chain[k - 1].up[0] + c.up[1] * chain[k - 1].up[1] >= 0.999)
+    const one = straight ? rampOver(chain) : null
+    // (Two steps alone get one ramp or none: a stretch per step needs a flight of three to be sure it's stairs.)
+    const made = one ? [one] : chain.length >= 3 ? curvedRamps(chain) : []
+    // A run that can't take a ramp (too narrow where its steps overlap, too steep): its steps may be single steps.
+    if (!made.length) return
+    runs.push(...made)
     found.push(chain)
     chain.forEach((c) => inFlight.add(c))
   })
   return runs
+}
+
+/** A riser's middle in the world (x, z). */
+function middle(r: Riser): [number, number] {
+  const tm = (r.t0 + r.t1) / 2
+  return [r.up[0] * r.r - r.up[1] * tm, r.up[1] * r.r + r.up[0] * tm]
+}
+
+/**
+ * A curved flight: one stretch of ramp per step, each from the nosing below it up to its own, as wide as the step and
+ * turned with it, so together they follow the curve. None when a step is too narrow or too steep for one.
+ */
+function curvedRamps(chain: Riser[]): StairRun[] {
+  // How far b is on from a, up the stairs as a faces (how the flight was linked).
+  const along = (a: Riser, b: Riser) => { const [ax, az] = middle(a), [bx, bz] = middle(b); return (bx - ax) * a.up[0] + (bz - az) * a.up[1] }
+  const out: StairRun[] = []
+  for (let k = 0; k < chain.length; k++) {
+    const c = chain[k], width = c.t1 - c.t0, rise = c.yt - c.yb
+    // The tread in front of it: the one below, or (the first step) the next one's.
+    const tread = k > 0 ? along(chain[k - 1], c) : along(c, chain[1])
+    const slopeDeg = (Math.atan(rise / tread) * 180) / Math.PI
+    if (width < MIN_WIDTH || slopeDeg > MAX_RAMP_DEG) return []
+    const tm = (c.t0 + c.t1) / 2, across = [-c.up[1], c.up[0]]
+    const at = (r: number, y: number): Vec3 => [c.up[0] * r + across[0] * tm, y + LIFT, c.up[1] * r + across[1] * tm]
+    out.push({ up: c.up, steps: 1, rise, tread, from: at(c.r - tread, c.yb), to: at(c.r, c.yt), width, slopeDeg })
+  }
+  return out
 }
 
 /** How often along a single step its floors are checked (units). */
@@ -259,7 +307,9 @@ function rampOver(chain: Riser[]): StairRun | null {
   const toe = first.r - (first.yt - first.yb) / slope
   const slopeDeg = (Math.atan(slope) * 180) / Math.PI
   if (slopeDeg > MAX_RAMP_DEG) return null
-  if (chain.length === 2 && (slopeDeg > SHORT_MAX_DEG || chain.some((c) => c.yt - c.yb > SHORT_MAX_RISER + 0.04))) return null
+  const giant = chain.some((c) => c.yt - c.yb > MAX_RISER + 1e-6)
+  // Two steps need stair proportions; two giant steps (a podium's, a grandstand's) a gentle slope and room to walk up.
+  if (chain.length === 2 && (giant ? slopeDeg > GIANT_PAIR_DEG || width < 2 * MIN_WIDTH : slopeDeg > SHORT_MAX_DEG || chain.some((c) => c.yt - c.yb > SHORT_MAX_RISER + 0.04))) return null
   const across: [number, number] = [-up[1], up[0]]
   const tm = (t0 + t1) / 2
   const at = (r: number, y: number): Vec3 => [up[0] * r + across[0] * tm, y + LIFT, up[1] * r + across[1] * tm]

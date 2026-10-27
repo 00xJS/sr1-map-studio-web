@@ -101,6 +101,31 @@ describe('ramps over steps too tall to walk up', () => {
     for (const r of runs) expect(Math.abs((r.from[0] + r.to[0]) / 2)).toBeGreaterThan(r.width / 2)
   })
 
+  it("ramps giant stairs (a castle's 1 m steps) in a flight, but not one tall ledge or a pair of steep ones", () => {
+    const giant = findStairs(stairs(6, 2, 4, 8))
+    expect(giant).toHaveLength(1)
+    expect(giant[0].steps).toBe(6)
+    expect(giant[0].slopeDeg).toBeCloseTo(26.6, 0)
+    // One 1 m ledge: a wall to climb, not a step.
+    expect(findStairs(stairs(1, 2, 4, 8)).filter((r) => r.rise > 1.5)).toHaveLength(0)
+    // Two giant steps only at a gentle slope.
+    expect(findStairs(stairs(2, 2, 4, 8))).toHaveLength(1)
+    expect(findStairs(stairs(2, 2, 1.6, 8)).filter((r) => r.steps === 2)).toHaveLength(0)
+  })
+
+  it('follows curved stairs with a stretch of ramp per step', () => {
+    // A spiral: 0.5 m steps, each turned 15° about a centre 6 units away, 4 units wide.
+    const tris = [...box([-60, -1, -60], [60, 0, 60])]
+    const n = 10, rise = 1, R0 = 4, R1 = 8
+    for (let k = 0; k < n; k++) tris.push(...box([R0, 0, -0.8], [R1, (k + 1) * rise, 0.8], k * 15))
+    const runs = findStairs(Float32Array.from(tris))
+    const flight = runs.filter((r) => r.steps === 1 && r.tread > 0)
+    expect(flight.length).toBeGreaterThanOrEqual(n - 2)
+    // Each stretch faces its own step's way: they turn with the stair.
+    const headings = new Set(flight.map((r) => Math.round((Math.atan2(r.up[0], r.up[1]) * 180) / Math.PI / 15)))
+    expect(headings.size).toBeGreaterThan(5)
+  })
+
   it("finds the editor's own Stairs shape once it's scaled up past a step, and not before", () => {
     // The shape's own steps are always low enough; an object scaled up (a converted or scaled-up map) is what has tall ones.
     const tris = (size: V, scale = 1) => {
@@ -164,14 +189,14 @@ describe('ramps travel as recipes', () => {
 
 describe('maps with another world scale', () => {
   it('measures steps in game metres: the same stairs at 0.25 m a unit are found and handed back in its own units', () => {
-    // 0.4 m steps on a map at 0.25 m per unit are 1.6 units tall there; the finder works in 0.5 m units.
+    // 1.25 m steps (a grand stair) on a map at 0.25 m per unit are 5 units tall there; the finder works in 0.5 m units.
     const k = 0.25 / 0.5
-    const tris = stairs(6, 1.6, 2.4).map((v) => v * k)
+    const tris = stairs(6, 5, 6).map((v) => v * k)
     const runs = scaleRuns(findStairs(tris), 1 / k)
     expect(runs).toHaveLength(1)
-    expect(runs[0].rise).toBeCloseTo(1.6, 2)
+    expect(runs[0].rise).toBeCloseTo(5, 2)
     expect(runs[0].width).toBeCloseTo(4, 2)
-    // Read as if it were 0.5 m a unit, the same geometry would be 0.8 m steps, too tall to count: missed (the bug this fixes).
-    expect(findStairs(stairs(6, 1.6, 2.4))).toHaveLength(0)
+    // Read as if it were 0.5 m a unit, the same geometry would be 2.5 m steps, taller than any stair: missed (the bug this fixes).
+    expect(findStairs(stairs(6, 5, 6))).toHaveLength(0)
   })
 })
