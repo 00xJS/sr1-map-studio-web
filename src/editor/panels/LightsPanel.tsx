@@ -1,4 +1,4 @@
-import { useEditor } from '../store'
+import { thingKey, useEditor } from '../store'
 import * as act from '../actions'
 import { getViewer } from '../Viewport'
 import { Check, Field, NumberInput, Vec3Input, toastError } from '../../ui'
@@ -26,11 +26,11 @@ export function LightsPanel() {
         </div>
         <div className="list">
           {project.lights.map((x, i) => (
-            <div key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} onClick={() => useEditor.getState().select({ kind: 'light', index: i })}>
+            <button type="button" key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} aria-pressed={i === index} onClick={() => useEditor.getState().select({ kind: 'light', index: i })}>
               <span className="swatch" style={{ background: toHex(x.color), opacity: x.enabled ? 1 : 0.35 }} />
               <span className="grow">{x.name}</span>
               <span className="meta">{+(x.range * project.settings.world_scale).toFixed(1)} m</span>
-            </div>
+            </button>
           ))}
           {!project.lights.length && <div className="list-item faint">No lights.</div>}
         </div>
@@ -45,7 +45,7 @@ function LightEditor({ l, index }: { l: Light; index: number }) {
   const update = useEditor((s) => s.update)
   const scale = useEditor((s) => s.project!.settings.world_scale)
   const m = (v: number) => +(v * scale).toFixed(1)
-  const set = (label: string, fn: (d: Light) => void, merge?: string) => update(label, (d) => { fn(d.lights[index]) }, merge ? { merge: merge + index } : undefined)
+  const set = (label: string, fn: (d: Light) => void, merge?: string) => update(label, (d) => { fn(d.lights[index]) }, merge ? { merge: merge + thingKey('light', index) } : undefined)
   return (
     <div className="group">
       <div className="row between"><span className="section-title">Selected light</span><button className="sm danger" onClick={act.removeSelected}>Remove</button></div>

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
-import { useEditor } from '../store'
+import { thingKey, useEditor } from '../store'
 import * as act from '../actions'
-import { Check, Field, FileButton, NumberInput, Vec3Input, confirmDialog, infoDialog, toastError, useBusy } from '../../ui'
+import { Check, Field, FileButton, NumberInput, Status, Vec3Input, confirmDialog, infoDialog, toastError, useBusy } from '../../ui'
+import { statusParen, triedInGame } from '../../lib/featureStatus'
 import { catalogs } from '../../lib/catalogs'
 import { isCustomNative, isGlass, isProp, type SceneItem, type Vec3 } from '../../lib/project'
 import { loadModel } from '../../lib/assets'
@@ -44,14 +45,14 @@ export function ScenePanel() {
         </div>
         <div className="list" role="listbox">
           {items.map((x, i) => (
-            <div key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} onClick={() => useEditor.getState().select({ kind: 'item', index: i })}>
+            <button type="button" key={x.uid} className={'list-item' + (i === index ? ' selected' : '')} aria-pressed={i === index} onClick={() => useEditor.getState().select({ kind: 'item', index: i })}>
               <span className="faint mono">{String(i).padStart(2, '0')}</span>
               <span className="grow" style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{x.name}</span>
               {i === 0 && <span className="chip">base</span>}
               {nativeTag(x) && <span className="tag-native">{nativeTag(x)}</span>}
               {x.collision_disabled && <span className="tag-warn">no collision</span>}
               {x.swimmable_water && <span className="tag-native">water</span>}
-            </div>
+            </button>
           ))}
           {!items.length && <div className="list-item faint">No objects yet. Open a base map to begin.</div>}
         </div>
@@ -85,7 +86,7 @@ function ObjectEditor({ it, index, step }: { it: SceneItem; index: number; step:
   const fixedGlass = isGlass(it) && !isCustomNative(it)
   const native = isGlass(it)
   const set = (label: string, fn: (d: SceneItem) => void, merge?: string) =>
-    update(label, (d) => { fn(d.scene_items[index] as SceneItem) }, merge ? { merge: merge + index } : undefined)
+    update(label, (d) => { fn(d.scene_items[index] as SceneItem) }, merge ? { merge: merge + thingKey('item', index) } : undefined)
 
   return (
     <>
@@ -121,7 +122,7 @@ function ObjectEditor({ it, index, step }: { it: SceneItem; index: number; step:
           <Check checked={!!it.double_sided} onChange={(v) => set('Two-sided', (d) => { d.double_sided = v })}>Show both sides of this object (export)</Check>
           <Check checked={!it.collision_disabled} onChange={(v) => set('Collision', (d) => { d.collision_disabled = !v })}>Solid collision for this object</Check>
           <Check checked={!!it.swimmable_water} onChange={(v) => set('Swimmable water', (d) => { d.swimmable_water = v })} title={waterHint(it)}>
-            Swimmable water <span className="chip">new, untested</span>
+            Swimmable water <Status id="water" />
           </Check>
           {it.swimmable_water && <span className="faint small">{waterHint(it)}</span>}
           <CollisionFaces it={it} index={index} />
@@ -221,14 +222,14 @@ function NativeControls({ it, index }: { it: SceneItem; index: number }) {
         <button className="sm" disabled={busy || (glass && !custom)} onClick={() => run(() => act.applyNativeProp(index, behavior))}>Apply</button>
       </div>
       <p className="faint small">{catalogs.prop_presets[behavior]?.description} Keeps your mesh and texture. One material, 1–{lim.max_native_triangles.toLocaleString()} triangles, {lim.min_native_axis}–{lim.max_native_axis} game units per axis. Up to {lim.max_native_objects} native props and glass panes combined.</p>
-      <span className="section-title">Breakables (experimental)</span>
+      <span className="section-title">Breakables <Status id="breakable_glass" /></span>
       <div className="row wrap">
         <button className="sm" disabled={busy || (glass && !custom)} onClick={() => run(async () => {
-          if (!custom && !(await confirmDialog('Experimental breakable glass', 'Your mesh, position, rotation and size are kept. The exporter generates an experimental fitted Havok box hull. This is structurally tested, not verified in game. Back up your map and test in a private match.', { confirm: 'Convert' }))) return
+          if (!custom && !triedInGame('breakable_glass') && !(await confirmDialog('Experimental breakable glass', 'Your mesh, position, rotation and size are kept. The exporter generates an experimental fitted Havok box hull. This is structurally tested, not verified in game. Back up your map and test in a private match.', { confirm: 'Convert' }))) return
           await act.convertBreakable(index, 'glass')
         })}>Breakable glass</button>
         <button className="sm" disabled={busy || (glass && !custom)} onClick={() => run(async () => {
-          if (!custom && !(await confirmDialog('Experimental breakable wood', 'Wood keeps your mesh with a solid look and the _wo (wood) texture suffix. In the game it becomes a loose object that disappears when it breaks (choose how below), with no debris. The fitted Havok box is not verified in game.', { confirm: 'Convert' }))) return
+          if (!custom && !triedInGame('breakable_wood') && !(await confirmDialog('Experimental breakable wood', 'Wood keeps your mesh with a solid look and the _wo (wood) texture suffix. In the game it becomes a loose object that disappears when it breaks (choose how below), with no debris. The fitted Havok box is not verified in game.', { confirm: 'Convert' }))) return
           await act.convertBreakable(index, 'wood')
         })}>Breakable wood</button>
         {glass && <button className="sm" disabled={busy} onClick={() => run(() => act.returnStatic(index))}>Return to static</button>}
@@ -255,7 +256,7 @@ function ProfilePreset({ it, index }: { it: SceneItem; index: number }) {
   if (!presets) return null
   const value = presets.some(([p]) => p === it.native_profile) ? it.native_profile! : presets[0][0]
   return (
-    <Field label={wood ? 'How it breaks (new, untested)' : 'Weight preset (new, untested)'}
+    <Field label={(wood ? 'How it breaks' : 'Weight preset') + statusParen(wood ? 'breakable_wood' : 'physics_props')}
       hint="Stock presets from the game's own object table. Health and weight come with each preset: a map can't set its own numbers.">
       <select value={value} onChange={(e) => update('Object preset', (d) => { d.scene_items[index].native_profile = e.target.value })}>
         {presets.map(([p, label]) => <option key={p} value={p}>{label}</option>)}

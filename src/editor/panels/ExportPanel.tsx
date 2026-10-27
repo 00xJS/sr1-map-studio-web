@@ -4,7 +4,8 @@ import { useEditor } from '../store'
 import { useExport } from '../useExport'
 import { ExportProgressBar } from '../ExportProgressBar'
 import * as act from '../actions'
-import { Check, Field, FileButton, NumberInput, infoDialog, toastError } from '../../ui'
+import { Check, Field, FileButton, NumberInput, Status, infoDialog, toastError } from '../../ui'
+import { statusSentence, triedInGame } from '../../lib/featureStatus'
 import { minimapMode, minimapPad } from '../../lib/minimap'
 import { AMBIENCE_OPTIONS, LOADING_SIZE, ambienceHint, loadingMode, type LoadingMode } from '../../lib/mapFeatures'
 import { getViewer } from '../Viewport'
@@ -63,7 +64,7 @@ export function ExportPanel() {
             <input value={s.display_name} maxLength={40} onChange={(e) => set('display_name', e.target.value, true)} />
           </Field>
         </div>
-        <Field label="Description" hint="The map's help text in the game's menus (new, untested), written for every game language. One paragraph; blank gives a short default.">
+        <Field label="Description" hint={"The map's help text in the game's menus, written for every game language. One paragraph; blank gives a short default." + statusSentence('map_description')}>
           <textarea rows={2} maxLength={400} value={project.description} onChange={(e) => update('Description', (d) => { d.description = e.target.value }, { merge: 'description' })} />
         </Field>
         <span className="small muted">Game modes</span>
@@ -90,13 +91,13 @@ export function ExportPanel() {
           </table>
         )}
         <Check checked={s.always_clear_weather} onChange={(v) => set('always_clear_weather', v)}
-          title="On: every match is noon with clear skies (what all custom maps do today). Off: the game rolls the time of day and weather each match, like retail maps; not yet tested on custom maps.">
+          title={"On: every match is noon with clear skies (what all custom maps do today). Off: the game rolls the time of day and weather each match, like retail maps." + statusSentence('random_weather')}>
           Always clear weather (noon, clear skies)
         </Check>
-        {!s.always_clear_weather && <span className="small muted">Each match gets a random time (noon, midnight, dusk or dawn) and weather. Untested on custom maps: check your sky and lighting at night.</span>}
+        {!s.always_clear_weather && <span className="small muted">Each match gets a random time (noon, midnight, dusk or dawn) and weather.{triedInGame('random_weather') ? '' : ' Untested on custom maps: check your sky and lighting at night.'}</span>}
         {!s.always_clear_weather && (
           <Check checked={s.dry_interiors !== false} onChange={(v) => set('dry_interiors', v)}
-            title="The export finds the floor that has a roof or ceiling over it and adds rain blockers there. New, not yet tried in game.">
+            title={'The export finds the floor that has a roof or ceiling over it and adds rain blockers there.' + statusSentence('dry_interiors')}>
             Keep interiors dry
           </Check>
         )}
@@ -123,7 +124,7 @@ export function ExportPanel() {
       <div className="group">
         <span className="section-title">Sky &amp; minimap</span>
         <GameSkySetting />
-        <Field label="Native sky" hint={hasGroup(pack, 'sky') ? 'Experimental: stages the original sky resource pair with your map.' : 'Native sky presets are not in your data pack.'}>
+        <Field label="Native sky" hint={hasGroup(pack, 'sky') ? 'Stages the original sky resource pair with your map.' + statusSentence('native_sky') : 'Native sky presets are not in your data pack.'}>
           <select value={s.native_sky} disabled={!hasGroup(pack, 'sky')} onChange={(e) => set('native_sky', e.target.value as ProjectSettings['native_sky'])}>
             <option value="">None</option>
             <option value="sr_alwayshwyf01">sr_alwayshwyf01 (Downtown / Factory)</option>
@@ -137,7 +138,7 @@ export function ExportPanel() {
       </div>
 
       <div className="group">
-        <span className="section-title">Loading screen &amp; sound <span className="chip">new, untested</span></span>
+        <span className="section-title">Loading screen &amp; sound <Status id="loading_screen" /></span>
         <LoadingSetting />
         <Field label="Background sound" hint={ambienceHint(s.ambience)}>
           <select value={s.ambience || ''} onChange={(e) => set('ambience', e.target.value)}>
@@ -191,7 +192,7 @@ function SurfaceSetting({ pack }: { pack: DataPackStatus | null }) {
   const ready = hasGroup(pack, 'surface') && hasGroup(pack, 'sky')
   return (
     <div className="group">
-      <span className="section-title">Surfaces <span className="chip">experimental</span></span>
+      <span className="section-title">Surfaces <Status id="surface_registration" /></span>
       <Check checked={!!s.surface_preload} disabled={!ready && !s.surface_preload} onChange={(v) => update('Export setting', (d) => { d.settings.surface_preload = v })}
         title="Copies the map's textures into an extra environment file pair that the game loads before the map, so each texture's surface (Materials: Wood, Metal, Grass…) decides its footsteps and bullet impacts. Uses a full-size city file.">
         Register surface impacts early
@@ -200,7 +201,7 @@ function SurfaceSetting({ pack }: { pack: DataPackStatus | null }) {
         {!ready && !s.surface_preload
           ? 'Needs the surface template and the native sky presets in your data pack (Data pack page).'
           : s.surface_preload
-            ? `Adds two sf_… files to the map's levels folder (${s.native_sky === 'sr_alwayshwyf01' ? 'about 40' : 'about 60'} MB: the stock ${s.native_sky || 'sr_custom000001'} sky with copies of your textures); install them with the map. Map file names: 10 characters at most. The game's own sky option steps aside: this brings its sky. Not yet tried in game.`
+            ? `Adds two sf_… files to the map's levels folder (${s.native_sky === 'sr_alwayshwyf01' ? 'about 40' : 'about 60'} MB: the stock ${s.native_sky || 'sr_custom000001'} sky with copies of your textures); install them with the map. Map file names: 10 characters at most. The game's own sky option steps aside: this brings its sky.${statusSentence('surface_registration')}`
             : "Off: textures keep their surface names, but the game may read them before they load and treat every surface as concrete."}
       </span>
     </div>
@@ -223,7 +224,7 @@ function GameSkySetting() {
       </Check>
       {s.native_sky || s.surface_preload
         ? <span className="faint small">Off while {s.native_sky ? 'a native sky preset is chosen: the preset' : 'early surface registration is on: its environment'} brings its own sky.</span>
-        : on && ready === true ? <span className="faint small">Read from {MP_PACK} in your game at export. New: not yet tried in game.</span>
+        : on && ready === true ? <span className="faint small">Read from {MP_PACK} in your game at export.{statusSentence('game_sky')}</span>
         : on && ready === false ? (
           <>
             <span className="faint small">Needs your Saints Reborn folder at export; without it the fake sky image is used.</span>

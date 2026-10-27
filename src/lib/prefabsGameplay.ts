@@ -6,20 +6,10 @@
 // jumps about 1.7, climbs ledges up to about 6 on their own and walks up steps of
 // 0.6 at most. Low cover hides a crouching player; high cover hides a standing one.
 import { CY, PB, box, cyl, lying, ramp, stairs, turn, type Part, type Tex } from './sampleKit'
-import { group, local, type ParamDef, type Params, type PrefabDef } from './prefabs'
+import { type Params, type PrefabDef } from './prefabs'
+import { pf, pfp, num, sel, type Lf } from './prefabKit'
 
-type Lf = (dx: number, dy: number, dz: number) => [number, number, number]
 
-const id = (name: string, x: number, y: number, z: number) => `${name}@${+x.toFixed(2)},${+y.toFixed(2)},${+z.toFixed(2)}`
-const pf = (name: string, make: (L: Lf) => Part[]) =>
-  (x: number, z: number, rot: number, y: number) => group(id(name, x, y, z), local(x, y, z, rot, make))
-const pfp = (name: string, params: ParamDef[], make: (L: Lf, p: Params) => Part[]) => ({
-  params,
-  make: (x: number, z: number, rot: number, y: number, given?: Params) => {
-    const p = Object.fromEntries(params.map((d) => [d.key, given?.[d.key] ?? d.default]))
-    return group(id(name, x, y, z), local(x, y, z, rot, (L) => make(L, p)))
-  },
-})
 
 /** Builds a piece (in its own frame) at (x, z), turned by r, inside another piece's frame. */
 const at = (L: Lf, x: number, z: number, r: number, make: (L: Lf) => Part[], y = 0): Part[] => {
@@ -31,8 +21,6 @@ const row = (L: Lf, n: number, gap: number, make: (L: Lf, i: number) => Part[]):
 /** A piece placed round an arc of radius r about the origin, at heading a (its local −Z points outward). */
 const onArc = (L: Lf, r: number, a: number, make: (L: Lf) => Part[], y = 0): Part[] => { const [x, z] = turn(0, -r, a); return at(L, x, z, a, make, y) }
 
-const num = (key: string, label: string, min: number, max: number, def: number, step = 1): ParamDef => ({ key, label, kind: 'number', min, max, step, default: def })
-const sel = (key: string, label: string, options: [string, string][], def: string): ParamDef => ({ key, label, kind: 'select', options, default: def })
 
 /** Player sizes in units. */
 const LOW = 2.4, HIGH = 4.8

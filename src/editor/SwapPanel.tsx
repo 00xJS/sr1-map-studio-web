@@ -10,9 +10,9 @@ import { connect, loadIndex, useGameObjects } from '../lib/gameObjects/client'
 import { SWAP_HEADINGS, SWAP_WHY, swapOptions, swapPool, swapPrefabs, type SwapOption, type SwapSpot } from '../lib/gameObjects/swap'
 import { spotOf, swapItem, swappable } from './swapActions'
 import { NOTICE } from './GameObjectsTab'
+import { fmtM } from '../lib/units'
 
-const m = (v: number) => (v >= 10 ? Math.round(v) : +v.toFixed(1))
-const size = (o: { long: number; short: number; h: number }) => `${m(o.long)} × ${m(o.short)} × ${m(o.h)} m`
+const size = (o: { long: number; short: number; h: number }) => `${fmtM(o.long, '')} × ${fmtM(o.short, '')} × ${fmtM(o.h)}`
 
 export function SwapPanel({ it, index }: { it: SceneItem; index: number }) {
   const [open, setOpen] = useState(false)

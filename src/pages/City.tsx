@@ -250,13 +250,13 @@ export default function City() {
                 <span className="faint small"><span style={{ color: '#ff5a5a' }}>●</span> a raised floor the game may not treat as solid · <span style={{ color: '#ffb02e' }}>●</span> open top: no roof seen from above. These are candidates to check in game: part of the game's road and ground collision can't be read yet, so expect some false alarms, mostly on ramps and freeways.</span>
                 <div className="list" style={{ maxHeight: 360 }}>
                   {shown.slice(0, 300).map((h, i) => (
-                    <div key={i} className="list-item" onClick={() => setSel(around(h.x, h.z, Math.max(60, Math.max(h.w, h.d) / 2 + 30)))}>
-                      <span style={{ color: h.kind === 'fall' ? '#ff5a5a' : '#ffb02e' }}>●</span>
-                      <div className="grow">
-                        <div>{h.kind === 'fall' ? 'Floor you may fall through' : 'No roof'} · {h.area} m²</div>
-                        <div className="meta">{h.above.toFixed(0)} m above street{h.kind === 'fall' ? ` · ${h.drop !== undefined && Number.isFinite(h.drop) ? `drops ${h.drop.toFixed(0)} m` : 'nothing solid below'}` : ''} · at {h.x.toFixed(0)}, {h.z.toFixed(0)}</div>
-                      </div>
-                    </div>
+                    <button type="button" key={i} className="list-item" onClick={() => setSel(around(h.x, h.z, Math.max(60, Math.max(h.w, h.d) / 2 + 30)))}>
+                      <span style={{ color: h.kind === 'fall' ? 'var(--bad)' : 'var(--warn)' }}>●</span>
+                      <span className="grow col" style={{ gap: 0 }}>
+                        <span>{h.kind === 'fall' ? 'Floor you may fall through' : 'No roof'} · {h.area} m²</span>
+                        <span className="meta">{h.above.toFixed(0)} m above street{h.kind === 'fall' ? ` · ${h.drop !== undefined && Number.isFinite(h.drop) ? `drops ${h.drop.toFixed(0)} m` : 'nothing solid below'}` : ''} · at {h.x.toFixed(0)}, {h.z.toFixed(0)}</span>
+                      </span>
+                    </button>
                   ))}
                   {!shown.length && <div className="list-item faint">Nothing found here.</div>}
                 </div>
