@@ -8,6 +8,7 @@ import { checkModes, levelEntries } from './levels'
 import { BOR } from './retailModes'
 import { crateDebrisSpec } from './crateDebris'
 import { gameSkySpec } from './gameSky'
+import { exportedItems } from './layers'
 import { PICKUP_RESPAWN_MS, pickupRespawnMs } from './player'
 
 /**
@@ -49,7 +50,8 @@ export async function runExport(project: Project, onLog: (t: string) => void, on
   const gameSky = await gameSkySpec(project, onLog)
   const spec = {
     job,
-    scene_items: project.scene_items.map(strip),
+    // Hidden layers too, unless the project leaves them out (layers.ts).
+    scene_items: exportedItems(project).map(strip),
     markers: project.markers.map(strip),
     lights: project.lights.map(strip),
     base_name: s.base_name, world_scale: s.world_scale, mirror_x: s.mirror_x, flip_obj_v: s.flip_obj_v,

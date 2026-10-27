@@ -22,6 +22,7 @@ import { itemLook, lookContext } from './gameMaterial'
 import { NOON, type GameLight } from '../lib/gameLight'
 import { cappedFog, installFogCap } from './fogCap'
 import { syncVehicle } from './vehicleModels'
+import { hiddenSet, layerHidden } from '../lib/layers'
 
 /**
  * How the view is lit. 'game': as the game lights a multiplayer map (a warm sun with shadows, a cool fill, a flat
@@ -91,6 +92,8 @@ interface ItemNode {
   group: THREE.Group
   mesh: THREE.Mesh | null
   key: string // rebuild key: path + textures + flags
+  /** Hidden by its layer (layers.ts). */
+  layerOff?: boolean
   overlay: THREE.Mesh | null
   overlayKey: string
   path: string
@@ -812,6 +815,7 @@ export class Viewer {
   private syncItems() {
     const items = this.project?.scene_items || []
     const seen = new Set<string>()
+    const hidden = this.project ? hiddenSet(this.project) : new Set<string>()
     items.forEach((it, index) => {
       seen.add(it.uid)
       let node = this.items.get(it.uid)
@@ -822,6 +826,9 @@ export class Viewer {
         this.root.add(node.group)
       }
       node.group.userData.index = index
+      // Its layer hidden (layers.ts): out of the view, picking and the walk-through.
+      const off = layerHidden(hidden, it)
+      if (node.layerOff !== off) { node.layerOff = off; node.group.visible = !off }
       applyTransform(node.group, it)
       const key = this.itemKey(it, index)
       if (node.key !== key || node.path !== it.path) {

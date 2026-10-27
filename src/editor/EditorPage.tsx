@@ -16,6 +16,7 @@ import { autoVersion } from '../lib/versions'
 import { TOOL_KEYS, chooseTool } from './Tools'
 import * as act from './actions'
 import { ScenePanel } from './panels/ScenePanel'
+import { LayersPanel } from './panels/LayersPanel'
 import { AssetsPanel } from './panels/AssetsPanel'
 import { MaterialsPanel } from './panels/MaterialsPanel'
 import { MarkersPanel } from './panels/MarkersPanel'
@@ -40,7 +41,7 @@ const PublishDialog = lazy(() => import('./PublishDialog').then((m) => ({ defaul
 const ShareDialog = lazy(() => import('../play/ShareDialog').then((m) => ({ default: m.ShareDialog })))
 
 const TABS = [
-  ['scene', 'Objects'], ['assets', 'Library'], ['materials', 'Textures'], ['spawns', 'Spawns'], ['lights', 'Lights'], ['health', 'Health'], ['export', 'Map & export'],
+  ['scene', 'Objects'], ['layers', 'Layers'], ['assets', 'Library'], ['materials', 'Textures'], ['spawns', 'Spawns'], ['lights', 'Lights'], ['health', 'Health'], ['export', 'Map & export'],
 ] as const
 
 export default function EditorPage() {
@@ -223,6 +224,7 @@ function Editor() {
               </div>
               <div className="panel" data-tour="panel">
                 {tab === 'scene' && <ScenePanel />}
+                {tab === 'layers' && <LayersPanel />}
                 {tab === 'assets' && <AssetsPanel />}
                 {tab === 'materials' && <MaterialsPanel />}
                 {tab === 'spawns' && <MarkersPanel />}

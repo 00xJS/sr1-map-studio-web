@@ -29,6 +29,7 @@ import { RetailMarkerFields } from './RetailMarkerFields'
 import { VehiclePicker } from './VehiclePicker'
 import { openPrefabBrowser } from './PrefabBrowser'
 import { SwapPanel } from './SwapPanel'
+import { LayerField, LayersPanel } from './panels/LayersPanel'
 
 const TextureStudio = lazy(() => import('./TextureStudio').then((m) => ({ default: m.TextureStudio })))
 const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
@@ -119,6 +120,7 @@ function MapOverview({ onSamples, onPlay }: { onSamples: () => void; onPlay: () 
       </div>
 
       <AddThings />
+      {project.scene_items.length > 0 && <LayersPanel compact />}
       <Everything />
       <p className="faint small">Click anything in the map to change it here. Need every setting? <MoreOptions tab="scene">Advanced mode</MoreOptions></p>
     </>
@@ -244,6 +246,7 @@ function MultiInspector({ indices }: { indices: number[] }) {
           <span className="spacer" />
           <button className="sm danger" onClick={() => act.removeItems(selectedItems())}>Delete {items.length}</button>
         </div>
+        <LayerField indices={indices} />
         <SaveMine indices={indices} suggest={grouped ? 'My group' : 'My piece'} />
         <span className="faint small">{grouped ? 'A group: clicking any part picks the whole group. ' : ''}Drag the arrows to move them together. Shift+click an object to add or remove it.</span>
       </div>
@@ -267,6 +270,7 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
     <>
       <div className="group">
         <Field label="Name"><input value={it.name} onChange={(e) => set('Rename', (d) => { d.name = e.target.value }, 'name')} /></Field>
+        <LayerField indices={[index]} />
         <div className="row wrap">
           <button className="sm" onClick={() => turn(-90)} title="Turn 90° left">↺ Turn</button>
           <button className="sm" onClick={() => turn(90)} title="Turn 90° right">↻ Turn</button>

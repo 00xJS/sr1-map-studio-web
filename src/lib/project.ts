@@ -62,6 +62,8 @@ export interface SceneItem {
   game_look?: import('./gameObjects/lookFile').GameLookRef
   /** Items with the same group id are selected, moved and copied together. */
   group?: string
+  /** The layer it is in (layers.ts); unset: none. */
+  layer?: string
   [key: string]: unknown
 }
 
@@ -210,6 +212,10 @@ export interface Project {
   lights: Light[]
   files: Record<string, FileRef>
   remix_of?: RemixInfo
+  /** The layers' order and which are hidden (layers.ts); editor-only. */
+  layers?: import('./layers').LayerState[]
+  /** false: hidden layers are left out of the export. Unset: everything is exported. */
+  export_hidden_layers?: boolean
 }
 
 export const uid = () => crypto.randomUUID()
