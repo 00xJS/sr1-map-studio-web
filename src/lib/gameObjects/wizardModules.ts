@@ -733,7 +733,7 @@ export function settle(parts: Part[], layers: PartLayer[], how: (p: Part) => 'gr
   const round = parts.map((p, i) => (outside[i] && ground[i] && held[i] < 0 && inShell(p, 3 * M) ? p.at[1] - feet : NaN)).filter((v) => !isNaN(v)).sort((a, b) => a - b)
   const sinkBy = shells.length && round.length ? Math.min(MAX_SETTLE * M, Math.max(0, round[Math.floor(round.length / 2)])) : 0
   const lift = parts.map(() => NaN)
-  parts.forEach((p, i) => { if (!outside[i]) lift[i] = FLOOR - feet - sinkBy })
+  parts.forEach((_, i) => { if (!outside[i]) lift[i] = FLOOR - feet - sinkBy })
   // Bottom up, so what a model stood on has moved before it.
   const order = parts.map((_, i) => i).filter((i) => outside[i] && ground[i]).sort((a, b) => parts[a].at[1] - parts[b].at[1])
   for (const i of order) lift[i] = held[i] >= 0 && !isNaN(lift[held[i]]) ? lift[held[i]] : FLOOR - parts[i].at[1]
