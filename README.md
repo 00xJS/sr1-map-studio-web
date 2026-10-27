@@ -4,7 +4,7 @@
 
 ### ▶ [sr1-mapstudio.netlify.app](https://sr1-mapstudio.netlify.app)
 
-Nothing to install. Open the site, start a map, press **Play**.
+Nothing to set up. Open the site, start a map, press **Install in game**.
 
 ![The editor with Downtown Crossroads open](docs/screenshots/editor.jpg)
 
@@ -68,9 +68,9 @@ its own physics.
 
 ## Play it in the browser, share it by link
 
-Press **🎮 Play here** to play the map right in the browser: walk over weapon pickups to grab
+Press **🎮 Play in browser** to play the map right in the browser: walk over weapon pickups to grab
 them, and race the clock to collect every weapon or touch every Chains drop-off, with a minimap
-in the corner. On a phone, a thumb stick and buttons appear. Press **🔗 Share** for a link anyone
+in the corner. On a phone, a thumb stick and buttons appear. **Share** (in the ⋯ menu) gives a link anyone
 can open to play it too, with no game and no account. Links carry only the site's own generated
 and starter-library textures (never your pictures, never game files), so if your map uses your own
 images, Share tells you which and can swap them for a plain texture.
@@ -86,8 +86,10 @@ and one click undoes them. It runs on NVIDIA's free AI models with your own free
 
 ## Ready to play
 
-A checklist on the side tells you what the map still needs: ground to stand on, spawns, weapons,
-everything each game mode needs. When it's all green, press **Play**. Your map gets its own
+The **Check** tab lists what the map still needs and what is worth fixing, worst first: ground to
+stand on, spawns, weapons, everything each game mode needs, spawns that are easy to camp, stairs too
+tall to run up. Each line has its own fix, and **Fix all** does them in one step (one Undo takes it
+back). When it's all green, press **Install in game**. Your map gets its own
 minimap, drawn from above, and goes straight into your Saints Reborn maps folder in Chrome or Edge (or download it as
 a zip to share).
 
@@ -106,8 +108,9 @@ where you put them, and wooden crates can smash into boards, both read from your
 - **Your maps save automatically** in your browser. Sign in to keep them in the cloud and open them
   on another device.
 - **Bring your own models.** Import OBJ, GLB, glTF or FBX from Blender or any 3D app.
-- **Simple or Advanced.** Simple mode keeps things easy; Advanced shows every setting (glass and
-  breakables, movable props, collision, sky, weather and more).
+- **Every setting when you need it.** The side panel shows what most maps need; **More settings**
+  opens the rest (glass and breakables, movable props, collision, exact positions in metres), and
+  **Show all settings** in the ⋯ menu opens all of them. **Ctrl+K** finds any tool, prefab or setting.
 
 ---
 
