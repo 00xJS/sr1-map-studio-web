@@ -37,6 +37,15 @@ async function entryOf(it: SceneItem): Promise<GameObjectEntry | undefined> {
   return entryById(g.id) ?? (await loadIndex(), entryById(g.id))
 }
 
+/** A model file's box in its own frame (units). */
+async function boxOf(p: Project, path: string): Promise<{ min: Vec3; max: Vec3 }> {
+  const m = await loadModel(p, path)
+  const min: Vec3 = [Infinity, Infinity, Infinity], max: Vec3 = [-Infinity, -Infinity, -Infinity]
+  for (let i = 0; i < m.positions.length; i++) { const k = i % 3; min[k] = Math.min(min[k], m.positions[i]); max[k] = Math.max(max[k], m.positions[i]) }
+  if (!Number.isFinite(min[0])) throw new Error('empty model')
+  return { min, max }
+}
+
 /** Where an object stands: from its model's own box, or (a game model whose files aren't here) its library size. */
 export async function standOf(it: SceneItem, p: Project): Promise<Stand> {
   const e = await entryOf(it).catch(() => undefined)
@@ -44,11 +53,8 @@ export async function standOf(it: SceneItem, p: Project): Promise<Stand> {
   // Sunk into the floor as the city has it: the floor is that far above its lowest point.
   const sink = e && g ? sinkUnits(e, g.ws) * s : 0
   try {
-    const m = await loadModel(p, it.path)
+    const { min, max } = await boxOf(p, it.path)
     const pv = it.pivot ?? [0, 0, 0]
-    const min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity]
-    for (let i = 0; i < m.positions.length; i++) { const k = i % 3; min[k] = Math.min(min[k], m.positions[i]); max[k] = Math.max(max[k], m.positions[i]) }
-    if (!Number.isFinite(min[0])) throw new Error('empty model')
     const [dx, dz] = turn(((min[0] + max[0]) / 2 - pv[0]) * s, ((min[2] + max[2]) / 2 - pv[2]) * s, rot)
     return { at: [it.position[0] + dx, it.position[1] + (min[1] - pv[1]) * s + sink, it.position[2] + dz], ex: (max[0] - min[0]) * s, ez: (max[2] - min[2]) * s, h: (max[1] - min[1]) * s, rot }
   } catch (err) {
@@ -89,9 +95,14 @@ export async function swapItem(index: number, opt: SwapOption) {
     const id = opt.key.slice(5)
     const e = entryById(id) ?? (await loadIndex(), entryById(id))
     if (!e) throw new Error('That object is not in your game library any more. Rebuild the library (Prefabs → From my game).')
-    const [ex, ez] = extents(e)
-    const rot = fitTurn(st.ex, st.ez, st.rot, ex / ws, ez / ws)
-    made = await gameObjectItem(e, [st.at[0], st.at[1] - sinkUnits(e, ws), st.at[2]], rot, ws)
+    made = await gameObjectItem(e, [0, 0, 0], 0, ws)
+    // Its own box as cut out (the library knows which way only buildings run); its size from the library otherwise.
+    const [lx, lz] = extents(e)
+    const b = await boxOf(p, made.item.path).catch(() => ({ min: [-lx / ws / 2, 0, -lz / ws / 2] as Vec3, max: [lx / ws / 2, 0, lz / ws / 2] as Vec3 }))
+    const rot = fitTurn(st.ex, st.ez, st.rot, b.max[0] - b.min[0], b.max[2] - b.min[2])
+    const [dx, dz] = turn((b.min[0] + b.max[0]) / 2, (b.min[2] + b.max[2]) / 2, rot)
+    made.item.position = [st.at[0] - dx, st.at[1] - sinkUnits(e, ws), st.at[2] - dz]
+    made.item.rotation = [0, rot, 0]
   } else {
     const key = opt.key.slice(7)
     const b = ALL_PREFABS[key] && prefabBox(key)

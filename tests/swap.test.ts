@@ -99,6 +99,22 @@ describe('object swapper', () => {
     expect(opts.every((o) => o.why === 'fits')).toBe(true)
   })
 
+  it('offers only things the game stands the same way: no wall sign for a bench', () => {
+    const sits = { n: 10, ground: 0, wall: 10, roof: 0, hang: 0, inside: 0, back: [10, 0, 0, 0] as [number, number, number, number], ceiling: 0, lift: 1.5, open: [0, 0, 0, 0] as [number, number, number, number] }
+    const sign = entry('cafesign01', [1.9, 0.6, 0.9], { tris: 50, sits })
+    const opts = swapOptions(spotOf(bench), { models: swapPool([...lib, sign]) })
+    expect(opts.some((o) => o.key === 'game:cafesign01')).toBe(false)
+    expect(opts.some((o) => o.key === 'game:crate01')).toBe(true)
+  })
+
+  it('a plain piece is matched by its name: a sample map’s bench gets benches first', () => {
+    const prefabs: SwapPrefab[] = [{ key: 'bench', label: 'Park bench', category: 'Street', long: 2.1, short: 0.75, h: 1 }]
+    const opts = swapOptions({ long: 2.6, short: 0.7, h: 1, label: 'Bench' }, { models: pool, prefabs })
+    expect(opts.find((o) => o.key === 'prefab:bench')?.why).toBe('kind')
+    expect(opts.find((o) => o.key === 'game:bench01a')?.why).toBe('kind')
+    expect(opts.find((o) => o.key === 'game:crate01')?.why).toBe('fits')
+  })
+
   it('turns the new thing so its long side goes the way the old one did', () => {
     // An old thing long along X at 30°; a new one long along Z goes in turned a quarter more.
     expect(fitTurn(4, 1, 30, 1, 4)).toBe(120)

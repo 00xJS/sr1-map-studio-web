@@ -53,6 +53,8 @@ export interface SwapModel {
   look: string
   /** Its name without copy numbers and variant letters ("14mailboxA01" -> "mailbox"). */
   stem: string
+  /** The game stands it on a floor (not on a wall or hanging), or it hasn't been seen placed. */
+  floor: boolean
 }
 
 /** A site prefab the swapper may offer, as built with its default settings. */
@@ -68,6 +70,9 @@ const NEVER = /railing|graffiti|decal|(^|\s)door$/i
 const CAP: Record<SwapWhy, number> = { art: 8, version: 12, kind: 16, fits: 24 }
 /** Most options of one name per heading (a wall of crates says nothing new). */
 const PER_NAME = 3
+
+/** Whether the game mostly stands a model on a floor rather than on a wall or hanging (sits.ts); true when unknown. */
+const onFloor = (e: GameObjectEntry) => !e.sits?.n || e.sits.ground + e.sits.roof >= e.sits.wall + e.sits.hang
 
 const lookOf = (e: GameObjectEntry) => `${e.size.map((v) => v.toFixed(1)).join(',')}|${[...e.tex].map((t) => t.toLowerCase()).sort().join(',')}`
 
@@ -99,7 +104,7 @@ export function swapPool(entries: GameObjectEntry[], ident: Identify = identify)
     const city = (x: GameObjectEntry) => (!x.where?.length || x.where.includes('city') ? 1 : 0)
     if (old && (city(old.e) > city(e) || (city(old.e) === city(e) && old.e.seen >= e.seen))) continue
     const [long, short, h] = e.size
-    byLook.set(look, { e, id, long, short, h, look, stem: stemOf(e.name) })
+    byLook.set(look, { e, id, long, short, h, look, stem: stemOf(e.name), floor: onFloor(e) })
   }
   const out = [...byLook.values()]
   if (ident === identify) pools.set(entries, out)
@@ -174,6 +179,8 @@ export function swapOptions(spot: SwapSpot, o: { models?: SwapModel[]; prefabs?:
   const own = spot.entry, ownId = own ? (o.identify ?? identify)(own) : undefined
   const ownLook = own && lookOf(own), ownStem = own && stemOf(own.name)
   const ownPrefab = spot.prefab ? ALL_PREFABS[spot.prefab] : undefined
+  // Only what stands the way it stands, unless it is the same thing: a sign on a wall for a sign, a bench for a bench.
+  const floor = own ? onFloor(own) : true
   const found: (SwapOption & { name: string; seen: number })[] = []
   for (const m of o.models ?? []) {
     if (own && (m.e.id === own.id || m.look === ownLook)) continue
@@ -183,9 +190,11 @@ export function swapOptions(spot: SwapSpot, o: { models?: SwapModel[]; prefabs?:
       // The same mesh in other pictures: the same size, and its name or its triangles say it is the same model.
       if (same(m, spot) && (named || m.e.tris === own.tris)) why = 'art'
       else if (named && near(m, spot)) why = 'version'
-      else if (m.id.role === ownId.role && (m.id.kind ?? '') === (ownId.kind ?? '') && near(m, spot)) why = 'kind'
-    } else if (spot.prefab && sameKind(spot.prefab, spot.label, [m.e.name, m.id.name]) && near(m, spot)) why = 'kind'
+      // The same kind (street furniture for street furniture) is broad: only what fits the spot as it is.
+      else if (m.id.role === ownId.role && (m.id.kind ?? '') === (ownId.kind ?? '') && fits(m, spot)) why = 'kind'
+    } else if (sameKind(spot.prefab ?? '', spot.label, [m.e.name, m.id.name]) && near(m, spot)) why = 'kind'
     if (!why && fits(m, spot)) why = 'fits'
+    if ((why === 'kind' || why === 'fits') && m.floor !== floor) why = null
     if (why) found.push({ key: 'game:' + m.e.id, label: m.id.name, why, long: m.long, short: m.short, h: m.h, off: offOf(m), name: m.id.name, seen: m.e.seen })
   }
   for (const p of o.prefabs ?? []) {
@@ -193,7 +202,9 @@ export function swapOptions(spot: SwapSpot, o: { models?: SwapModel[]; prefabs?:
     let why: SwapWhy | null = null
     const kin = ownPrefab
       ? p.category === ownPrefab.category || sameKind(spot.prefab!, spot.label, [p.key, p.label])
-      : own && ownId ? sameKind(p.key, p.label, [own.name, ownId.name]) : false
+      : own && ownId ? sameKind(p.key, p.label, [own.name, ownId.name])
+        // Anything else (a shape, a piece of a sample map, an imported model): by its name ("Bench" for a bench).
+        : sameKind('', spot.label, [p.key, p.label])
     if (kin && near(p, spot)) why = 'kind'
     else if (fits(p, spot)) why = 'fits'
     if (why) found.push({ key: 'prefab:' + p.key, label: p.label, why, long: p.long, short: p.short, h: p.h, off: offOf(p), name: p.label, seen: 0 })
