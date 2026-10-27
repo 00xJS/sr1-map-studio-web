@@ -1,4 +1,4 @@
-// Export and install, shared by the Play dialog and the advanced Export tab.
+// Export and install, for the Install in game dialog.
 import { useEffect, useRef, useState } from 'react'
 import { useEditor, saveNow } from './store'
 import { confirmDialog } from '../ui'

@@ -31,13 +31,15 @@ export function AssetsPanel() {
 
   return (
     <>
-      <p className="muted">Import models to your library, then drag them onto the map. Double-click an asset to place it where the camera is looking.</p>
-      <div className="row">
+      <div className="section">
+      <span className="section-title">Your library</span>
+      <span className="small muted">Import models to your library, then drag them onto the map. Double-click one to place it where the camera is looking.</span>
+      <div className="row wrap">
         <FileButton className="primary" multiple accept=".obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff" onFiles={(f) => run(() => act.importModelFiles(f, 'library'))}>+ Import to library</FileButton>
         <button disabled={selected < 0 || !project.scene_items.length} onClick={() => run(() => act.placeAsset(selected, center() as any))}>Place selected</button>
         <button className="quiet" disabled={selected < 0} onClick={() => run(async () => { if (await act.removeAsset(selected)) setSelected(-1) })}>Remove</button>
       </div>
-      <div className="list" style={{ maxHeight: 340 }}>
+      <div className="list">
         {lib.map((a, i) => (
           <div
             key={a.uid} draggable className={'list-item' + (i === selected ? ' selected' : '')}
@@ -54,8 +56,9 @@ export function AssetsPanel() {
         ))}
         {!lib.length && <div className="list-item faint">Your library is empty.</div>}
       </div>
+      </div>
 
-      <div className="group">
+      <div className="section">
         <span className="section-title">Breakable glass</span>
         {hasGroup(pack, 'glass') ? (
           <>
@@ -70,7 +73,7 @@ export function AssetsPanel() {
         ) : <p className="faint small">Needs the glass prefab from your data pack. <Link to="/setup">Set up data pack</Link></p>}
       </div>
 
-      <div className="group">
+      <div className="section">
         <span className="section-title">From your files</span>
         <div className="row wrap">
           {hasGroup(pack, 'demo') && <button className="sm" disabled={busy} onClick={() => run(importDemoCrate)}>Add demo crate to library</button>}

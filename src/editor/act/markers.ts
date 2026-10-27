@@ -25,7 +25,7 @@ export async function addDefaultSky() {
   const { skyFile } = await import('../../lib/samples')
   const sky = await skyFile()
   update('Add a sky', (d) => { d.files[sky.vpath] = sky.ref; d.settings.sky_texture = sky.vpath })
-  log('Added a sky: the game shows it overhead (change it in Export settings, "Fake sky image").')
+  log('Added a sky: the game shows it overhead (change it in the Game tab, under Sky).')
 }
 
 /** Deletes every marker of the given types, as one undo step (unused game-mode markers). */

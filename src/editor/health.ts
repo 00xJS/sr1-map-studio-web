@@ -12,6 +12,7 @@ import { textureBudget } from '../lib/textureBudget'
 import { findStairs, scaleRuns } from '../lib/stairRamps'
 import { isRamps, solidTriangles } from './stairActions'
 import { db } from '../lib/db'
+import { findSlivers, type SliverReport } from '../lib/invisibleWalls'
 
 export type { OverlayKind }
 
@@ -27,10 +28,14 @@ interface HealthState {
   /** Spawn (by its number) whose sight lines the overlay draws. */
   focus: number | null
   ms: number
+  /** Flights and single steps too tall to walk up that have no ramp over them yet. */
+  stairs: number
+  /** Paper-thin triangles that act as invisible walls in game (lib/invisibleWalls.ts). */
+  slivers: SliverReport | null
 }
 
 export const useHealth = create<HealthState>(() => ({
-  report: null, key: '', projectId: '', running: false, progress: null, error: null, overlay: 'off', focus: null, ms: 0,
+  report: null, key: '', projectId: '', running: false, progress: null, error: null, overlay: 'off', focus: null, ms: 0, stairs: 0, slivers: null,
 }))
 
 /** True when the map changed since the report was made. */
@@ -50,8 +55,9 @@ export async function runHealthCheck(overlay?: OverlayKind) {
     const report = await analyzeProject(project, { onProgress: (text, done) => useHealth.setState({ progress: { text, done } }) })
     // Its textures as the exporter will store them: a map whose textures don't fit the game's memory loads black.
     // Steps too tall to walk up (a flight, a doorstep, a terrace) that have no invisible ramp yet: players stop at each.
-    const stairs = await tallSteps(project).catch(() => 0)
-    if (stairs) report.findings.push(`${stairs} step${stairs === 1 ? '' : 's'} or flight${stairs === 1 ? '' : 's'} too tall to walk up (over about 0.28 m a step): players stop at each. Stairs too tall to run up → Add invisible ramps.`)
+    const solid = await solidTriangles(project).catch(() => null)
+    const stairs = solid ? tallSteps(project, solid) : 0
+    const slivers = solid ? findSlivers(solid.tris, solid.flags) : null
     const tex = await textureBudget(project, pictureSize).catch(() => null)
     if (tex) {
       report.textures = tex
@@ -61,7 +67,7 @@ export async function runHealthCheck(overlay?: OverlayKind) {
       }
     }
     useHealth.setState((s) => ({
-      report, key: analysisKey(project), projectId: project.id, running: false, progress: null, ms: Math.round(performance.now() - started),
+      report, key: analysisKey(project), projectId: project.id, running: false, progress: null, ms: Math.round(performance.now() - started), stairs, slivers,
       overlay: overlay ?? (s.overlay === 'off' ? 'sight' : s.overlay), focus: null,
     }))
   } catch (err) {
@@ -70,8 +76,7 @@ export async function runHealthCheck(overlay?: OverlayKind) {
 }
 
 /** How many flights and single steps too tall to walk up the map has without a ramp over them. */
-async function tallSteps(project: Parameters<typeof solidTriangles>[0]): Promise<number> {
-  const input = await solidTriangles(project)
+function tallSteps(project: Parameters<typeof solidTriangles>[0], input: Awaited<ReturnType<typeof solidTriangles>>): number {
   const k = (project.settings.world_scale || 0.5) / 0.5
   const runs = scaleRuns(findStairs(k === 1 ? input.tris : input.tris.map((v) => v * k), input.flags), 1 / k)
   // With the map's ramps in place, the steps under them are covered.

@@ -31,11 +31,9 @@ export function useApplyFix(onSamples: () => void) {
       case 'setup': nav('/setup'); break
       case 'select':
         st.select({ kind: 'item', index: fix.index })
-        if (st.advanced) st.set({ tab: 'materials' })
         break
       case 'marker':
         st.select({ kind: 'marker', index: fix.index })
-        if (st.advanced) st.set({ tab: 'spawns' })
         // Once the selection reaches the view, look at it.
         setTimeout(() => getViewer()?.focusSelection(), 50)
         break
@@ -48,9 +46,8 @@ export function useApplyFix(onSamples: () => void) {
           : 'No floor a player can stand on was found: add a floor first.', r.floor ? 'ok' : 'info', 10000), toastError)
         break
       case 'modes':
-        st.select(null)
-        if (st.advanced) st.set({ tab: 'export' })
-        else setTimeout(() => document.getElementById('game-modes')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50)
+        st.set({ tab: 'game' })
+        setTimeout(() => document.getElementById('game-modes')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50)
         break
     }
   }
