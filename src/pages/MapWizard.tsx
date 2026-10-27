@@ -1,15 +1,18 @@
-// The "Map wizard" tab of the Start a map dialog: pick a setting, a layout,
-// how many players and how busy, see it from above, reroll until you like it.
-import { useEffect, useMemo, useRef, useState } from 'react'
-import { DENSITY, LAYOUTS, SETTINGS, busyLabel, busyOf, densityFor, newSeed, wizardSample, type WizardLayout, type WizardOptions, type WizardSetting } from '../lib/mapWizard'
+// "Generate" in the Start a map dialog: pick a setting, a layout, how many players and how busy, see it drawn and
+// checked, reroll until you like it. Each map is built in a worker (wizardClient.ts) and checked the way the editor
+// checks it (wizardPreview.ts); one that scores under the bar is quietly tried again with other seeds, and the best
+// of them is shown, with its score as a grade.
+import { useEffect, useRef, useState } from 'react'
+import { DENSITY, LAYOUTS, SETTINGS, busyLabel, busyOf, densityFor, newSeed, type WizardLayout, type WizardOptions, type WizardSetting } from '../lib/mapWizard'
 import { mapSize } from '../lib/sampleScale'
 import type { Sample } from '../lib/sampleKit'
 import { NeedGameFolder, connect } from '../lib/gameObjects/client'
 import { gamePiecesSuit } from '../lib/gameObjects/wizardPieces'
-import type { GameCity } from '../lib/gameObjects/wizardModules'
-import { gameCity, useGameSource } from './BuildWith'
+import { useGameSource, type GameSource } from './BuildWith'
 import { toastError } from '../ui'
 import type { Preview } from '../lib/wizardPreview'
+import { PASS, TRIES, grade, nextSeeds, wizardBuild, type CityInfo, type GameLibrary } from '../lib/wizardClient'
+import { FooterActions } from './FooterActions'
 
 const PLAYERS = [4, 6, 8, 10, 12]
 const GROUND_COLORS: Record<string, string> = {
@@ -69,26 +72,68 @@ export function Sketch({ s }: { s: Sample }) {
   return <canvas ref={ref} width={420} height={420} style={{ width: '100%', maxWidth: 420, aspectRatio: '1', borderRadius: 8, display: 'block' }} />
 }
 
-export function MapWizard({ busy, onCreate, onBlank, initial, game = false }: { busy: boolean; onCreate: (s: Sample) => void; onBlank?: () => void; initial?: WizardOptions; game?: boolean }) {
+/** The player's library and labels as the worker gets them, under a key that changes when any of them does. */
+const libKeys = new WeakMap<object, number>()
+let libCount = 0
+function libraryOf(src: GameSource): GameLibrary | null {
+  if (!src.entries) return null
+  let k = libKeys.get(src.entries)
+  if (k === undefined) libKeys.set(src.entries, k = ++libCount)
+  const { groups, modules, version } = src.cityLabels
+  return { key: `${k}:${src.version}:${version}`, entries: src.entries, labels: src.labels, labelsVersion: src.version, cityLabels: { groups, modules } }
+}
+
+/** The quality gate for one set of choices: the seed the player got, and each seed's score so far. */
+interface Gate { base: number; scores: [number, number][]; done: boolean }
+
+export function MapWizard({ busy, progress = null, footer = null, onCreate, initial, game = false }: { busy: boolean; progress?: string | null; footer?: HTMLElement | null; onCreate: (s: Sample) => void; initial?: WizardOptions; game?: boolean }) {
   const [o, setO] = useState<WizardOptions>(() => initial ?? { setting: 'downtown', layout: 'blocks', players: 10, density: 'normal', seed: newSeed() })
   const [name, setName] = useState(initial?.name ?? '')
-  const set = (patch: Partial<WizardOptions>) => setO((x) => ({ ...x, ...patch }))
+  const gate = useRef<Gate>({ base: o.seed, scores: [], done: false })
+  const [, redraw] = useState(0)
+  /** New choices: the gate starts again from the seed showing. */
+  const set = (patch: Partial<WizardOptions>) => setO((x) => { const n = { ...x, ...patch }; gate.current = { base: n.seed, scores: [], done: false }; return n })
+  const reroll = () => set({ seed: newSeed() })
   // Game pieces (chosen at the top of the dialog, BuildWith.tsx): the player's library and their labels for it.
   const src = useGameSource()
   const gameOn = game && !!src.entries && gamePiecesSuit(o.setting)
-  // Game pieces: whole Stilwater modules and groups where the game library has them, single game models otherwise.
-  const { sample, city } = useMemo(() => {
-    const city = gameOn ? gameCity(src, o.setting, o.seed) ?? undefined : undefined
-    return { sample: wizardSample(o, city?.pieces), city }
-  }, [o, gameOn, src.entries, src.labels, src.version, src.cityLabels])
+  const lib = gameOn ? libraryOf(src) : null
+  // Built in the worker; the last map stays up until the next one is in.
+  const [built, setBuilt] = useState<{ o: WizardOptions; sample: Sample; city?: CityInfo } | null>(null)
+  const [error, setError] = useState('')
+  useEffect(() => {
+    let live = true
+    setError('')
+    wizardBuild(o, lib).then((r) => { if (live) setBuilt({ o, ...r }) }, (e) => { if (live) setError(e instanceof Error ? e.message : String(e)) })
+    return () => { live = false }
+  }, [o, lib?.key])
+  /** The check's score for the map showing: under the bar, the next seed; after the last, the best of them. */
+  const scored = (seed: number, health: number | null) => {
+    const g = gate.current
+    if (g.done || g.scores.some(([s]) => s === seed)) return
+    if (health === null) { g.done = true; redraw((n) => n + 1); return }
+    g.scores.push([seed, health])
+    if (health >= PASS) g.done = true
+    else if (g.scores.length < TRIES) setO((x) => ({ ...x, seed: nextSeeds(g.base, TRIES - 1)[g.scores.length - 1] }))
+    else {
+      g.done = true
+      const best = g.scores.reduce((a, b) => (b[1] > a[1] ? b : a))
+      if (best[0] !== seed) setO((x) => ({ ...x, seed: best[0] }))
+    }
+    redraw((n) => n + 1)
+  }
+  const sample = built?.sample, city = built?.city
   const create = async () => {
+    if (!sample) return
     // Placing the models needs the game files open (the browser may ask for the folder once).
     if (city) try { await connect(true) } catch (e) { toastError(e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder so the wizard can bring in the models from your game.') : e); return }
     onCreate({ ...sample, name: name.trim() || sample.name, ...(city?.used && city.problems.length ? { problems: city.problems } : {}) })
   }
-  const size = mapSize(sample)
+  const g = gate.current
+  const searching = !g.done && g.scores.length > 0 ? g.scores.length : 0
   const level = busyOf(o)
-  const count = (...t: string[]) => sample.markers.filter(([m]) => t.includes(m)).length
+  const size = sample && mapSize(sample)
+  const count = (...t: string[]) => (sample ? sample.markers.filter(([m]) => t.includes(m)).length : 0)
   return (
     <div className="wizard">
       <div className="col" style={{ gap: 12, flex: '1 1 300px', minWidth: 0 }}>
@@ -133,31 +178,33 @@ export function MapWizard({ busy, onCreate, onBlank, initial, game = false }: { 
         {game && <GamePiecesInfo suits={gamePiecesSuit(o.setting)} city={city} />}
         <label className="col" style={{ gap: 6 }}>
           <span className="section-title">Name</span>
-          <input value={name} placeholder={sample.name} onChange={(e) => setName(e.target.value)} maxLength={40} />
+          <input value={name} placeholder={sample?.name ?? `${SETTINGS[o.setting].label} ${LAYOUTS[o.layout].label}`} onChange={(e) => setName(e.target.value)} maxLength={40} />
         </label>
-        <div className="row wrap">
-          <button onClick={() => set({ seed: newSeed() })} disabled={busy} title="Same choices, a different map">🎲 Reroll</button>
-          <button className="primary" disabled={busy} onClick={() => void create()}>Create this map</button>
-          {onBlank && <button className="link small" disabled={busy} onClick={onBlank}>or start blank</button>}
-        </div>
       </div>
       <div className="col" style={{ gap: 6, flex: '1 1 300px', alignItems: 'stretch', minWidth: 0 }}>
-        <MapPreview sample={sample} busy={busy} onReroll={() => set({ seed: newSeed() })} onCreate={() => void create()} />
-        <Sketch s={sample} />
-        <span className="small muted">
-          {size.widthM} × {size.depthM} m · about {size.players} players · {count('Red team spawn', 'Blue team spawn', 'Shared spawn')} spawns · {count('Weapon pickup')} weapons
-        </span>
+        {sample && built ? <MapPreview sample={sample} seed={built.o.seed} progress={progress} searching={searching} gate={g} onScored={scored} /> : <div className="sk" style={{ aspectRatio: '1' }} aria-busy="true" />}
+        {error && <span className="small warn">The wizard couldn't build this one ({error}). Reroll for another.</span>}
+        {sample ? <Sketch s={sample} /> : <div className="sk" style={{ aspectRatio: '1', maxWidth: 420 }} />}
+        {size && (
+          <span className="small muted">
+            {size.widthM} × {size.depthM} m · about {size.players} players · {count('Red team spawn', 'Blue team spawn', 'Shared spawn')} spawns · {count('Weapon pickup')} weapons
+          </span>
+        )}
         <span className="faint small">
           <span style={{ color: '#ff4d4d' }}>●</span> red <span style={{ color: '#4d8dff' }}>●</span> blue <span style={{ color: '#f2f2f2' }}>●</span> anyone{' '}
           <span style={{ color: '#ffd23f' }}>●</span> weapon <span style={{ color: '#3dff9a' }}>●</span> chains drop-off · lighter is taller, tan is a deck or ramp. Seed {o.seed}.
         </span>
       </div>
+      <FooterActions footer={footer}>
+        <button onClick={reroll} disabled={busy} title="Same choices, a different map">🎲 Reroll</button>
+        <button className="primary" disabled={busy || !sample || built?.o !== o} onClick={() => void create()}>Create this map</button>
+      </FooterActions>
     </div>
   )
 }
 
 /** What the wizard built from the player's game: the Stilwater pieces it used, or the single models in its plots. */
-function GamePiecesInfo({ suits, city }: { suits: boolean; city?: GameCity }) {
+function GamePiecesInfo({ suits, city }: { suits: boolean; city?: CityInfo }) {
   const st = city?.pieces.stats, cs = city?.stats
   return (
     <div className="col" style={{ gap: 6 }}>
@@ -181,53 +228,69 @@ function GamePiecesInfo({ suits, city }: { suits: boolean; city?: GameCity }) {
   )
 }
 
+/** How far the preview has got, 0..1, for its bar. */
+const stageDone = (p: Preview | null) => !p ? 0.05 : p.stage === 'shells' ? 0.15 : p.stage === 'models' ? 0.15 + 0.6 * (p.models[1] ? p.models[0] / p.models[1] : 1) : p.stage === 'checks' ? 0.85 : 1
+
 /**
  * The map as it will be built, at a 3/4 angle and from above: the site's shapes and the game models' boxes first,
- * then each game model as it comes in, then the checks the editor runs once it is open (wizardPreview.ts).
+ * then each game model as it comes in, then the checks the editor runs once it is open (wizardPreview.ts). Its
+ * health goes to `onScored` for the quality gate; while the map is being built, its progress is drawn over it.
  */
-function MapPreview({ sample, busy, onReroll, onCreate }: { sample: Sample; busy: boolean; onReroll: () => void; onCreate: () => void }) {
+function MapPreview({ sample, seed, progress, searching, gate, onScored }: { sample: Sample; seed: number; progress: string | null; searching: number; gate: Gate; onScored: (seed: number, health: number | null) => void }) {
   const [p, setP] = useState<Preview | null>(null)
-  const [on, setOn] = useState(true)
   const [tries, setTries] = useState(0)
+  const report = useRef(onScored)
+  report.current = onScored
   useEffect(() => {
-    if (!on) return
-    let stop: (() => void) | null = null, gone = false
+    let stop: (() => void) | null = null, gone = false, told = false
     // The last pictures stay up until the new ones come; its checks don't.
     setP((q) => q && { angle: q.angle, top: q.top, stage: 'shells', models: [0, 0] })
+    const update = (q: Preview) => {
+      setP(q)
+      if (q.stage === 'done' && !told) { told = true; report.current(seed, q.health ?? null) }
+    }
     // A moment's pause, so dragging the busy slider doesn't start a preview per step.
-    const t = setTimeout(() => void import('../lib/wizardPreview').then((m) => { if (!gone) stop = m.previewMap(sample, setP) }), 350)
+    const t = setTimeout(() => void import('../lib/wizardPreview').then((m) => { if (!gone) stop = m.previewMap(sample, update) }), 350)
     return () => { gone = true; clearTimeout(t); stop?.() }
-  }, [sample, on, tries])
+  }, [sample, tries])
   const openFolder = async () => {
     try { await connect(true); setTries((n) => n + 1) } catch (e) { toastError(e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder to see the models from your game.') : e) }
   }
-  if (!on) return <button className="link small" style={{ alignSelf: 'flex-start' }} onClick={() => setOn(true)}>Show the 3D preview</button>
   const status = !p ? 'Drawing…'
     : p.stage === 'shells' ? 'Drawing the shapes…'
       : p.stage === 'models' ? `Bringing in models from your game (${p.models[0]}/${p.models[1]})…`
         : p.stage === 'checks' ? 'Checking it the way the editor will…' : ''
+  const shown = gate.scores.find(([s]) => s === seed)?.[1] ?? p?.health
+  const tried = gate.done && gate.scores.length > 1 ? gate.scores.length : 0
   return (
     <div className="col" style={{ gap: 6 }}>
-      <div style={{ position: 'relative', background: '#101014', borderRadius: 8, aspectRatio: '1', overflow: 'hidden' }}>
-        {p?.angle && <img src={p.angle} alt="The map at a 3/4 angle" style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }} />}
-        {p?.top && <img src={p.top} alt="The map from above" title="From above" style={{ position: 'absolute', right: 6, bottom: 6, width: '32%', aspectRatio: '1', background: '#0b0b0e', borderRadius: 6, border: '1px solid #2a2a30' }} />}
-        {status && <span className="small faint" style={{ position: 'absolute', left: 8, top: 6 }}>{status}</span>}
+      <div className="preview-box">
+        {p?.angle ? <img src={p.angle} alt="The map at a 3/4 angle" className="preview-angle" /> : <div className="sk preview-fill" />}
+        {p?.top && <img src={p.top} alt="The map from above" title="From above" className="preview-top" />}
+        {!progress && (status || searching > 0) && (
+          <div className="preview-bar">
+            <span className="small">{searching ? `Scored ${gate.scores[searching - 1][1]}, under ${PASS}: trying another seed (${searching + 1} of ${TRIES})…` : status}</span>
+            <div className="progress determinate"><div style={{ width: `${Math.round(stageDone(p) * 100)}%` }} /></div>
+          </div>
+        )}
+        {progress && (
+          <div className="preview-building" role="status">
+            <span className="small">{progress}</span>
+            <div className="progress"><div /></div>
+          </div>
+        )}
       </div>
       {p?.needFolder && <span className="small faint">The game models show as boxes until this tab can read your game files: <button className="link small" onClick={() => void openFolder()}>choose your Saints Reborn folder</button>.</span>}
-      {(p?.health !== undefined || p?.stairs !== undefined) && (
+      {(shown !== undefined || p?.stairs !== undefined) && (
         <span className="small">
-          {p.health !== undefined && <b style={{ color: p.health >= 70 ? 'var(--ok, #6c6)' : p.health >= 50 ? 'var(--warn, #e0b050)' : 'var(--bad, #e06060)' }}>Health {p.health}/100</b>}
-          {p.findings?.length ? <span className="faint"> · {p.findings.join(' ')}</span> : null}
-          {p.stairs ? <span> · {p.stairs} flight{p.stairs === 1 ? '' : 's'} of stairs too tall to run up (invisible ramps go in when it opens)</span> : null}
-          {p.walls ? <span> · {p.walls} invisible wall{p.walls === 1 ? '' : 's'} (left out of the collision at export)</span> : null}
+          {shown !== undefined && <b className={'grade grade-' + grade(shown)} title={`Health ${shown}/100 on the editor's health check`}>Grade {grade(shown)} · {shown}/100</b>}
+          {tried > 0 && <span className="faint"> · the best of {tried} seeds</span>}
+          {p?.findings?.length ? <span className="faint"> · {p.findings.join(' ')}</span> : null}
+          {p?.stairs ? <span> · {p.stairs} flight{p.stairs === 1 ? '' : 's'} of stairs too tall to run up (invisible ramps go in when it opens)</span> : null}
+          {p?.walls ? <span> · {p.walls} invisible wall{p.walls === 1 ? '' : 's'} (left out of the collision at export)</span> : null}
         </span>
       )}
       {p?.error && <span className="small faint">The checks couldn't run here ({p.error}); they run again once the map is open.</span>}
-      <div className="row wrap" style={{ gap: 6 }}>
-        <button className="sm" onClick={onReroll} disabled={busy} title="Same choices, a different map">🎲 Reroll</button>
-        <button className="sm primary" onClick={onCreate} disabled={busy}>Create this map</button>
-        <button className="link small" onClick={() => setOn(false)} title="Stop drawing previews (quicker rerolls)">hide preview</button>
-      </div>
     </div>
   )
 }

@@ -17,6 +17,7 @@ import type { GamePieces } from './gameObjects/wizardPieces'
 import { gameOnly } from './gameObjects/frame'
 import { gameDress } from './gameObjects/gameDress'
 import { KITS } from './gameObjects/areaKits'
+import { SiteKit } from './siteKit'
 
 export type WizardSetting = 'downtown' | 'industrial' | 'paintball' | 'cyber' | 'suburbs' | 'docks' | 'construction' | 'military' | 'rundown'
 export type WizardLayout = 'blocks' | 'plaza' | 'lanes' | 'arena' | 'heights' | 'neighbourhood' | 'crossroads' | 'compounds' | 'maze' | 'scatter'
@@ -676,11 +677,13 @@ export function wizardSample(o: WizardOptions, pieces?: GamePieces): Sample {
   const laid = wizardLayout(o, pieces)
   const keep = pieces?.city?.keepOut() ?? []
   const detailed = detailize(keep.length ? { ...laid, parts: [...laid.parts, ...keep] } : laid)
-  // Game pieces: dressed from the game's own models the way the game dresses each kind of place (areaKits.ts); a
-  // cover field gets more of it.
+  // Dressed the way the game dresses each kind of place (areaKits.ts), from the game's own models or, with the site's
+  // pieces, from the prefabs that look like them (siteKit.ts), which then get the setting's own themed props too; a
+  // cover field gets more of it. (The game has nothing like the cyber grid: it keeps its own.)
+  const kitBusy = Math.min(100, busyOf(o) + (o.layout === 'scatter' ? 35 : 0))
   const dressed = pieces?.any
-    ? gameDress(detailed, pieces, KITS[o.setting], Math.min(100, busyOf(o) + (o.layout === 'scatter' ? 35 : 0)), o.seed)
-    : dress(detailed, busyness(busyOf(o)).dress)
+    ? gameDress(detailed, pieces, KITS[o.setting], kitBusy, o.seed)
+    : dress(o.setting === 'cyber' ? detailed : gameDress(detailed, new SiteKit(), KITS[o.setting], kitBusy, o.seed), busyness(busyOf(o)).dress)
   // Game pieces: the site's props become the game's where one fits, and whatever is left of the site's goes (its
   // ground, walls, decks and streets stay, in the game's own surfaces).
   const swapped = pieces ? pieces.swap(dressed) : dressed

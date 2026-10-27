@@ -11,7 +11,8 @@ import { FLOOR, building, facadeTex, prefabParams, tagPrefab, type Params, type 
 import { CY, PB, blob, box, perimeter, ramp, turn, type MarkerSpec, type Part, type Sample, type Tex } from './sampleKit'
 import { U, car } from './urbanKit'
 import { ROAD_H, ROAD_TEX, WALK_H, buildRoad, formatPath, parsePath, roadOptions, type Polyline, type Pt } from './roads'
-import { blocker, support } from './sampleScale'
+import { blocker, partRay, support } from './sampleScale'
+import { openHeading } from './markerPlan'
 import { rng, type Rng } from './mapWizard'
 const ROAD_TEX_ASPHALT = ROAD_TEX.asphalt
 
@@ -1053,11 +1054,12 @@ export function citySample(o: CityOptions): Sample {
   const weapons = spread(open, 20, [...red, ...blue, ...shared])
   const drops = spread(open.filter((p) => Math.abs(p[0]) < L / 3 && Math.abs(p[2]) < L / 3), 4, [...red, ...blue])
   const guns = ['ak47', 'pump_action_shotgun', 'tec9', 'sniper_rifle', 'mac10', 'pipe_bomb', 'molotov', 'magnum', 'rpg_launcher', 'beretta']
-  const look = (p: Vec3) => +((Math.atan2(-p[0], p[2]) * 180) / Math.PI).toFixed(1)
+  // Each spawn looks the way it sees farthest: the other end (teams) or the middle (anyone) where it sees as far.
+  const ray = partRay(parts), eye = (p: Vec3): Vec3 => [p[0], p[1] + 3.24, p[2]]
   const markers: MarkerSpec[] = [
-    ...red.map((p): MarkerSpec => ['Red team spawn', p, { yaw: 180 }]),
-    ...blue.map((p): MarkerSpec => ['Blue team spawn', p, { yaw: 0 }]),
-    ...shared.map((p): MarkerSpec => ['Shared spawn', p, { yaw: look(p) }]),
+    ...red.map((p): MarkerSpec => ['Red team spawn', p, { yaw: openHeading(ray, eye(p), 180) }]),
+    ...blue.map((p): MarkerSpec => ['Blue team spawn', p, { yaw: openHeading(ray, eye(p), 0) }]),
+    ...shared.map((p): MarkerSpec => ['Shared spawn', p, { yaw: openHeading(ray, eye(p)) }]),
     ...weapons.map((p, k): MarkerSpec => ['Weapon pickup', p, { weapon: guns[k % guns.length] }]),
     ...drops.map((p): MarkerSpec => ['Chains drop-off', p]),
   ]

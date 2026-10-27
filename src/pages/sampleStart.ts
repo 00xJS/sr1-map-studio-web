@@ -10,7 +10,9 @@ import { NeedGameFolder, connect } from '../lib/gameObjects/client'
  */
 export async function startFromSample(id: string, compact: boolean, onProgress?: (t: string) => void): Promise<string> {
   const { buildsWithGame, gameSourceNow, gameSampleOf } = await import('./BuildWith')
-  const game = buildsWithGame() ? gameSampleOf(id, compact, await gameSourceNow()) : null
+  // (The library is read first: until the player chooses, a ready library means game pieces.)
+  const src = await gameSourceNow()
+  const game = buildsWithGame() ? gameSampleOf(id, compact, src) : null
   if (game) {
     try { await connect(true) } catch (e) { throw e instanceof NeedGameFolder ? new Error('Choose your Saints Reborn folder so the models can come in from your game.') : e }
   }

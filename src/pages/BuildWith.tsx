@@ -5,7 +5,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { toastError } from '../ui'
-import { buildIndex, loadIndex, useGameObjects } from '../lib/gameObjects/client'
+import { buildIndex, loadIndex, useGameObjects, type GameObjectsState } from '../lib/gameObjects/client'
 import { loadCityLabels, loadLabels, useCityLabels, useGameLabels } from '../lib/gameObjects/labels'
 import { GameCity } from '../lib/gameObjects/wizardModules'
 import type { GameObjectEntry } from '../lib/gameObjects/indexer'
@@ -16,10 +16,16 @@ import { gameSampleFor, settingFor } from '../lib/gameObjects/gameSample'
 
 const KEY = 'sr1-build-with'
 
-/** The choice, remembered in this browser. */
+/** The choice the player made in this browser, if they made one. */
+const stored = (): 'game' | 'site' | null => { try { const v = localStorage.getItem(KEY); return v === 'game' || v === 'site' ? v : null } catch { return null } }
+/** Game pieces unless the player chose otherwise, once their game library is read and ready. */
+const gameByDefault = (s: GameObjectsState) => s.status === 'ready' && !!s.entries?.length
+
+/** The choice, remembered in this browser; until the player makes one, Game pieces whenever their library is ready. */
 export function useBuildWith(): [boolean, (on: boolean) => void] {
-  const [on, setOn] = useState(() => { try { return localStorage.getItem(KEY) === 'game' } catch { return false } })
-  return [on, (v) => { setOn(v); try { localStorage.setItem(KEY, v ? 'game' : 'site') } catch { /* private window: just this time */ } }]
+  const ready = useGameObjects(gameByDefault)
+  const [choice, setChoice] = useState(stored)
+  return [choice ? choice === 'game' : ready, (v) => { setChoice(v ? 'game' : 'site'); try { localStorage.setItem(KEY, v ? 'game' : 'site') } catch { /* private window: just this time */ } }]
 }
 
 /** What building with game pieces needs: the player's library and their labels for it (read in this browser). */
@@ -32,8 +38,8 @@ export function useGameSource() {
 }
 export type GameSource = ReturnType<typeof useGameSource>
 
-/** Whether the player chose game pieces (outside the dialog: the home page's and the catalogue's samples). */
-export const buildsWithGame = () => { try { return localStorage.getItem(KEY) === 'game' } catch { return false } }
+/** Whether maps build with game pieces (outside the dialog: the home page's and the catalogue's samples). */
+export const buildsWithGame = () => { const v = stored(); return v ? v === 'game' : gameByDefault(useGameObjects.getState()) }
 
 /** The game source as it is now, outside React (its library and labels read from this browser first). */
 export async function gameSourceNow(): Promise<GameSource> {

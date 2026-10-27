@@ -8,7 +8,7 @@ import { waterAreas } from '../lib/analysis/collision'
 import { loadModel } from '../lib/assets'
 import type { ObjModel } from '../lib/geometry'
 import { planMarkers, type MarkerPlan } from '../lib/markerPlan'
-import { newMarker } from '../lib/project'
+import { newMarker, type Project } from '../lib/project'
 import { FFA_SPAWNS } from '../lib/levels'
 
 /** Free-for-all spawns and weapons a map should have for a full 12-player match. */
@@ -16,10 +16,14 @@ export const WANT = { spawns: Math.max(12, FFA_SPAWNS), weapons: 12 }
 
 export interface SpawnFix { moved: number; added: { spawns: number; weapons: number }; reasons: string[]; floor: number }
 
-/** Plans the fix on the open map and applies it. */
-export async function fixSpawnsAndWeapons(): Promise<SpawnFix> {
-  const project = currentProject()
-  if (!project) return { moved: 0, added: { spawns: 0, weapons: 0 }, reasons: [], floor: 0 }
+/** What the fix would do to a project, in its own units: markers to move and markers to add. */
+export interface SpawnFixPlan { plan: MarkerPlan; scale: number }
+
+/**
+ * Plans the fix on a project's real collision without touching it (the editor's open map, or a map just built from
+ * the Start dialog before it opens). Reads the project's models from this device.
+ */
+export async function planSpawnFix(project: Project): Promise<SpawnFixPlan> {
   const input = await solidTriangles(project)
   // The planner works in the usual editor units (0.5 m each): a map at another world scale is measured in game metres.
   const k = (project.settings.world_scale || 0.5) / 0.5
@@ -31,23 +35,38 @@ export async function fixSpawnsAndWeapons(): Promise<SpawnFix> {
     try { wetModels.set(p, await loadModel(project, p)) } catch { /* missing: left out */ }
   }))
   const wet = waterAreas(project, (p) => wetModels.get(p)).map((a) => a.map((v) => v * k) as typeof a)
-  const plan: MarkerPlan = planMarkers(prep, markers, { ...WANT, wet })
+  return { plan: planMarkers(prep, markers, { ...WANT, wet }), scale: k }
+}
+
+/** Makes the planned moves and additions on `d` (a draft inside an undo step, or a project not open yet). */
+export function applySpawnFix(d: Project, { plan, scale: k }: SpawnFixPlan) {
   const back = (p: [number, number, number]) => p.map((v) => +(v / k).toFixed(3)) as [number, number, number]
-  const spawns = plan.added.filter((a) => a.type !== 'Weapon pickup').length, weapons = plan.added.length - spawns
-  if (plan.moved.length || plan.added.length) {
-    useEditor.getState().update('Fix spawns and weapons', (d) => {
-      for (const mv of plan.moved) d.markers[mv.index].position = back(mv.to)
-      for (const a of plan.added) {
-        const m = newMarker(a.type, back(a.at))
-        m.yaw = a.yaw
-        if (a.weapon) { m.weapon = a.weapon; m.label = a.weapon }
-        d.markers.push(m)
-      }
-    })
+  for (const mv of plan.moved) d.markers[mv.index].position = back(mv.to)
+  for (const a of plan.added) {
+    const m = newMarker(a.type, back(a.at))
+    m.yaw = a.yaw
+    if (a.weapon) { m.weapon = a.weapon; m.label = a.weapon }
+    d.markers.push(m)
   }
+}
+
+/** What a plan comes to, for the build log. */
+export function spawnFixSummary({ plan }: SpawnFixPlan): SpawnFix & { text: string } {
+  const spawns = plan.added.filter((a) => a.type !== 'Weapon pickup').length, weapons = plan.added.length - spawns
   const reasons = [...new Set(plan.moved.map((m) => m.why))]
-  useEditor.getState().log(plan.floor
+  const text = plan.floor
     ? `Spawns and weapons: ${plan.moved.length} moved${reasons.length ? ` (${reasons.join('; ')})` : ''}, ${spawns} spawn${spawns === 1 ? '' : 's'} and ${weapons} weapon${weapons === 1 ? '' : 's'} added.`
-    : 'Spawns and weapons: no floor a player can stand on was found.')
-  return { moved: plan.moved.length, added: { spawns, weapons }, reasons, floor: plan.floor }
+    : 'Spawns and weapons: no floor a player can stand on was found.'
+  return { moved: plan.moved.length, added: { spawns, weapons }, reasons, floor: plan.floor, text }
+}
+
+/** Plans the fix on the open map and applies it. */
+export async function fixSpawnsAndWeapons(): Promise<SpawnFix> {
+  const project = currentProject()
+  if (!project) return { moved: 0, added: { spawns: 0, weapons: 0 }, reasons: [], floor: 0 }
+  const fix = await planSpawnFix(project)
+  if (fix.plan.moved.length || fix.plan.added.length) useEditor.getState().update('Fix spawns and weapons', (d) => applySpawnFix(d, fix))
+  const { text, ...out } = spawnFixSummary(fix)
+  useEditor.getState().log(text)
+  return out
 }

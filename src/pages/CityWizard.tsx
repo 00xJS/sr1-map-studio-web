@@ -1,10 +1,10 @@
-// The "Stilwater-style city" tab of the Start a map dialog: an original city from the site's own pieces, for
-// anyone, game or no game. Pick a size, see it from above with its districts, reroll until you like it.
+// "From Stilwater" in the Start a map dialog: an original city from the site's own pieces, for anyone, game or no
+// game. Pick a size, see it from above with its districts, reroll until you like it.
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { CITY_SIZES, DISTRICTS, citySample, type CitySize } from '../lib/cityGen'
 import { newSeed } from '../lib/mapWizard'
 import type { Sample } from '../lib/sampleKit'
-import { Link } from 'react-router-dom'
+import { FooterActions } from './FooterActions'
 
 const LOT_COLOURS = Object.fromEntries(Object.values(DISTRICTS).map((d) => [`${d.label} lot`, d.sketch]))
 
@@ -72,7 +72,7 @@ export function CitySketch({ s }: { s: Sample }) {
   return <canvas ref={ref} width={460} height={460} style={{ width: '100%', maxWidth: 460, aspectRatio: '1', borderRadius: 8, display: 'block' }} />
 }
 
-export function CityWizard({ busy, onCreate, game = false }: { busy: boolean; onCreate: (s: Sample) => void; game?: boolean }) {
+export function CityWizard({ busy, onCreate, footer = null }: { busy: boolean; onCreate: (s: Sample) => void; footer?: HTMLElement | null }) {
   const [size, setSize] = useState<CitySize>('town')
   const [seed, setSeed] = useState(newSeed)
   const [name, setName] = useState('')
@@ -81,8 +81,6 @@ export function CityWizard({ busy, onCreate, game = false }: { busy: boolean; on
     <div className="wizard">
       <div className="col" style={{ gap: 12, flex: '1 1 300px', minWidth: 0 }}>
         <p className="small muted">An original city in the style of Saints Row's Stilwater, built from the site's own pieces, so it works with or without the game: a river with bridges and quays, streets that bend and a diagonal avenue, downtown towers, a Chinatown-like quarter, a red-light strip, the projects, a barrio, suburbs, hillside homes, docks and factories, and parks, with sidewalks, street lamps, shops and parked cars.</p>
-        {/* A whole city of game models is more than one map's budget: the real city is on the Stilwater page. */}
-        {game && <span className="small" style={{ color: 'var(--warn, #e0b050)' }}>This city is always built from the site's own pieces. For a city of real game buildings, <Link to="/city">cut a piece of Stilwater</Link> from your own game.</span>}
         <div className="col" style={{ gap: 6 }}>
           <span className="section-title">Size</span>
           <div className="row wrap">
@@ -94,10 +92,6 @@ export function CityWizard({ busy, onCreate, game = false }: { busy: boolean; on
           <span className="section-title">Name</span>
           <input value={name} placeholder={sample.name} onChange={(e) => setName(e.target.value)} maxLength={40} />
         </label>
-        <div className="row wrap">
-          <button onClick={() => setSeed(newSeed())} disabled={busy} title="Same size, a different city">🎲 Reroll</button>
-          <button className="primary" disabled={busy} onClick={() => onCreate({ ...sample, name: name.trim() || sample.name })}>Create this city</button>
-        </div>
         <div className="row wrap small" style={{ gap: 10 }}>
           {Object.values(DISTRICTS).map((d) => <span key={d.label} className="row" style={{ gap: 4 }}><span style={{ width: 10, height: 10, borderRadius: 2, background: d.sketch, display: 'inline-block' }} />{d.label}</span>)}
         </div>
@@ -106,6 +100,10 @@ export function CityWizard({ busy, onCreate, game = false }: { busy: boolean; on
         <CitySketch s={sample} />
         <span className="faint small">Seed {seed} · {sample.markers.filter(([t]) => /spawn/.test(t)).length} spawns · red and blue start at opposite ends.</span>
       </div>
+      <FooterActions footer={footer}>
+        <button onClick={() => setSeed(newSeed())} disabled={busy} title="Same size, a different city">🎲 Reroll</button>
+        <button className="primary" disabled={busy} onClick={() => onCreate({ ...sample, name: name.trim() || sample.name })}>Create this city</button>
+      </FooterActions>
     </div>
   )
 }

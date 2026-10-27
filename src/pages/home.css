@@ -72,3 +72,10 @@ button.big, .btn.big { padding: 10px 18px; font-size: 14px; }
 
 /* Editor: the first-map coach bar. */
 .first-coach { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 40; width: min(620px, calc(100vw - 32px)); display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: var(--radius); border: 1px solid var(--accent); background: #1d1220; box-shadow: var(--shadow); font-size: 13px; }
+
+/* Returning: My maps first, with big pictures; the welcome folded away below. */
+.grid-cards.big { grid-template-columns: repeat(auto-fill, minmax(min(320px, 100%), 1fr)); gap: 16px; }
+.grid-cards.big .map-card .thumb { aspect-ratio: 16 / 10; }
+.grid-cards.big .map-card .title { font-size: 16px; }
+.home-landing { border-top: 1px solid var(--line); padding-top: 12px; }
+.home-landing > summary { cursor: pointer; font-weight: 600; color: var(--text-muted, inherit); }
