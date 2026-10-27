@@ -62,6 +62,15 @@ export async function installedProjectId(maps: DirHandle, folder: string): Promi
   } catch { return undefined }
 }
 
+/**
+ * Whether installing over maps/<folder> needs the "Replace installed map?" question: only when the folder is there
+ * and isn't this project's own last install (the companion mod then reloads that one in the match by itself).
+ */
+export async function replaceNeedsAsking(maps: DirHandle, folder: string, projectId: string): Promise<boolean> {
+  if (!(await mapFolderExists(maps, folder))) return false
+  return (await installedProjectId(maps, folder)) !== projectId
+}
+
 /** An early surface registration pair (py/surface_registration.py): named from its contents, so each export makes a new one. */
 export const SURFACE_PAIR = /^sf_[0-9a-f]{12}\.(bbchunk|peg)_xbox2$/i
 
