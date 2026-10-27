@@ -66,6 +66,15 @@ export function hashText(s: string): string {
   return (h >>> 0).toString(36)
 }
 
+/** Bump to redraw every thumbnail (after changing how they look), then run `npm run thumbs`. */
+export const THUMB_VERSION = 1
+
+/** Numbers to a millionth: browsers (and Node) differ in the last bit of Math.sin and friends. */
+const steady = (_: string, v: unknown) => (typeof v === 'number' ? Math.round(v * 1e6) / 1e6 : v)
+
+/** A prefab thumbnail's signature: changes when its parts do, the same in every browser (prefabThumbs.ts, public/thumbs/manifest.json). */
+export const prefabThumbSig = (key: string) => `${THUMB_VERSION}:${hashText(JSON.stringify(prefabParts(key), steady))}`
+
 /** Footprint of a prefab placed at the origin facing 0: [minX, minZ, maxX, maxZ]. */
 export function prefabFootprint(key: string): [number, number, number, number] {
   const parts = ALL_PREFABS[key].make(0, 0, 0, 0)
