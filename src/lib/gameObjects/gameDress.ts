@@ -7,6 +7,9 @@
 // 2. Fronts and alleys: along each building's walls, a step out from them, things the game keeps there, backs to the
 //    wall; where another wall stands close behind (an alley), the alley's own things.
 // 3. Open ground: cover, farthest from everything first, until the floor carries the retail maps' cover density.
+//
+// The pieces come from anything with the six methods of DressPieces: the player's game library (wizardPieces.ts) or
+// the site's own prefabs (siteKit.ts), so a Site pieces map is dressed the same way.
 import type { Vec3 } from '../project'
 import type { Part, Sample } from '../sampleKit'
 import { turn } from '../sampleKit'
@@ -14,7 +17,8 @@ import { over, partIndex } from '../sampleScale'
 import { candidates } from '../samplePopulate'
 import { UNITS_PER_M } from '../player'
 import { COVER_PER_1000, SIDEWALK_EVERY, type AreaKit, type KitItem } from './areaKits'
-import { facingVec, type Cand, type GamePieces } from './wizardPieces'
+import { facingVec } from './wizardPieces'
+import type { Side } from './cityModules'
 
 const M = UNITS_PER_M
 /** A building's wall, for the fronts: at least this tall and long (units). */
@@ -37,11 +41,32 @@ const SIZE = {
 
 export interface DressStats { screens: number; fronts: number; alleys: number; cover: number; wanted: number }
 
+/** A piece the dressing can pick: metres (long side, short side, height) and the cover it gives (catalog.ts's). */
+export interface DressCand { long: number; short: number; h: number; cat: { measures: { cover: { value: string } } } }
+
+/** What the dressing asks of its pieces, by identify()'s names (areaKits.ts). */
+export interface DressPieces<C extends DressCand = DressCand> {
+  /** Whether anything goes by that name. */
+  hasNamed(name: string): boolean
+  /** The most cover anything under that name gives. */
+  coverOf(name: string): 'none' | 'crouch' | 'stand'
+  /** One under that name that `fit` likes best (0: won't do), or null. Not counted until commit(). */
+  named(name: string, fit: (c: C) => number): C | null
+  /** Which of its sides is its front, in the game's frame, when it has one. */
+  frontOf(c: C): Side | undefined
+  /** Its parts at a spot (its long side along X turned rot), or null when it can't stand there. */
+  place(c: C, label: string, at: Vec3, rot: number, parts: Part[]): Part[] | null
+  /** Counts one that was placed (both halves). */
+  commit(c: C): void
+  /** What the last dressing placed. */
+  dressed?: DressStats
+}
+
 /**
  * Dresses a Game pieces map from the area kit. `busy` is the wizard's 0..100. Returns the map with the stand-ins
  * added (red's half and their mirror twins); markers are left as they are.
  */
-export function gameDress(s: Sample, pieces: GamePieces, kit: AreaKit, busy: number, seed: number, stats?: DressStats): Sample {
+export function gameDress<C extends DressCand>(s: Sample, pieces: DressPieces<C>, kit: AreaKit, busy: number, seed: number, stats?: DressStats): Sample {
   const floor = candidates(s)
   if (!floor.length) return s
   const ground = Math.min(...floor.map((p) => p[1]))
@@ -95,7 +120,7 @@ export function gameDress(s: Sample, pieces: GamePieces, kit: AreaKit, busy: num
   const put = (list: KitItem[], which: keyof typeof SIZE, p: Vec3, rot: number, wall?: [number, number]): boolean => {
     const lim = SIZE[which]
     // Cover: something a standing player hides behind (taller than the eyes) far likelier than a crouch's worth.
-    const fit = (c: Cand) => {
+    const fit = (c: C) => {
       if (c.long > lim.long || c.h < lim.h[0] || c.h > lim.h[1]) return 0
       const cover = c.cat.measures.cover.value
       if (which === 'screen') return cover === 'stand' && c.long >= 2.4 ? c.long : 0

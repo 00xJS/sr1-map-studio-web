@@ -353,3 +353,9 @@ describe('a map from a sentence', () => {
     expect(describeEdit({ do: 'add_prefab', key: 'koth', x: 0, z: 0 })).toBe('Add King of the hill at (0, 0)')
   })
 })
+
+it('the setup store reads the same AI key the chat stores', async () => {
+  const { KEY_STORE } = await import('../src/lib/aiChat')
+  const setup = await import('../src/lib/setup')
+  expect(setup.KEY_STORE).toBe(KEY_STORE)
+})

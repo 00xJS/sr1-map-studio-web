@@ -6,7 +6,7 @@ import { buildFloor, dijkstra, dijkstraTo, LETHAL_DROP, nodeNear, PLAYER, twoWay
 import { observe, pickLanes, pickObservers, sees, type SightCounts } from './sight'
 import { botPlaytest, fieldCache } from './bots'
 import { findMoves, movesSummary } from './moves'
-import type { AnalysisInput, AnalysisMarker, AnalysisOptions, FairnessReport, HealthReport, Risk, SpawnReport, Team, TeamStats } from './types'
+import { OPAQUE, type AnalysisInput, type AnalysisMarker, type AnalysisOptions, type FairnessReport, type HealthReport, type Risk, type SpawnReport, type Team, type TeamStats } from './types'
 import type { Vec3 } from '../project'
 import { AIMED_M, longReach, reachOf } from '../weaponRange'
 
@@ -19,6 +19,8 @@ const pct = (x: number) => `${Math.round(x * 100)}%`
 const round = (x: number) => Math.round(x)
 /** Farthest a player counts as seen, units: as far as most guns hit (weaponRange.ts). */
 export const WITHIN = AIMED_M * 2
+/** A spawn whose eyes meet a wall this close ahead (metres) starts the round looking at it. */
+export const FACING_WALL_M = 4
 
 /** Everything before the sight check: the ray tree, the floor graph, markers on it, the reachable floor and who looks. */
 export interface Prepared {
@@ -141,12 +143,19 @@ export function finishMap(p: Prepared, counts: SightCounts): HealthReport {
     if (f) for (const j of enemies) if (nodeOf[j] >= 0) enemyWalk = Math.min(enemyWalk, f[nodeOf[j]])
     const exp = n >= 0 ? stand[n] : 0
     const weaponWalk = n >= 0 && toWeapon ? toWeapon[n] : Infinity
-    const { risk, reasons } = judgeSpawn(team, bySpawns, byPickups, exp, Number.isFinite(enemyWalk) ? m(enemyWalk) : null)
+    // Straight ahead from its eyes, the way it faces: a wall within a few metres means turning round before anything else.
+    let wall: number | undefined
+    if (mk.yaw !== undefined) {
+      const t = (mk.yaw * Math.PI) / 180, hit = bvh.closest(me[0], me[1], me[2], Math.sin(t), 0, -Math.cos(t), FACING_WALL_M * 2, OPAQUE)
+      if (hit >= 0) wall = Math.round(m(hit) * 10) / 10
+    }
+    const { risk, reasons } = judgeSpawn(team, bySpawns, byPickups, exp, Number.isFinite(enemyWalk) ? m(enemyWalk) : null, wall)
     return {
       marker: i, uid: mk.uid, type: mk.type, team, number: k + 1, position: mk.position,
       seenBySpawns: bySpawns, seenByPickups: byPickups, seenFrom, exposure: exp,
       enemyWalkM: Number.isFinite(enemyWalk) ? round(m(enemyWalk)) : null,
       weaponWalkM: Number.isFinite(weaponWalk) ? round(m(weaponWalk)) : null,
+      ...(wall !== undefined ? { facesWallM: wall } : {}),
       risk, reasons,
     }
   })
@@ -179,7 +188,7 @@ export function finishMap(p: Prepared, counts: SightCounts): HealthReport {
   }
 }
 
-function judgeSpawn(team: Team, bySpawns: number, byPickups: number, exp: number, enemyWalkM: number | null): { risk: Risk; reasons: string[] } {
+function judgeSpawn(team: Team, bySpawns: number, byPickups: number, exp: number, enemyWalkM: number | null, wallM?: number): { risk: Risk; reasons: string[] } {
   const reasons: string[] = []
   const shared = team === 'shared'
   const other = shared ? 'other spawn' : 'enemy spawn'
@@ -187,6 +196,7 @@ function judgeSpawn(team: Team, bySpawns: number, byPickups: number, exp: number
   if (byPickups) reasons.push(`Seen from ${byPickups} weapon pickup${byPickups === 1 ? '' : 's'}`)
   if (exp >= 0.15) reasons.push(`${pct(exp)} of the map can see it`)
   if (enemyWalkM !== null && enemyWalkM < (shared ? 10 : 25)) reasons.push(shared ? `Another spawn is only ${round(enemyWalkM)} m away` : `Enemies can walk here in ${round(enemyWalkM)} m`)
+  if (wallM !== undefined) reasons.push(`Faces a wall ${wallM} m away`)
   const walk = enemyWalkM ?? Infinity
   // Shared (free-for-all) spawns are judged more gently: with every player an enemy, some other spawn is usually in view.
   const campable = shared
@@ -195,8 +205,10 @@ function judgeSpawn(team: Team, bySpawns: number, byPickups: number, exp: number
   const watch = shared
     ? exp >= 0.15 || bySpawns >= 3 || byPickups >= 5 || walk < 10
     : bySpawns >= 1 || exp >= 0.15 || byPickups >= 5 || walk < 25
+  // Facing a wall is never campable on its own, but a player who spawns turning round is a step behind.
+  const facing = wallM !== undefined
   if (!reasons.length) reasons.push('Out of sight and a good walk from the enemy')
-  return { risk: campable ? 'campable' : watch ? 'watch' : 'ok', reasons }
+  return { risk: campable ? 'campable' : watch || facing ? 'watch' : 'ok', reasons }
 }
 
 function compareTeams(g: FloorGraph, markers: AnalysisMarker[], nodeOf: number[], spawns: SpawnReport[],
@@ -334,6 +346,9 @@ function summarize(spawns: SpawnReport[], fairness: FairnessReport, unreachable:
   if (bad.length > 3) findings.push(`${bad.length - 3} more spawns are easy to camp.`)
   if (!spawns.length) findings.push('No spawns yet: place some so players have somewhere to start.')
   else if (!bad.length) findings.push(watch.length ? `No spawn is easy to camp; ${watch.length} could use a bit more cover.` : 'Every spawn is out of sight and away from the enemy.')
+  const walled = spawns.filter((s) => s.facesWallM !== undefined)
+  if (walled.length) findings.push(walled.length === 1 ? `Spawn ${walled[0].number} faces a wall ${walled[0].facesWallM} m away: turn it toward open ground.`
+    : `${walled.length} spawns face a wall within ${FACING_WALL_M} m (${walled.slice(0, 4).map((s) => s.number).join(', ')}${walled.length > 4 ? '…' : ''}): turn them toward open ground.`)
   for (const r of fairness.reasons.slice(0, 2)) if (!r.startsWith('Even')) findings.push(r)
   // A long line only matters to what can hit along it: past about 50 m, only the long guns.
   if (lanes[0]) findings.push(lanes[0].metres <= AIMED_M ? `Longest sight line: ${lanes[0].metres} m, within what most guns hit.`

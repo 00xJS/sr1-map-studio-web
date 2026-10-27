@@ -122,6 +122,22 @@ export function partIndex(parts: Part[]): PartIndex {
   }
 }
 
+/**
+ * A ray test over a sample's parts for openHeading (markerPlan.ts): something solid whose box spans the line's
+ * height somewhere along it, a unit at a time (water doesn't block).
+ */
+export function partRay(parts: Part[]): (ax: number, ay: number, az: number, bx: number, by: number, bz: number) => boolean {
+  const idx = partIndex(parts)
+  return (ax, ay, az, bx, _by, bz) => {
+    const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az)))
+    for (let s = 1; s <= steps; s++) {
+      const x = ax + ((bx - ax) * s) / steps, z = az + ((bz - az) * s) / steps
+      if (idx.some(x, z, (q) => !q.water && q.at[1] < ay && q.at[1] + q.size[1] > ay && over(q, x, z, 0))) return true
+    }
+    return false
+  }
+}
+
 /** Terrain is in the way where its surface within half a unit of the spot rises more than a kerb above the feet. */
 function terrainBlocks(p: Part, x: number, y: number, z: number) {
   const t = ((p.rot ?? 0) * Math.PI) / 180
