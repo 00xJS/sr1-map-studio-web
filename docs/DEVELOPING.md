@@ -20,8 +20,10 @@ simulated server in IndexedDB. `npm run build` type-checks and builds.
 | `npm test` | Everything except the slow extras below, in about a minute. Each new-map-wizard setting and layout is built with one seed (the four seed setups take turns, so all are covered). |
 | `npm run test:game` | The checks that read a local Saints Row install (`tests/gameObjects.test.ts`, `city.test.ts`, `sr1char.test.ts`, `gameSky.test.ts`): `SR1_PACKFILES`, or `C:/Games/SaintsReborn/dist/game/packfiles`. Skipped when there is no install. Nothing from the game is copied into the repo. |
 | `npm run test:full` | All of it: the game install checks and every wizard setting and layout with all four seeds. Run before a release or after changing the generators. |
+| `npm run lint` | ESLint: TypeScript's recommended rules and React's rules of hooks (warnings for effect dependencies). Type errors are `npm run typecheck` (`tsc -b`). |
+| `npm run test:e2e` | Playwright: the core loop in Chromium (`tests/e2e/smoke.spec.ts`). Set `E2E_URL` to test a running site or a deploy preview; otherwise it starts the dev server on port 4188. First time: `npx playwright install chromium`. |
 
-The mode is vitest's `--mode` (`game` or `full`), read in `tests/testMode.ts`. Showcase rules are tested in `tests/showcase.test.ts`. The Python checks in `tests/*_check.py` run separately (see the table below).
+Component tests are `tests/**/*.test.tsx` (jsdom, Testing Library). `tests/prefabGeometry.test.ts` hashes every prefab's parts: update its snapshot (`-u`) only when a prefab changed on purpose. The mode is vitest's `--mode` (`game` or `full`), read in `tests/testMode.ts`. Showcase rules are tested in `tests/showcase.test.ts`. The Python checks in `tests/*_check.py` run separately (see the table below).
 
 Deploying with Supabase and Netlify: see [docs/DEPLOY.md](docs/DEPLOY.md).
 
@@ -43,7 +45,11 @@ Deploying with Supabase and Netlify: see [docs/DEPLOY.md](docs/DEPLOY.md).
 | `py/export_cache.py`, `py/fast_geometry.py` | Export speed-ups swapped in over upstream functions: compressed textures cached by pixel hash (in memory and in IndexedDB at `/cache`), numpy tiling, collision trees and checks. Same bytes out: `py -3 tests/export_cache_check.py`. |
 | `src/lib/py.worker.ts`, `py.ts` | Pyodide worker and its client. |
 | `src/lib/geometry.ts` | JS port of the OBJ parser and scene transforms (must match the Python face order). |
-| `src/editor/` | Editor UI, three.js viewer, actions, undo/redo store. |
+| `src/editor/` | Editor UI, three.js viewer, undo/redo store (selection follows each thing by uid through edits and undo). Commands are in `act/` (`actions.ts` re-exports them); every key and the `?` sheet come from `shortcuts.ts`. |
+| `src/lib/featureStatus.ts` | What has been tried in game. Every "not yet tried in game" note (`<Status>` in `ui.tsx`, `statusSentence`, the export summary) reads from it: after an in-game test, change the feature's state there. |
+| `src/lib/prefabKit.ts` | The helpers the prefab packs share (`pf`, `pfp`, `num`, `sel`, `yesNo`, `solid`). |
+| `src/lib/units.ts`, `src/lib/touch.ts` | Editor units to game metres (by the map's world scale) and metre formatting; pointer and screen checks. |
+| `scripts/bundle-pyodide.mjs` | Run by `bundle:py`: the Python runtime into `public/pyodide` (numpy and Pillow wheels downloaded once, checked against `pyodide-lock.json`, kept in `.cache/`), so export doesn't depend on a CDN. |
 | `src/lib/analysis/` | Map health checks (sight lines, spawn safety, red vs blue fairness, bot playtest): `analyzeMap(input)` is pure; `client.ts` runs it in workers. |
 | `src/lib/backend/` | Account/hub API: `supabase.ts` (production), `local.ts` (simulated). |
 | `src/lib/hubRules.ts` | Publish rules shared by the browser and `netlify/functions/publish.mts`. |
