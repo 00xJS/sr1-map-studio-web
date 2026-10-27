@@ -8,7 +8,7 @@ import { baseName, isCustomNative, isGlass } from '../../lib/project'
 
 const TextureStudio = lazy(() => import('../TextureStudio').then((m) => ({ default: m.TextureStudio })))
 
-interface Row { index: number; item: string; mat: string; tex: string; alpha: boolean; surface: number; native: boolean; custom: boolean }
+interface Row { index: number; item: string; mat: string; tex: string; alpha: boolean; surface: number; glow?: number; native: boolean; custom: boolean }
 
 function TexThumb({ path }: { path: string }) {
   const project = useEditor((s) => s.project)
@@ -17,6 +17,9 @@ function TexThumb({ path }: { path: string }) {
   return url ? <img className="tex-thumb" src={url} alt="" /> : <span className="tex-thumb" />
 }
 
+
+/** Glow choices (Self_Illumination; retail lamps 0.8, lit vending machines 0.2). */
+const GLOWS: (readonly [number | '', string])[] = [['', 'Off'], [0.2, 'Faint'], [0.5, 'Soft'], [0.8, 'Lamp'], [1, 'Full']]
 export function MaterialsPanel() {
   const project = useEditor((s) => s.project)!
   const solo = useEditor((s) => s.soloMaterial)
@@ -40,6 +43,7 @@ export function MaterialsPanel() {
       tex: custom ? it.glass_custom_texture || '' : it.textures?.[mat] || '',
       alpha: custom ? (it.native_opacity ?? 100) < 100 : isGlass(it) ? it.glass_style === 'tinted' : !!it.alpha?.[mat],
       surface: isGlass(it) ? (it.native_breakable_kind === 'wood' ? 21 : 8) : it.surface_ids?.[mat] ?? 0,
+      glow: it.glow?.[mat],
     }
   })), [project.scene_items, mats])
 
@@ -56,7 +60,7 @@ export function MaterialsPanel() {
       {missing > 0 && <div className="callout warn"><span>{missing} material{missing === 1 ? '' : 's'} need a texture before you can export.</span></div>}
       <div style={{ overflow: 'auto' }}>
         <table className="mats">
-          <thead><tr><th>Material</th><th>Texture</th><th title="Use the texture's alpha channel">Alpha</th><th>Surface</th></tr></thead>
+          <thead><tr><th>Material</th><th>Texture</th><th title="Use the texture's alpha channel">Alpha</th><th title="Lit by itself, like a lamp's glass or a neon sign (exported as the game's glowing material, drawn blended)">Glow</th><th>Surface</th></tr></thead>
           <tbody>
             {visible.map((r) => {
               const key = `${r.index}:${r.mat}`
@@ -85,6 +89,16 @@ export function MaterialsPanel() {
                       onChange={(e) => update('Use alpha', (d) => { d.scene_items[r.index].alpha[r.mat] = e.target.checked })} />
                   </td>
                   <td>
+                    <select value={r.glow ?? ''} disabled={r.native} title={r.native ? 'Glass and breakables keep their own material.' : "How much it lights itself (the game's Self_Illumination)"}
+                      onChange={(e) => update('Glow', (d) => {
+                        const it = d.scene_items[r.index], v = e.target.value
+                        if (v) (it.glow ||= {})[r.mat] = +v
+                        else if (it.glow) { delete it.glow[r.mat]; if (!Object.keys(it.glow).length) delete it.glow }
+                      })}>
+                      {[...GLOWS, ...(r.glow !== undefined && !GLOWS.some(([v]) => v === r.glow) ? [[r.glow, String(r.glow)] as const] : [])].map(([v, label]) => <option key={label} value={v}>{label}</option>)}
+                    </select>
+                  </td>
+                  <td>
                     <select value={r.surface} disabled={r.native} title={r.native ? 'Native objects use their built-in Wood or Glass surface.' : ''}
                       onChange={(e) => update('Surface type', (d) => { (d.scene_items[r.index].surface_ids ||= {})[r.mat] = +e.target.value })}>
                       {catalogs.surface_types.map((n, i) => <option key={n} value={i}>{n}</option>)}
@@ -97,7 +111,7 @@ export function MaterialsPanel() {
         </table>
       </div>
       {studio && <Suspense fallback={null}><TextureStudio index={studio.index} mat={studio.mat} onClose={() => setStudio(null)} /></Suspense>}
-      <p className="faint small">Surface type sets footsteps, bullet impacts and decals (exported as the texture's physical suffix, e.g. _{catalogs.surface_suffixes[0]}). Alpha is off unless you opt in: in Halo-style diffuse maps alpha is often a detail mask.</p>
+      <p className="faint small">Surface type sets footsteps, bullet impacts and decals (exported as the texture's physical suffix, e.g. _{catalogs.surface_suffixes[0]}). Alpha is off unless you opt in: in Halo-style diffuse maps alpha is often a detail mask. Glow makes a material light itself (a lamp's glass, a sign); maps opened from the game keep the glow they had.</p>
     </>
   )
 }

@@ -20,6 +20,11 @@ export interface SceneItem {
   pivot?: Vec3
   textures: Record<string, string>
   alpha: Record<string, boolean>
+  /**
+   * Materials drawn blended and lit by themselves (0-1, the game's Self_Illumination: a lamp's glowing glass, a
+   * light pool), as the map they were opened from had them; exported as the game's glow-class materials.
+   */
+  glow?: Record<string, number>
   surface_ids?: Record<string, number>
   physics_intent?: string
   asset_ref?: string

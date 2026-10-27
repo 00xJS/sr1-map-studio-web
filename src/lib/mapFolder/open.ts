@@ -132,6 +132,7 @@ export async function openMapProject(info: MapInfo, onProgress: (t: string) => v
       position: toEditor(frame, pc.base), rotation: [0, 0, 0], scale: 1,
       textures: Object.fromEntries(own.map((m) => [matName[m], texPath[m]])),
       alpha: Object.fromEntries(own.map((m) => [matName[m], !!scene.textures[m]?.alpha])),
+      ...(own.some((m) => scene.glow[m] !== null) ? { glow: Object.fromEntries(own.filter((m) => scene.glow[m] !== null).map((m) => [matName[m], scene.glow[m]!])) } : {}),
       surface_ids: Object.fromEntries(own.map((m) => [matName[m], surfaceOf(scene.materials[m])])),
       physics_intent: 'Static', triangles: pc.look.length,
       ...(pc.doubleSided ? { double_sided: true } : {}),

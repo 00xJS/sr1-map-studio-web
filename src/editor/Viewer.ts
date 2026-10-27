@@ -806,7 +806,7 @@ export class Viewer {
   private itemKey(it: SceneItem, index: number) {
     const o = this.opts
     const s = this.project!.settings
-    return JSON.stringify([it.path, it.textures, it.alpha, it.double_sided, s.double_sided, o.wireframe, o.soloMaterial?.startsWith(index + ':') ? o.soloMaterial : o.soloMaterial ? 'other' : null, it.native_opacity, it.glass_custom_texture, it.game_look?.path, !!o.layeredLook && !!(it.shape || it.prefab)])
+    return JSON.stringify([it.path, it.textures, it.alpha, it.glow, it.double_sided, s.double_sided, o.wireframe, o.soloMaterial?.startsWith(index + ':') ? o.soloMaterial : o.soloMaterial ? 'other' : null, it.native_opacity, it.glass_custom_texture, it.game_look?.path, !!o.layeredLook && !!(it.shape || it.prefab)])
   }
 
   private syncItems() {
@@ -896,6 +896,9 @@ export class Viewer {
           opacity: custom ? Math.max(0.15, (it.native_opacity ?? 100) / 100) : 1,
           depthWrite: !alpha,
         })
+        // Lit by itself (a lamp's glass): its picture glows.
+        const glow = custom ? 0 : it.glow?.[mat] ?? 0
+        if (glow > 0) { m.emissive.set(0xffffff); m.emissiveMap = m.map; m.emissiveIntensity = glow }
         m.visible = !solo || solo === `${index}:${mat}`
         m.userData.mat = mat
         m.userData.tex = texPath

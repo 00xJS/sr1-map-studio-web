@@ -444,6 +444,9 @@ def _export(s, log):
                            and retail_records.is_decal(it, _dims(_parse(it['path']), it.get('scale', 1), 1)))
     decal_materials = {mid for name, mid in result['bbchunk']['material_ids'].items() if decal_prefixes and name.startswith(decal_prefixes)}
     retail_records.finish_map(chunk, log, decal_materials)
+    # Glowing glass and light pools from a map that was opened (SceneItem.glow).
+    glow_names = {'obj%03d_%s' % (j, m): v for j, it in enumerate(items) for m, v in (it.get('glow') or {}).items()}
+    retail_records.set_glow(chunk, {mid: glow_names[name] for name, mid in result['bbchunk']['material_ids'].items() if name in glow_names}, log)
     if s.get('remove_invisible_walls', True):
         collision_fix.remove_invisible_walls(chunk, log)
     retail_records.fix_hmap(out / (base + '.hmap_xbox2'), log)

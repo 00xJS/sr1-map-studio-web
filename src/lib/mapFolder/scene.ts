@@ -5,8 +5,10 @@
 // (a building with the window frames and signs on it), the big floors on their own. Exporters that make walls double-sided write each
 // triangle twice, the copy turned round and left out of collision: the copy is dropped and the piece marked
 // double-sided, as the editor exports it. The game's sky objects and the template's fake sky box are left out
-// (the export adds the sky again). Pure functions over a parsed chunk; game frame (metres) throughout.
-import type { Chunk } from '../gameObjects/chunk'
+// (the export adds the sky again). Each material comes in as one picture (materialPlan: its glow, tint, light-pool
+// decals and additive pictures folded in). Pure functions over a parsed chunk; game frame (metres) throughout.
+import type { Chunk, Material } from '../gameObjects/chunk'
+import { describeMaterial } from '../gameObjects/material'
 import type { ObjectMesh } from '../gameObjects/extract'
 import { forEachTriangle, pieceName } from '../city/city'
 import { solidity } from '../city/collision'
@@ -22,8 +24,61 @@ export interface TriSoup {
   solid: Uint8Array
   mat: Uint16Array
   inst: Uint32Array
-  /** Diffuse texture name per material ('' for none). */
+  /** Picture name per material ('' for none): its diffuse, or what materialPlan() makes it from. */
   materials: string[]
+  /** How each material's picture is made and drawn. */
+  plans: MaterialPlan[]
+}
+
+/**
+ * How one of the map's materials becomes the editor's one picture on one UV set, keeping what the game drew that
+ * the editor and the exporter can: a tint (Diffuse_Color) multiplied in; a self-lit glow (flags 0xB, a lamp's
+ * glass) kept as `glow`; an additive picture (black shows nothing: light pools, flares) made a blended one (colour
+ * scaled up, alpha from its brightness); and decals over a plain base on a UV set of their own (retail lobby's
+ * CircularLight / CircularDark pools baked on the floor) mixed into one picture over the base's average colour.
+ */
+export interface MaterialPlan {
+  /** The picture's name: the diffuse, or the decal a baked or decal-shader picture is made from. */
+  tex: string
+  /** The UV set the picture is read with (0-3). */
+  uv: number
+  /** Diffuse_Color, when not white. */
+  tint?: [number, number, number]
+  /** Baked: the base picture (its average colour, times the tint) with these decals mixed over it, by alpha × opacity. */
+  base?: string
+  decals?: { tex: string; opacity: number }[]
+  /** Its black is see-through. */
+  additive?: boolean
+  /** Drawn blended and lit by itself this much (Self_Illumination; 0: blended only, a decal shader's). */
+  glow?: number
+}
+
+const white = (c: number[]) => c.every((v) => Math.abs(v - 1) < 0.02)
+
+/**
+ * The plan for material `m` (on geometry with `uvSets` UV sets) whose diffuse is `tex`. `flat`: whether a picture is
+ * one plain colour all over (a base that decals can be baked over).
+ */
+export function materialPlan(m: Material | undefined, uvSets: number, tex: string, flat: (name: string) => boolean): MaterialPlan {
+  const look = m ? describeMaterial(m, uvSets) : null
+  if (!look) return { tex, uv: 0 }
+  const glow = look.glow && look.selfIllum > 0 ? +look.selfIllum.toFixed(3) : undefined
+  const tint = white(look.tint) ? undefined : look.tint.map((v) => +v.toFixed(3)) as [number, number, number]
+  if (look.kind === 'decal') {
+    // Decal shaders draw only their decal, blended.
+    const d = look.decals[0]
+    if (!d) return { tex, uv: 0 }
+    const additive = /additive/.test(look.shader)
+    return { tex: d.layer.tex, uv: d.layer.uv, ...(additive ? { additive } : {}), glow: glow ?? (additive ? 1 : 0) }
+  }
+  if (look.kind === 'standard') {
+    const ds = look.decals, k = ds[0]?.layer.uv ?? 0
+    // Decals on a UV set of their own over a plain base: one picture of the decals on that set.
+    if (k > 0 && ds.every((d) => d.layer.uv === k && d.layer.repeat.every((r) => r === 1)) && (!look.base || flat(look.base.tex))) {
+      return { tex: ds[0].layer.tex, uv: k, ...(look.base ? { base: look.base.tex } : {}), decals: ds.map((d) => ({ tex: d.layer.tex, opacity: d.opacity })), ...(tint ? { tint } : {}), ...(glow !== undefined ? { glow } : {}) }
+    }
+  }
+  return { tex, uv: 0, ...(tint ? { tint } : {}), ...(glow !== undefined ? { glow } : {}) }
 }
 
 export interface SourceInstance {
@@ -48,33 +103,40 @@ class Grow {
   pos: number[] = []; uv: number[] = []; solid: number[] = []; mat: number[] = []; inst: number[] = []
 }
 
-/** Every drawn triangle of the chunk, sky left out. When the collision can't be read, everything counts as solid. */
-export function chunkSoup(ch: Chunk): ChunkSoup {
+/**
+ * Every drawn triangle of the chunk, sky left out, each material as materialPlan() makes it (`flat`: which pictures
+ * are one plain colour; none when not given). When the collision can't be read, everything counts as solid.
+ */
+export function chunkSoup(ch: Chunk, flat: (name: string) => boolean = () => false): ChunkSoup {
   const g = new Grow()
-  const materials: string[] = [], matIndex = new Map<string, number>()
+  const materials: string[] = [], plans: MaterialPlan[] = [], matIndex = new Map<string, number>()
   const recOf = new Map(ch.records.map((r) => [r.instance, r]))
   const sky = new Set(ch.records.filter((r) => SKY_OBJECTS.includes(r.name)).map((r) => r.instance))
   const readable = !!solidity(ch)
   let fakeSky = 0
   const skyTris = new Set<number>()
+  const planOf = new Map<string, MaterialPlan>()
   forEachTriangle(ch, (t) => {
     if (sky.has(t.inst)) { skyTris.add(t.inst); return }
     if (t.tex.toLowerCase() === FAKE_SKY) { fakeSky++; return }
-    const key = t.tex.toLowerCase()
+    let plan = planOf.get(t.mat + ':' + t.uvSets)
+    if (!plan) planOf.set(t.mat + ':' + t.uvSets, (plan = materialPlan(ch.materials[t.mat], t.uvSets, t.tex, flat)))
+    const key = JSON.stringify(plan).toLowerCase()
     let m = matIndex.get(key)
-    if (m === undefined) { m = materials.length; materials.push(t.tex); matIndex.set(key, m) }
+    if (m === undefined) { m = materials.length; materials.push(plan.tex); plans.push(plan); matIndex.set(key, m) }
     for (let k = 0; k < 9; k++) g.pos.push(t.p[k])
-    for (let k = 0; k < 6; k++) g.uv.push(t.uv[k])
+    if (plan.uv) for (let k = 0; k < 3; k++) g.uv.push(t.uvx[(k * 3 + plan.uv - 1) * 2], t.uvx[(k * 3 + plan.uv - 1) * 2 + 1])
+    else for (let k = 0; k < 6; k++) g.uv.push(t.uv[k])
     g.solid.push(readable ? (t.solid ? 1 : 0) : 1)
     g.mat.push(m)
     g.inst.push(t.inst)
-  })
+  }, { extras: true })
   const instances = ch.instances.map((_, i): SourceInstance => {
     const r = recOf.get(i)
     return { record: r?.name ?? '', prop: (r?.shape ?? -1) >= 0, profile: r?.profile && r.profile !== 'Default' ? r.profile : '' }
   })
   return {
-    soup: { pos: new Float32Array(g.pos), uv: new Float32Array(g.uv), solid: new Uint8Array(g.solid), mat: new Uint16Array(g.mat), inst: new Uint32Array(g.inst), materials },
+    soup: { pos: new Float32Array(g.pos), uv: new Float32Array(g.uv), solid: new Uint8Array(g.solid), mat: new Uint16Array(g.mat), inst: new Uint32Array(g.inst), materials, plans },
     instances, skipped: { fakeSky, skyObjects: skyTris.size }, fakeSky: fakeSky > 0,
   }
 }

@@ -301,7 +301,7 @@ describe('CTS files back into markers', () => {
 function soup(tris: [number[], number, number, number][], materials = ['wall_co.tga', 'floor_co.tga']): TriSoup {
   return {
     pos: new Float32Array(tris.flatMap((t) => t[0])), uv: new Float32Array(tris.length * 6),
-    solid: new Uint8Array(tris.map((t) => t[1])), mat: new Uint16Array(tris.map((t) => t[2])), inst: new Uint32Array(tris.map((t) => t[3])), materials,
+    solid: new Uint8Array(tris.map((t) => t[1])), mat: new Uint16Array(tris.map((t) => t[2])), inst: new Uint32Array(tris.map((t) => t[3])), materials, plans: materials.map((tex) => ({ tex, uv: 0 })),
   }
 }
 /** A quad as two triangles, and the same turned round. */

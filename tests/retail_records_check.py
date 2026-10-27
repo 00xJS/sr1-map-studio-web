@@ -156,6 +156,9 @@ def full_export(pack, tmp):
         dict(base, name='Line', path=obj_box(work / 'line.obj', (6, 0.02, 0.5), 'l'), position=[0, 0.01, -8], textures={'l': tex('l.png', (240, 240, 240))},
              collision_disabled=True),
     ]
+    # A lamp's glowing glass from an opened map (SceneItem.glow).
+    items.append(dict(base, name='Lamp glass', path=obj_box(work / 'lamp.obj', (1, 1, 1), 'lg'), position=[20, 3, 20], textures={'lg': tex('lg.png', (250, 220, 120))},
+                      glow={'lg': 0.8}))
     glass = json.loads(web_api.scene_op('create_glass', json.dumps({'position': [6, 0, -6], 'world_scale': 0.5, 'style_label': 'Tinted glass', 'others': []})))
     check(glass['ok'], 'export: glass pane made' + ('' if glass['ok'] else ': ' + glass['error']))
     items.append(glass['value'])
@@ -211,9 +214,12 @@ def export_materials(x):
     check(len(ours) >= 4 and alpha, f'export: {len(ours)} drawn bb-simple1 materials of ours, {len(alpha)} with an alpha texture')
     glass = [i for i in ours if strings[rc.U32(g.mats[i].parts[0], 4)].startswith('ng_') and rc.U16(g.mats[i].m, 0x12) == 27]
     check(len(glass) == 1, 'export: the tinted glass pane keeps its own prefab material (flags 27)')
-    check(all(rc.U16(g.mats[i].m, 0x12) == rr.PLAIN for i in ours if i not in glass),
+    lit = [i for i in ours if rc.U16(g.mats[i].m, 0x12) == rr.GLOW_CLASS]
+    check(len(lit) == 1 and abs(rr.self_illumination(g.mats[lit[0]]) - 0.8) < 1e-6,
+          'export: the lamp glass opened with a glow is glow-class (flags 0xB) with its Self_Illumination 0.8')
+    check(all(rc.U16(g.mats[i].m, 0x12) == rr.PLAIN for i in ours if i not in glass and i not in lit),
           'export: every other drawn material of ours is plain (flags 3), the alpha fence too')
-    check(all(rr.self_illumination(g.mats[i]) == 0.0 for i in ours), 'export: Self_Illumination 0 on every drawn material of ours, glass, prop and wood included')
+    check(all(rr.self_illumination(g.mats[i]) == 0.0 for i in ours if i not in lit), 'export: Self_Illumination 0 on every other drawn material of ours, glass, prop and wood included')
     keys = {rc.U32(g.mats[i].m, 4) for i in alpha}
     tags = collections.defaultdict(set)
     for e in g.ents:
@@ -221,7 +227,8 @@ def export_materials(x):
     plain_tags = tags[rc.U32(template.mats[0].m, 4)]
     check(all(tags[k] == plain_tags for k in keys), 'export: alpha materials carry the plain template\'s resource links')
     glow = [i for i in used if rc.U32(g.mats[i].m, 0) == rr.K_BASE_SHADER and (rr.self_illumination(g.mats[i]) or 0.0) > 0]
-    check(not glow, 'export: nothing drawn is self-lit')
+    check(glow == lit, 'export: nothing else drawn is self-lit')
+    check(any(l.startswith('Glow: 1 material') for l in x['logs']), 'export: logs the glow')
     check(any(l.startswith('Materials: Self_Illumination 0') for l in x['logs']), 'export: logs the material change')
 
 

@@ -325,6 +325,35 @@ def finish_map(chunk_path, log=None, decal_materials=()):
     return {'unlit': unlit, 'fades': fades, 'decals': decals}
 
 
+GLOW_CLASS = 0xB   # flags of retail's glowing materials (a lamp's lit glass: 0xB, Self_Illumination 0.8)
+
+
+def set_glow(chunk_path, glow, log=None):
+    """Materials drawn blended and lit by themselves, as the map they were opened from had them (after finish_map).
+
+    glow: material index -> Self_Illumination (0-1). Each becomes glow-class (flags 0xB, laid out as the plain
+    bb-simple1 materials it was cloned from) with that Self_Illumination; 0 keeps it blended but unlit.
+    """
+    if not glow:
+        return 0
+    path = Path(chunk_path)
+    ch = rc.read_chunk(path.read_bytes())
+    g = rc.chunk_geometry(ch)
+    done = 0
+    for index, value in sorted(glow.items()):
+        M = g.mats[index]
+        if rc.U32(M.m, 0) != K_BASE_SHADER:
+            continue
+        rc.Wr16(M.m, 0x12, GLOW_CLASS)
+        set_self_illumination(M, max(0.0, min(1.0, float(value))))
+        done += 1
+    rc.set_geometry(ch, g)
+    path.write_bytes(rc.write_chunk(ch))
+    if log:
+        log(f'Glow: {done} material(s) drawn blended and lit by themselves, as in the map they came from.')
+    return done
+
+
 def fix_hmap(path, log=None):
     """The retail value in the height map's header field (upstream leaves it 0)."""
     path = Path(path)
