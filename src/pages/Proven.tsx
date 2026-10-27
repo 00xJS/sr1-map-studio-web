@@ -3,8 +3,9 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FEATURES, type Feature, type FeatureId, type FeatureState } from '../lib/featureStatus'
-import { TEST_BATCHES, UNBATCHED, buildTestMap, testChecklist, type BatchId, type TestBatch } from '../lib/testMaps'
+import { NO_SURFACE_PACK, TEST_BATCHES, UNBATCHED, buildTestMap, surfacePackReady, testChecklist, type BatchId, type TestBatch } from '../lib/testMaps'
 import { db, requestPersistence } from '../lib/db'
+import { dataPackStatus } from '../lib/datapack'
 import { toastError } from '../ui'
 import './proven.css'
 
@@ -69,7 +70,18 @@ function BatchCard({ batch }: { batch: TestBatch }) {
   const navigate = useNavigate()
   const [progress, setProgress] = useState<string | null>(null)
   const [printing, setPrinting] = useState(false)
+  // Built, with something left out: the tester reads why before opening it.
+  const [built, setBuilt] = useState<{ id: string; leftOut: string[] } | null>(null)
+  // Known before building: early surface registration goes in only with the data pack groups it needs.
+  const [noSurface, setNoSurface] = useState(false)
   const lines = testChecklist(batch)
+
+  useEffect(() => {
+    if (!batch.settings.surface_preload) return
+    let live = true
+    dataPackStatus().then((s) => { if (live) setNoSurface(!surfacePackReady(s)) }, () => {})
+    return () => { live = false }
+  }, [batch])
 
   // Only this card's checklist goes to the printer (proven.css).
   useEffect(() => {
@@ -82,8 +94,11 @@ function BatchCard({ batch }: { batch: TestBatch }) {
 
   const make = async () => {
     setProgress('Starting…')
+    setBuilt(null)
     try {
-      navigate(`/editor/${await makeTestMap(batch.id, setProgress)}`)
+      const made = await makeTestMap(batch.id, setProgress)
+      if (made.leftOut.length) { setBuilt(made); setProgress(null) }
+      else navigate(`/editor/${made.id}`)
     } catch (e) {
       toastError(e)
       setProgress(null)
@@ -111,8 +126,16 @@ function BatchCard({ batch }: { batch: TestBatch }) {
           </li>
         ))}
       </ul>
+      {noSurface && !built && <div className="callout warn small no-print">{NO_SURFACE_PACK}</div>}
+      {built && (
+        <div className="callout warn small no-print col" role="status">
+          <b>The test map is made, with something left out:</b>
+          {built.leftOut.map((t) => <span key={t}>{t}</span>)}
+          <div className="row"><button className="primary sm" onClick={() => navigate(`/editor/${built.id}`)}>Open the test map</button></div>
+        </div>
+      )}
       <div className="row wrap no-print">
-        <button className="primary" disabled={!!progress} onClick={make}>{progress ? 'Building…' : 'Make this test map'}</button>
+        <button className={built ? '' : 'primary'} disabled={!!progress} onClick={make}>{progress ? 'Building…' : built ? 'Make it again' : 'Make this test map'}</button>
         <button onClick={() => setPrinting(true)}>Print checklist</button>
         {progress && <span className="small muted">{progress}</span>}
       </div>
@@ -120,11 +143,11 @@ function BatchCard({ batch }: { batch: TestBatch }) {
   )
 }
 
-/** Builds the batch's map, saves it in this browser and returns its id. */
-async function makeTestMap(id: BatchId, onProgress: (t: string) => void): Promise<string> {
-  const p = await buildTestMap(id, { onProgress })
+/** Builds the batch's map, saves it in this browser and returns its id and what it left out. */
+async function makeTestMap(id: BatchId, onProgress: (t: string) => void): Promise<{ id: string; leftOut: string[] }> {
+  const { project: p, leftOut } = await buildTestMap(id, { onProgress })
   await db.putProject({ id: p.id, name: p.name, updated_at: p.updated_at, project: p })
   void requestPersistence()
-  return p.id
+  return { id: p.id, leftOut }
 }
 

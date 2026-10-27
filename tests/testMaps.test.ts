@@ -14,7 +14,7 @@ vi.mock('../src/lib/files', async (orig) => ({
 vi.mock('../src/lib/texgen', () => ({ generatedPng: async (_: unknown, name: string) => new File(['png'], name, { type: 'image/png' }) }))
 globalThis.fetch = (async () => new Response(new Blob(['jpg'], { type: 'image/jpeg' }))) as typeof fetch
 
-const { TEST_BATCHES, UNBATCHED, buildTestMap, carries, testChecklist } = await import('../src/lib/testMaps')
+const { NO_GAME_NAMES, NO_SURFACE_PACK, TEST_BATCHES, UNBATCHED, buildTestMap, carries, testChecklist } = await import('../src/lib/testMaps')
 const { mapChecklist } = await import('../src/lib/checklist')
 const { checkModes } = await import('../src/lib/levels')
 const { catalogs } = await import('../src/lib/catalogs')
@@ -24,6 +24,8 @@ const { blocker, support } = await import('../src/lib/sampleScale')
 const { FEATURES } = await import('../src/lib/featureStatus')
 type FeatureId = import('../src/lib/featureStatus').FeatureId
 type NativeConverter = import('../src/lib/testMaps').NativeConverter
+type BuiltTestMap = import('../src/lib/testMaps').BuiltTestMap
+type DataPackStatus = import('../src/lib/datapack').DataPackStatus
 
 // The editor's Python step, reduced to the fields it sets.
 const asked: { batch: number; tags: unknown[] }[] = []
@@ -39,16 +41,24 @@ const fakeNatives = (batch: number): NativeConverter => async (p, jobs) => {
   }
 }
 
-const builds = new Map<number, Promise<Project>>()
-const built = (id: 1 | 2 | 3) => {
-  if (!builds.has(id)) builds.set(id, buildTestMap(id, { convert: fakeNatives(id), gameNames: async () => ({ item: 'Chair_Office', sound: 'AMB_BIRDS' }) }))
+// A data pack with every group, or with some left out.
+const GROUPS = ['required', 'glass', 'props', 'cts', 'sky', 'surface', 'library', 'demo'] as const
+const pack = (...missing: string[]) => async () => ({ ready: true, groups: Object.fromEntries(GROUPS.map((g) => [g, { have: missing.includes(g) ? 0 : 1, total: 1 }])) }) as DataPackStatus
+const named = async () => ({ item: 'Chair_Office', sound: 'AMB_BIRDS' })
+
+const builds = new Map<number, Promise<BuiltTestMap>>()
+const asks: number[] = []
+const result = (id: 1 | 2 | 3) => {
+  if (!builds.has(id)) builds.set(id, buildTestMap(id, { convert: fakeNatives(id), gameNames: () => { asks.push(id); return named() }, dataPack: pack() }))
   return builds.get(id)!
 }
+const built = async (id: 1 | 2 | 3) => (await result(id)).project
 
 describe('test maps', () => {
   for (const batch of TEST_BATCHES) {
     it(`batch ${batch.id} builds and carries every feature it tests`, async () => {
-      const p = await built(batch.id)
+      const { project: p, leftOut } = await result(batch.id)
+      expect(leftOut).toEqual([])
       expect(p.scene_items.length).toBeGreaterThan(4)
       for (const id of batch.features) if (!batch.absent?.[id]) expect(carries(p, id), id).toBe(true)
     })
@@ -111,6 +121,32 @@ describe('test maps', () => {
     expect(p.markers.find((m) => m.type === 'Sound zone')?.sound).toBe('AMB_BIRDS')
     expect(p.markers.some((m) => m.type === 'Pimp exit (experimental)')).toBe(false)
     expect(asked.some((a) => a.batch !== 3)).toBe(false)
+    // Only batch 3 asks for the game folder.
+    await Promise.all([built(1), built(2)])
+    expect(asks).toEqual([3])
+  })
+
+  it('batch 3 without names from the game: says so, and does not count the item prop or the sound zone', async () => {
+    const { project: p, leftOut } = await buildTestMap(3, { convert: fakeNatives(0), gameNames: async () => ({}), dataPack: pack() })
+    expect(leftOut).toEqual([NO_GAME_NAMES])
+    expect(carries(p, 'item_props')).toBe(false)
+    expect(carries(p, 'sound_zones')).toBe(false)
+    expect(carries(p, 'water')).toBe(true)
+    // A folder that can't be read counts as no names, not as a failed build.
+    const failed = await buildTestMap(3, { convert: fakeNatives(0), gameNames: async () => { throw new Error('denied') }, dataPack: pack() })
+    expect(failed.leftOut).toEqual([NO_GAME_NAMES])
+  })
+
+  it('batch 3 leaves early surface registration out when the data pack lacks its groups', async () => {
+    for (const missing of ['surface', 'sky']) {
+      const { project: p, leftOut } = await buildTestMap(3, { convert: fakeNatives(0), gameNames: named, dataPack: pack(missing) })
+      expect(leftOut).toEqual([NO_SURFACE_PACK])
+      expect(p.settings.surface_preload).toBeUndefined()
+      expect(carries(p, 'surface_registration')).toBe(false)
+      expect(p.settings.base_name.length).toBeLessThanOrEqual(10)
+    }
+    const none = await buildTestMap(3, { convert: fakeNatives(0), gameNames: named, dataPack: async () => null })
+    expect(none.leftOut).toEqual([NO_SURFACE_PACK])
   })
 
   it('counts a physics prop as a prop, not as breakable wood', async () => {

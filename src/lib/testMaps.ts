@@ -14,6 +14,7 @@ import { ITEM_PROP } from './gameObjects/items'
 import { dryInteriors, gameSkyWanted, isGlass, isProp, type FileRef, type Project, type ProjectSettings, type SceneItem, type Vec3 } from './project'
 import { shapeObj } from './shapes'
 import { storeFile } from './files'
+import { dataPackStatus, hasGroup, type DataPackStatus } from './datapack'
 
 export type BatchId = 1 | 2 | 3
 
@@ -135,14 +136,15 @@ export const TEST_BATCHES: TestBatch[] = [
       blinged_out_ride: "Start Blinged Out Ride: the red team's car and garage at the south end, the blue team's at the north end, the chop shop shed in the east, the victory garage in the north-west.",
       item_props: 'The item prop marker just south-east of the middle (it shows only if an item is chosen on it).',
       sound_zones: 'Stand by the pool: the sound zone is round it (it plays only if a sound is chosen on it).',
-      surface_registration: 'Walk and shoot on the concrete floor, the wooden ramp and the metal pool walls: footsteps and impacts should match each.',
+      surface_registration: "Walk and shoot on the concrete floor, the wooden ramp and the metal pool walls: footsteps and impacts should match each. It turns the game's own sky off, so this map shows the painted sky.",
     },
     absent: {
       pimp_exit: 'Not in this map: the export refuses a pimp exit marker, because the game has no pimp exit action. Nothing to try in game.',
     },
     setup: [
-      'Before installing, check the item prop and sound zone markers have an item and a sound (the names come from your game files).',
-      'Install it in game. Start Gangsta Brawl for the props, the pool and the sounds, then Blinged Out Ride.',
+      'Make it with your game folder connected: the item prop and the sound zone take their names from your game files.',
+      "Install it in game with the folder still connected: the smashing crate's boards and dust come from your game files too.",
+      'Start Gangsta Brawl for the props, the pool and the sounds, then Blinged Out Ride.',
     ],
     settings: { surface_preload: true },
     sample: () => ({
@@ -205,7 +207,7 @@ export function testChecklist(batch: TestBatch): ChecklistLine[] {
 
 /** Whether a built map carries a feature (for the tests, and as a guard that a test map still tests what it says). */
 export function carries(p: Project, id: FeatureId): boolean {
-  const s = p.settings, items = p.scene_items, has = (type: string) => p.markers.some((m) => m.type === type)
+  const s = p.settings, items = p.scene_items
   // Physics props are wood natives too (Python's native_prop): a breakable is one that isn't a prop.
   const breakables = items.filter((it) => it.native_breakable_kind && !isProp(it))
   switch (id) {
@@ -220,8 +222,9 @@ export function carries(p: Project, id: FeatureId): boolean {
     case 'breakable_wood': return breakables.some((it) => it.native_breakable_kind === 'wood' && it.native_profile !== CRATE_PROFILE)
     case 'crate_debris': return breakables.some((it) => it.native_breakable_kind === 'wood' && it.native_profile === CRATE_PROFILE)
     case 'blinged_out_ride': return s.modes.includes(BOR) && !borMissing(p.markers).length
-    case 'item_props': return has(ITEM_PROP)
-    case 'sound_zones': return has(SOUND_ZONE)
+    // The export skips an item prop or sound zone with no name.
+    case 'item_props': return p.markers.some((m) => m.type === ITEM_PROP && !!m.item?.trim())
+    case 'sound_zones': return p.markers.some((m) => m.type === SOUND_ZONE && !!m.sound?.trim())
     case 'surface_registration': return !!s.surface_preload
     default: return false
   }
@@ -234,18 +237,39 @@ export interface BuildOptions {
   onProgress?: (t: string) => void
   /** Defaults to the editor's own Python step. */
   convert?: NativeConverter
-  /** An item and a sound from the player's game for batch 3's markers (default: read if the game folder is already connected). */
+  /** An item and a sound from the player's game for batch 3's markers (default: from the game folder, asking for it: call from a click). */
   gameNames?: () => Promise<{ item?: string; sound?: string }>
+  /** The data pack's status (default: this browser's). */
+  dataPack?: () => Promise<DataPackStatus | null>
 }
 
+/** The test map, and what it had to leave out (for the tester to see before installing). */
+export interface BuiltTestMap { project: Project; leftOut: string[] }
+
+export const NO_GAME_NAMES = 'Choose your game folder to include item props and sound zones: without their names from your game, the export leaves them out.'
+export const NO_SURFACE_PACK = 'Early surface registration is left out: it needs the surface template and the native sky presets from your data pack.'
+
+/** Early surface registration can go in: the export refuses it without these data pack groups. */
+export const surfacePackReady = (pack: DataPackStatus | null) => hasGroup(pack, 'surface') && hasGroup(pack, 'sky')
+
 /** Builds a batch's test map as a new project (not saved; the caller saves it). */
-export async function buildTestMap(id: BatchId, opts: BuildOptions = {}): Promise<Project> {
+export async function buildTestMap(id: BatchId, opts: BuildOptions = {}): Promise<BuiltTestMap> {
   const batch = testBatch(id)
   const sample = batch.sample()
+  const leftOut: string[] = []
+  // First, while the click still counts: the browser only shows the folder prompt right after one.
+  const named = sample.markers.some(([type]) => type === ITEM_PROP || type === SOUND_ZONE)
+  const names = named ? await (opts.gameNames ?? (() => namesFromGame(true)))().catch(() => ({} as { item?: string; sound?: string })) : {}
+  const settings = { ...batch.settings }
+  if (settings.surface_preload) {
+    const pack = await (opts.dataPack ?? dataPackStatus)().catch(() => null)
+    if (!surfacePackReady(pack)) { delete settings.surface_preload; leftOut.push(NO_SURFACE_PACK) }
+  }
+
   const plain = sample.parts.filter((x) => !x.native), natives = sample.parts.filter((x) => x.native)
   const p = await buildFrom({ ...sample, parts: plain }, opts.onProgress)
   p.description = sample.description
-  Object.assign(p.settings, batch.settings)
+  Object.assign(p.settings, settings)
   // Map file names: 10 characters at most with early surface registration.
   p.settings.base_name = `test${id}` + Math.floor(1000 + Math.random() * 9000)
 
@@ -268,14 +292,12 @@ export async function buildTestMap(id: BatchId, opts: BuildOptions = {}): Promis
     await (opts.convert ?? pythonNatives)(p, jobs)
   }
 
-  if (p.markers.some((m) => m.type === ITEM_PROP || m.type === SOUND_ZONE)) {
-    const names = await (opts.gameNames ?? namesFromGame)().catch(() => ({} as { item?: string; sound?: string }))
-    for (const m of p.markers) {
-      if (m.type === ITEM_PROP && names.item) m.item = m.label = names.item
-      if (m.type === SOUND_ZONE && names.sound) m.sound = names.sound
-    }
+  for (const m of p.markers) {
+    if (m.type === ITEM_PROP && names.item) m.item = m.label = names.item
+    if (m.type === SOUND_ZONE && names.sound) m.sound = names.sound
   }
-  return p
+  if (named && !(names.item && names.sound)) leftOut.push(NO_GAME_NAMES)
+  return { project: p, leftOut }
 }
 
 const pythonNatives: NativeConverter = async (p, jobs) => {
@@ -301,10 +323,12 @@ const pythonNatives: NativeConverter = async (p, jobs) => {
   }
 }
 
-/** An item and a sound from the player's game files, without asking for the folder; nothing when it isn't connected. */
-async function namesFromGame(): Promise<{ item?: string; sound?: string }> {
+/** An item and a sound from the player's game files; `ask` lets the browser ask for the folder. Nothing when it isn't given. */
+async function namesFromGame(ask: boolean): Promise<{ item?: string; sound?: string }> {
   const [{ loadItems }, { loadSoundNames }] = await Promise.all([import('./gameObjects/items'), import('./gameFiles')])
-  const [items, sounds] = await Promise.all([loadItems(false).catch(() => null), loadSoundNames(false).catch(() => null)])
+  // One after the other, so the browser asks for the folder once.
+  const items = await loadItems(ask).catch(() => null)
+  const sounds = await loadSoundNames(ask).catch(() => null)
   return {
     item: (items?.find((i) => i.preload && !i.touch) ?? items?.[0])?.name,
     sound: sounds?.find((n) => /BIRD/i.test(n)) ?? sounds?.[0],

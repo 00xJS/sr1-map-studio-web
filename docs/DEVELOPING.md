@@ -29,7 +29,7 @@ Deploying with Supabase and Netlify: see [docs/DEPLOY.md](docs/DEPLOY.md).
 
 ## After an in-game test
 
-Change the feature in `src/lib/featureStatus.ts`: its `state` (`'proven'` once it works in game) and `tested` (when, and on which map, as `'2026-10-24, Dust and Sublot'`), and its `note` to what was seen. Every badge and note on the site reads from there: the `<Status>` chips, the hints, the export summary and the [/proven](/proven) page, which also builds the sprint's test maps (`src/lib/testMaps.ts`; checks in `tests/testMaps.test.ts`).
+Change the feature in `src/lib/featureStatus.ts`: its `state` (`'proven'` once it works in game) and `tested` (when, and on which map, as `'2026-10-24, Dust and Sublot'`), and its `note` to what was seen. Every badge and note on the site reads from there: the `<Status>` chips, the hints, the export summary and the site's `/proven` page, which also builds the sprint's test maps (`src/lib/testMaps.ts`; checks in `tests/testMaps.test.ts`).
 
 ## Layout
 
