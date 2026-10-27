@@ -8,6 +8,7 @@ import type { Project } from '../lib/project'
 import type { WizardOptions } from '../lib/mapWizard'
 import type { PendingEdits } from '../lib/pendingEdits'
 import type { StartChoice } from './startBuild'
+import { OpenGameMapPath } from './OpenOrImport'
 import './start.css'
 
 const load = () => import('./StartPaths')
@@ -15,7 +16,6 @@ const GeneratePath = lazy(() => load().then((m) => ({ default: m.GeneratePath })
 const DescribePath = lazy(() => load().then((m) => ({ default: m.DescribePath })))
 const CityPath = lazy(() => load().then((m) => ({ default: m.CityPath })))
 const CatalogPath = lazy(() => load().then((m) => ({ default: m.CatalogPath })))
-const OpenPath = lazy(() => import('./OpenOrImport').then((m) => ({ default: m.OpenGameMapPath })))
 
 export type StartPath = 'generate' | 'describe' | 'city' | 'catalog' | 'open'
 
@@ -83,7 +83,7 @@ export function SamplePicker(props: { onClose: () => void; onBuilt: (p: Project,
   else if (path === 'describe') body = <DescribePath {...shared} onTune={(o) => { setTuned(o); setPath('generate') }} />
   else if (path === 'city') body = <CityPath {...shared} />
   else if (path === 'catalog') body = <CatalogPath {...shared} onBlank={props.onBlank} />
-  else if (path === 'open') body = <OpenPath onDone={props.onClose} />
+  else if (path === 'open') body = <OpenGameMapPath onDone={props.onClose} />
   return (
     <Modal title={way ? <span className="row" style={{ gap: 8 }}><span aria-hidden>{way.icon}</span>{way.title}</span> : 'Start a map'} wide onClose={close}
       footer={<>
