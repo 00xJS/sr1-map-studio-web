@@ -1,4 +1,4 @@
-import { useEditor } from '../store'
+import { thingKey, useEditor } from '../store'
 import * as act from '../actions'
 import { getViewer } from '../Viewport'
 import { Check, Field, NumberInput, Vec3Input, toastError } from '../../ui'
@@ -45,7 +45,7 @@ function LightEditor({ l, index }: { l: Light; index: number }) {
   const update = useEditor((s) => s.update)
   const scale = useEditor((s) => s.project!.settings.world_scale)
   const m = (v: number) => +(v * scale).toFixed(1)
-  const set = (label: string, fn: (d: Light) => void, merge?: string) => update(label, (d) => { fn(d.lights[index]) }, merge ? { merge: merge + index } : undefined)
+  const set = (label: string, fn: (d: Light) => void, merge?: string) => update(label, (d) => { fn(d.lights[index]) }, merge ? { merge: merge + thingKey('light', index) } : undefined)
   return (
     <div className="group">
       <div className="row between"><span className="section-title">Selected light</span><button className="sm danger" onClick={act.removeSelected}>Remove</button></div>

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type MouseEvent as ReactMouseEvent } from 'react'
 import { attachLook } from './look'
 import { Viewer } from './Viewer'
-import { breakMerge, setThumbnailProvider, useEditor } from './store'
+import { breakMerge, setThumbnailProvider, thingKey, useEditor } from './store'
 import { addLight, addMarker, addPrefab, addShape, placeAsset, removeTarget } from './actions'
 import { paintAt, pickAt } from './paint'
 import { ToolOptions, ToolStrip, chooseTool } from './Tools'
@@ -295,7 +295,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
             const l = d.lights[index]
             if (l) l.position = t.position
           }
-        }, { merge: `gizmo-${kind}-${index}` })
+        }, { merge: `gizmo-${thingKey(kind, index)}` })
         if (done) breakMerge() // drag finished: the next edit starts a new undo step
       },
     })

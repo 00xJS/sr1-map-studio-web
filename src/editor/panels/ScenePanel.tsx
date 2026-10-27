@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useEditor } from '../store'
+import { thingKey, useEditor } from '../store'
 import * as act from '../actions'
 import { Check, Field, FileButton, NumberInput, Vec3Input, confirmDialog, infoDialog, toastError, useBusy } from '../../ui'
 import { catalogs } from '../../lib/catalogs'
@@ -85,7 +85,7 @@ function ObjectEditor({ it, index, step }: { it: SceneItem; index: number; step:
   const fixedGlass = isGlass(it) && !isCustomNative(it)
   const native = isGlass(it)
   const set = (label: string, fn: (d: SceneItem) => void, merge?: string) =>
-    update(label, (d) => { fn(d.scene_items[index] as SceneItem) }, merge ? { merge: merge + index } : undefined)
+    update(label, (d) => { fn(d.scene_items[index] as SceneItem) }, merge ? { merge: merge + thingKey('item', index) } : undefined)
 
   return (
     <>

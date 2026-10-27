@@ -1,7 +1,7 @@
 // Editor commands. Each mirrors a MainWindow method in the desktop app;
 // rules that live in Python (native props, breakables, validation) are
 // called through the worker so behavior stays identical.
-import { useEditor, currentProject } from './store'
+import { useEditor, currentProject, thingKey } from './store'
 import { importModels, importImage, type ImportedModel } from '../lib/importers'
 import { cacheModel, loadModel } from '../lib/assets'
 import { groundOffset, meshPivot, withPivot } from '../lib/geometry'
@@ -217,7 +217,7 @@ export function makeOpaque(index: number) {
 export function setOpacity(index: number, value: number) {
   const it = currentProject()?.scene_items[index]
   if (!it || !isCustomNative(it) || it.native_breakable_kind === 'wood' || isProp(it)) return
-  update('Opacity', (d) => { d.scene_items[index].native_opacity = value; d.scene_items[index].native_use_alpha = value < 100 }, { merge: 'opacity' + index })
+  update('Opacity', (d) => { d.scene_items[index].native_opacity = value; d.scene_items[index].native_use_alpha = value < 100 }, { merge: 'opacity' + thingKey('item', index) })
 }
 
 export async function checkBreakables(): Promise<string> {
@@ -386,7 +386,7 @@ export async function updateShape(index: number, patch: Partial<Shape>) {
     if (label) x.name = shapeName(label, shape)
     d.files[stored.vpath] = stored.ref
     pruneFiles(d as Project)
-  }, { merge: 'shape' + index })
+  }, { merge: 'shape' + thingKey('item', index) })
 }
 
 /** Builds a prefab as one scene object at a spot, turned by rot. */
@@ -444,7 +444,7 @@ export async function updatePrefab(index: number, params: Record<string, number 
     if (item.water_materials) x.water_materials = item.water_materials
     else delete x.water_materials
     pruneFiles(d)
-  }, { merge: 'prefab-' + index })
+  }, { merge: 'prefab-' + thingKey('item', index) })
 }
 
 /** The material of a placed photo frame that shows its picture (null for anything else). */

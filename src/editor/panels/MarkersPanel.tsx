@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useEditor } from '../store'
+import { thingKey, useEditor } from '../store'
 import * as act from '../actions'
 import { getViewer } from '../Viewport'
 import { Check, Field, FileButton, NumberInput, Vec3Input, infoDialog, useBusy } from '../../ui'
@@ -71,7 +71,7 @@ function MarkerEditor({ m, index }: { m: Marker; index: number }) {
     fn(x)
     if (x.type === 'Weapon pickup') x.label = x.weapon
     if (x.type === 'Vehicle spawn') x.label = x.vehicle
-  }, merge ? { merge: merge + index } : undefined)
+  }, merge ? { merge: merge + thingKey('marker', index) } : undefined)
   const trig = TRIGGERS.has(m.type)
   return (
     <div className="group">

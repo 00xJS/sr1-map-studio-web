@@ -2,7 +2,7 @@
 // map itself (checklist, game modes, adding things, everything in the map)
 // when nothing is.
 import { lazy, Suspense, useEffect, useState, type ReactNode } from 'react'
-import { useEditor, selectedItems, type Swatch } from './store'
+import { useEditor, selectedItems, thingKey, type Swatch } from './store'
 import * as act from './actions'
 import { getViewer } from './Viewport'
 import { saveMyPrefab } from './myPrefabs'
@@ -263,7 +263,7 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
   const update = useEditor((s) => s.update)
   const [run] = useBusy()
   const set = (label: string, fn: (d: SceneItem) => void, merge?: string) =>
-    update(label, (d) => { fn(d.scene_items[index] as SceneItem) }, merge ? { merge: merge + index } : undefined)
+    update(label, (d) => { fn(d.scene_items[index] as SceneItem) }, merge ? { merge: merge + thingKey('item', index) } : undefined)
   const fixedGlass = isGlass(it) && !isCustomNative(it)
   const turn = (deg: number) => set('Turn', (d) => { d.rotation = [d.rotation[0], ((d.rotation[1] + deg) % 360 + 360) % 360, d.rotation[2]] })
   return (
@@ -392,7 +392,7 @@ function MarkerInspector({ m, index }: { m: Marker; index: number }) {
     fn(x)
     if (x.type === 'Weapon pickup') x.label = x.weapon
     if (x.type === 'Vehicle spawn') x.label = x.vehicle
-  }, merge ? { merge: merge + index } : undefined)
+  }, merge ? { merge: merge + thingKey('marker', index) } : undefined)
   const types = m.type === 'Weapon pickup' ? ['Weapon pickup'] : SIMPLE_MARKERS.includes(m.type) ? SIMPLE_MARKERS : [m.type, ...SIMPLE_MARKERS]
   const turn = (deg: number) => set('Turn', (d) => { d.yaw = ((Math.round(d.yaw + deg) % 360) + 360) % 360 })
   return (
@@ -452,7 +452,7 @@ const LIGHT_PRESETS: [string, Vec3][] = [['Warm', [1, 0.85, 0.65]], ['White', [1
 
 function LightInspector({ l, index }: { l: Light; index: number }) {
   const update = useEditor((s) => s.update)
-  const set = (label: string, fn: (d: Light) => void, merge?: string) => update(label, (d) => { fn(d.lights[index]) }, merge ? { merge: merge + index } : undefined)
+  const set = (label: string, fn: (d: Light) => void, merge?: string) => update(label, (d) => { fn(d.lights[index]) }, merge ? { merge: merge + thingKey('light', index) } : undefined)
   return (
     <>
       <div className="group">
