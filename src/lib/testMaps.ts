@@ -11,7 +11,7 @@ import { PRESET_BY_KEY } from './physicsProps'
 import { CRATE_PROFILE, loadingMode } from './mapFeatures'
 import { BOR, BOR_CAR_BLUE, BOR_CAR_RED, BOR_CASH, BOR_CHOP, BOR_DOOR, BOR_ENTRANCE, BOR_GARAGE_BLUE, BOR_GARAGE_RED, BOR_VICTORY, SOUND_ZONE, borMissing } from './retailModes'
 import { ITEM_PROP } from './gameObjects/items'
-import { dryInteriors, gameSkyWanted, isGlass, type FileRef, type Project, type ProjectSettings, type SceneItem, type Vec3 } from './project'
+import { dryInteriors, gameSkyWanted, isGlass, isProp, type FileRef, type Project, type ProjectSettings, type SceneItem, type Vec3 } from './project'
 import { shapeObj } from './shapes'
 import { storeFile } from './files'
 
@@ -206,6 +206,8 @@ export function testChecklist(batch: TestBatch): ChecklistLine[] {
 /** Whether a built map carries a feature (for the tests, and as a guard that a test map still tests what it says). */
 export function carries(p: Project, id: FeatureId): boolean {
   const s = p.settings, items = p.scene_items, has = (type: string) => p.markers.some((m) => m.type === type)
+  // Physics props are wood natives too (Python's native_prop): a breakable is one that isn't a prop.
+  const breakables = items.filter((it) => it.native_breakable_kind && !isProp(it))
   switch (id) {
     case 'game_sky': return gameSkyWanted(s)
     case 'loading_screen': return loadingMode(p) === 'auto'
@@ -214,9 +216,9 @@ export function carries(p: Project, id: FeatureId): boolean {
     case 'dry_interiors': return dryInteriors(s) && items.some((it) => it.name.startsWith('Roof'))
     case 'water': return items.some((it) => it.swimmable_water)
     case 'physics_props': return items.some((it) => !!it.physics_preset)
-    case 'breakable_glass': return items.some((it) => it.native_breakable_kind === 'glass')
-    case 'breakable_wood': return items.some((it) => it.native_breakable_kind === 'wood' && it.native_profile !== CRATE_PROFILE)
-    case 'crate_debris': return items.some((it) => it.native_breakable_kind === 'wood' && it.native_profile === CRATE_PROFILE)
+    case 'breakable_glass': return breakables.some((it) => it.native_breakable_kind === 'glass')
+    case 'breakable_wood': return breakables.some((it) => it.native_breakable_kind === 'wood' && it.native_profile !== CRATE_PROFILE)
+    case 'crate_debris': return breakables.some((it) => it.native_breakable_kind === 'wood' && it.native_profile === CRATE_PROFILE)
     case 'blinged_out_ride': return s.modes.includes(BOR) && !borMissing(p.markers).length
     case 'item_props': return has(ITEM_PROP)
     case 'sound_zones': return has(SOUND_ZONE)

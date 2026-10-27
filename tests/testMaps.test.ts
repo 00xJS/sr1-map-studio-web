@@ -34,7 +34,8 @@ const fakeNatives = (batch: number): NativeConverter => async (p, jobs) => {
     // Python keeps the object's one texture as the native's texture.
     it.glass_custom_texture = it.textures.m0
     if ('breakable' in tag) Object.assign(it, { native_prefab: 'sr1_native_custom_mesh_glass_experiment', native_breakable_kind: tag.breakable, native_profile: tag.profile })
-    else Object.assign(it, { native_prefab: 'sr1_native_custom_mesh_glass_experiment', native_prop_behavior: 'movable', physics_preset: tag.preset })
+    // Props come back as wood natives too, as Python's native_prop makes them.
+    else Object.assign(it, { native_prefab: 'sr1_native_custom_mesh_glass_experiment', native_breakable_kind: 'wood', native_prop_behavior: 'movable', physics_preset: tag.preset })
   }
 }
 
@@ -110,6 +111,13 @@ describe('test maps', () => {
     expect(p.markers.find((m) => m.type === 'Sound zone')?.sound).toBe('AMB_BIRDS')
     expect(p.markers.some((m) => m.type === 'Pimp exit (experimental)')).toBe(false)
     expect(asked.some((a) => a.batch !== 3)).toBe(false)
+  })
+
+  it('counts a physics prop as a prop, not as breakable wood', async () => {
+    const p = structuredClone(await built(3))
+    p.scene_items = p.scene_items.filter((it) => !(it.native_breakable_kind && !it.native_prop_behavior))
+    expect(carries(p, 'physics_props')).toBe(true)
+    expect(['breakable_glass', 'breakable_wood', 'crate_debris'].map((id) => carries(p, id as FeatureId))).toEqual([false, false, false])
   })
 
   it('every feature is either in a test map or listed as not in one', () => {
