@@ -78,11 +78,18 @@ function signature(key: string): string | null {
   return s
 }
 
+/** How long after a manifest that couldn't be read (offline, a blip) it is asked for again. */
+export const MANIFEST_RETRY_MS = 15_000
 let shipped: Promise<Record<string, string>> | null = null
-/** The pictures the site ships: prefab key → the signature each was drawn from. */
-function loadShipped() {
-  // A missing file comes back as the app's own page, which isn't JSON: none shipped.
-  return (shipped ??= fetch('/thumbs/manifest.json').then((r) => (r.ok ? r.json() : {})).catch(() => ({})) as Promise<Record<string, string>>)
+let shippedRetry = 0
+/** The pictures the site ships: prefab key → the signature each was drawn from. None while it can't be read. */
+function loadShipped(): Promise<Record<string, string>> {
+  if (shipped) return shipped
+  if (Date.now() < shippedRetry) return Promise.resolve({})
+  // A missing file comes back as the app's own page, which isn't JSON.
+  return (shipped = fetch('/thumbs/manifest.json')
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`manifest: ${r.status}`))))
+    .catch(() => { shipped = null; shippedRetry = Date.now() + MANIFEST_RETRY_MS; return {} }))
 }
 
 /** Fetches a shipped picture alongside the drawing queue (they are quick); one the site can't give goes back in the queue to be drawn. */
