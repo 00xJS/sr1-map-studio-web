@@ -5,7 +5,7 @@
 import { readFileSync, writeFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { lauxlib, lua, lualib, to_jsstring, to_luastring } from 'fengari'
-import { exportFactLines, parsePlaytest, type GameFrame } from '../src/lib/playtest'
+import { exportFactLines, parsePlaytest, type GameFrame, type PlaytestEvent } from '../src/lib/playtest'
 
 type Value = string | number | boolean | null
 
@@ -48,10 +48,14 @@ const note = ['Exported by SR1 Map Studio (web) on 2026-10-27T17:58:40.512Z', 'P
 
 const MOD = 'C:/Games/SaintsReborn/dist/mods/companion-mod'
 
-function play(o: { windows?: boolean; scenario?: string; note?: string | null; mod?: string | null; keep?: number; index?: string | null } = {}) {
+function play(o: {
+  windows?: boolean; scenario?: string; note?: string | null; mod?: string | null; keep?: number; index?: string; deleted?: string
+  taken?: number; readOnly?: string
+} = {}) {
   const r = runLua(read('tests/fixtures/playtest-harness.lua'), {
     PLAYTEST_SRC: recorder(o.windows ?? true), NOTE: o.note === undefined ? note : o.note, MOD_FOLDER: o.mod === undefined ? MOD : o.mod,
-    SCENARIO: o.scenario ?? 'rooftop', KEEP: o.keep ?? 20, INDEX: o.index ?? null,
+    SCENARIO: o.scenario ?? 'rooftop', KEEP: o.keep ?? 20, INDEX: o.index ?? null, DELETED: o.deleted ?? null, TAKEN: o.taken ?? 0,
+    READ_ONLY: o.readOnly ?? null,
   }, ['RESULT', 'LOG'])
   const files: Record<string, string> = {}
   for (const block of r.RESULT.split(/^### /m).filter(Boolean)) {
@@ -86,6 +90,14 @@ describe('playtest.lua', () => {
     expect(log.events.filter((e) => e.ev === 'fall').map((e) => e.ev === 'fall' && e.belowFloor)).toEqual([false, false])
   })
 
+  it('reads each fact only at the start of a line', () => {
+    const quoted = note.replace('Project: Rooftop test', 'Project: Rooftop test (copied from Project id: someone-else)')
+    expect(parsePlaytest(play({ note: quoted }).files['playtest/rooftop-20261027-180211.jsonl']).start)
+      .toMatchObject({ project: '5d0c9e7a-3f41-4b8e-9a2d-7c1e6f0b2a93', frame })
+    const only = parsePlaytest(play({ note: 'Project: Old (was Project id: someone-else)\r\nNotes: World scale: 2\r\n' }).files['playtest/rooftop-20261027-180211.jsonl'])
+    expect([only.start?.project, only.start?.frame]).toEqual([undefined, undefined])
+  })
+
   it('finds the same falls, stuck spots and marks with a clock of whole seconds (a Mac)', () => {
     const kinds = (text: string) => parsePlaytest(text).events.filter((e) => e.ev !== 'pos')
     const pc = kinds(play().files['playtest/rooftop-20261027-180211.jsonl'])
@@ -93,6 +105,22 @@ describe('playtest.lua', () => {
     expect(mac.map((e) => e.ev)).toEqual(pc.map((e) => e.ev))
     expect(mac.map((e) => e.ev)).toEqual(expect.arrayContaining(['stuck', 'fall', 'mark']))
     mac.forEach((e, i) => expect(Math.abs(e.t - pc[i].t)).toBeLessThan(0.1))
+  })
+
+  it('takes a long ramp for a ramp while the frame rate climbs from 40 to 60', () => {
+    // On a Mac the clock stands still for the frames over the last second's rate, so a 0.1 s speed window can
+    // last 0.4 s: 3 m/s down the ramp read as 10 m/s, a fall. Only the drop off the ramp's end is one. (Before it
+    // stands still that clock runs fast, so a Mac reads the drop's top speed low, but still well over 8 m/s.)
+    for (const windows of [false, true]) {
+      const falls = parsePlaytest(play({ windows, scenario: 'ramp' }).files['playtest/rooftop-20261027-180211.jsonl']).events
+        .filter((e) => e.ev === 'fall')
+      expect(falls).toHaveLength(1)
+      const fall = falls[0] as Extract<PlaytestEvent, { ev: 'fall' }>
+      expect(fall.t).toBeGreaterThan(10)
+      expect(fall.fromY).toBeCloseTo(16, 1)
+      expect(fall.drop).toBeCloseTo(16, 1)
+      expect(fall.speed).toBeGreaterThan(windows ? 15 : 10)
+    }
   })
 
   it('starts a second file when play starts again within the same second', () => {
@@ -110,6 +138,39 @@ describe('playtest.lua', () => {
       .toEqual(['playtest/../../mod.ini.jsonl', 'playtest/c.jsonl', 'playtest/rooftop-20261027-180211-2.jsonl', 'playtest/rooftop-20261027-180211.jsonl'])
     expect(files['playtest/index.txt']).toBe('c.jsonl\nrooftop-20261027-180211.jsonl\nrooftop-20261027-180211-2.jsonl\n')
     expect(log.match(/\(removed [^)]*\)/g)?.map((l) => l.replace(/\\/g, '/'))).toEqual([`(removed ${MOD}/playtest/a.jsonl)`, `(removed ${MOD}/playtest/b.jsonl)`])
+  })
+
+  it('never deletes the log it has open, however often the index lists it', () => {
+    // The index still has a log the player deleted by hand, twice, so the new log gets the same name.
+    const name = 'rooftop-20261027-180211.jsonl'
+    const { files, log } = play({ keep: 1, index: `${name}\na.jsonl\n${name}\n`, deleted: name })
+    expect(Object.keys(files).filter((f) => f.endsWith('.jsonl'))).toEqual([`playtest/${name}`])
+    expect(parsePlaytest(files[`playtest/${name}`]).complete).toBe(true)
+    expect(files['playtest/index.txt']).toBe(`${name}\n`)
+    expect(log.match(/\(removed [^)]*\)/g)).toHaveLength(1)
+  })
+
+  it('writes in the mod’s own folder when the playtest folder can’t be written', () => {
+    const { files, log } = play({ readOnly: `${MOD}/playtest` })
+    expect(Object.keys(files)).toEqual(['playtest-rooftop-20261027-180211.jsonl', 'playtest-index.txt'])
+    expect(parsePlaytest(files['playtest-rooftop-20261027-180211.jsonl']).complete).toBe(true)
+    expect(files['playtest-index.txt']).toBe('playtest-rooftop-20261027-180211.jsonl\n')
+    expect(log).toContain(`Playtest: recording rooftop to ${MOD}`)
+  })
+
+  it('numbers up to 99 logs a second, then writes in the mod’s own folder', () => {
+    const fresh = (taken: number) => {
+      const old = Array.from({ length: taken }, (_, i) => `playtest/rooftop-20261027-180211${i ? `-${i + 1}` : ''}.jsonl`)
+      return Object.keys(play({ taken }).files).filter((f) => f.endsWith('.jsonl') && !old.includes(f))
+    }
+    expect(fresh(98)).toEqual(['playtest/rooftop-20261027-180211-99.jsonl'])
+    expect(fresh(99)).toEqual(['playtest-rooftop-20261027-180211.jsonl'])
+  })
+
+  it('stops recording when nothing can be written', () => {
+    const { files, log } = play({ readOnly: MOD })
+    expect(files).toEqual({})
+    expect(log).toContain(`Playtest: can't write a log in ${MOD}; recording off`)
   })
 
   it('stays off when the mod loader gives no folder', () => {
