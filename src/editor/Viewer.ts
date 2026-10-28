@@ -278,7 +278,7 @@ export class Viewer {
       this.fillLight.intensity = GAME_INTENSITY
       this.fillLight.position.set(...L.fillDir)
     }
-    if (!this.walker) this.scene.fog = game && this.look.fogWhileEditing ? this.gameFog() : null
+    if (!this.walker) this.scene.fog = this.editFog()
     this.syncMapLights()
   }
 
@@ -290,6 +290,11 @@ export class Viewer {
     this.sunLight.target.updateMatrixWorld()
     const d = new THREE.Vector3(...dir).normalize()
     this.sunLight.position.copy(this.sunLight.target.position).addScaledVector(d, 1200)
+  }
+
+  /** Fog while editing: the game's, when asked for, but never in the plan view (its camera sits far above the map). */
+  private editFog(): THREE.Fog | null {
+    return this.look.mode === 'game' && this.look.fogWhileEditing && !this.view?.plan ? this.gameFog() : null
   }
 
   /** The game's fog (metres in the tables, editor units here). */
@@ -393,6 +398,7 @@ export class Viewer {
   private setPlan(on: boolean) {
     this.view.setPlan(on)
     this.gizmo.camera = this.camera
+    if (!this.walker) this.scene.fog = this.editFog()
   }
 
   // ---------------- walk-through ----------------
@@ -670,7 +676,7 @@ export class Viewer {
     this.project = project
     const freeCam = !!opts.freeCam !== !!this.opts.freeCam
     this.opts = opts
-    if (freeCam) this.view.syncFreeCam()
+    if (freeCam) this.view.freeCamToggled(!!opts.freeCam)
     if (!!opts.plan !== this.view.plan && !this.walker) this.setPlan(!!opts.plan)
     if (firstProject) this.framed = false
     this.syncItems()
@@ -1122,13 +1128,20 @@ export class Viewer {
 
   /** Straight-down picture of `rect` for the minimap (viewer/capture.ts). */
   captureTopDown(o: { size: number; rect: MinimapRect; mirror?: boolean }): Promise<Blob | null> {
-    return captureTopDown(this, [this.markerRoot, this.lightRoot, this.grid, this.box, this.gizmo.getHelper()], o)
+    return captureTopDown(this, [this.markerRoot, this.lightRoot, this.grid, this.box, this.gizmo.getHelper(), ...this.helpers], o)
   }
 
   /** The view as the camera sees it, for the map's thumbnail. */
   capture(width = 640, height = 360): Promise<Blob | null> {
-    return captureView(this, [this.box, this.gizmo.getHelper()], width, height)
+    return captureView({ ...this.captureHost(), camera: this.view.perspective() }, [this.box, this.gizmo.getHelper(), ...this.helpers], width, height)
   }
+
+  private captureHost() { return { renderer: this.renderer, scene: this.scene, root: this.mapRoot, camera: this.camera, requestRender: () => this.requestRender() } }
+
+  /** Things drawn over the map for a tool (the measured line): left out of the thumbnail and the minimap. */
+  private helpers: THREE.Object3D[] = []
+  addHelper(o: THREE.Object3D) { this.helpers.push(o); this.scene.add(o); this.requestRender() }
+  removeHelper(o: THREE.Object3D) { this.helpers = this.helpers.filter((h) => h !== o); this.scene.remove(o); this.requestRender() }
 
   /** The map's objects (capture.ts). */
   get root(): THREE.Object3D { return this.mapRoot }

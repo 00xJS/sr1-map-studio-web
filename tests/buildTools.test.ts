@@ -89,6 +89,19 @@ describe('measure', () => {
     expect(st().tool).toBe('select')
     st().set({ mirror: false, plan: false })
   })
+
+  it('a saved view answers to Alt+number and Shift+number, but not where Shift types the digit', () => {
+    st().open(newProject('Keys'))
+    const key = (k: string, code: string, o: { alt?: boolean; shift?: boolean }) => ({ key: k, code, ctrlKey: false, metaKey: false, altKey: !!o.alt, shiftKey: !!o.shift, target: { tagName: 'DIV' }, preventDefault() {} }) as unknown as KeyboardEvent
+    st().set({ tool: 'measure' })
+    // No views yet: the key is taken (a toast says so) and the tool stays.
+    expect(handleKey(key('1', 'Digit1', { alt: true }), st())).toBe(true)
+    expect(handleKey(key('!', 'Digit1', { shift: true }), st())).toBe(true)
+    expect(st().tool).toBe('measure')
+    // A keyboard that types 1 with Shift (AZERTY): 1 is still Select.
+    handleKey(key('1', 'Digit1', { shift: true }), st())
+    expect(st().tool).toBe('select')
+  })
 })
 
 describe('saved views', () => {

@@ -73,7 +73,7 @@ function commands(a: PaletteActions): Command[] {
     flip('allSettings', 'Show all settings'), flip('snap', 'Snap to the grid'), flip('wireframe', 'Wireframe'), flip('freeCam', 'Free camera'),
     flip('plan', 'Plan view (from straight above)', 'O'), flip('mirror', 'Mirror mode (edits copied across the middle)', 'Shift+M'),
     { id: 'view-save', label: 'Save this camera view', group: 'Actions', run: () => { const n = saveCurrentView(); if (n) toast(`Saved as ${n}.`, 'ok', 1800) } },
-    { id: 'view-list', label: 'Saved camera views', group: 'Actions', keys: 'Alt+1 … Alt+9', run: () => useSavedViews.setState({ open: true }) },
+    { id: 'view-list', label: 'Saved camera views', group: 'Actions', keys: 'Alt+1 … 9 or Shift+1 … 9', run: () => useSavedViews.setState({ open: true }) },
     { id: 'align-x', label: 'Line up along X (middles)', group: 'Actions', hint: several, run: () => alignSelected(0, 'mid') },
     { id: 'align-z', label: 'Line up along Z (middles)', group: 'Actions', hint: several, run: () => alignSelected(2, 'mid') },
     { id: 'align-y', label: 'Level the bottoms', group: 'Actions', hint: several, run: () => alignSelected(1, 'min') },

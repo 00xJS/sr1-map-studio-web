@@ -55,6 +55,8 @@ test('plan view, mirror mode, line up, measure and saved views', async ({ page }
   await page.getByRole('tab', { name: /^Build/ }).click()
   await page.getByRole('button', { name: /mirror mode/i }).click()
   await expect(page.getByTestId('mirror-numbers')).toContainText(/Twins: \d+ of \d+ objects/)
+  // While it's on, the view says so too; the badge turns it off.
+  await expect(page.locator('.mirror-badge')).toBeVisible()
   await shot(page, 'mirror-mode')
   await page.getByRole('button', { name: /mirror mode is on/i }).click()
 

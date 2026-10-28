@@ -47,8 +47,10 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: 'Shift', what: 'Fly faster', group: 'Camera', where: 'canvas' },
   { keys: 'O', what: 'Plan view on / off (the map from straight above)', group: 'Camera', test: ({ mod, key, e }) => !mod && !e.altKey && key === 'o', run: ({ st }) => st.set({ plan: !st.plan }) },
   {
-    keys: 'Alt+1 … Alt+9', what: 'Go to a saved view (📍 on the camera buttons)', group: 'Camera',
-    test: ({ mod, e }) => !mod && e.altKey && /^Digit[1-9]$/.test(e.code),
+    keys: 'Alt+1 … 9 or Shift+1 … 9', what: 'Go to a saved view (📍 on the camera buttons)', group: 'Camera',
+    // Shift+number too, for browsers that keep Alt+number for their tabs (Linux); only where Shift makes a symbol,
+    // so keyboards that need Shift for the digits keep 1, 2 and 3 for the tools.
+    test: ({ mod, e }) => !mod && /^Digit[1-9]$/.test(e.code) && (e.altKey || (e.shiftKey && !/^[0-9]$/.test(e.key))),
     run: ({ e }) => {
       e.preventDefault()
       const n = Number(e.code.slice(5))

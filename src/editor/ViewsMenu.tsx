@@ -1,4 +1,4 @@
-// The camera pad's saved views: the list (Alt+1 … Alt+9 go to them), saving where the camera is, deleting one.
+// The camera pad's saved views: the list (Alt+1 … 9 or Shift+1 … 9 go to them), saving where the camera is, deleting one.
 import { goToView, removeView, saveCurrentView, useSavedViews } from './savedViews'
 import { toast } from '../ui'
 
@@ -8,7 +8,7 @@ export function ViewsMenu() {
   const save = () => { const name = saveCurrentView(); if (name) toast(`Saved as ${name}: Alt+${useSavedViews.getState().views.length} comes back to it.`, 'ok', 2400) }
   return (
     <div className="menu-wrap">
-      <button className={'sm' + (open ? ' on' : '')} title="Saved views (Alt+1 … Alt+9)" aria-label="Saved views" aria-expanded={open}
+      <button className={'sm' + (open ? ' on' : '')} title="Saved views (Alt+1 … 9 or Shift+1 … 9)" aria-label="Saved views" aria-expanded={open}
         onClick={() => useSavedViews.setState({ open: !open })}>📍</button>
       {open && (
         <div className="menu views-menu" role="menu" aria-label="Saved views">

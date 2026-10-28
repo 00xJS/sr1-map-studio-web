@@ -41,7 +41,7 @@ export function attachMeasure(viewer: Viewer): () => void {
   group.add(line, ...dots)
   group.renderOrder = 20
   group.traverse((o) => { o.renderOrder = 20; o.raycast = () => {} })
-  viewer.scene.add(group)
+  viewer.addHelper(group)
   const draw = () => {
     const { a, b } = useMeasure.getState()
     const on = useEditor.getState().tool === 'measure'
@@ -60,7 +60,7 @@ export function attachMeasure(viewer: Viewer): () => void {
   const offTool = useEditor.subscribe((s, prev) => { if (s.tool !== prev.tool) { if (s.tool !== 'measure') clearMeasure(); draw() } })
   return () => {
     offMeasure(); offTool()
-    viewer.scene.remove(group)
+    viewer.removeHelper(group)
     line.geometry.dispose(); mat.dispose(); dotGeo.dispose(); dotMat.dispose()
   }
 }

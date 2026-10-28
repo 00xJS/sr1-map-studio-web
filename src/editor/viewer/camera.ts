@@ -48,6 +48,8 @@ export class ViewCamera {
   private lastFly = performance.now()
   private tour = 0
   private tourAt = 0
+  /** Listeners on the document and window (dispose takes them off). */
+  private offGlobal: (() => void)[] = []
 
   constructor(private host: CameraHost) {
     this.persp.position.set(30, 25, 30)
@@ -65,7 +67,11 @@ export class ViewCamera {
   get plan() { return this.planOn }
   get target() { return this.orbit.target }
 
-  dispose() { this.orbit.dispose() }
+  dispose() {
+    this.orbit.dispose()
+    for (const off of this.offGlobal) off()
+    this.offGlobal = []
+  }
 
   resize(w: number, h: number) {
     this.aspect = w / h
@@ -175,6 +181,18 @@ export class ViewCamera {
     this.host.requestRender()
   }
 
+  /** The perspective camera as it would look from here: itself, or in plan view a copy placed as leaving the plan
+   *  view would put it (thumbnails are always in perspective). */
+  perspective(): THREE.PerspectiveCamera {
+    if (!this.planOn) return this.persp
+    const cam = this.persp.clone()
+    const t = this.orbit.target
+    cam.position.copy(t).addScaledVector(this.back, Math.max(2, this.shownHalf() / Math.tan((this.persp.fov * Math.PI) / 360)))
+    cam.lookAt(t)
+    cam.updateMatrixWorld()
+    return cam
+  }
+
   /** Where the camera is and what it looks at, to come back to. */
   view(): CameraView {
     const target = vec(this.orbit.target)
@@ -230,14 +248,17 @@ export class ViewCamera {
   /** The free camera only flies the perspective view; plan view keeps sliding and zooming. */
   private get free() { return this.host.freeCam() && !this.planOn }
 
-  /** The free camera turned on or off (or the plan view changed): who gets the mouse. */
+  /** Who gets the mouse (after the free camera, the plan view, a gizmo drag or a walk changed). */
   syncFreeCam() {
     this.orbit.enabled = !this.free && !this.host.busy()
     this.host.canvas.style.cursor = this.free ? 'crosshair' : ''
-    if (this.free) {
-      // Fly at a speed that suits the map's size, keeping the current view.
-      this.flySpeed = Math.max(0.6, Math.min(80, this.host.mapRadius() * 0.08))
-    }
+  }
+
+  /** The free camera was just switched on or off: on, it flies at a speed that suits the map's size (until the wheel
+   *  changes it), keeping the current view. */
+  freeCamToggled(on: boolean) {
+    if (on) this.flySpeed = Math.max(0.6, Math.min(80, this.host.mapRadius() * 0.08))
+    this.syncFreeCam()
   }
 
   /** Turns the camera in place by a mouse movement (0.22° per pixel, like the desktop app). */
@@ -274,10 +295,12 @@ export class ViewCamera {
       this.lookBy(e.movementX, e.movementY)
     })
     // Moves while the pointer is locked arrive on the document.
-    document.addEventListener('mousemove', (e) => { if (this.looking?.lock && document.pointerLockElement === el) this.lookBy(e.movementX, e.movementY) })
+    const move = (e: MouseEvent) => { if (this.looking?.lock && document.pointerLockElement === el) this.lookBy(e.movementX, e.movementY) }
+    document.addEventListener('mousemove', move)
     const end = () => { if (this.looking?.lock && document.pointerLockElement === el) document.exitPointerLock(); this.looking = null }
     window.addEventListener('pointerup', end)
     window.addEventListener('blur', end)
+    this.offGlobal.push(() => document.removeEventListener('mousemove', move), () => window.removeEventListener('pointerup', end), () => window.removeEventListener('blur', end))
     el.addEventListener('wheel', (e) => {
       if (!this.free || this.host.busy()) return
       e.preventDefault()

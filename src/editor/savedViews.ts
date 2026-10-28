@@ -1,4 +1,4 @@
-// Saved camera views, per map: up to nine places to look from (Alt+1 … Alt+9 goes to one). They're kept in this
+// Saved camera views, per map: up to nine places to look from (Alt+1 … 9 or Shift+1 … 9 goes to one). They're kept in this
 // browser under the map's id, not in the map: a view isn't part of the map, and saving one isn't an undo step.
 import { create } from 'zustand'
 import { useEditor } from './store'
