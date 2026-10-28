@@ -93,9 +93,10 @@ export function prepareMap(input: AnalysisInput, opts: AnalysisOptions = {}): Pr
     if (comp[n] !== main) return [{ type: mk.type, position: mk.position, why: 'no stairs or ramp up to it, or no way back down without a fall' }]
     return []
   })
-  // Observers in mirrored pairs about the spawns' centre (the maps are point-symmetric), when the twin is reachable too.
+  // Observers in mirrored pairs (the maps are point-symmetric: turned 180° about the origin, as mirror mode and the AI's
+  // edits pair things, lib/aiEdits.ts), when the twin is reachable too.
   const P = g.grid.pos
-  const twin = (n: number) => { const q = nodeNear(g, 2 * cx - P[n * 3], P[n * 3 + 1] + 0.1, 2 * cz - P[n * 3 + 2], cx, cz); return q >= 0 && reach[q] ? q : -1 }
+  const twin = (n: number) => { const q = nodeNear(g, -P[n * 3], P[n * 3 + 1] + 0.1, -P[n * 3 + 2], cx, cz); return q >= 0 && reach[q] ? q : -1 }
   const observers = pickObservers(reachList, opts.rayBudget ?? 4_000_000, opts.seed ?? 1, twin)
   lap('reach')
   return { input, opts, bvh, g, nodeOf, reachList, observers, unreachable, ms }
@@ -309,15 +310,15 @@ function centre(markers: AnalysisMarker[]): [number, number] {
   return [list.reduce((a, mk) => a + mk.position[0], 0) / list.length, list.reduce((a, mk) => a + mk.position[2], 0) / list.length]
 }
 
-/** Spawns, weapons and drop-offs whose twin (turned 180° about the map's centre, red and blue swapped) is missing. */
+/** Spawns, weapons and drop-offs whose twin (turned 180° about the origin, as mirror mode makes them; red and blue
+ *  swapped) is missing. */
 export function mirrorCheck(markers: AnalysisMarker[]): { type: string; position: Vec3 }[] {
   const kinds = [...SPAWN_TYPES, 'Weapon pickup', 'Chains drop-off']
   const list = markers.filter((mk) => kinds.includes(mk.type))
   if (list.length < 2) return []
-  const [cx, cz] = centre(list)
   const twin = (t: string) => (t === 'Red team spawn' ? 'Blue team spawn' : t === 'Blue team spawn' ? 'Red team spawn' : t)
   return list.filter((mk) => {
-    const x = 2 * cx - mk.position[0], z = 2 * cz - mk.position[2]
+    const x = -mk.position[0], z = -mk.position[2]
     return !list.some((o) => o.type === twin(mk.type) && (mk.type !== 'Weapon pickup' || o.weapon === mk.weapon)
       && Math.hypot(o.position[0] - x, o.position[2] - z) <= 3 && Math.abs(o.position[1] - mk.position[1]) <= 1.5)
   }).map((mk) => ({ type: mk.type, position: mk.position }))

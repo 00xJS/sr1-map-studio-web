@@ -90,6 +90,12 @@ export const SHORTCUTS: Shortcut[] = [
     test: ({ mod, key, st }) => !mod && st.tool === 'shape' && key === 'r',
     run: ({ st, e }) => st.set({ placeRot: (((st.placeRot + (e.shiftKey ? -15 : 15)) % 360) + 360) % 360 }),
   },
+  // Before the tool letters: Shift+M is mirror mode, M alone the Measure tool.
+  {
+    keys: 'Shift+M', what: 'Mirror mode on / off (edits copied across the middle)', group: 'Editing',
+    test: ({ mod, key, e }) => !mod && e.shiftKey && key === 'm',
+    run: ({ st }) => { st.set({ mirror: !st.mirror }); toast(st.mirror ? 'Mirror mode off' : 'Mirror mode on: edits are copied across the middle', 'info', 1800) },
+  },
   ...toolRows,
   { keys: 'G', what: 'Snap on / off', group: 'Tools', test: ({ mod, key }) => !mod && key === 'g', run: ({ st }) => st.set({ snap: !st.snap }) },
 

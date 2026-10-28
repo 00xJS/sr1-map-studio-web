@@ -93,24 +93,54 @@ const angleDiff = (a: number, b: number, period = 360) => { const d = Math.abs(w
 /** Near the middle, where an object is its own twin. */
 export const atCentre = (x: number, z: number, tol = 1) => Math.abs(x) <= tol && Math.abs(z) <= tol
 
+/** How far `o` is from being `it`'s twin (same kind, at -x, -z, turned 180°): its distance from the mirrored spot, or
+ *  Infinity when it isn't one. */
+function twinGap(it: SceneItem, o: SceneItem, tol: number): number {
+  const d = Math.hypot(o.position[0] + it.position[0], o.position[2] + it.position[2])
+  if (d > tol || Math.abs(o.position[1] - it.position[1]) > tol) return Infinity
+  // A prefab whose settings differ faces its own way through them (a shop's front), whatever its turn.
+  const ownFacing = !!it.prefab && JSON.stringify(it.prefab.params) !== JSON.stringify(o.prefab?.params)
+  const turnOk = !(it.prefab || it.shape) || ownFacing || angleDiff(o.rotation[1], it.rotation[1] + 180, halfTurnSymmetric(it) ? 180 : 360) <= 6
+  return turnOk ? d : Infinity
+}
+
 /** Index of the object across the middle from `i` (at -x, -z, turned 180°), or null. `i` itself when it sits on the centre. */
 export function findTwin(p: Project, i: number, tol = 1.5): number | null {
   const it = p.scene_items[i]
   if (!it) return null
-  const [x, y, z] = it.position
+  const [x, , z] = it.position
   if (atCentre(x, z, tol)) return i
   const k = kindOf(it)
   let best: number | null = null, bestD = Infinity
   p.scene_items.forEach((o, j) => {
     if (j === i || kindOf(o) !== k) return
-    const d = Math.hypot(o.position[0] + x, o.position[2] + z)
-    if (d > tol || Math.abs(o.position[1] - y) > tol) return
-    // A prefab whose settings differ faces its own way through them (a shop's front), whatever its turn.
-    const ownFacing = !!it.prefab && JSON.stringify(it.prefab.params) !== JSON.stringify(o.prefab?.params)
-    const turnOk = !(it.prefab || it.shape) || ownFacing || angleDiff(o.rotation[1], it.rotation[1] + 180, halfTurnSymmetric(it) ? 180 : 360) <= 6
-    if (turnOk && d < bestD) { best = j; bestD = d }
+    const d = twinGap(it, o, tol)
+    if (d < bestD) { best = j; bestD = d }
   })
   return best
+}
+
+/** How many objects have a twin across the middle (or sit on the centre), as findTwin finds them, for big maps too:
+ *  objects are looked up by kind and a grid of `tol` cells instead of against every other object. */
+export function countTwinned(p: Project, tol = 1.5): number {
+  const cell = (v: number) => Math.floor(v / tol)
+  const grid = new Map<string, number[]>()
+  const kinds = p.scene_items.map(kindOf)
+  p.scene_items.forEach((o, j) => {
+    const key = `${kinds[j]}|${cell(o.position[0])}|${cell(o.position[2])}`
+    const list = grid.get(key)
+    if (list) list.push(j); else grid.set(key, [j])
+  })
+  let n = 0
+  p.scene_items.forEach((it, i) => {
+    const [x, , z] = it.position
+    if (atCentre(x, z, tol)) { n++; return }
+    const cx = cell(-x), cz = cell(-z)
+    for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) {
+      for (const j of grid.get(`${kinds[i]}|${cx + a}|${cz + b}`) ?? []) if (j !== i && twinGap(it, p.scene_items[j], tol) < Infinity) { n++; return }
+    }
+  })
+  return n
 }
 
 const TWIN_TYPE: Record<string, string> = { 'Red team spawn': 'Blue team spawn', 'Blue team spawn': 'Red team spawn' }

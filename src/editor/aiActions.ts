@@ -364,7 +364,7 @@ export async function runAiActions(actions: AiAction[], label: string): Promise<
               const l = p.lights[i]
               return { ...structuredClone(l), uid: uid(), position: [-l.position[0], l.position[1], -l.position[2]] as Vec3 }
             })]
-          })
+          }, { noMirror: true })
           useEditor.getState().select(null)
           done += plan.items.copy.length + plan.markers.copy.length + plan.lights.copy.length
           break

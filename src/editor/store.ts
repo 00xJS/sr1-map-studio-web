@@ -3,7 +3,8 @@
 import { create } from 'zustand'
 import { produce, type Draft } from 'immer'
 import { db } from '../lib/db'
-import type { Project } from '../lib/project'
+import { uid, type Project } from '../lib/project'
+import { mirrorEdit } from '../lib/mirrorEdit'
 
 export type Selection = { kind: 'item' | 'marker' | 'light'; index: number } | null
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
@@ -60,9 +61,13 @@ interface EditorState {
   freeCam: boolean
   /** The view only: the site's own surfaces drawn layered like retail's (even base tile, grime, tint mask). */
   layeredLook: boolean
+  /** Mirror mode: every edit is copied across the middle (lib/mirrorEdit.ts), in the same undo step. */
+  mirror: boolean
   open(project: Project): void
   close(): void
-  update(label: string, recipe: (d: Draft<Project>) => void, opts?: { merge?: string }): void
+  /** One undo step. In mirror mode the edit is copied across the middle too, unless `noMirror` (an edit that already
+   *  makes both halves, such as make_symmetric) or inside a transaction (Fix all's fixes place what they mean to). */
+  update(label: string, recipe: (d: Draft<Project>) => void, opts?: { merge?: string; noMirror?: boolean }): void
   undo(): void
   redo(): void
   /** Several undo (negative) or redo (positive) steps at once, as one history move. */
@@ -118,6 +123,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   allSettings: readFlag('sr1-advanced'),
   freeCam: readFlag('sr1-freecam'),
   layeredLook: readFlag('sr1-layered'),
+  mirror: false,
   locked: null,
   open(project) {
     set({ project, selection: null, multi: [], lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [] })
@@ -126,7 +132,13 @@ export const useEditor = create<EditorState>((set, get) => ({
   update(label, recipe, opts) {
     const cur = get().project
     if (!cur) return
-    const next = produce(cur, recipe)
+    const mirrored = get().mirror && !txn && !opts?.noMirror
+    const next = mirrored ? produce(cur, (d) => {
+      // A recipe that hands back a whole new project replaces it as it is.
+      const r = recipe(d) as unknown
+      if (r !== undefined) return r as Project
+      mirrorEdit(cur, d, uid)
+    }) : produce(cur, recipe)
     if (next === cur) return
     const now = performance.now()
     // Consecutive edits with the same merge key (a gizmo drag, typing in a
