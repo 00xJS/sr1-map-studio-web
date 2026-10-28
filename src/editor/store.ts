@@ -68,7 +68,12 @@ interface EditorState {
   /** Several undo (negative) or redo (positive) steps at once, as one history move. */
   jumpTo(steps: number): void
   /** Runs `fn` with editing locked (`locked`), and makes every edit it made one undo step called `label` (Fix all). */
-  transaction(label: string, fn: () => Promise<void>): Promise<void>
+  /**
+   * Runs `fn` with editing locked (`locked`), and makes every edit it made one undo step called `label` (Fix all).
+   * It first waits for the edit job running now; with `wait`, for that many ms at most. Says how it ended: 'ran' (fn
+   * ran, maybe stopped partway), 'stopped' (Stop or a map opened before it began) or 'busy' (the wait ran out).
+   */
+  transaction(label: string, fn: () => Promise<void>, opts?: { wait?: number }): Promise<'ran' | 'stopped' | 'busy'>
   /** Ends the running transaction now, keeping what it did so far as its undo step (the cover's Stop). */
   stopTransaction(): void
   /** What a running transaction is doing: undo, redo and the editor's keys are off, and the editor is covered. */
@@ -100,11 +105,13 @@ let opens = 0
 /** Async work that edits the map: the map it started on, and the transaction it started in (Fix all's fixes). */
 export interface Run { opens: number; txn: Txn | null }
 /** Where async work starts: check `stillCurrent(run)` after each await before editing. */
-export const startRun = (): Run => ({ opens, txn })
+export const startRun = (): Run => ({ opens, txn: txn?.started ? txn : null })
 /** False once a map was opened (the same one again too) since `run`, or the transaction it ran in was stopped. */
 export const isCurrent = (run: Run) => run.opens === opens && !run.txn?.stopped
 /** Throws unless `isCurrent(run)`. */
-export function stillCurrent(run: Run) { if (!isCurrent(run)) throw new Error('the map changed meanwhile') }
+export function stillCurrent(run: Run) { if (!isCurrent(run)) throw new MapChanged() }
+/** What `stillCurrent` throws: the work was for a map no longer open, or a stopped Fix all, so nothing is wrong. */
+export class MapChanged extends Error { constructor() { super('the map changed meanwhile') } }
 /** Resolves once no transaction holds the editor. */
 export function whenUnlocked(): Promise<void> {
   if (!useEditor.getState().locked) return Promise.resolve()
@@ -113,21 +120,28 @@ export function whenUnlocked(): Promise<void> {
   })
 }
 
-/** Edit jobs running now (AI edits, the stair ramps a game-pieces map gets) and who waits for them to end. */
-let jobs = 0
-let jobsDone: (() => void)[] = []
+/** The open map's edit jobs: `last` ends when the last one queued ends, `running` when the one running now does. */
+interface JobQueue { last: Promise<void>; running: Promise<void> | null }
+const newQueue = (): JobQueue => ({ last: Promise.resolve(), running: null })
+let jobs = newQueue()
 /**
- * Runs `fn`, an edit job that runs alongside the user (AI edits), never at the same time as a transaction: each
- * waits for the other, so neither's edits land in the other's undo step.
+ * Runs `fn`, an edit job that runs alongside the user (AI edits, the stair ramps a game-pieces map gets), in turn:
+ * one job at a time, never at the same time as a transaction. Jobs wait for the one before them and for a
+ * transaction to end; a transaction waits for the job running when it begins (queued ones wait for it). So no job's
+ * edits land in another's undo step, nor in Fix all's. Each map has its own queue.
  */
 export async function editJob<T>(fn: () => Promise<T>): Promise<T> {
-  while (useEditor.getState().locked) await whenUnlocked()
-  jobs++
-  try { return await fn() } finally {
-    if (!--jobs) { const w = jobsDone; jobsDone = []; w.forEach((done) => done()) }
-  }
+  const q = jobs, before = q.last
+  let end = () => {}
+  const mine = new Promise<void>((r) => { end = r })
+  q.last = mine
+  try {
+    await before
+    while (useEditor.getState().locked) await whenUnlocked()
+    q.running = mine
+    try { return await fn() } finally { if (q.running === mine) q.running = null }
+  } finally { end() }
 }
-const whenNoJobs = () => (jobs ? new Promise<void>((done) => jobsDone.push(done)) : Promise.resolve())
 
 /** One step back to where `t` started, unless nothing changed or a map was opened since; then the editor is free. */
 function endTransaction(t: Txn) {
@@ -145,6 +159,8 @@ function leaveMap() {
   if (t) t.stopped = true
   lastMerge = null
   opens++
+  // Jobs still running belong to the map left: the next map's don't wait for them.
+  jobs = newQueue()
   return t
 }
 
@@ -245,8 +261,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
     set({ project, ...reanchor(get(), from, project), past, future, saveState: 'unsaved' })
   },
-  async transaction(label, fn) {
-    if (txn) { await fn(); return }
+  async transaction(label, fn, opts) {
+    if (txn) { await fn(); return 'ran' }
     let stop = () => {}
     const stopped = new Promise<void>((r) => { stop = r })
     const mine: Txn = { label, start: null, started: false, stopped: false, opens, stop }
@@ -256,12 +272,20 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ locked: label })
     // Stop (or opening a map) ends it without waiting for `fn`, which may never finish.
     try {
-      if (jobs) await Promise.race([whenNoJobs(), stopped])
-      if (txn !== mine) return
+      if (jobs.running) {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const late = opts?.wait === undefined ? null : new Promise<'busy'>((r) => { timer = setTimeout(() => r('busy'), opts.wait) })
+        const job = jobs.running
+        const how = await Promise.race([job.then(() => 'free' as const), stopped.then(() => 'stopped' as const), ...(late ? [late] : [])])
+        clearTimeout(timer)
+        if (how === 'busy' && txn === mine) { mine.stopped = true; return 'busy' }
+      }
+      if (txn !== mine) return 'stopped'
       mine.start = get().project
       mine.started = true
       lastMerge = null
       await Promise.race([fn(), stopped])
+      return 'ran'
     } finally { if (txn === mine) endTransaction(mine) }
   },
   stopTransaction() {

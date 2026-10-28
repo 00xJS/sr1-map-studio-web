@@ -2,7 +2,7 @@
 // the tool (or place) that fixes it.
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { editJob, useEditor } from './store'
+import { MapChanged, editJob, useEditor } from './store'
 import { chooseTool } from './Tools'
 import { addDefaultSky, removeMarkersOfType } from './actions'
 import { fixSpawnsAndWeapons } from './spawnActions'
@@ -39,12 +39,12 @@ export function useApplyFix(onSamples: () => void) {
         break
       case 'removeMarkers': removeMarkersOfType(fix.types); break
       // These run on after the Install dialog closes: as edit jobs, so Fix all waits for them.
-      case 'sky': void editJob(addDefaultSky).catch(toastError); break
+      case 'sky': void editJob(addDefaultSky).catch(quiet); break
       case 'autoSpawns':
         toast('Finding spots for spawns and weapons…', 'info', 4000)
         void editJob(fixSpawnsAndWeapons).then((r) => toast(r.floor
           ? `Done: ${r.added.spawns} spawn${r.added.spawns === 1 ? '' : 's'} and ${r.added.weapons} weapon${r.added.weapons === 1 ? '' : 's'} added${r.moved ? `, ${r.moved} moved somewhere players can use` : ''} (one undo step).`
-          : 'No floor a player can stand on was found: add a floor first.', r.floor ? 'ok' : 'info', 10000), toastError)
+          : 'No floor a player can stand on was found: add a floor first.', r.floor ? 'ok' : 'info', 10000), quiet)
         break
       case 'modes':
         st.set({ tab: 'game' })
@@ -53,6 +53,9 @@ export function useApplyFix(onSamples: () => void) {
     }
   }
 }
+
+/** A job another map cancelled says nothing: the map it was for is gone. */
+const quiet = (err: unknown) => { if (!(err instanceof MapChanged)) toastError(err) }
 
 const MARK = { done: '✓', needed: '!', suggested: '•' } as const
 

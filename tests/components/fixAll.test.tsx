@@ -3,7 +3,7 @@
 // others, the editor is locked while it runs, a fix that never finishes can be stopped (or times out) without writing
 // later, opening a map ends it, and one map's findings never show on another.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { editJob, useEditor, whenUnlocked } from '../../src/editor/store'
+import { MapChanged, editJob, startRun, stillCurrent, useEditor, whenUnlocked } from '../../src/editor/store'
 import { runAiActions } from '../../src/editor/aiActions'
 import { loadModel } from '../../src/lib/assets'
 import { skyFile } from '../../src/lib/samples'
@@ -215,7 +215,8 @@ describe('Fix all that never finishes', () => {
     await vi.waitFor(() => expect(skyFile).toHaveBeenCalled())
     const b = openMap()
     release()
-    await expect(adding).rejects.toThrow(/map changed/)
+    // A map change, not a failure: the checklist says nothing for it.
+    await expect(adding).rejects.toBeInstanceOf(MapChanged)
     expect(useEditor.getState().project).toBe(b)
     expect(useEditor.getState().past).toEqual([])
   })
@@ -283,6 +284,103 @@ describe('Fix all and the edits running beside it', () => {
     expect(useEditor.getState().project!.markers).toHaveLength(2)
     useEditor.getState().undo()
     expect(useEditor.getState().project!.markers).toHaveLength(1)
+  })
+})
+
+/** An edit job that makes one edit called `label`, then waits until the returned function is called. */
+function stuckJob(label: string) {
+  let release = () => {}
+  const done = editJob(async () => {
+    useEditor.getState().update(label, (d) => { d.name = label })
+    await new Promise<void>((r) => { release = r })
+  })
+  return { done, release: () => release() }
+}
+
+describe('Edit jobs take turns', () => {
+  it("runs AI edits after the job before them, so each keeps its own undo step", { timeout: 30000 }, async () => {
+    openMap()
+    // The map checks' stair ramps (or a checklist job) are still going when an AI reply comes in.
+    const job = editJob(async () => {
+      useEditor.getState().update('Add invisible stair ramps', (d) => { d.markers.push(newMarker('Shared spawn', [5, 0, 5])) })
+      await settle()
+      useEditor.getState().update('Add invisible stair ramps', (d) => { d.markers.push(newMarker('Shared spawn', [9, 0, 9])) })
+    })
+    const ai = runAiActions([{ do: 'rename_map', name: 'Harbor Rumble' }], 'AI extras')
+    await job
+    expect((await ai).done).toBe(1)
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Add invisible stair ramps', 'Add invisible stair ramps', 'AI extras'])
+    // Undoing the AI's step keeps the ramps.
+    useEditor.getState().undo()
+    expect(useEditor.getState().project!.markers).toHaveLength(3)
+  })
+
+  it("doesn't tie a job's work to a Fix all still waiting for it, so Stop leaves it alone", { timeout: 30000 }, async () => {
+    openMap()
+    let step = () => {}, landed = false
+    const job = editJob(async () => {
+      await new Promise<void>((r) => { step = r })
+      // Starts its work while Fix all waits for it.
+      const run = startRun()
+      await new Promise<void>((r) => { step = r })
+      stillCurrent(run)
+      useEditor.getState().update('Job', (d) => { d.name = 'Job' })
+      landed = true
+    })
+    await settle()
+    const running = fixAll([{ kind: 'walls' }])
+    step()
+    await settle()
+    useEditor.getState().stopTransaction()
+    await running
+    step()
+    await job
+    expect(landed).toBe(true)
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Job'])
+  })
+
+  it("gives up after the time limit when a job never ends, fixing nothing", { timeout: 30000 }, async () => {
+    openMap()
+    const job = stuckJob('Stuck job')
+    await settle()
+    const r = await fixAll([{ kind: 'walls' }, { kind: 'spawns' }], 100)
+    expect(r.done).toEqual([])
+    expect(r.failed).toEqual([
+      "invisible walls (other changes to the map took over 0 minutes, so Fix all didn't start)",
+      "spawns and weapons (other changes to the map took over 0 minutes, so Fix all didn't start)",
+    ])
+    expect(useEditor.getState().locked).toBeNull()
+    expect(useEditor.getState().project!.settings.remove_invisible_walls).toBe(false)
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Stuck job'])
+    job.release()
+    await job.done
+  })
+
+  it("doesn't make Fix all on one map wait for a job left over from the map before", { timeout: 30000 }, async () => {
+    openMap()
+    const job = stuckJob('Stuck job')
+    await settle()
+    openMap()
+    const r = await fixAll([{ kind: 'walls' }])
+    expect(r.done).toEqual(['invisible walls left out at export'])
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Fix all'])
+    job.release()
+    await job.done
+  })
+
+  it("leaves out the AI edits left when another map opens mid-reply", { timeout: 30000 }, async () => {
+    openMap()
+    let release = () => {}
+    vi.mocked(skyFile).mockImplementationOnce(() => new Promise((r) => { release = () => r({ vpath: 'files/sky.png', ref: { hash: 'h-sky', name: 'sky.png', type: 'image/png', size: 1, origin: 'user' } as never }) }))
+    const ai = runAiActions([{ do: 'set_map', sky_picture: true }, { do: 'rename_map', name: 'Harbor Rumble' }], 'AI extras')
+    await vi.waitFor(() => expect(skyFile).toHaveBeenCalled())
+    const b = openMap()
+    release()
+    const { skipped } = await ai
+    expect(skipped).toContain('another map was opened')
+    const st = useEditor.getState()
+    expect(st.project).toBe(b)
+    expect(st.past).toEqual([])
   })
 })
 

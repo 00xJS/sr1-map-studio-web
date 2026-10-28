@@ -1,5 +1,5 @@
 // Carries out the edits an AI chat reply asks for, as one undo step.
-import { useEditor, currentProject, editJob } from './store'
+import { useEditor, currentProject, editJob, isCurrent, startRun } from './store'
 import { getViewer } from './Viewport'
 import * as act from './actions'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
@@ -69,6 +69,8 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
   if (!st.project) return { done: 0, skipped: ['No map is open.'] }
   const start = st.past.length
   const before = st.project
+  // Another map opened mid-reply: the edits left aren't about it.
+  const run = startRun()
   const skipped: string[] = []
   const deletes = new Set<number>()
   let done = 0
@@ -81,6 +83,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
   // Lines and rings expand into more edits in place.
   const queue = [...actions]
   for (let n = 0; n < queue.length && n < 400; n++) {
+    if (!isCurrent(run)) { skipped.push('another map was opened'); break }
     const a = queue[n]
     try {
       switch (a.do) {
@@ -390,6 +393,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
       skipped.push(err instanceof Error ? err.message : String(err))
     }
   }
+  if (!isCurrent(run)) return { done, skipped }
   if (deletes.size) { act.removeItems([...deletes]); useEditor.getState().select(null); done += deletes.size }
   // Everything this reply did is one step on the undo list.
   const now = useEditor.getState()

@@ -20,7 +20,7 @@ describe('Busy cover', () => {
     expect(document.activeElement).toBe(field)
 
     let stuck = () => {}
-    let running!: Promise<void>
+    let running!: Promise<unknown>
     act(() => {
       running = useEditor.getState().transaction('Fix all', async () => {
         useEditor.getState().update('Rename', (d) => { d.name = 'Fixed' })
