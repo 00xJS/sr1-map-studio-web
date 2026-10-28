@@ -5,6 +5,7 @@ import type { CheckItem } from '../src/lib/checklist'
 import type { HealthReport } from '../src/lib/analysis/types'
 import { exportBlocks } from '../src/editor/exportBlocks'
 import { fileNameFor } from '../src/editor/PlayDialog'
+import { newMarker } from '../src/lib/project'
 
 const report = (findings: string[]) => ({ findings } as unknown as HealthReport)
 
@@ -46,15 +47,24 @@ describe('What stops a build', () => {
   }) as never
 
   it('blocks a file name too long for early surface registration, not one Install in game names itself', () => {
-    expect(exportBlocks({ base_name: 'mymap4567ab', surface_preload: true, native_sky: '' }, pack({}))[0]).toMatch(/11 characters.*10 at most/)
-    expect(exportBlocks({ base_name: 'mymap4567ab', surface_preload: false, native_sky: '' }, pack({}))).toEqual([])
-    expect(exportBlocks({ base_name: 'mymap', surface_preload: true, native_sky: '' }, pack({}))).toEqual([])
+    expect(exportBlocks({ base_name: 'mymap4567ab', surface_preload: true, native_sky: '', modes: [] }, [], pack({}))[0]).toMatch(/11 characters.*10 at most/)
+    expect(exportBlocks({ base_name: 'mymap4567ab', surface_preload: false, native_sky: '', modes: [] }, [], pack({}))).toEqual([])
+    expect(exportBlocks({ base_name: 'mymap', surface_preload: true, native_sky: '', modes: [] }, [], pack({}))).toEqual([])
   })
 
   it('blocks settings whose data-pack files are missing', () => {
-    expect(exportBlocks({ base_name: 'arena', surface_preload: true, native_sky: '' }, pack({ surface: false }))[0]).toMatch(/surface template/)
-    expect(exportBlocks({ base_name: 'arena', surface_preload: false, native_sky: 'sr_alwayshwyf01' }, pack({ sky: false }))[0]).toMatch(/native sky/)
-    expect(exportBlocks({ base_name: 'arena', surface_preload: false, native_sky: 'sr_alwayshwyf01' }, null)).toEqual([])
+    expect(exportBlocks({ base_name: 'arena', surface_preload: true, native_sky: '', modes: [] }, [], pack({ surface: false }))[0]).toMatch(/surface template/)
+    expect(exportBlocks({ base_name: 'arena', surface_preload: false, native_sky: 'sr_alwayshwyf01', modes: [] }, [], pack({ sky: false }))[0]).toMatch(/native sky/)
+    expect(exportBlocks({ base_name: 'arena', surface_preload: false, native_sky: 'sr_alwayshwyf01', modes: [] }, [], null)).toEqual([])
+  })
+
+  it("blocks a game mode missing the markers it needs, as the exporter would fail on it", () => {
+    const s = { base_name: 'arena', surface_preload: false, native_sky: '', modes: ['Protect Tha Pimp'] } as Parameters<typeof exportBlocks>[0]
+    expect(exportBlocks(s, [newMarker('Shared spawn', [0, 0, 0])], pack({})).join(' ')).toMatch(/Protect Tha Pimp needs Red team spawns, Blue team spawns/)
+    const ptp = [newMarker('Red team spawn', [0, 0, 0]), newMarker('Blue team spawn', [9, 0, 0]), newMarker('Pimp entrance', [5, 0, 5])]
+    expect(exportBlocks(s, ptp, pack({}))).toEqual([])
+    // No game mode at all is the checklist's own line.
+    expect(exportBlocks({ ...s, modes: [] }, [], pack({}))).toEqual([])
   })
 
   it('names a map to fit: 10 characters with early surface registration', () => {

@@ -1,7 +1,7 @@
 // "Spawns and weapons" in the health panel: every spawn and weapon where a player can use it (lib/markerPlan.ts), on
 // the open map's real collision. Ones inside something, in the air or on floor nobody can walk to move to the nearest
 // usable spot; spawns and weapons are added up to what a full match wants. One undo step.
-import { useEditor, currentProject } from './store'
+import { useEditor, currentProject, editEpoch, stillCurrent } from './store'
 import { isRamps, solidTriangles } from './stairActions'
 import { prepareMap } from '../lib/analysis/analyze'
 import { collisionFromProject, waterAreas } from '../lib/analysis/collision'
@@ -95,9 +95,10 @@ export function spawnFixSummary({ plan }: SpawnFixPlan): SpawnFix & { text: stri
 export async function fixSpawnsAndWeapons(): Promise<SpawnFix> {
   const project = currentProject()
   if (!project) return { moved: 0, added: { spawns: 0, weapons: 0 }, reasons: [], floor: 0 }
+  const run = editEpoch()
   const fix = await planSpawnFix(project)
-  // Another map was opened while it planned: this plan is not about it.
-  if (currentProject()?.id !== project.id) throw new Error('another map was opened')
+  // A map was opened (or Fix all stopped) while it planned: this plan is not about it.
+  stillCurrent(run)
   if (fix.plan.moved.length || fix.plan.added.length) useEditor.getState().update('Fix spawns and weapons', (d) => applySpawnFix(d, fix))
   const { text, ...out } = spawnFixSummary(fix)
   useEditor.getState().log(text)

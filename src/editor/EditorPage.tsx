@@ -1,6 +1,7 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
+import { createPortal } from 'react-dom'
 import { Link, useNavigate, useParams } from 'react-router-dom'
-import { useEditor, saveNow, readFlag, writeFlag, type SideTab } from './store'
+import { useEditor, saveNow, readFlag, writeFlag, whenUnlocked, type SideTab } from './store'
 import { Viewport, getViewer } from './Viewport'
 import { choosePreset, setLook, useLook } from './look'
 import { PRESETS } from '../lib/gameLight'
@@ -118,7 +119,9 @@ function usePendingEdits(openChat: () => void) {
         if (v && p && p.scene_items.every((_, i) => v.itemBounds(i))) break
         await new Promise((r) => setTimeout(r, 200))
       }
-      if (!live) { queueEdits(id, job); return }
+      // Fix all holds the editor: these edits would fold into its undo step, so they wait for it.
+      await whenUnlocked()
+      if (!live || useEditor.getState().project?.id !== id) { queueEdits(id, job); return }
       // Game models bring their own stairs and slivers: ramps over stairs too tall to run up, the invisible walls,
       // then the health check, summed up with what the wizard found.
       if (job.checks) void runMapChecks(job.summary)
@@ -148,6 +151,7 @@ function Editor() {
   const [playing, setPlaying] = useState(false)
   const [touring, setTouring] = useState(false)
   const [sheet, setSheet] = useState<'none' | 'tools' | 'side'>('none')
+  const root = useRef<HTMLDivElement>(null)
   usePendingEdits(() => setChatting(true))
   const overlays = useOverlays()
   const hasItems = project.scene_items.length > 0
@@ -155,7 +159,7 @@ function Editor() {
   useEffect(() => { if (hasItems && !narrow && !readFlag('sr1-tour-done')) setTouring(true) }, [hasItems, narrow])
   // Phones: picking something opens the panel sheet to show it; a piece just placed stays in view with its arrows.
   const tool = useEditor((s) => s.tool)
-  useEffect(() => { if (narrow && hasSelection && tool === 'select') setSheet('side') }, [narrow, hasSelection])
+  useEffect(() => { if (narrow && hasSelection && tool === 'select') setSheet('side') }, [narrow, hasSelection, tool])
   const endTour = () => { writeFlag('sr1-tour-done', true); setTouring(false) }
   const importDropped = async (files: File[]) => {
     try {
@@ -190,7 +194,7 @@ function Editor() {
   }
   const samples = () => setPicking(true)
   return (
-    <div className={'editor' + (narrow ? ' phone' : '')}>
+    <div className={'editor' + (narrow ? ' phone' : '')} ref={root}>
       {narrow && <PhoneBanner onPlay={actions.playHere} />}
       <TopBar actions={actions} compact={narrow} />
       <div className="editor-main">
@@ -220,19 +224,31 @@ function Editor() {
       {overlays.keys && <ShortcutsOverlay />}
       {overlays.palette && <CommandPalette actions={actions} />}
       <FirstMapCoach />
-      <BusyLock />
+      <BusyLock editor={root} />
     </div>
   )
 }
 
 /** While Fix all (a transaction) edits the map, the whole editor waits: nothing else can change it meanwhile. */
-function BusyLock() {
+export function BusyLock({ editor }: { editor: RefObject<HTMLDivElement> }) {
   const locked = useEditor((s) => s.locked)
+  // Behind the cover nothing takes a click, Tab or a key: an edit made meanwhile would land in its undo step.
+  useEffect(() => {
+    const el = editor.current
+    if (!el) return
+    el.inert = !!locked
+    if (locked && document.activeElement instanceof HTMLElement && el.contains(document.activeElement)) document.activeElement.blur()
+  }, [editor, locked])
   if (!locked) return null
-  return (
+  return createPortal(
     <div className="busy-lock" role="status" aria-live="polite">
-      <div className="busy-lock-card"><b>{locked}…</b><span className="small muted">The editor waits until it's done.</span></div>
-    </div>
+      <div className="busy-lock-card">
+        <b>{locked}…</b>
+        <span className="small muted">The editor waits until it's done.</span>
+        <button className="sm" title="Keeps what's fixed so far: one Undo takes it back." onClick={() => useEditor.getState().stopTransaction()}>Stop</button>
+      </div>
+    </div>,
+    document.body,
   )
 }
 

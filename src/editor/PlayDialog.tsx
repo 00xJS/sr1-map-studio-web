@@ -32,7 +32,7 @@ export function PlayDialog({ onClose, onSamples }: { onClose: () => void; onSamp
   const [title, setTitle] = useState(s.display_name === DEFAULT_TITLE && project.name !== 'Untitled map' ? project.name.slice(0, 40) : s.display_name)
   const [pack, setPack] = useState<DataPackStatus | null>(null)
   useEffect(() => { dataPackStatus().then(setPack).catch(() => setPack(null)) }, [])
-  const blocks = exportBlocks(s, pack)
+  const blocks = exportBlocks(s, project.markers, pack)
   const blocked = [...blockers(items), ...blocks]
   const open = items.filter((c) => c.state !== 'done')
 

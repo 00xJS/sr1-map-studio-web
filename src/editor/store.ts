@@ -69,6 +69,8 @@ interface EditorState {
   jumpTo(steps: number): void
   /** Runs `fn` with editing locked (`locked`), and makes every edit it made one undo step called `label` (Fix all). */
   transaction(label: string, fn: () => Promise<void>): Promise<void>
+  /** Ends the running transaction now, keeping what it did so far as its undo step (the cover's Stop). */
+  stopTransaction(): void
   /** What a running transaction is doing: undo, redo and the editor's keys are off, and the editor is covered. */
   locked: string | null
   select(s: Selection): void
@@ -80,8 +82,43 @@ interface EditorState {
 }
 
 const LIMIT = 150
+interface Txn { label: string; start: Project | null; opens: number; stop: () => void }
 /** The transaction running now, if any (only one runs at a time). */
-let txn: { label: string } | null = null
+let txn: Txn | null = null
+/** Maps opened so far, the same one again included. */
+let opens = 0
+/** Bumped when a map is opened and when a transaction is stopped: async work started before must not edit after. */
+let epoch = 0
+/** Where async work starts: compare with `stillCurrent(run)` after each await before editing. */
+export const editEpoch = () => epoch
+/** Throws if a map was opened (the same one again too) or the transaction was stopped since `run` = editEpoch(). */
+export function stillCurrent(run: number) { if (epoch !== run) throw new Error('the map changed meanwhile') }
+/** Resolves once no transaction holds the editor (edits queued for a map wait for Fix all to end). */
+export function whenUnlocked(): Promise<void> {
+  if (!useEditor.getState().locked) return Promise.resolve()
+  return new Promise((done) => {
+    const off = useEditor.subscribe((s) => { if (!s.locked) { off(); done() } })
+  })
+}
+
+/** One step back to where `t` started, unless nothing changed or a map was opened since; then the editor is free. */
+function endTransaction(t: Txn) {
+  txn = null
+  const { past, project } = useEditor.getState()
+  if (t.start && project && project !== t.start && t.opens === opens) useEditor.setState({ past: [...past, { project: t.start, label: t.label }].slice(-LIMIT), future: [] })
+  useEditor.setState({ locked: null })
+  lastMerge = null
+}
+
+/** The map is being left: a transaction still running belonged to it and ends, adding no step to the next one. */
+function leaveMap() {
+  const t = txn
+  txn = null
+  lastMerge = null
+  opens++
+  epoch++
+  return t
+}
 
 export function readFlag(key: string) { try { return localStorage.getItem(key) === '1' } catch { return false } }
 export function writeFlag(key: string, on: boolean) { try { localStorage.setItem(key, on ? '1' : '0') } catch { /* private window */ } }
@@ -120,9 +157,15 @@ export const useEditor = create<EditorState>((set, get) => ({
   layeredLook: readFlag('sr1-layered'),
   locked: null,
   open(project) {
-    set({ project, selection: null, multi: [], lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [] })
+    const t = leaveMap()
+    set({ project, selection: null, multi: [], lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [], locked: null })
+    t?.stop()
   },
-  close() { set({ project: null, selection: null, multi: [], past: [], future: [] }) },
+  close() {
+    const t = leaveMap()
+    set({ project: null, selection: null, multi: [], past: [], future: [], locked: null })
+    t?.stop()
+  },
   update(label, recipe, opts) {
     const cur = get().project
     if (!cur) return
@@ -176,18 +219,21 @@ export const useEditor = create<EditorState>((set, get) => ({
   },
   async transaction(label, fn) {
     if (txn) { await fn(); return }
-    const start = get().project
-    txn = { label }
+    let stop = () => {}
+    const stopped = new Promise<void>((r) => { stop = r })
+    const mine: Txn = { label, start: get().project, opens, stop }
+    txn = mine
     lastMerge = null
     set({ locked: label })
-    try { await fn() } finally {
-      txn = null
-      const { past, project } = get()
-      // One step back to where it started, unless nothing changed or another map was opened meanwhile.
-      if (start && project && project !== start && project.id === start.id) set({ past: [...past, { project: start, label }].slice(-LIMIT), future: [] })
-      set({ locked: null })
-      lastMerge = null
-    }
+    // Stop (or opening a map) ends it without waiting for `fn`, which may never finish.
+    try { await Promise.race([fn(), stopped]) } finally { if (txn === mine) endTransaction(mine) }
+  },
+  stopTransaction() {
+    const t = txn
+    if (!t) return
+    epoch++
+    endTransaction(t)
+    t.stop()
   },
   select(selection) {
     if (selection?.kind !== 'item') { set({ selection, multi: [] }); return }
