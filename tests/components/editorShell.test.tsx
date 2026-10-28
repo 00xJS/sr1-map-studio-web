@@ -213,3 +213,35 @@ describe('Metres in the inspector', () => {
     expect(useEditor.getState().project!.markers[2].leash_distance).toBe(30)
   })
 })
+
+describe('Weapon field', () => {
+  it('shows the control the stored weapon calls for, after an undo too', { timeout: 30000 }, () => {
+    openMap()
+    const known = catalogs.weapons[0][1]
+    act(() => {
+      useEditor.getState().update('Setup', (d) => { d.markers[8].weapon = known })
+      useEditor.getState().select({ kind: 'marker', index: 8 })
+    })
+    render(<SelectionInspector />)
+    const select = () => screen.getByRole('combobox', { name: 'Weapon' }) as HTMLSelectElement
+    expect(select().value).toBe(known)
+    expect(screen.queryByRole('textbox', { name: 'Weapon ID' })).toBeNull()
+
+    // "Other…" opens the ID field, even for a weapon in the list, and stays open while typing.
+    fireEvent.change(select(), { target: { value: '\u0000other' } })
+    const id = screen.getByRole('textbox', { name: 'Weapon ID' }) as HTMLInputElement
+    expect(id.value).toBe(known)
+    fireEvent.change(id, { target: { value: 'my_gun' } })
+    expect(useEditor.getState().project!.markers[8].weapon).toBe('my_gun')
+    expect(screen.getByRole('textbox', { name: 'Weapon ID' })).toBeTruthy()
+
+    // Undo brings the listed weapon back, and with it the list.
+    act(() => useEditor.getState().undo())
+    expect(useEditor.getState().project!.markers[8].weapon).toBe(known)
+    expect(screen.queryByRole('textbox', { name: 'Weapon ID' })).toBeNull()
+    expect(select().value).toBe(known)
+    // Redo: an ID the list doesn't have shows in its field.
+    act(() => useEditor.getState().redo())
+    expect((screen.getByRole('textbox', { name: 'Weapon ID' }) as HTMLInputElement).value).toBe('my_gun')
+  })
+})

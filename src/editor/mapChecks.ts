@@ -1,7 +1,7 @@
 // The checks a map built from game models gets once it is open (the wizard's "Game pieces"): invisible ramps over
 // stairs too tall to run up, the invisible walls its models bring, and the health check. What they find, with
 // what the wizard found while building it, goes in one summary in the editor's log and a toast.
-import { useEditor } from './store'
+import { editJob, useEditor } from './store'
 import { addStairRamps, solidTriangles } from './stairActions'
 import { runHealthCheck, useHealth } from './health'
 import { findSlivers } from '../lib/invisibleWalls'
@@ -9,7 +9,8 @@ import { toast, toastError } from '../ui'
 
 /** Runs the checks on the open map; `found`: what the wizard noted while building it. Returns the summary's lines. */
 export async function runMapChecks(found: string[] = []): Promise<string[]> {
-  const ramps = await addStairRamps().catch((e) => { toastError(e); return 0 })
+  // An edit job: Fix all (the Check tab opens below) waits for the ramps rather than folding them into its step.
+  const ramps = await editJob(addStairRamps).catch((e) => { toastError(e); return 0 })
   const project = useEditor.getState().project
   const walls = project ? await solidTriangles(project).then((t) => findSlivers(t.tris, t.flags)).catch(() => null) : null
   useEditor.getState().set({ tab: 'check' })

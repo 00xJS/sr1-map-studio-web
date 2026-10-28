@@ -1,5 +1,5 @@
 // Carries out the edits an AI chat reply asks for, as one undo step.
-import { useEditor, currentProject } from './store'
+import { useEditor, currentProject, editJob } from './store'
 import { getViewer } from './Viewport'
 import * as act from './actions'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
@@ -56,8 +56,15 @@ async function swatchFor(name: string, tint: { color?: unknown; accent?: unknown
   return part ? { key: 'lib:' + part.id, label: part.name, surface: part.surface, source: { kind: 'library', id: part.id } } : null
 }
 
-/** Runs the actions; returns a short note of what happened and what was skipped. */
-export async function runAiActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
+/**
+ * Runs the actions as one undo step called `label`; returns how many were done and what was skipped. An edit job:
+ * it waits for Fix all to end, and Fix all waits for it, as it rewrites the undo list from where it started.
+ */
+export function runAiActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
+  return editJob(() => applyAiActions(actions, label))
+}
+
+async function applyAiActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
   const st = useEditor.getState()
   if (!st.project) return { done: 0, skipped: ['No map is open.'] }
   const start = st.past.length

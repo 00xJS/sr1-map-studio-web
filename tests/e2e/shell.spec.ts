@@ -104,4 +104,15 @@ test('the phone editor at 375 px', async ({ page }) => {
   await page.getByRole('button', { name: /panel/i }).first().click()
   await expect(page.getByRole('tab', { name: /^Check/ })).toBeVisible()
   await shot(page, 'editor-375-panel')
+
+  // Something picked, then another tool, then back to Move: the panel opens again to show it.
+  await page.locator('[aria-label="Everything in your map"] button.list-item').first().click()
+  await page.getByRole('button', { name: 'Close panel' }).click()
+  const panel = page.locator('aside.side.sheet')
+  await expect(panel).not.toHaveClass(/\bopen\b/)
+  for (const tool of ['Paint bucket', 'Select and move']) {
+    await page.getByRole('button', { name: /tools/i }).first().click()
+    await page.locator('.tools-sheet').getByRole('button', { name: tool, exact: true }).click()
+  }
+  await expect(panel).toHaveClass(/\bopen\b/)
 })
