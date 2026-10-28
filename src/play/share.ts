@@ -77,7 +77,7 @@ export const SHARE_RULES = {
 
 export const SHARE_LIMITS = {
   /** All the OBJ text together. */
-  modelChars: 40 * MB,
+  modelChars: 16 * MB,
   /** The map's JSON without the models. */
   projectChars: 3 * MB,
   /** The gzip a hosted share stores. */
@@ -125,55 +125,88 @@ export function cleanObj(text: string): string | null {
   return out.some((l) => l.startsWith('f ')) ? out.join('\n') + '\n' : null
 }
 
-/** Material names a share keeps as they are; any other name is replaced (see canonicalObj). */
+/** A material name a site-made piece may have (compound pieces, shareBuilds.ts). */
 export const MATERIAL_NAME = /^[A-Za-z0-9_.-]{1,64}$/
+/** Materials one model may use, and a whole share. */
+export const MAX_MATERIALS = 256
+export const MAX_SHARE_MATERIALS = 4096
 /** Coordinates beyond this aren't a map's (editor units); a model with one isn't shared. */
 const MAX_COORD = 1e7
 const MAX_INDEX = 1e8
+/** A number already as canonicalObj writes it: at most five decimals, no trailing zeros, no sign on zero. */
+const CANON_NUM = /^-?(?:0|[1-9]\d{0,6})(?:\.\d{0,4}[1-9])?$/
+const ANY_NUM = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/
+const INDEX = /^-?\d{1,9}$/
+const NAME_OK = /^[^\x00-\x1f\x7f]{1,64}$/
+const SMOOTH = /^(?:\d{1,6}|on|off)$/
+/** Numbers each kind of line takes. */
+const COUNTS: Record<string, [number, number]> = { v: [3, 6], vt: [1, 3], vn: [3, 3], f: [3, 64], l: [2, 64] }
 
 /**
- * A model as a share stores it: vertices, normals, texture coordinates and faces with numbers written to five
- * decimals, materials only by plain names (others are renamed `_0`, `_1`… and given back in `renamed`), and no
- * object, group or smoothing lines. So the text says nothing but the geometry. Takes text that passed
- * isCleanObj; null when a number is out of range.
+ * A model as a share stores it, in one pass over text that cleanObj made (null when a line isn't one it keeps,
+ * or a number is out of range): vertices, normals, texture coordinates and faces with numbers written to five
+ * decimals; every material renamed m0, m1… in the order the model first uses them (`renamed` gives the old
+ * names); and no object, group or smoothing lines. So the text says nothing but the geometry. `materials` is how
+ * many it uses (validateShareDoc caps them).
  */
-export function canonicalObj(text: string): { obj: string; renamed: Record<string, string> } | null {
-  const lines = text.endsWith('\n') ? text.slice(0, -1).split('\n') : text.split('\n')
-  const kept = new Set<string>(), renamed: Record<string, string> = {}
-  for (const l of lines) if (l.startsWith('usemtl ')) { const m = l.slice(7); if (MATERIAL_NAME.test(m)) kept.add(m) }
-  let next = 0
-  const material = (m: string) => {
-    if (MATERIAL_NAME.test(m)) return m
-    if (!Object.hasOwn(renamed, m)) {
-      while (kept.has('_' + next)) next++
-      renamed[m] = '_' + next++
-    }
-    return renamed[m]
-  }
+export function canonicalObj(text: string): { obj: string; renamed: Record<string, string>; materials: number } | null {
+  if (!text.endsWith('\n')) return null
+  const renamed: Record<string, string> = {}
+  let materials = 0, faces = false
+  const out: string[] = []
   const num = (t: string) => {
+    if (CANON_NUM.test(t) && t !== '-0') return t
+    if (!ANY_NUM.test(t)) return null
     const x = Number(t)
     return Number.isFinite(x) && Math.abs(x) <= MAX_COORD ? String(+x.toFixed(5)) : null
   }
-  const index = (t: string) => {
-    if (t === '') return ''
+  const index = (t: string, first: boolean) => {
+    if (t === '') return first ? null : ''
+    if (!INDEX.test(t)) return null
     const i = Number(t)
-    return Number.isInteger(i) && Math.abs(i) <= MAX_INDEX ? String(i) : null
+    return i !== 0 && Math.abs(i) <= MAX_INDEX ? String(i) : null
   }
-  const out: string[] = []
-  for (const l of lines) {
-    const [key, ...rest] = l.split(' ')
-    if (key === 'v' || key === 'vt' || key === 'vn') {
-      const ns = rest.map(num)
-      if (ns.includes(null)) return null
-      out.push(key + ' ' + ns.join(' '))
-    } else if (key === 'f' || key === 'l') {
-      const vs = rest.map((v) => v.split('/').map(index))
-      if (vs.some((v) => v.includes(null) || v[0] === '')) return null
-      out.push(key + ' ' + vs.map((v) => v.join('/')).join(' '))
-    } else if (key === 'usemtl') out.push('usemtl ' + material(l.slice(7)))
-    // o, g and s lines go: names and smoothing say nothing about the shape.
+  for (let at = 0; at < text.length;) {
+    const end = text.indexOf('\n', at)
+    const line = text.slice(at, end)
+    at = end + 1
+    const cut = line.indexOf(' ')
+    if (cut <= 0) return null
+    const key = line.slice(0, cut), rest = line.slice(cut + 1)
+    if (key === 'usemtl' || key === 'o' || key === 'g') {
+      if (!NAME_OK.test(rest)) return null
+      if (key !== 'usemtl') continue // names say nothing about the shape
+      if (!Object.hasOwn(renamed, rest)) renamed[rest] = 'm' + materials++
+      out.push('usemtl ' + renamed[rest])
+      continue
+    }
+    if (key === 's') { if (!SMOOTH.test(rest)) return null; continue }
+    const count = COUNTS[key]
+    if (!count) return null
+    const toks = rest.split(' ')
+    if (toks.length < count[0] || toks.length > count[1]) return null
+    if (key === 'f' || key === 'l') {
+      for (let i = 0; i < toks.length; i++) {
+        const parts = toks[i].split('/')
+        if (parts.length > 3) return null
+        for (let j = 0; j < parts.length; j++) {
+          const v = index(parts[j], j === 0)
+          if (v === null) return null
+          parts[j] = v
+        }
+        toks[i] = parts.join('/')
+      }
+      if (key === 'f') faces = true
+    } else {
+      for (let i = 0; i < toks.length; i++) {
+        const v = num(toks[i])
+        if (v === null) return null
+        toks[i] = v
+      }
+    }
+    out.push(key + ' ' + toks.join(' '))
   }
-  return { obj: out.join('\n') + '\n', renamed }
+  return faces ? { obj: out.join('\n') + '\n', renamed, materials } : null
 }
 
 /** True when every line is a geometry line cleanObj would keep as it is. */
@@ -240,18 +273,23 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
   }
   let chars = 0
   const models: Record<string, string> = {}, renames: Record<string, Record<string, string>> = {}
+  let materials = 0
   for (const [path, text] of Object.entries(d.models)) {
     if (!usedModels.has(path)) { problems.push('The share holds a model no object uses.'); break }
     if (typeof text !== 'string') { problems.push('A model in the share is not text.'); continue }
     chars += text.length
     if (chars > SHARE_LIMITS.modelChars) break
-    // The whole model, not just its start: game data can't hide further down.
-    if (gameSignature(strToU8(text.slice(0, 4096)), path, text)) { problems.push('A model in the share looks like Saints Row game data.'); continue }
-    const c = isCleanObj(text) ? canonicalObj(text) : null
+    const head = text.slice(0, 4096)
+    if (gameSignature(strToU8(head), path, head)) { problems.push('A model in the share looks like Saints Row game data.'); continue }
+    // Every line must be geometry, so nothing further down can be a game table either.
+    const c = canonicalObj(text)
     if (!c) { problems.push('A model in the share is not plain OBJ geometry.'); continue }
+    if (c.materials > MAX_MATERIALS) { problems.push(`A model in the share uses more than ${MAX_MATERIALS} materials.`); continue }
+    materials += c.materials
     models[path] = c.obj
-    if (Object.keys(c.renamed).length) renames[path] = c.renamed
+    renames[path] = c.renamed
   }
+  if (materials > MAX_SHARE_MATERIALS) problems.push(`The share's models use more than ${MAX_SHARE_MATERIALS} materials in all.`)
   if (chars > SHARE_LIMITS.modelChars) problems.push('The map\'s models are too large to share.')
   const textures = Object.entries(d.textures)
   if (textures.length > SHARE_LIMITS.textures) problems.push(`A share can hold at most ${SHARE_LIMITS.textures} textures.`)
@@ -276,17 +314,17 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
   const uniq = [...new Set(problems)]
   if (uniq.length) return { problems: uniq, doc: null }
   const clean = Object.fromEntries(textures.map(([k, r]) => [k, cleanRecipe(fromLegacy(r) as TextureRecipe)]))
-  // Objects follow their models' renamed materials.
+  // Objects follow their models' renamed materials; settings for materials their model doesn't have go.
   for (const it of project.scene_items) {
-    const r = { ...renames[it.native_mesh_obj ?? ''], ...renames[it.path] }
-    if (!Object.keys(r).length) continue
+    if (!Object.hasOwn(renames, it.path) && !Object.hasOwn(renames, it.native_mesh_obj ?? '')) continue
+    const r: Record<string, string> = { '(default)': '(default)', ...renames[it.native_mesh_obj ?? ''], ...renames[it.path] }
     const name = (m: string) => r[m] ?? m
-    const keys = <T,>(o: Record<string, T> | undefined) => o && Object.fromEntries(Object.entries(o).map(([k, v]) => [name(k), v]))
+    const keys = <T,>(o: Record<string, T> | undefined) => o && Object.fromEntries(Object.entries(o).filter(([k]) => Object.hasOwn(r, k)).map(([k, v]) => [name(k), v]))
     it.textures = keys(it.textures)!
     it.alpha = keys(it.alpha)!
     if (it.glow) it.glow = keys(it.glow)
     if (it.surface_ids) it.surface_ids = keys(it.surface_ids)
-    if (it.water_materials) it.water_materials = it.water_materials.map(name)
+    if (it.water_materials) it.water_materials = it.water_materials.filter((m) => Object.hasOwn(r, m)).map(name)
   }
   const doc: ShareDoc = {
     format: 'sr1-map-studio-share', version: 1, title: d.title.trim(), created_at: typeof d.created_at === 'string' ? d.created_at.slice(0, 40) : '',

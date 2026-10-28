@@ -48,8 +48,15 @@ const int = (v: unknown, lo: number, hi: number) => Number.isInteger(v) && (v as
 const vec3 = (v: unknown, lo: number, hi: number) => Array.isArray(v) && v.length === 3 && v.every((x) => num(x, lo, hi))
 const HEX = /^#[0-9a-f]{6}$/i
 
+/** The settings a terrain has besides its kind, size and tile; any other kind has none of these. */
+const TERRAIN_ONLY = ['cells', 'heights'] as const
+const NOT_TERRAIN = ['segments', 'taper', 'bevel', 'lie', 'fit', 'open', 'outline'] as const
+
+/** Every setting a shape has is one its kind takes, of the right type and in range. */
 function shapeOk(s: any): boolean {
-  if (s?.kind !== 'terrain') return validShape(s)
+  if (!s || typeof s !== 'object') return false
+  if (s.kind !== 'terrain') return TERRAIN_ONLY.every((k) => s[k] === undefined) && validShape(s)
+  if (NOT_TERRAIN.some((k) => s[k] !== undefined)) return false
   if (!vec3(s.size, 0.01, 2000) || !num(s.tile, 0.01, 1000) || !Array.isArray(s.cells) || s.cells.length !== 2) return false
   const [nx, nz] = s.cells
   if (!int(nx, 1, TERRAIN_MAX_CELLS) || !int(nz, 1, TERRAIN_MAX_CELLS)) return false
@@ -189,23 +196,30 @@ export function sameObj(a: string, b: string): boolean {
   return true
 }
 
-/** True when the build makes this model (share OBJ). */
+/** True when the build makes this model (OBJ as cleanObj leaves it, or as a share stores it). */
 export function buildMakes(b: ModelBuild, obj: string): boolean {
   if (buildProblem(b)) return false
+  const target = canonicalObj(obj)?.obj
+  if (!target) return false
   try {
-    const r = rebuild(b, objLines(obj), new Budget(MAX_LINES))
-    return 'obj' in r && sameObj(r.obj, obj)
+    const r = rebuild(b, objLines(target), new Budget(MAX_LINES))
+    return 'obj' in r && sameObj(r.obj, target)
   } catch { return false }
 }
 
 // ---------------- what a share stores ----------------
 
+/** A shape's settings for its kind, numbers and true/false only (call only once shapeOk passed). */
 const shapeCopy = (sh: Shape): Shape => {
-  const out: Shape = { kind: sh.kind, size: [sh.size[0], sh.size[1], sh.size[2]], tile: sh.tile }
-  for (const k of ['segments', 'taper', 'bevel', 'lie', 'fit', 'open'] as const) if (sh[k] !== undefined) (out as any)[k] = sh[k]
-  if (sh.outline) out.outline = sh.outline.map(([a, z]) => [a, z])
-  if (sh.cells) out.cells = [sh.cells[0], sh.cells[1]]
-  if (sh.heights) out.heights = [...sh.heights]
+  const out: Shape = { kind: sh.kind, size: [+sh.size[0], +sh.size[1], +sh.size[2]], tile: +sh.tile }
+  if (sh.kind === 'terrain') {
+    out.cells = [+sh.cells![0], +sh.cells![1]]
+    out.heights = sh.heights!.map(Number)
+    return out
+  }
+  for (const k of ['segments', 'taper', 'bevel'] as const) if (sh[k] !== undefined) out[k] = +sh[k]!
+  for (const k of ['lie', 'fit', 'open'] as const) if (sh[k] !== undefined) out[k] = sh[k] === true
+  if (sh.outline) out.outline = sh.outline.map(([a, z]) => [+a, +z])
   return out
 }
 

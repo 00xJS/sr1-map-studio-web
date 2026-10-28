@@ -40,7 +40,7 @@ import { createClient, type PostgrestError, type SupabaseClient } from '@supabas
 import { isValidThumbnail, supabaseProjectUrl } from '../../src/lib/hubRules'
 import { checkTime, cleanName } from '../../src/play/ghost'
 import { wallsOf } from '../../src/play/ghostWalls'
-import { MAX_PREVIEW_BYTES, SHARE_LIMITS, SHARE_RULES, SHARE_TOKEN, fromBase64, newShareToken, packShare, previewProblem, shareMeta, toBase64, unpackShare, unpackShareText, validateShareDoc } from '../../src/play/share'
+import { MAX_PREVIEW_BYTES, SHARE_LIMITS, SHARE_RULES, SHARE_TOKEN, fromBase64, newShareToken, packShare, previewProblem, shareMeta, toBase64, unpackShare, validateShareDoc, type ShareDoc } from '../../src/play/share'
 import { cleanBuilds, galleryProblems } from '../../src/play/shareBuilds'
 
 const env = (k: string) => process.env[k] || ''
@@ -192,19 +192,22 @@ type LogKind = 'create' | 'update' | 'play' | 'attempt' | 'time'
  */
 async function attempt(admin: SupabaseClient, kind: 'attempt' | 'time', uid: string | null, ip: string | null, max: number): Promise<boolean> {
   const who = uid ? { owner: uid } : { ip_hash: ip! }
+  // Logged first, then counted with this try included: tries sent at the same moment can't all slip under.
+  const ins = await admin.from('share_log').insert({ kind, token: null, ip_hash: null, ...who })
+  if (ins.error) {
+    // An early copy of migration 0004, without these kinds or the owner column: nothing to count with.
+    if (missing(ins.error) || ins.error.code === '23514') return true
+    throw ins.error
+  }
   // A GET for no rows, so a missing column comes back with its code (see upToDate).
   let q = admin.from('share_log').select('id', { count: 'exact' }).eq('kind', kind).gte('created_at', since(3600_000))
   q = uid ? q.eq('owner', uid) : q.eq('ip_hash', ip!)
   const r = await q.limit(0)
   if (r.error) {
-    // An early copy of migration 0004, without these kinds or the owner column: nothing to count with.
     if (missing(r.error)) return true
     throw r.error
   }
-  if ((r.count ?? 0) >= max) return false
-  const ins = await admin.from('share_log').insert({ kind, token: null, ip_hash: null, ...who })
-  if (ins.error && !missing(ins.error) && ins.error.code !== '23514') throw ins.error
-  return true
+  return (r.count ?? 0) <= max
 }
 
 async function logged(admin: SupabaseClient, kind: LogKind, ip: string, within: number, token?: string): Promise<number> {
@@ -317,8 +320,8 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
   }
 
   // Check what will be stored, not what the page says about it.
-  let text: string, raw: unknown
-  try { text = unpackShareText(fromBase64(body.data)); raw = JSON.parse(text) } catch (e) { return reject(422, (e as Error).message || 'This is not a play link.') }
+  let raw: unknown
+  try { raw = unpackShare(fromBase64(body.data)) } catch (e) { return reject(422, (e as Error).message || 'This is not a play link.') }
   const checked = validateShareDoc(raw)
   if (!checked.doc) return reject(422, 'This map can’t be shared yet.', checked.problems)
   // Every share's model settings, listed or not: settings, never text riding along in them.
@@ -341,13 +344,12 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
     if (why.length) return reject(422, 'This map can’t go in the gallery.', why)
   }
 
-  // Stored as checked: the share rebuilt from its allowed fields, not the bytes that were sent. The site's own
-  // page sends it already in that form, and then those bytes are kept; anything else is packed again, quicker than
-  // the browser packs and so a little larger (the limit leaves room for that).
-  const same = JSON.stringify(doc) === text
-  const packed = same ? fromBase64(body.data) : packShare(doc, 3)
+  // Stored as checked and packed here, never the bytes that were sent (a gzip can carry more than its JSON:
+  // comments, names, bytes after its end). Packed quicker than the browser packs and so a little larger; the
+  // limit leaves room for that.
+  const packed = packShare(doc, 3)
   if (packed.length > SHARE_LIMITS.packedBytes * 1.1) return reject(413, 'This map is too large to share.')
-  const data = same ? body.data : toBase64(packed)
+  const data = toBase64(packed)
   const meta = shareMeta(doc)
   const dataHash = await sha256(data)
   const row = { title: doc.title, data, size_bytes: packed.length, updated_at: new Date().toISOString(), modes: meta.modes, players: meta.players, data_hash: dataHash }
@@ -439,8 +441,10 @@ async function addTime(admin: SupabaseClient, uid: string | null, ip: string | n
 
   const share = await liveShare(admin, body.token, 'data, expires_at')
   if (!share) return reject(404, 'This link doesn’t lead to a map any more.')
-  const { doc } = validateShareDoc(unpackShare(fromBase64(share.data)))
-  if (!doc) return reject(422, 'This map can’t take times.')
+  // The stored share was checked and rebuilt when it was stored: read as it is, not checked again for every time.
+  let doc: ShareDoc | null = null
+  try { doc = unpackShare(fromBase64(share.data)) as ShareDoc } catch { /* below */ }
+  if (!doc?.project || !Array.isArray(doc.project.markers) || !doc.models || typeof doc.models !== 'object') return reject(422, 'This map can’t take times.')
   const entry = { mode: body.mode, ms: body.ms, name: cleanName(body.name), ghost: body.ghost }
   const problems = checkTime(entry, doc.project.markers, wallsOf(doc) ?? undefined)
   if (problems.length) return reject(422, 'This time can’t go on the board.', problems)

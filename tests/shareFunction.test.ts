@@ -10,6 +10,7 @@ import { GhostRecorder, checkTime } from '../src/play/ghost'
 import { wallsOf } from '../src/play/ghostWalls'
 import { shapeObj, type Shape } from '../src/lib/shapes'
 import { SHARE_RULES, cleanObj, fromBase64, packShare, toBase64, unpackShare, type ShareDoc } from '../src/play/share'
+import { deflateSync, gzipSync, strToU8 } from 'fflate'
 import { fakeWebp } from './fakeWebp'
 
 // ---------------- a small Supabase ----------------
@@ -267,7 +268,8 @@ describe('the share function', () => {
     for (let i = 0; i < 3; i++) expect((await call('', { title: 'x', data: 'not a share' })).status).toBe(422)
     expect((await call('', { title: 'x', data: data() })).status).toBe(429)
     expect((await call('', { title: 'x', data: data() }, { ip: '198.51.100.20' })).status).toBe(200)
-    expect(db.tables.share_log.filter((l) => l.kind === 'attempt' && l.owner === 'u-alice')).toHaveLength(3)
+    // The refused try is logged too.
+    expect(db.tables.share_log.filter((l) => l.kind === 'attempt' && l.owner === 'u-alice')).toHaveLength(4)
   })
 
   it('counts every board time sent, refused ones too', async () => {
@@ -310,30 +312,92 @@ describe('the share function', () => {
     const r = await call('', { title: 'x', data: data(d) }, { jwt: 'alice' })
     expect(r.status).toBe(200)
     const kept = storedDoc(r.body.token)
-    expect(kept.models['mesh/0']).toBe('usemtl _0\nv 1.12346 2 3\nv 4 5 6\nv 7 8 10\nf 1 2 3\nusemtl plain_name\nf 1 3 2\n')
-    expect(kept.project.scene_items[0].textures).toEqual({ _0: 'tex/0', plain_name: 'tex/0' })
-    // A CTS table further down than the first 4 KB is still found.
+    expect(kept.models['mesh/0']).toBe('usemtl m0\nv 1.12346 2 3\nv 4 5 6\nv 7 8 10\nf 1 2 3\nusemtl m1\nf 1 3 2\n')
+    expect(kept.project.scene_items[0].textures).toEqual({ m0: 'tex/0', m1: 'tex/0' })
+    // A CTS table further down than the first 4 KB is still refused: every line must be geometry.
     const cts = siteDoc()
     cts.models['mesh/0'] = cts.models['mesh/0'] + 'v 0 0 0\n'.repeat(1000) + '#Includes\n+Chunk: x\n'
     const refused = await call('', { title: 'x', data: data(cts) }, { jwt: 'alice' })
     expect(refused.status).toBe(422)
-    expect(refused.body.problems.join()).toMatch(/Saints Row/)
+    expect(refused.body.problems.join()).toMatch(/plain OBJ/)
   })
 
-  it('keeps the bytes the site’s own page sends, and packs anything else again', async () => {
+  it('stores only the share it packed itself, never bytes riding along in the gzip or the base64', async () => {
     const { validateShareDoc } = await import('../src/play/share')
     const { cleanBuilds } = await import('../src/play/shareBuilds')
-    const sent = toBase64(packShare(cleanBuilds(validateShareDoc(siteDoc()).doc!).doc))
-    const a = await call('', { title: 'x', data: sent }, { jwt: 'alice' })
-    expect(db.tables.shares.find((r) => r.token === a.body.token)!.data).toBe(sent)
-    const extra: any = siteDoc()
-    extra.project.scene_items[0].junk = 1
-    const raw = data(extra)
-    const b = await call('', { title: 'x', data: raw }, { jwt: 'alice' })
-    expect(db.tables.shares.find((r) => r.token === b.body.token)!.data).not.toBe(raw)
-    // Checking a share twice changes nothing: what is stored is what the page would send.
-    const once = JSON.stringify(cleanBuilds(validateShareDoc(extra).doc!).doc)
-    expect(JSON.stringify(cleanBuilds(validateShareDoc(JSON.parse(once)).doc!).doc)).toBe(once)
+    const text = JSON.stringify(cleanBuilds(validateShareDoc(siteDoc()).doc!).doc)
+    const u32 = (n: number) => [n & 255, (n >>> 8) & 255, (n >>> 16) & 255, (n >>> 24) & 255]
+    const has = (token: string, what: string) => new TextDecoder().decode(fromBase64(db.tables.shares.find((r) => r.token === token)!.data)).includes(what)
+    // Bytes after the end of the deflate stream.
+    const tail = new Uint8Array([0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 3, ...deflateSync(strToU8(text)), ...strToU8('GAME_DATA_PAYLOAD_'.repeat(2000)), 0, 0, 0, 0, ...u32(text.length)])
+    // A gzip comment.
+    const g = gzipSync(strToU8(text), { level: 9 })
+    const comment = new Uint8Array([0x1f, 0x8b, 8, 0x10, ...g.subarray(4, 10), ...strToU8('FCOMMENT_SECRET_'.repeat(2000)), 0, ...g.subarray(10)])
+    for (const [bytes, secret] of [[tail, 'GAME_DATA_PAYLOAD_'], [comment, 'FCOMMENT_SECRET_']] as const) {
+      for (const who of [{ jwt: 'alice' }, { ip: '198.51.100.9' }]) {
+        const r = await call('', { title: 'x', data: toBase64(bytes) }, who)
+        expect(r.status).toBe(200)
+        expect(has(r.body.token, secret)).toBe(false)
+      }
+    }
+    // Whitespace in the base64 isn't kept either, even for a share already in the stored form.
+    const sent = toBase64(packShare(JSON.parse(text)))
+    const spaced = sent.split('').map((c, i) => c + (i % 2 ? ' ' : '\n')).join('')
+    const w = await call('', { title: 'x', data: spaced }, { jwt: 'alice' })
+    expect(db.tables.shares.find((r) => r.token === w.body.token)!.data).not.toBe(spaced)
+    expect(db.tables.shares.find((r) => r.token === w.body.token)!.data).not.toMatch(/\s/)
+    // Checking a share twice changes nothing.
+    expect(JSON.stringify(cleanBuilds(validateShareDoc(JSON.parse(text)).doc!).doc)).toBe(text)
+  })
+
+  it('takes model settings only of their kind, as numbers and true or false', async () => {
+    const tries: [string, (d: any) => void][] = [
+      ['a box with terrain cells', (d) => { d.builds['mesh/0'].shape = { ...FLOOR, cells: ['SECRET_CELLS', { nested: 'x' }], heights: ['SECRET_HEIGHTS'] } }],
+      ['a piece with heights', (d) => { d.made['mesh/0'] = 'compound'; d.builds['mesh/0'] = { kind: 'compound', pieces: [{ shape: { kind: 'box', size: [1, 1, 1], tile: 1, heights: ['SECRET_PIECE'] }, at: [0, 0, 0], rot: 0, top: 'a', side: 'b' }] } }],
+      ['a terrain with box settings', (d) => { d.builds['mesh/0'].shape = { kind: 'terrain', size: [10, 1, 10], tile: 1, cells: [1, 1], heights: [0, 0, 0, 0], segments: 'SEG_SECRET', bevel: { deep: 'x' }, outline: [['OUT_SECRET', { x: 1 }]], lie: ['x'] } }],
+      ['a terrain with text heights', (d) => { d.builds['mesh/0'].shape = { kind: 'terrain', size: [10, 1, 10], tile: 1, cells: [1, 1], heights: [0, 0, 0, 'SECRET'] } }],
+    ]
+    for (const [what, change] of tries) {
+      const d: any = structuredClone(siteDoc())
+      change(d)
+      expect((await call('', { title: 'x', data: data(d) }, { jwt: 'alice' })).status, what).toBe(422)
+    }
+    expect(db.tables.shares).toHaveLength(0)
+  })
+
+  it('renames every material and caps how many a model has', async () => {
+    const d: any = siteDoc(); d.made = { 'mesh/0': 'import' }; delete d.builds
+    const many = (n: number) => 'v 0 0 0\nv 1 0 0\nv 0 1 0\n' + Array.from({ length: n }, (_, i) => `usemtl SECRET-${i}-${'Q'.repeat(40)}\nf 1 2 3`).join('\n') + '\n'
+    d.models['mesh/0'] = many(200)
+    const r = await call('', { title: 'x', data: data(d) }, { jwt: 'alice' })
+    expect(r.status).toBe(200)
+    expect(storedDoc(r.body.token).models['mesh/0']).not.toMatch(/SECRET/)
+    d.models['mesh/0'] = many(5000)
+    const capped = await call('', { title: 'x', data: data(d) }, { jwt: 'alice' })
+    expect(capped.status).toBe(422)
+    expect(capped.body.problems.join()).toMatch(/more than 256 materials/)
+  })
+
+  it('logs a try before counting it, so tries sent at once can’t all slip under the limit', async () => {
+    process.env.SHARE_ATTEMPTS_PER_HOUR = '3'
+    const rs = await Promise.all(Array.from({ length: 20 }, () => call('', { title: 'x', data: 'bm90IGEgc2hhcmU=' }, { jwt: 'alice' })))
+    expect(rs.filter((r) => r.status !== 429)).toHaveLength(3)
+  })
+
+  it('reads a newline-heavy model quickly', async () => {
+    const { gameSignature } = await import('../src/lib/hubRules')
+    const d: any = siteDoc(); d.made = { 'mesh/0': 'import' }; delete d.builds
+    for (const filler of ['\n', ' \n']) {
+      d.models['mesh/0'] = filler.repeat(100_000) + 'v 0 0 0\nf 1 1 1\n'
+      const t = performance.now()
+      expect((await call('', { title: 'x', data: data(d) }, { jwt: 'alice' })).status).toBe(422)
+      expect(performance.now() - t).toBeLessThan(3000)
+    }
+    // The game-data check reads only a model's start: past that, only geometry lines get through.
+    const head = '\n'.repeat(100_000)
+    const t = performance.now()
+    gameSignature(strToU8(head.slice(0, 4096)), 'mesh/0', head.slice(0, 4096))
+    expect(performance.now() - t).toBeLessThan(500)
   })
 
   it('checks every limit before reading the share', async () => {
@@ -467,10 +531,14 @@ describe('the share function', () => {
 
   it('sweeps pictures no link names once they are an hour old', async () => {
     const old = new Date(Date.now() - 2 * 3600_000).toISOString(), now = new Date().toISOString()
-    const files = [{ name: 'kept.webp', created_at: old }, { name: 'stray.webp', created_at: old }, { name: 'new.webp', created_at: now }]
+    const files = [{ name: 'kept.webp', created_at: old }, { name: 'stray.webp', created_at: old }, { name: 'new.webp', created_at: now }, { name: 'moved.webp', created_at: old }]
     const removed: string[] = []
     const admin: any = {
-      from: () => ({ select: () => ({ not: () => ({ order: () => ({ range: async () => ({ data: [{ thumb_path: 'kept.webp' }], error: null }) }) }) }) }),
+      from: () => ({ select: () => ({
+        not: () => ({ order: () => ({ range: async () => ({ data: [{ thumb_path: 'kept.webp' }], error: null }) }) }),
+        // Asked again just before deleting: a moderator approved one meanwhile (it moved to new.webp's twin, 'moved.webp').
+        in: async (_: string, names: string[]) => ({ data: names.filter((n) => n === 'moved.webp').map((n) => ({ thumb_path: n })), error: null }),
+      }) }),
       storage: { from: () => ({ list: async () => ({ data: files, error: null }), remove: async (xs: string[]) => { removed.push(...xs); return { error: null } } }) },
     }
     expect(await sweepPictures(admin)).toBe(1)
@@ -580,6 +648,57 @@ describe('the share function', () => {
     expect((await call('/play', { token: r.body.token })).status).toBe(200)
     expect((await call('', { token: r.body.token }, { method: 'DELETE', jwt: 'alice' })).status).toBe(200)
     expect(db.tables.shares).toHaveLength(0)
+  })
+})
+
+describe('the worst a share can be made to cost', { timeout: 60_000 }, () => {
+  // The share function must answer well inside Netlify's 10 s however a share is made. Each case is at the size
+  // limit (16 MB of model text) and built to be slow: numbers that must be rewritten, the longest face lines, a
+  // listed map, and board times on the biggest link.
+  const MAX_MS = 8000
+  const sized = (line: (i: number) => string) => {
+    const out: string[] = []
+    let n = 0
+    for (let i = 0; n < 15.5 * 1024 * 1024; i++) { const l = line(i); out.push(l); n += l.length + 1 }
+    return out.join('\n') + '\n'
+  }
+  const big = (model: string, listed = false) => {
+    const d: any = siteDoc()
+    d.models['mesh/0'] = model
+    if (!listed) { d.made = { 'mesh/0': 'import' }; delete d.builds }
+    return d
+  }
+  const timed = async (body: unknown, o = {}) => {
+    const t = performance.now()
+    const r = await call('', body, { jwt: 'alice', ...o })
+    return { ...r, ms: performance.now() - t }
+  }
+  it('rewrites 16 MB of numbers in time', async () => {
+    const r = await timed({ title: 'x', data: data(big(sized((i) => `v ${i % 997}.0000001 ${(i * 7) % 991}.1234567 -${i % 983}.99999999`) + 'f 1 2 3\n')) })
+    expect(r.status).toBe(200)
+    expect(r.ms).toBeLessThan(MAX_MS)
+  })
+  it('reads 16 MB of the longest face lines in time', async () => {
+    const line = 'f ' + Array.from({ length: 64 }, (_, i) => `${i + 1}/${i + 1}/${i + 1}`).join(' ')
+    const r = await timed({ title: 'x', data: data(big('v 0 0 0\n' + sized(() => line))) })
+    expect(r.ms).toBeLessThan(MAX_MS)
+  })
+  it('checks a listed map at the size limit in time', async () => {
+    const r = await timed({ title: 'x', data: data(big(sized((i) => `v ${i % 1000} 0 ${i % 7}`) + 'f 1 2 3\n', true)), listed: true })
+    expect(r.status).toBe(422)
+    expect(r.ms).toBeLessThan(MAX_MS)
+  })
+  it('refuses a share that unpacks past the limit before unpacking it', async () => {
+    const r = await timed({ title: 'x', data: data(big('v 1.5 2.25 3.125\n'.repeat(2_500_000) + 'f 1 2 3\n')) })
+    expect(r.status).toBe(422)
+    expect(r.ms).toBeLessThan(MAX_MS)
+  })
+  it('takes a board time on the biggest link in time', async () => {
+    const a = await call('', { title: 'x', data: data(big(sized((i) => `v ${i % 997} ${i % 991} ${i % 983}`) + 'f 1 2 3\n')) }, { jwt: 'alice' })
+    expect(a.status).toBe(200)
+    const t = performance.now()
+    await call('/time', { token: a.body.token, mode: 'weapons', name: 'Ace', ...around() })
+    expect(performance.now() - t).toBeLessThan(MAX_MS)
   })
 })
 

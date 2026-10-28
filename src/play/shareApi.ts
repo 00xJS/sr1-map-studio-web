@@ -166,7 +166,7 @@ export interface ShareOptions {
 
 /** Hosts the share of map `projectId`. Without an account the link expires: see `expires_at`. */
 export async function createShare(doc: ShareDoc, projectId: string, opts: ShareOptions = {}): Promise<{ token: string; expires_at?: string }> {
-  // Sent as the server stores it (its allowed fields, models in stored form), so the server keeps these bytes.
+  // Checked here first, as the server will: a share that can't be stored isn't sent, and what is sent is smaller.
   const checked = validateShareDoc(doc)
   if (!checked.doc) throw new ShareRejected('This map can’t be shared yet.', checked.problems)
   const cleaned = (await import('./shareBuilds')).cleanBuilds(checked.doc)

@@ -271,7 +271,7 @@ Optional function variables:
 | `SHARE_TIMES_PER_HOUR` | Board times sent per address (or account) per hour, refused ones included. Default `60`. |
 | `SHARE_ATTEMPTS_PER_HOUR` | Tries at making or updating a link per account (or address) per hour, failed ones included. Default `30`. |
 
-Each share is capped at 8 MB packed (`SHARE_LIMITS` in `src/play/share.ts`). The function checks
+Each share is capped at 8 MB packed and 16 MB of model text (`SHARE_LIMITS` in `src/play/share.ts`). The function checks
 every limit before it reads a share, stores the share rebuilt from only the fields a share may
 hold (`src/play/shareSchema.ts`), and lists a map in the gallery only after rebuilding every
 model from its settings (`src/play/shareBuilds.ts`), which takes a couple of seconds at most.

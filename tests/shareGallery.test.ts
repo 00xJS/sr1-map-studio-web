@@ -16,7 +16,7 @@ import { galleryProblems, shapeLines } from '../src/play/shareBuilds'
 import { buildKeysOk } from '../src/play/shareSchema'
 import { availableRuns, newRun, raceScores, stepBot, stepRun, targets } from '../src/play/game'
 import { GHOST_MAX, GhostRecorder, checkTime, cleanName, ghostAt, loadGhost, saveGhost, type GhostSample } from '../src/play/ghost'
-import { cleanObj, galleryReady, previewProblem, shareMeta, validateShareDoc, type ModelBuild, type ShareDoc } from '../src/play/share'
+import { canonicalObj, cleanObj, galleryReady, previewProblem, shareMeta, validateShareDoc, type ModelBuild, type ShareDoc } from '../src/play/share'
 import { fakeWebp } from './fakeWebp'
 
 const OBJ = 'v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n'
@@ -71,7 +71,9 @@ describe('the gallery takes only maps made on the site', () => {
 })
 
 describe('the gallery rebuilds every model from its settings', () => {
-  const one = (obj: string, build: ModelBuild) => galleryProblems({ models: { m: cleanObj(obj)! }, made: { m: build.kind }, builds: { m: build } })
+  /** A model as a share stores it (validateShareDoc puts every model in this form). */
+  const stored = (obj: string) => canonicalObj(cleanObj(obj)!)?.obj ?? cleanObj(obj)!
+  const one = (obj: string, build: ModelBuild) => galleryProblems({ models: { m: stored(obj) }, made: { m: build.kind }, builds: { m: build } })
   const shape: Shape = { kind: 'cylinder', size: [2, 6, 2], tile: 4, segments: 12, taper: 0.5 }
   const pieces: CompoundPiece[] = [
     { shape: { kind: 'box', size: [4, 1, 4], tile: 4 }, at: [0, 0, 0], rot: 0, top: 'm0', side: 'm1' },
@@ -175,7 +177,7 @@ describe('the gallery rebuilds every model from its settings', () => {
 describe('what a share may hold', () => {
   it('keeps only the fields a share has, cleaned', () => {
     const p: any = newProject('Fields')
-    p.scene_items.push({ uid: 'a', name: 'Box', path: 'mesh/0', position: [1, 2, 3], rotation: [0, 0, 0], scale: 1, textures: { top: 'tex/0', junk: 7 }, alpha: {}, junk: 'x', game_object: { path: 'x' }, shape: { kind: 'box', size: [1, 1, 1], tile: 1, junk: 1 } })
+    p.scene_items.push({ uid: 'a', name: 'Box', path: 'mesh/0', position: [1, 2, 3], rotation: [0, 0, 0], scale: 1, textures: { '(default)': 'tex/0', top: 'tex/0', junk: 7 }, alpha: {}, junk: 'x', game_object: { path: 'x' }, shape: { kind: 'box', size: [1, 1, 1], tile: 1, junk: 1 } })
     p.markers.push({ ...newMarker('Shared spawn'), junk: 'x', yaw: 'not a number' })
     p.lights.push({ uid: 'l', name: 'Lamp', enabled: true, position: [0, 3, 0], color: [1, 1, 1], intensity: 1, inner_range: 1, range: 3, junk: 1 })
     p.junk = 'x'
@@ -186,7 +188,8 @@ describe('what a share may hold', () => {
     const it0 = doc!.project.scene_items[0] as any
     expect(it0.junk).toBeUndefined()
     expect(it0.game_object).toBeUndefined()
-    expect(it0.textures).toEqual({ top: 'tex/0' })
+    // Its model has no materials of its own: only the default one's texture is kept.
+    expect(it0.textures).toEqual({ '(default)': 'tex/0' })
     expect(it0.shape).toEqual({ kind: 'box', size: [1, 1, 1], tile: 1 })
     expect(it0.position).toEqual([1, 2, 3])
     expect((doc!.project.markers[0] as any).junk).toBeUndefined()
