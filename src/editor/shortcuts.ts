@@ -8,6 +8,7 @@ import { toggleOverlay } from './overlays'
 import { TOOL_ENTRIES, chooseTool } from './Tools'
 import * as act from './actions'
 import { goToView, useSavedViews } from './savedViews'
+import { getViewer } from './Viewport'
 import { toast, toastError } from '../ui'
 
 type St = ReturnType<typeof useEditor.getState>
@@ -50,7 +51,7 @@ export const SHORTCUTS: Shortcut[] = [
     keys: 'Alt+1 … 9 or Shift+1 … 9', what: 'Go to a saved view (📍 on the camera buttons)', group: 'Camera',
     // Shift+number too, for browsers that keep Alt+number for their tabs (Linux); only where Shift makes a symbol,
     // so keyboards that need Shift for the digits keep 1, 2 and 3 for the tools.
-    test: ({ mod, e }) => !mod && /^Digit[1-9]$/.test(e.code) && (e.altKey || (e.shiftKey && !/^[0-9]$/.test(e.key))),
+    test: ({ mod, e }) => !mod && /^Digit[1-9]$/.test(e.code) && (e.altKey || (e.shiftKey && !/^[0-9]$/.test(e.key) && !getViewer()?.view.flying)),
     run: ({ e }) => {
       e.preventDefault()
       const n = Number(e.code.slice(5))

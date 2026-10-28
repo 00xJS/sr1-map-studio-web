@@ -65,7 +65,8 @@ export function prepareMap(input: AnalysisInput, opts: AnalysisOptions = {}): Pr
 
   // Markers on the floor graph.
   const markers = input.markers
-  const [cx, cz] = centre(markers)
+  // The middle mirror pairs turn about (mirrorCentre), as mirrorCheck and mirror mode use.
+  const [cx, cz] = mirrorCentre(markers)
   const nodeOf = markers.map((mk) => (g.grid.count ? nodeNear(g, mk.position[0], mk.position[1], mk.position[2], cx, cz) : -1))
   const spawnNodes = markers.flatMap((mk, i) => (SPAWN_TYPES.includes(mk.type) && nodeOf[i] >= 0 ? [nodeOf[i]] : []))
 

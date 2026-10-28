@@ -123,10 +123,16 @@ export interface MirrorSession {
   made: Set<string>
 }
 
-export function mirrorSession(p: Project): MirrorSession {
+/** The middle mirror mode turns about on this map now: the fairness check's (the middle of the spawns). */
+export function centreOf(p: Project): Centre {
   const [x, z] = mirrorCentre(p.markers)
   const r3 = (v: number) => Math.round(v * 1000) / 1000 + 0
-  return { projectId: p.id, centre: [r3(x), r3(z)], pairs: { scene_items: new Map(), markers: new Map(), lights: new Map() }, made: new Set() }
+  return [r3(x), r3(z)]
+}
+
+/** A new session about `centre` (by default the map's middle now). */
+export function mirrorSession(p: Project, centre: Centre = centreOf(p)): MirrorSession {
+  return { projectId: p.id, centre, pairs: { scene_items: new Map(), markers: new Map(), lights: new Map() }, made: new Set() }
 }
 
 /** Has `a` changed in more than where it is and how it's turned (its size, paint or settings)? */
@@ -180,8 +186,8 @@ function plan(kind: Kind, before: Thing[], after: Thing[], s: MirrorSession): Li
       // It was on the middle, its own twin: moved off it, it gets one.
       if (!(spec.selfAtCentre(a) && atCentre(a, c, spec.tol))) out.add.push(a)
     } else if (t && !touched(t)) {
-      // Back on the middle: a twin this session made goes again.
-      if (s.made.has(t) && spec.selfAtCentre(a) && atCentre(a, c, spec.tol)) { out.drop.add(t); pairs.set(b.uid, b.uid); pairs.delete(t) }
+      // Onto the middle, where a thing is its own twin: its twin would sit on top of it, so the two become one.
+      if (spec.selfAtCentre(a) && atCentre(a, c, spec.tol)) { out.drop.add(t); pairs.set(b.uid, b.uid); pairs.delete(t) }
       else out.set.set(t, { from: a, prev: b })
     }
   })
@@ -239,24 +245,8 @@ export function mirrorEdit(before: Project, after: Project, newUid: () => string
   return freeze(out)
 }
 
-/** Does this set of objects already hold both halves of itself, about its own middle (`c`)? Every object pairs with
- *  another one in the set, or sits on the middle beside at least one pair. Pasting or duplicating such a set in mirror
- *  mode would otherwise twin each half again. */
-export function holdsBothHalves(items: SceneItem[], c: Centre = [0, 0]): boolean {
-  if (items.length < 2) return false
-  const index = new TwinIndex<SceneItem>(items, ITEMS, c)
-  let pairs = 0
-  for (let i = 0; i < items.length; i++) {
-    const j = index.find(i)
-    if (j === null) return false
-    if (j !== i) pairs++
-  }
-  return pairs > 0
-}
-
 /** Live numbers for mirror mode: how many objects, markers and lights have their twin across the middle. */
-export function symmetryOf(p: Project) {
-  const c = mirrorSession(p).centre
+export function symmetryOf(p: Project, c: Centre = centreOf(p)) {
   const count = <T extends Thing>(list: T[], spec: Spec<T>) => { const index = new TwinIndex(list, spec, c); return list.reduce((n, _, i) => n + (index.find(i) === null ? 0 : 1), 0) }
   return {
     objects: count(p.scene_items, ITEMS), totalObjects: p.scene_items.length,

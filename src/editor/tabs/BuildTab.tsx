@@ -1,7 +1,7 @@
 // The Build tab: adding things (tools, prefabs, your own models and photos), the layers, and every object,
 // spawn and light in the map, with the selected one scrolled into view.
 import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
-import { useEditor } from '../store'
+import { mirrorCentreNow, useEditor } from '../store'
 import * as act from '../actions'
 import { getViewer } from '../Viewport'
 import { chooseTool } from '../Tools'
@@ -85,7 +85,7 @@ function AddThings() {
 function MirrorMode() {
   const on = useEditor((s) => s.mirror)
   const project = useDeferredValue(useEditor((s) => s.project)!)
-  const sym = useMemo(() => (on ? symmetryOf(project) : null), [on, project])
+  const sym = useMemo(() => (on ? symmetryOf(project, mirrorCentreNow() ?? undefined) : null), [on, project])
   // As the fairness score counts them (analyze.ts).
   const cost = useMemo(() => (on ? unmirroredCost(project.markers) : null), [on, project])
   return (
@@ -95,7 +95,7 @@ function MirrorMode() {
         <button className={'sm' + (on ? ' on' : '')} aria-pressed={on} onClick={() => useEditor.getState().set({ mirror: !on })}
           title="Shift+M">{on ? '⇄ Mirror mode is on' : '⇄ Mirror mode'}</button>
       </div>
-      <span className="faint small">What you change on one half happens on the other too: moves, turns, size, paint and settings, new objects, markers and lights, and deletes. Turned 180° about the middle of the spawns, red and blue spawns swapped. One Undo takes back both. The AI's edits and the Check tab's fixes aren't copied.</span>
+      <span className="faint small">What you change on one half happens on the other too: moves, turns, size, paint and settings, new objects, markers and lights, and deletes. Turned 180° about the middle of the spawns as they are when you turn it on, red and blue spawns swapped. One Undo takes back both. Something moved onto the middle and its twin become one. Not copied: the AI's edits, the Check tab's fixes, and spawns, weapons and stair ramps placed automatically.</span>
       {sym && cost && <span className="small" data-testid="mirror-numbers">
         Twins: {sym.objects} of {sym.totalObjects} objects, {sym.markers} of {sym.totalMarkers} markers{sym.totalLights ? `, ${sym.lights} of ${sym.totalLights} lights` : ''}.{' '}
         {!cost.count ? 'Every spawn, weapon and drop-off has its twin.'

@@ -242,6 +242,8 @@ export class ViewCamera {
   }
   keyUp(e: KeyboardEvent) { this.keys.delete(e.key.toLowerCase()); if (e.key === 'Shift') this.keys.delete('shift') }
   clearKeys() { this.keys.clear() }
+  /** WASD/QE held: flying (Shift then means faster, so Shift+number isn't a saved view). */
+  get flying() { for (const k of this.keys) if (k !== 'shift') return true; return false }
   /** The time the next fly step counts from (after a walk, which steps on its own). */
   resetClock() { this.lastFly = performance.now() }
 

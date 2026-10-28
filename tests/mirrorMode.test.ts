@@ -1,8 +1,9 @@
 /// <reference types="vite/client" />
 import { afterEach, describe, expect, it } from 'vitest'
-import { useEditor, withoutMirror } from '../src/editor/store'
+import { mirrorPaused, useEditor, withoutMirror } from '../src/editor/store'
+import { bundleItems, placeBundle } from '../src/editor/act/several'
 import { newLight, newMarker, newProject, uid, type Project, type SceneItem, type Vec3 } from '../src/lib/project'
-import { holdsBothHalves, symmetryOf } from '../src/lib/mirrorEdit'
+import { symmetryOf } from '../src/lib/mirrorEdit'
 import { mirrorCheck } from '../src/lib/analysis'
 import { unmirroredCost } from '../src/lib/analysis/analyze'
 
@@ -164,23 +165,68 @@ describe('mirror mode', () => {
     expect(st().project!.lights[1].position).toEqual([-5, 3, -9])
   })
 
-  it('leaves edits that make both halves themselves alone (the AI, a single fix)', () => {
+  it("leaves the edits a job makes itself alone, but mirrors the user's edits while it runs", async () => {
     open()
     withoutMirror(() => {
       st().update('Add', (d) => { d.scene_items.push(box('C', [8, 0, 8])) })
       st().update('Add', (d) => { d.scene_items.push(box('C', [-8, 0, -8], 180)) })
     })
     expect(st().project!.scene_items).toHaveLength(5)
-    st().update('Add', (d) => { d.scene_items.push(box('D', [3, 0, 9])) })
+    // A job like the AI's: an async command started inside withoutMirror notes it, then edits after an await.
+    let release = () => {}
+    const gate = new Promise<void>((r) => { release = r })
+    const command = async () => {
+      const noMirror = mirrorPaused()
+      await gate
+      st().update('Job adds', (d) => { d.scene_items.push(box('E', [5, 0, 12])) }, { noMirror })
+    }
+    const job = withoutMirror(() => command())
+    // Meanwhile the user's own edit is mirrored.
+    st().update('User adds', (d) => { d.scene_items.push(box('D', [3, 0, 9])) })
     expect(st().project!.scene_items).toHaveLength(7)
+    release()
+    await job
+    expect(st().project!.scene_items.map((it) => it.name)).toEqual(['Floor', 'Crate', 'Crate', 'C', 'C', 'D', 'D', 'E'])
   })
 
-  it('pastes a copied pair as it is, but twins a copied half', () => {
-    const items = mirrored().scene_items
-    expect(holdsBothHalves(items.slice(1))).toBe(true)
-    expect(holdsBothHalves(items)).toBe(true)
-    expect(holdsBothHalves(items.slice(1, 2))).toBe(false)
-    expect(holdsBothHalves([items[0], items[1], { ...items[2], position: [-10, 0, 25] }])).toBe(false)
+  it('a job still waiting when another map opens leaves mirror mode on that map alone', async () => {
+    open()
+    const pending = withoutMirror(() => new Promise<void>(() => {}))
+    void pending
+    st().open(mirrored())
+    st().set({ mirror: true })
+    st().update('Add', (d) => { d.markers.push(newMarker('Red team spawn', [4, 0, -12])) })
+    expect(st().project!.markers.at(-1)).toMatchObject({ type: 'Blue team spawn', position: [-4, 0, 12] })
+  })
+
+  it("keeps the middle it found when turned on, though edits it doesn't copy move the spawns", () => {
+    open()
+    st().update('Nudge', (d) => { d.scene_items[1].position = [11, 0, -20] })
+    // A fix moves the red spawn (not mirrored): the spawns' middle moves, the pairs don't.
+    st().update('Fix moves a spawn', (d) => { d.markers[0].position = [25, 0, -30] }, { noMirror: true })
+    st().update('Move', (d) => { d.scene_items[1].position = [12, 0, -20] })
+    expect(st().project!.scene_items[2].position).toEqual([-12, 0, 20])
+    // Off and on again: it finds the middle afresh.
+    st().set({ mirror: false }); st().set({ mirror: true })
+    st().update('Move', (d) => { d.scene_items[1].position = [13, 0, -20] })
+    expect(st().project!.scene_items[2].position).not.toEqual([-13, 0, 20])
+  })
+
+  it('a twin dragged onto the middle becomes one with the thing it mirrors', () => {
+    open()
+    for (const x of [6, 3, 0]) st().update('Move', (d) => { d.scene_items[1].position = [x, 0, -2 * x + 0] }, { merge: 'drag' })
+    expect(st().project!.scene_items.map((it) => [it.name, it.position])).toEqual([['Floor', [0, 0, 0]], ['Crate', [0, 0, 0]]])
+    st().undo()
+    expect(st().project!.scene_items).toHaveLength(3)
+  })
+
+  it('pasting a copied pair away from where it was twins it, so the map stays symmetric', () => {
+    open()
+    const b = bundleItems([1, 2])!
+    placeBundle(b, [4, 0, 4], 'Paste 2 objects')
+    const p = st().project!
+    expect(p.scene_items).toHaveLength(7)
+    expect(symmetryOf(p)).toMatchObject({ objects: 7, totalObjects: 7 })
   })
 
   it('opening another map turns mirror mode off', () => {
@@ -192,19 +238,20 @@ describe('mirror mode', () => {
   it('keeps a drag quick on a big map', () => {
     const p = newProject('Big')
     for (let i = 0; i < 500; i++) { const x = (i % 50) * 4 + 3, z = Math.floor(i / 50) * 4 + 3; p.scene_items.push(box('A' + (i % 7), [x, 0, z]), box('A' + (i % 7), [-x, 0, -z], 180)) }
-    const frame = (n: number) => st().update('Move', (d) => { for (let i = 0; i < n * 2; i += 2) { const q = d.scene_items[i].position; d.scene_items[i].position = [q[0] + 0.01, 0, q[2]] } }, { merge: 'drag' })
-    const time = (mirror: boolean, n: number) => {
+    const frame = () => st().update('Move', (d) => { for (let i = 0; i < 400; i += 2) { const q = d.scene_items[i].position; d.scene_items[i].position = [q[0] + 0.01, 0, q[2]] } }, { merge: 'drag' })
+    const median = (mirror: boolean) => {
       st().open(structuredClone(p)); st().set({ mirror })
-      frame(n)
-      const t0 = performance.now()
-      for (let k = 0; k < 20; k++) frame(n)
-      return (performance.now() - t0) / 20
+      for (let k = 0; k < 15; k++) frame()
+      const times: number[] = []
+      for (let k = 0; k < 25; k++) { const t0 = performance.now(); frame(); times.push(performance.now() - t0) }
+      return times.sort((a, b) => a - b)[12]
     }
-    const off = time(false, 200), on = time(true, 200)
-    expect(st().project!.scene_items[1].position[0]).toBeCloseTo(-3.21, 4)
-    // About 1 ms off and 2 ms on here; the bounds are generous for slower machines.
-    console.log(`200-object drag on 1000 objects: ${off.toFixed(2)} ms off, ${on.toFixed(2)} ms on`)
-    expect(on).toBeLessThan(Math.max(20, off * 6))
+    // Warm both ways first, then compare the middle frame of each.
+    median(false); median(true)
+    const off = median(false), on = median(true)
+    expect(st().project!.scene_items[1].position[0]).toBeCloseTo(-3.4, 4)
+    console.log(`200-object drag on 1000 objects: ${off.toFixed(2)} ms off, ${on.toFixed(2)} ms on (median frame)`)
+    expect(on).toBeLessThan(Math.max(off + 5, off * 2))
     const t0 = performance.now()
     for (let k = 0; k < 20; k++) st().update('Name', (d) => { d.settings.display_name = 'x' + k }, { merge: 'n' })
     expect((performance.now() - t0) / 20).toBeLessThan(5)
