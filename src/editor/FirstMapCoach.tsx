@@ -19,10 +19,10 @@ export function FirstMapCoach() {
     <div className="first-coach" role="status">
       <span className="step-num">{walked ? 3 : 2}</span>
       {walked
-        ? <span className="grow"><b>Nice.</b> Last step: press <b>▶ Play</b> to build the map and put it in your game.</span>
+        ? <span className="grow"><b>Nice.</b> Last step: press <b>▶ Install in game</b> to build the map and put it in your game.</span>
         : <span className="grow"><b>Your map is ready.</b> Next, walk it at player height: run, jump and crouch from spawn to spawn.</span>}
       {walked
-        ? <button className="primary sm" onClick={play}>▶ Play</button>
+        ? <button className="primary sm" onClick={play}>▶ Install in game</button>
         : <button className="primary sm" onClick={() => useEditor.getState().set({ walking: true, selection: null, multi: [] })}>🚶 Walk it</button>}
       <button className="sm quiet" onClick={done} aria-label="Hide these tips">✕</button>
     </div>

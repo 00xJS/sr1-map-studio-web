@@ -37,6 +37,7 @@ export async function addStairRamps(): Promise<number> {
   const k = (project.settings.world_scale || 0.5) / 0.5
   const runs = scaleRuns(findStairs(k === 1 ? input.tris : input.tris.map((v) => v * k), input.flags), 1 / k)
   const state = useEditor.getState()
+  if (currentProject()?.id !== project.id) throw new Error('another map was opened')
   if (!runs.length) {
     state.update('Remove invisible stair ramps', (d) => { d.scene_items = d.scene_items.filter((it) => !isRamps(it)) })
     state.log('No stairs with steps too tall to walk up (over about 0.28 m each).')
@@ -49,6 +50,7 @@ export async function addStairRamps(): Promise<number> {
   const obj = await storeFile(tagRecipe(new Blob([text], { type: 'model/obj' }), { kind: 'compound', pieces }), 'stair_ramps.obj')
   cacheModel(obj.vpath, parseObj(text))
   const tex = await invisibleTexture()
+  if (currentProject()?.id !== project.id) throw new Error('another map was opened')
   const item: SceneItem = {
     uid: uid(), name: RAMPS_NAME, path: obj.vpath, source_path: obj.vpath, position: origin, rotation: [0, 0, 0], scale: 1,
     textures: { [MAT]: tex.vpath }, alpha: { [MAT]: true }, surface_ids: { [MAT]: 0 }, physics_intent: 'Static',

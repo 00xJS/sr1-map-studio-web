@@ -10,7 +10,7 @@ test('make a map, walk it and play it in the browser', async ({ page }) => {
   await expect(page.getByRole('heading', { level: 1 })).toContainText('maps in your browser')
   await page.getByRole('button', { name: /make your first map/i }).click()
 
-  const dialog = page.getByRole('dialog', { name: /start a map/i })
+  const dialog = page.getByRole('dialog', { name: /start a map|generate/i })
   await expect(dialog).toBeVisible()
   await dialog.getByRole('button', { name: /create this map/i }).first().click()
 

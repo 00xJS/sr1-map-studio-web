@@ -18,10 +18,10 @@ export const layerOf = (it: Pick<SceneItem, 'layer'>) => (typeof it.layer === 's
 
 /**
  * The layer "Sort into layers" puts an object in: what it is called, without copy numbers and record suffixes
- * ("House 2", "House_03", "house (copy)" all go in "House"), so every house of a map lands in one layer.
+ * ("House 2", "House_03", "house (copy)" all go in "House"; "Wall 6×3×0.5 m" in "Wall"), so every house of a map lands in one layer.
  */
 export function autoLayer(it: Pick<SceneItem, 'name'>): string {
-  const base = (it.name || '').replace(/\.(obj|glb|gltf|fbx)$/i, '').replace(/\s*\((copy|\d+)\)$/i, '').replace(/[\s_-]*\d+$/, '').replace(/[_]+/g, ' ').trim()
+  const base = (it.name || '').replace(/\s+[\d.]+×[\d.]+×[\d.]+( m)?$/, '').replace(/\.(obj|glb|gltf|fbx)$/i, '').replace(/\s*\((copy|\d+)\)$/i, '').replace(/[\s_-]*\d+$/, '').replace(/[_]+/g, ' ').trim()
   return base ? base[0].toUpperCase() + base.slice(1) : 'Objects'
 }
 

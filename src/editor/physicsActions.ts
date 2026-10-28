@@ -1,6 +1,6 @@
 // Editor commands for physics props (see lib/physicsProps.ts). Turning an
 // object into a native prop goes through the same Python rules as the
-// advanced "Movable & explosive props" panel.
+// "Movable and explosive props", under the inspector's More settings.
 import { useEditor, currentProject } from './store'
 import { py } from '../lib/py'
 import { isGlass, isProp, type FileRef, type SceneItem, type Vec3 } from '../lib/project'

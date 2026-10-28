@@ -160,7 +160,7 @@ function Report({ r }: { r: OpenReport }) {
     <div className="col">
       <span>{r.pieces} objects ({r.triangles.toLocaleString()} triangles{r.doubleSided ? `, ${r.doubleSided} double-sided` : ''}), {r.markers} markers, {r.lights} light{r.lights === 1 ? '' : 's'}.</span>
       {r.notes.map((n) => <span key={n} className="small muted">{n}</span>)}
-      <span className="small muted">Export it from the Export tab or with ▶ Play. Its files stay on this device.</span>
+      <span className="small muted">Build it with Install in game first. Its files stay on this device.</span>
     </div>
   )
 }

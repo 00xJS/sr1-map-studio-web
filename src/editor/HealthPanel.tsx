@@ -1,15 +1,10 @@
 // Map health: checks the map the way players will meet it (who can see whom,
 // how safe each spawn is, whether red and blue get the same chances, where
-// people will run) and shows the answers on the map. Simple mode gets a short
-// section with the headline numbers; advanced mode a tab with the details.
+// people will run) and shows the answers on the map. The Check tab shows the
+// headline numbers and, under More settings, these details.
 import type { ReactNode } from 'react'
 import { Vector3 } from 'three'
 import { useEditor } from './store'
-import { Check, toast, useBusy } from '../ui'
-import { useState } from 'react'
-import { findSlivers, type SliverReport } from '../lib/invisibleWalls'
-import { addStairRamps, isRamps, solidTriangles } from './stairActions'
-import { fixSpawnsAndWeapons } from './spawnActions'
 import { getViewer } from './Viewport'
 import { runHealthCheck, stopHealthCheck, useHealth, useHealthStale, type OverlayKind } from './health'
 import { MOVE_COLORS, RISK_COLORS } from './healthOverlay'
@@ -31,7 +26,7 @@ const LEGEND: Record<OverlayKind, string> = {
   sight: 'Blue: hidden. Red: seen from much of the map, close enough to be hit. Red lines: sniper lanes. Numbers: spawns that need a look.',
   crouch: 'As Sight lines, for a crouching player: spots that turn blue are where crouching hides you.',
   traffic: 'Purple: a few runs. Red to yellow: busier. Yellow rings: the busiest spots.',
-  spawns: 'Green: safe. Yellow: could use more cover. Red: easy to camp. Click a spawn finding (or one in the Health tab) to see the places that can see it.',
+  spawns: 'Green: safe. Yellow: could use more cover. Red: easy to camp. Click a spawn in the Check tab to see the places that can see it.',
   sides: 'Red or blue: the team that gets there first walking from its spawns.',
   moves: 'Blue: a gap only a sprinting jump crosses. Purple: too wide to jump. Orange: a drop that hurts. Red: a drop that kills. Yellow: a wall exported maps can’t climb. Numbers are metres.',
 }
@@ -64,7 +59,7 @@ function Tile({ label, value, of, tone, title }: { label: string; value: ReactNo
 
 const tone = (score: number) => (score >= 80 ? 'ok' : score >= 55 ? 'warn' : 'bad')
 
-function Headline({ r }: { r: HealthReport }) {
+export function Headline({ r }: { r: HealthReport }) {
   const safe = r.spawns.filter((s) => s.risk === 'ok').length
   return (
     <div className="health-tiles">
@@ -77,7 +72,7 @@ function Headline({ r }: { r: HealthReport }) {
   )
 }
 
-function OverlayButtons({ advanced }: { advanced?: boolean }) {
+export function OverlayButtons({ advanced }: { advanced?: boolean }) {
   const overlay = useHealth((s) => s.overlay)
   const set = (kind: OverlayKind) => useHealth.setState({ overlay: overlay === kind ? 'off' : kind, focus: null })
   return (
@@ -93,21 +88,8 @@ function OverlayButtons({ advanced }: { advanced?: boolean }) {
   )
 }
 
-function Findings({ r, max }: { r: HealthReport; max?: number }) {
-  return (
-    <ul className="health-findings">
-      {r.findings.slice(0, max).map((f, i) => {
-        const n = /^Spawn (\d+) /.exec(f)?.[1]
-        const s = n && r.spawns.find((x) => x.number === Number(n))
-        if (f.startsWith('Getting around') && r.moves?.length) return <li key={i}><a href="#" onClick={(e) => { e.preventDefault(); focusMove(r.moves, 0) }} title="Show them on the map">{f}</a></li>
-        return <li key={i}>{s ? <a href="#" onClick={(e) => { e.preventDefault(); focusSpawn(s) }} title="Show it on the map, with the places that can see it">{f}</a> : f}</li>
-      })}
-    </ul>
-  )
-}
-
 /** Run / re-run controls and the state of the last check. */
-function Controls() {
+export function Controls() {
   const running = useHealth((s) => s.running)
   const report = useHealth((s) => s.report)
   const error = useHealth((s) => s.error)
@@ -126,56 +108,28 @@ function Controls() {
   )
 }
 
-/** Simple mode: the headline numbers, the top findings and the overlay buttons. */
-export function HealthSection() {
+/** The details behind the score: every spawn, red against blue, sight lines, getting around and what was checked. */
+export function HealthDetails() {
   const report = useHealth((s) => s.report)
   const running = useHealth((s) => s.running)
+  if (!report || running) return <span className="small faint">Check the map to see every spawn, red against blue, and the sight lines.</span>
   return (
     <>
-    <div className="group">
-      <span className="section-title">Map health</span>
-      {report && !running && <><Headline r={report} /><Findings r={report} max={4} /><OverlayButtons /></>}
-      <Controls />
-      {report && !running && <button className="sm quiet more" onClick={() => useEditor.getState().set({ advanced: true, tab: 'health' })}>Every spawn and the red vs blue details →</button>}
-    </div>
-    <SpawnsAndWeapons />
-    <StairRamps />
-    <InvisibleWalls />
+      <Spawns r={report} />
+      <Fairness r={report} />
+      <SightAndFlow r={report} />
+      <GettingAround r={report} />
+      <Stats r={report} />
     </>
   )
 }
 
-/** Advanced mode's Health tab. */
-export function HealthPanel() {
-  const report = useHealth((s) => s.report)
-  const running = useHealth((s) => s.running)
-  return (
-    <div className="col">
-      <div className="group">
-        <span className="section-title">Map health</span>
-        {report && !running && <><Headline r={report} /><Findings r={report} /><OverlayButtons advanced /></>}
-        <Controls />
-      </div>
-      <SpawnsAndWeapons />
-      <StairRamps />
-      <InvisibleWalls />
-      {report && !running && <>
-        <Spawns r={report} />
-        <Fairness r={report} />
-        <SightAndFlow r={report} />
-        <GettingAround r={report} />
-        <Stats r={report} />
-      </>}
-    </div>
-  )
-}
-
-/** Shows a spawn and the places that can see it; advanced mode also selects its marker (simple mode would swap the panel). */
-function focusSpawn(s: SpawnReport) {
+/** Shows a spawn and the places that can see it, and selects its marker. */
+export function focusSpawn(s: SpawnReport) {
   const st = useEditor.getState()
   const index = st.project?.markers.findIndex((m) => m.uid === s.uid) ?? -1
   useHealth.setState({ overlay: 'spawns', focus: s.number })
-  if (st.advanced && index >= 0) st.select({ kind: 'marker', index })
+  if (index >= 0) st.select({ kind: 'marker', index })
   // Look at it from where the camera is, far enough back to see what's around.
   const v = getViewer()
   if (!v) return
@@ -188,7 +142,7 @@ function focusSpawn(s: SpawnReport) {
 }
 
 /** Shows one of the gaps, drops or walls on the map (with the others), the camera looking at it from where it is. */
-function focusMove(moves: MoveFinding[], i: number) {
+export function focusMove(moves: MoveFinding[], i: number) {
   const mv = moves[i]
   if (!mv) return
   useHealth.setState({ overlay: 'moves', focus: i })
@@ -209,7 +163,7 @@ function GettingAround({ r }: { r: HealthReport }) {
   const moves = r.moves ?? []
   const kinds = (Object.keys(MOVE_WORD) as MoveKind[]).filter((k) => moves.some((mv) => mv.kind === k))
   return (
-    <div className="group">
+    <div className="section">
       <span className="section-title">Getting around</span>
       {!moves.length
         ? <span className="small faint">No gaps to jump, no drops that hurt, and no walls that only climbing would get you up.</span>
@@ -230,85 +184,11 @@ function GettingAround({ r }: { r: HealthReport }) {
   )
 }
 
-/** Paper-thin triangles that act as invisible walls in game (lib/invisibleWalls.ts); the export leaves them out of the collision. */
-function InvisibleWalls() {
-  const [run, busy] = useBusy()
-  const [found, setFound] = useState<SliverReport | null>(null)
-  const on = useEditor((s) => s.project?.settings.remove_invisible_walls !== false)
-  const hasMap = useEditor((s) => (s.project?.scene_items.length ?? 0) > 0)
-  const look = (at: [number, number, number]) => {
-    const v = getViewer()
-    if (!v) return
-    const back = v.camera.position.clone().sub(v.orbit.target)
-    v.orbit.target.set(...at)
-    v.camera.position.copy(v.orbit.target).add(back.setLength(25))
-    v.requestRender()
-  }
-  return (
-    <div className="group">
-      <span className="section-title">Invisible walls</span>
-      <span className="small faint">Paper-thin triangles draw nothing, but in game they act as walls through open air: players rub against nothing and the camera gets pushed. Converted and rescaled maps often have them.</span>
-      <Check checked={on} onChange={(v) => useEditor.getState().update('Remove invisible walls', (d) => { d.settings.remove_invisible_walls = v })}>Remove them when exporting</Check>
-      <div><button className="sm" disabled={busy || !hasMap} onClick={() => run(async () => {
-        const p = useEditor.getState().project
-        if (!p) return
-        const input = await solidTriangles(p)
-        const r = findSlivers(input.tris, input.flags)
-        setFound(r)
-        toast(r.count ? `Found ${r.count} invisible wall${r.count === 1 ? '' : 's'}${on ? ': the export leaves them out of the collision.' : '. Turn on "Remove them when exporting" to get rid of them.'}` : 'No invisible walls on this map.', r.count ? 'info' : 'ok', 7000)
-      })}>{busy ? 'Looking…' : 'Find invisible walls'}</button></div>
-      {found && (found.count
-        ? <span className="small">{found.count} found{on ? ', left out of the collision at export' : ', kept at export (switched off above)'}. Look at: {found.places.slice(0, 6).map((pl, i) => <a key={i} href="#" onClick={(e) => { e.preventDefault(); look(pl) }} style={{ marginRight: 6 }}>{i + 1}</a>)}</span>
-        : <span className="small faint">None on this map.</span>)}
-      <span className="small faint">For a finished map folder, Open a game map → Remove invisible walls does the same without exporting again.</span>
-    </div>
-  )
-}
-
-/** Stairs whose steps are too tall to walk up (common on converted or scaled-up maps): invisible ramps over them. */
-function SpawnsAndWeapons() {
-  const [run, busy] = useBusy()
-  const hasMap = useEditor((s) => (s.project?.scene_items.length ?? 0) > 0)
-  return (
-    <div className="group">
-      <span className="section-title">Spawns and weapons</span>
-      <span className="small faint">Checks every spawn and weapon on the map's real floor. Any inside something, in the air or somewhere nobody can walk to moves to the nearest spot players can use; then spawns are added (out of sight of most of the map first, spread far apart) and weapons (spread out, off the spawns), up to 12 of each. One undo step.</span>
-      <div><button className="sm" disabled={busy || !hasMap} onClick={() => run(async () => {
-        const r = await fixSpawnsAndWeapons()
-        if (!r.floor) { toast('No floor a player can stand on was found: add a floor first.', 'info', 8000); return }
-        const parts = [
-          r.moved ? `${r.moved} moved (${r.reasons.join('; ')})` : '',
-          r.added.spawns ? `${r.added.spawns} spawn${r.added.spawns === 1 ? '' : 's'} added` : '',
-          r.added.weapons ? `${r.added.weapons} weapon${r.added.weapons === 1 ? '' : 's'} added` : '',
-        ].filter(Boolean)
-        toast(parts.length ? `Done: ${parts.join(', ')}. Check again to see how safe the spawns are.` : 'Done: every spawn and weapon is somewhere players can use, and the map has enough of both.', parts.length ? 'ok' : 'info', 10000)
-      })}>{busy ? 'Checking spawns and weapons…' : 'Fix spawns and weapons'}</button></div>
-    </div>
-  )
-}
-
-function StairRamps() {
-  const [run, busy] = useBusy()
-  const has = useEditor((s) => !!s.project?.scene_items.some(isRamps))
-  const hasMap = useEditor((s) => (s.project?.scene_items.length ?? 0) > 0)
-  return (
-    <div className="group">
-      <span className="section-title">Stairs too tall to run up</span>
-      <span className="small faint">The game’s player only steps up about 0.28 m without jumping, so taller steps (often on converted or scaled-up maps) stop you at every one. This finds those stairs and lays a see-through ramp over each: you run up it in game and never see it.</span>
-      <div><button className="sm" disabled={busy || !hasMap} onClick={() => run(async () => {
-        const n = await addStairRamps()
-        toast(n ? `Done: ${n} invisible ramp${n === 1 ? '' : 's'} added over tall stairs (they're in the scene list as "Invisible stair ramps").`
-          : 'Done: no stairs on this map have steps too tall to walk up, so no ramps were needed.', n ? 'ok' : 'info', 8000)
-      })}>{busy ? 'Finding stairs…' : has ? 'Find stairs again' : 'Add invisible ramps over tall steps'}</button></div>
-    </div>
-  )
-}
-
 function Spawns({ r }: { r: HealthReport }) {
   const focus = useHealth((s) => (s.overlay === 'moves' ? null : s.focus))
   const order = [...r.spawns].sort((a, b) => ['campable', 'watch', 'ok'].indexOf(a.risk) - ['campable', 'watch', 'ok'].indexOf(b.risk) || a.number - b.number)
   return (
-    <div className="group">
+    <div className="section">
       <span className="section-title">Spawns ({r.spawns.length})</span>
       {!r.spawns.length ? <span className="small faint">No spawns yet.</span> : (
         <div className="list" style={{ maxHeight: 320 }}>
@@ -342,7 +222,7 @@ function Fairness({ r }: { r: HealthReport }) {
     ['Spawns seen by', (t) => `${Math.round(t.spawnExposure * 100)}% of the map`],
   ]
   return (
-    <div className="group">
+    <div className="section">
       <span className="section-title">Red vs blue{f.basis === 'halves' ? ' (the two halves)' : ''}</span>
       {f.red && f.blue && (
         <table className="mats">
@@ -359,11 +239,11 @@ const metres = (v: number | null) => fmtM(v)
 
 function SightAndFlow({ r }: { r: HealthReport }) {
   return (
-    <div className="group">
+    <div className="section">
       <span className="section-title">Sight lines and traffic</span>
       <span className="small">{Math.round(r.openShare * 100)}% of the floor is wide open (half the map sees it from close enough to hit it); {Math.round(r.blindShare * 100)}% is hidden from almost everywhere.</span>
       {r.lanes.length > 0 && <span className="small">Longest sight lines: {r.lanes.map((l) => `${l.metres} m`).join(', ')}.</span>}
-      {r.unreachable.length > 0 && <span className="small warn">Players can't use: {r.unreachable.map((u) => `${u.type.toLowerCase()} at ${u.position.map((v) => Math.round(v)).join(', ')}${u.why ? ` (${u.why})` : ''}`).join('; ')}. Spawns and weapons → Fix spawns and weapons moves them.</span>}
+      {r.unreachable.length > 0 && <span className="small warn">Players can't use: {r.unreachable.map((u) => `${u.type.toLowerCase()} at ${u.position.map((v) => Math.round(v)).join(', ')}${u.why ? ` (${u.why})` : ''}`).join('; ')}. Move them, in the list above, puts them where players can use them.</span>}
       <span className="small faint">Traffic comes from {BOTS.bots} bots making {BOTS.trips} runs between spawns, weapons and drop-offs, now and then dying and respawning where the game would put them (never within 5 m of an enemy, likelier the further from one).</span>
     </div>
   )

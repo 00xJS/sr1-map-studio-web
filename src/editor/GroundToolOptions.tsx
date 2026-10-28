@@ -82,7 +82,7 @@ export function TerrainPanel({ it }: { it: SceneItem }) {
   const s = it.shape!
   const scale = useEditor((st) => st.project?.settings.world_scale)
   return (
-    <div className="group">
+    <div className="section">
       <span className="section-title">Terrain</span>
       <span className="small muted">{s.cells?.[0]} × {s.cells?.[1]} cells · highest point {fmtUnits(peak(s), scale)} · steepest slope {steepest(s).toFixed(0)}°</span>
       <div className="row"><button className="sm primary" onClick={() => chooseTool('sculpt')} title="T">Sculpt it</button></div>
@@ -94,7 +94,7 @@ export function TerrainPanel({ it }: { it: SceneItem }) {
 /** Inspector note for a road: its points are edited in the view with the Road tool. */
 export function RoadPanel() {
   return (
-    <div className="group">
+    <div className="section">
       <span className="section-title">Road points</span>
       <div className="row"><button className="sm primary" onClick={() => chooseTool('road')} title="R">Edit points</button></div>
       <span className="faint small">With the Road tool: drag a point to move it, Alt+click to remove it, Shift+click the road to add one, or start a new line on it to add a branch with a junction.</span>

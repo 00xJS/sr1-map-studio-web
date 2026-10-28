@@ -38,7 +38,7 @@ export async function addShape(presetKey: string, at: Vec3, groundY: number | nu
   const stored = await storeShape(shape)
   const tex = await defaultShapeTextures()
   const item: SceneItem = {
-    uid: uid(), name: shapeName(preset.label, shape), path: stored.vpath, source_path: stored.vpath, shape,
+    uid: uid(), name: shapeName(preset.label, shape, currentProject()?.settings.world_scale), path: stored.vpath, source_path: stored.vpath, shape,
     position: [at[0], groundY ?? 0, at[2]], rotation: [0, o.rot ?? 0, 0], scale: 1,
     textures: { top: tex.top, side: tex.side }, alpha: { top: false, side: false }, surface_ids: { top: 0, side: 0 }, physics_intent: 'Static',
   }
@@ -47,7 +47,7 @@ export async function addShape(presetKey: string, at: Vec3, groundY: number | nu
     d.scene_items.push(item)
   })
   useEditor.getState().select({ kind: 'item', index: currentProject()!.scene_items.length - 1 })
-  log(`Added ${preset.label.toLowerCase()} (${shape.size.join(' × ')}). Change its textures in Materials → Create….`)
+  log(`Added ${preset.label.toLowerCase()} (${shapeName('', shape, currentProject()?.settings.world_scale).trim()}). Change its look in the panel on the right.`)
 }
 
 /** Regenerates a shape's mesh after its size, steps/sides or texture scale change. */
@@ -61,7 +61,7 @@ export async function updateShape(index: number, patch: Partial<Shape>) {
     x.shape = shape
     x.path = x.source_path = stored.vpath
     const label = shapeLabel(x.name)
-    if (label) x.name = shapeName(label, shape)
+    if (label) x.name = shapeName(label, shape, d.settings.world_scale)
     d.files[stored.vpath] = stored.ref
     pruneFiles(d as Project)
   }, { merge: 'shape' + thingKey('item', index) })

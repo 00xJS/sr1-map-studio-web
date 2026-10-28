@@ -135,10 +135,12 @@ export function NumberInput(props: { value: number; onChange: (v: number) => voi
   const editing = useRef(false)
   useEffect(() => { if (!editing.current) setText(fmt(value)) }, [value])
   const commit = (raw: string) => {
+    // Untouched (it still shows the stored value, rounded): keep the stored value exactly, unclamped.
+    if (raw.trim() === fmt(value)) { setText(fmt(value)); return }
     const v = parseFloat(raw)
     if (!Number.isFinite(v)) { setText(fmt(value)); return }
     const clamped = Math.min(props.max ?? Infinity, Math.max(props.min ?? -Infinity, v))
-    if (clamped !== value) props.onChange(clamped)
+    if (clamped !== value && fmt(clamped) !== fmt(value)) props.onChange(clamped)
     setText(fmt(clamped))
   }
   return (
