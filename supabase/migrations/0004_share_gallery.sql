@@ -53,13 +53,20 @@ revoke insert, update on public.shares from anon, authenticated;
 -- Removing a link goes through the share function too, so its public preview picture goes with it.
 drop policy "shares: owner deletes" on public.shares;
 revoke delete on public.shares from anon, authenticated;
+-- Owners don't read their links' rows either (the browser keeps its own list of them), so the name of a picture
+-- still waiting for a moderator can't be read back. Moderators read only the columns the moderation queue uses.
+drop policy "shares: owner reads" on public.shares;
+revoke select on public.shares from anon, authenticated;
+grant select (token, title, owner, created_at, updated_at, expires_at, anon, listed, hidden, plays, modes, players) on public.shares to authenticated;
 
--- What the share function counts for its limits: links made and updated (by salted address hash without an
--- account, by account when signed in, so updating one link again and again counts each time), and plays (one
--- per address, link and day). Never an address itself; rows older than two days are deleted daily.
+-- What the share function counts for its limits (by salted address hash without an account, by account when
+-- signed in): links made and updated, so updating one link again and again counts each time; every try at
+-- making or updating one ('attempt') and every board time sent ('time'), logged before the share is read, so a
+-- try that fails counts too; and plays (one per address, link and day). Never an address itself; rows older
+-- than two days are deleted daily.
 create table public.share_log (
   id bigint generated always as identity primary key,
-  kind text not null check (kind in ('create', 'update', 'play')),
+  kind text not null check (kind in ('create', 'update', 'play', 'attempt', 'time')),
   ip_hash text,
   owner uuid references auth.users (id) on delete cascade,
   token text,
@@ -134,10 +141,6 @@ insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_typ
 values ('share-thumbs', 'share-thumbs', true, 262144, array['image/webp'])
 on conflict (id) do update set public = true, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
 
--- Moderators remove a picture they turned down (review_share_thumb gives its name).
-create policy "Moderators remove share pictures" on storage.objects
-  for delete to authenticated using (bucket_id = 'share-thumbs' and public.is_moderator());
-
 -- Moderators: the pictures waiting for review, oldest first.
 create function public.pending_share_thumbs()
 returns table (token text, title text, thumb timestamptz, thumb_path text, author_name text)
@@ -153,24 +156,8 @@ $$;
 revoke all on function public.pending_share_thumbs() from public, anon;
 grant execute on function public.pending_share_thumbs() to authenticated;
 
--- Moderators: approve a link's picture (it shows in link previews and the gallery), or turn it down (the link
--- goes back to the site's own picture). `p_path` is the picture that was looked at: if the author has stored a
--- new one since, nothing changes. Gives back the name of a turned-down picture, for the moderator to remove.
-create function public.review_share_thumb(p_token text, p_path text, p_approve boolean) returns text
-language plpgsql security definer set search_path = '' as $$
-begin
-  if not public.is_moderator() then raise exception 'Only moderators can review pictures' using errcode = '42501'; end if;
-  if p_approve then
-    update public.shares set thumb_approved = true where token = p_token and thumb_path = p_path;
-    return null;
-  end if;
-  update public.shares set thumb = null, thumb_path = null, thumb_approved = false where token = p_token and thumb_path = p_path;
-  return case when found then p_path end;
-end;
-$$;
-
-revoke all on function public.review_share_thumb(text, text, boolean) from public, anon;
-grant execute on function public.review_share_thumb(text, text, boolean) to authenticated;
+-- Approving a picture (it moves to a new name) and turning one down (it is deleted) go through the share
+-- function (/api/share/review), which checks the caller is a moderator: only it can move and delete pictures.
 
 -- reports --------------------------------------------------------------------
 -- Anyone who opens a link can report it (no account needed), so reports go

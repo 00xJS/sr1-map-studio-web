@@ -88,7 +88,11 @@ class Query implements PromiseLike<Result> {
       }
       return { data: null, error: null }
     }
-    if (this.op === 'update') { for (const r of rows.filter(match)) Object.assign(r, this.payload); return { data: null, error: null } }
+    if (this.op === 'update') {
+      const hit = rows.filter(match)
+      for (const r of hit) Object.assign(r, this.payload)
+      return { data: this.returning ? hit.map((r) => ({ ...r })) : null, error: null }
+    }
     if (this.op === 'delete') {
       const gone = rows.filter(match)
       db.tables[this.table] = rows.filter((r) => !match(r))
@@ -112,6 +116,10 @@ vi.mock('@supabase/supabase-js', () => ({
     storage: {
       from: () => ({
         upload: async (path: string, bytes: unknown) => { db.stored.set(path, bytes); return { error: null } },
+        move: async (from: string, to: string) => {
+          if (!db.stored.has(from)) return { error: { message: 'Object not found' } }
+          db.stored.set(to, db.stored.get(from)); db.stored.delete(from); return { error: null }
+        },
         remove: async (paths: string[]) => { db.removed.push(...paths); for (const p of paths) db.stored.delete(p); return { error: null } },
       }),
     },
@@ -126,6 +134,7 @@ vi.mock('@supabase/supabase-js', () => ({
 }))
 
 const { default: handler, ipPrefix, forgetSchema } = await import('../netlify/functions/share.mjs')
+const { sweepPictures } = await import('../netlify/functions/share-expiry.mjs')
 
 process.env.SUPABASE_URL = 'https://example.supabase.co'
 process.env.SUPABASE_SERVICE_ROLE_KEY = 'service'
@@ -189,7 +198,7 @@ beforeEach(() => {
   db.stored.clear(); db.removed = []; db.plays = []
   db.users = { alice: 'u-alice', bob: 'u-bob', mod: 'u-mod' }
   db.tables.profiles.push({ id: 'u-mod', is_moderator: true }, { id: 'u-alice', is_moderator: false })
-  for (const k of ['SHARE_ANON_PER_DAY', 'SHARE_ANON_UPDATES_PER_DAY', 'SHARE_MAX_PER_DAY', 'SHARE_TIMES_PER_HOUR']) delete process.env[k]
+  for (const k of ['SHARE_ANON_PER_DAY', 'SHARE_ANON_UPDATES_PER_DAY', 'SHARE_MAX_PER_DAY', 'SHARE_TIMES_PER_HOUR', 'SHARE_ATTEMPTS_PER_HOUR']) delete process.env[k]
 })
 
 describe('the share function', () => {
@@ -248,6 +257,85 @@ describe('the share function', () => {
     expect(db.tables.shares).toHaveLength(1)
   })
 
+  it('counts every try at a link, failed ones too, before reading it', async () => {
+    process.env.SHARE_ATTEMPTS_PER_HOUR = '3'
+    // Signed in: a share that fails its checks still counts.
+    for (let i = 0; i < 3; i++) expect((await call('', { title: 'x', data: data(siteDoc(cleanObj(WALL)!)), listed: true }, { jwt: 'alice' })).status).toBe(422)
+    expect((await call('', { title: 'x', data: data() }, { jwt: 'alice' })).status).toBe(429)
+    expect((await call('', { title: 'x', data: data() }, { jwt: 'bob' })).status).toBe(200)
+    // Without an account: counted by address.
+    for (let i = 0; i < 3; i++) expect((await call('', { title: 'x', data: 'not a share' })).status).toBe(422)
+    expect((await call('', { title: 'x', data: data() })).status).toBe(429)
+    expect((await call('', { title: 'x', data: data() }, { ip: '198.51.100.20' })).status).toBe(200)
+    expect(db.tables.share_log.filter((l) => l.kind === 'attempt' && l.owner === 'u-alice')).toHaveLength(3)
+  })
+
+  it('counts every board time sent, refused ones too', async () => {
+    process.env.SHARE_TIMES_PER_HOUR = '2'
+    const a = await call('', { title: 'x', data: data() }, { jwt: 'alice' })
+    expect((await call('/time', { token: a.body.token, mode: 'weapons', name: 'Ghost', ...straight() })).status).toBe(422)
+    expect((await call('/time', { token: a.body.token, mode: 'weapons', name: 'Ghost', ...straight() })).status).toBe(422)
+    expect((await call('/time', { token: a.body.token, mode: 'weapons', name: 'Honest', ...around() })).status).toBe(429)
+    expect(db.tables.share_times).toHaveLength(0)
+  })
+
+  it('stores model settings field by field, and refuses text riding along in them, listed or not', async () => {
+    const SECRET = 'U0VDUkVUX0dBTUVfREFUQQ'.repeat(1000)
+    const tries: [string, (d: any) => void][] = [
+      ['a shape’s kind', (d) => { d.builds['mesh/0'].shape.kind = SECRET }],
+      ['a nested size', (d) => { d.builds['mesh/0'].shape.size = { a: SECRET } }],
+      ['a piece’s material', (d) => { d.made['mesh/0'] = 'compound'; d.builds['mesh/0'] = { kind: 'compound', pieces: [{ shape: FLOOR, at: [0, 0, 0], rot: 0, top: SECRET, side: 'a' }] } }],
+      ['a prefab’s place', (d) => { d.made['mesh/0'] = 'prefab'; d.builds['mesh/0'] = { kind: 'prefab', key: 'shop', params: {}, at: { x: SECRET }, rot: 0 } }],
+      ['a prefab’s settings', (d) => { d.made['mesh/0'] = 'prefab'; d.builds['mesh/0'] = { kind: 'prefab', key: 'shop', params: { a: SECRET.slice(0, 40000), b: SECRET.slice(0, 40000) }, at: [0, 0, 0], rot: 0 } }],
+      ['a sign’s text', (d) => { d.made['mesh/0'] = 'prefab'; d.builds['mesh/0'] = { kind: 'prefab', key: 'textsign', params: { text: SECRET.slice(0, 5000) }, at: [0, 0, 0], rot: 0 } }],
+    ]
+    for (const [what, change] of tries) {
+      const d: any = structuredClone(siteDoc())
+      change(d)
+      const r = await call('', { title: 'x', data: data(d) }, { jwt: 'alice' })
+      expect(r.status, what).toBe(422)
+    }
+    expect(db.tables.shares).toHaveLength(0)
+  })
+
+  it('stores each model as geometry only: no names, numbers to five decimals, game data refused anywhere in it', async () => {
+    const d: any = siteDoc()
+    d.made = { 'mesh/0': 'import' }; delete d.builds
+    d.models['mesh/0'] = [
+      'o SECRET_OBJECT_NAME', 'g SECRET_GROUP', 's 1', 'usemtl my paint (red)',
+      'v 1.123456789123 2 3', 'v 4 5 6', 'v 7 8 9.99999999', 'f 1 2 3', 'usemtl plain_name', 'f 1 3 2', '',
+    ].join('\n')
+    d.project.scene_items[0].textures = { 'my paint (red)': 'tex/0', plain_name: 'tex/0' }
+    d.textures = { 'tex/0': { kind: 'library', id: 'concrete' } }
+    const r = await call('', { title: 'x', data: data(d) }, { jwt: 'alice' })
+    expect(r.status).toBe(200)
+    const kept = storedDoc(r.body.token)
+    expect(kept.models['mesh/0']).toBe('usemtl _0\nv 1.12346 2 3\nv 4 5 6\nv 7 8 10\nf 1 2 3\nusemtl plain_name\nf 1 3 2\n')
+    expect(kept.project.scene_items[0].textures).toEqual({ _0: 'tex/0', plain_name: 'tex/0' })
+    // A CTS table further down than the first 4 KB is still found.
+    const cts = siteDoc()
+    cts.models['mesh/0'] = cts.models['mesh/0'] + 'v 0 0 0\n'.repeat(1000) + '#Includes\n+Chunk: x\n'
+    const refused = await call('', { title: 'x', data: data(cts) }, { jwt: 'alice' })
+    expect(refused.status).toBe(422)
+    expect(refused.body.problems.join()).toMatch(/Saints Row/)
+  })
+
+  it('keeps the bytes the site’s own page sends, and packs anything else again', async () => {
+    const { validateShareDoc } = await import('../src/play/share')
+    const { cleanBuilds } = await import('../src/play/shareBuilds')
+    const sent = toBase64(packShare(cleanBuilds(validateShareDoc(siteDoc()).doc!).doc))
+    const a = await call('', { title: 'x', data: sent }, { jwt: 'alice' })
+    expect(db.tables.shares.find((r) => r.token === a.body.token)!.data).toBe(sent)
+    const extra: any = siteDoc()
+    extra.project.scene_items[0].junk = 1
+    const raw = data(extra)
+    const b = await call('', { title: 'x', data: raw }, { jwt: 'alice' })
+    expect(db.tables.shares.find((r) => r.token === b.body.token)!.data).not.toBe(raw)
+    // Checking a share twice changes nothing: what is stored is what the page would send.
+    const once = JSON.stringify(cleanBuilds(validateShareDoc(extra).doc!).doc)
+    expect(JSON.stringify(cleanBuilds(validateShareDoc(JSON.parse(once)).doc!).doc)).toBe(once)
+  })
+
   it('checks every limit before reading the share', async () => {
     process.env.SHARE_ANON_PER_DAY = '1'
     await call('', { title: 'x', data: data() })
@@ -267,7 +355,7 @@ describe('the share function', () => {
     expect((await call('', { title: 'x', data: data(), token: a.body.token }, { jwt: 'alice' })).status).toBe(200)
     const fourth = await call('', { title: 'x', data: data(), token: a.body.token }, { jwt: 'alice' })
     expect(fourth.status).toBe(429)
-    expect(db.tables.share_log.filter((l) => l.owner === 'u-alice')).toHaveLength(3)
+    expect(db.tables.share_log.filter((l) => l.owner === 'u-alice' && l.kind !== 'attempt')).toHaveLength(3)
     expect(db.tables.share_log.every((l) => !(l.owner && l.ip_hash))).toBe(true)
     // Another account has its own count.
     expect((await call('', { title: 'x', data: data() }, { jwt: 'bob' })).status).toBe(200)
@@ -341,6 +429,52 @@ describe('the share function', () => {
     // Unlisted, the same map is still a fine link.
     expect((await call('', { title: 'x', data: data(siteDoc(moved)) }, { jwt: 'alice' })).status).toBe(200)
     expect(db.tables.shares.filter((r) => r.listed)).toHaveLength(2)
+  })
+
+  it('lets only moderators approve a picture, which moves to a new name, or turn it down, which deletes it first', async () => {
+    const a = await call('', { title: 'x', data: data(), thumb: webp() }, { jwt: 'alice' })
+    const waiting = picture(a.body.token)!
+    expect((await call('/review', { token: a.body.token, path: waiting, approve: true }, { jwt: 'alice' })).status).toBe(403)
+    expect((await call('/review', { token: a.body.token, path: waiting, approve: true })).status).toBe(401)
+    expect((await call('/review', { token: a.body.token, path: waiting, approve: true }, { jwt: 'mod' })).status).toBe(200)
+    const shown = picture(a.body.token)!
+    expect(shown).not.toBe(waiting)
+    expect(db.tables.shares[0].thumb_approved).toBe(true)
+    expect([...db.stored.keys()]).toEqual([shown])
+    // A review of a picture that has changed since does nothing.
+    expect((await call('/review', { token: a.body.token, path: waiting, approve: false }, { jwt: 'mod' })).status).toBe(409)
+    expect(db.stored.has(shown)).toBe(true)
+
+    const b = await call('', { title: 'y', data: data(), thumb: webp() }, { jwt: 'alice' })
+    const bad = picture(b.body.token)!
+    expect((await call('/review', { token: b.body.token, path: bad, approve: false }, { jwt: 'mod' })).status).toBe(200)
+    expect(db.stored.has(bad)).toBe(false)
+    expect(db.removed).toContain(bad)
+    expect(db.tables.shares.find((r) => r.token === b.body.token)).toMatchObject({ thumb: null, thumb_path: null, thumb_approved: false })
+  })
+
+  it('keeps an old picture until the link no longer names it', async () => {
+    const a = await call('', { title: 'x', data: data(), thumb: webp() }, { jwt: 'alice' })
+    const first = picture(a.body.token)!
+    let named: string | undefined
+    const remove = db.removed
+    db.removed = new Proxy(remove, { get: (t, k) => (k === 'push' ? (...xs: string[]) => { named = picture(a.body.token)!; return t.push(...xs) } : (t as any)[k]) })
+    await call('', { title: 'x', data: data(), thumb: webp(), token: a.body.token }, { jwt: 'alice' })
+    expect(named).toBeDefined()
+    expect(named).not.toBe(first)
+    db.removed = remove
+  })
+
+  it('sweeps pictures no link names once they are an hour old', async () => {
+    const old = new Date(Date.now() - 2 * 3600_000).toISOString(), now = new Date().toISOString()
+    const files = [{ name: 'kept.webp', created_at: old }, { name: 'stray.webp', created_at: old }, { name: 'new.webp', created_at: now }]
+    const removed: string[] = []
+    const admin: any = {
+      from: () => ({ select: () => ({ not: () => ({ order: () => ({ range: async () => ({ data: [{ thumb_path: 'kept.webp' }], error: null }) }) }) }) }),
+      storage: { from: () => ({ list: async () => ({ data: files, error: null }), remove: async (xs: string[]) => { removed.push(...xs); return { error: null } } }) },
+    }
+    expect(await sweepPictures(admin)).toBe(1)
+    expect(removed).toEqual(['stray.webp'])
   })
 
   it('removes a preview only with the link it belongs to', async () => {

@@ -2,8 +2,10 @@
 // expire (30 days, see SHARE_RULES.anonDays), with their reports, ratings,
 // board times (cascade) and preview pictures. Also clears the share function's
 // limit log after two days, and (as a backstop: hiding removes it at once)
-// the preview pictures of links a moderator hid.
-import { createClient } from '@supabase/supabase-js'
+// the preview pictures of links a moderator hid. Last, it deletes pictures no
+// link names any more (a deleted account's links go with it, but their
+// pictures are only in storage), once they are an hour old.
+import { createClient, type SupabaseClient } from '@supabase/supabase-js'
 import { supabaseProjectUrl } from '../../src/lib/hubRules'
 
 const env = (k: string) => process.env[k] || ''
@@ -36,10 +38,32 @@ export default async (): Promise<Response> => {
       unpictured = hidden.data.length
     }
   }
+  const orphans = await sweepPictures(admin).catch((e) => { console.error('Sweeping pictures failed', e?.message ?? e); return 0 })
   const old = await admin.from('share_log').delete().lt('created_at', new Date(Date.now() - 2 * 86400_000).toISOString())
   if (old.error) console.error('Clearing the limit log failed', old.error.message)
-  console.log(`Expired play links removed: ${removed}; hidden previews removed: ${unpictured}`)
-  return new Response(JSON.stringify({ removed, unpictured }), { headers: { 'Content-Type': 'application/json' } })
+  console.log(`Expired play links removed: ${removed}; hidden previews removed: ${unpictured}; pictures no link names removed: ${orphans}`)
+  return new Response(JSON.stringify({ removed, unpictured, orphans }), { headers: { 'Content-Type': 'application/json' } })
+}
+
+/** Deletes pictures in share-thumbs that no link names, once an hour old (one being stored right now is left alone). */
+export async function sweepPictures(admin: SupabaseClient): Promise<number> {
+  const named = new Set<string>()
+  for (let from = 0; ; from += 1000) {
+    const r = await admin.from('shares').select('thumb_path').not('thumb_path', 'is', null).order('token').range(from, from + 999)
+    if (r.error) throw r.error
+    for (const row of r.data ?? []) named.add((row as { thumb_path: string }).thumb_path)
+    if ((r.data ?? []).length < 1000) break
+  }
+  const cutoff = Date.now() - 3600_000
+  const stray: string[] = []
+  for (let offset = 0; offset < 100_000; offset += 1000) {
+    const page = await admin.storage.from('share-thumbs').list('', { limit: 1000, offset, sortBy: { column: 'name', order: 'asc' } })
+    if (page.error) throw page.error
+    for (const f of page.data ?? []) if (!named.has(f.name) && new Date(f.created_at ?? 0).getTime() < cutoff) stray.push(f.name)
+    if ((page.data ?? []).length < 1000) break
+  }
+  for (let i = 0; i < stray.length; i += 500) await admin.storage.from('share-thumbs').remove(stray.slice(i, i + 500))
+  return stray.length
 }
 
 export const config = { schedule: '@daily' }

@@ -4,12 +4,13 @@
 // POST   /api/share/time    {token, mode, ms, name, ghost}               -> {ok, rank}
 // POST   /api/share/play    {token}                                      -> {ok}
 // POST   /api/share/hide    {token}   (moderators)                       -> {ok}
+// POST   /api/share/review  {token, path, approve}   (moderators)         -> {ok}
 //   data: base64 of the gzip share (src/play/share.ts); thumb: base64 WebP preview the site drew from the
 //   share (src/play/sharePreview.ts), signed-in links only; ghost: src/play/ghost.ts
 //
 // A preview picture is stored under a name with a random part (shares.thumb_path) and waits for a moderator
-// (review_share_thumb in migration 0004): until approved, link previews and the gallery show the site's own
-// picture, and nothing gives out its name. A new picture waits again.
+// (/api/share/review): until approved, link previews and the gallery show the site's own picture, and nothing
+// gives out its name. Approving moves it to a new name; rejecting deletes it. A new picture waits again.
 //
 // Play links. The function unpacks and checks every share with the same rules
 // as the browser (no files, plain OBJ geometry, texture recipes only) and
@@ -30,7 +31,8 @@
 // time. The maker's browser keeps a random key to update or remove it.
 // Reports, board times and plays are limited the same way. Every limit is
 // checked before the share is unpacked: reading and checking a map is the
-// costly part.
+// costly part, so every attempt to make or update a link, and every board
+// time, is logged and counted first, whether or not it then succeeds.
 //
 // Until migration 0004 is applied, signed-in links keep working as before
 // (without previews or the gallery) and everything new answers "not open yet".
@@ -38,8 +40,8 @@ import { createClient, type PostgrestError, type SupabaseClient } from '@supabas
 import { isValidThumbnail, supabaseProjectUrl } from '../../src/lib/hubRules'
 import { checkTime, cleanName } from '../../src/play/ghost'
 import { wallsOf } from '../../src/play/ghostWalls'
-import { MAX_PREVIEW_BYTES, SHARE_LIMITS, SHARE_RULES, SHARE_TOKEN, fromBase64, newShareToken, packShare, previewProblem, shareMeta, toBase64, unpackShare, validateShareDoc } from '../../src/play/share'
-import { galleryProblems } from '../../src/play/shareBuilds'
+import { MAX_PREVIEW_BYTES, SHARE_LIMITS, SHARE_RULES, SHARE_TOKEN, fromBase64, newShareToken, packShare, previewProblem, shareMeta, toBase64, unpackShare, unpackShareText, validateShareDoc } from '../../src/play/share'
+import { cleanBuilds, galleryProblems } from '../../src/play/shareBuilds'
 
 const env = (k: string) => process.env[k] || ''
 const num = (k: string, fallback: number) => Number(env(k)) || fallback
@@ -55,8 +57,13 @@ const MAX_TIME_BODY = 400_000
 const REASONS = ['game-data', 'stolen', 'offensive', 'spam', 'broken', 'other']
 const THUMBS = 'share-thumbs'
 const DAY = 86400_000
-/** The gallery's rebuild gives up after this long, well inside the function's own time limit. */
-const GALLERY_MS = 6000
+/**
+ * The gallery's rebuild gives up after this long. With reading, checking and storing a share at the size limit
+ * (about 3 s more at worst), a request stays well inside the function's 10 s.
+ */
+const GALLERY_MS = 3000
+/** Pictures are cached briefly, so one hidden or turned down stops showing soon. */
+const THUMB_CACHE = '60'
 /** The share columns that existed before migration 0004. */
 const LEGACY = ['title', 'data', 'size_bytes', 'updated_at', 'token', 'owner'] as const
 
@@ -166,6 +173,7 @@ export default async (req: Request, context?: { ip?: string }): Promise<Response
     if (route === 'time') return await addTime(admin, uid, ip, body)
     if (route === 'play') return await play(admin, ip, body)
     if (route === 'hide') return await hide(admin, uid, body)
+    if (route === 'review') return await review(admin, uid, body)
     if (req.method === 'DELETE') return await remove(admin, uid, body, fresh)
     return await create(admin, uid, ip, body, fresh)
   } catch (err) {
@@ -176,7 +184,30 @@ export default async (req: Request, context?: { ip?: string }): Promise<Response
 
 const since = (ms: number) => new Date(Date.now() - ms).toISOString()
 
-async function logged(admin: SupabaseClient, kind: 'create' | 'update' | 'play', ip: string, within: number, token?: string): Promise<number> {
+type LogKind = 'create' | 'update' | 'play' | 'attempt' | 'time'
+
+/**
+ * Counts and logs one try at something costly (making or updating a link, a board time) for an account or an
+ * address, before any of the work: failed tries count too. False when over `max` in the last hour.
+ */
+async function attempt(admin: SupabaseClient, kind: 'attempt' | 'time', uid: string | null, ip: string | null, max: number): Promise<boolean> {
+  const who = uid ? { owner: uid } : { ip_hash: ip! }
+  // A GET for no rows, so a missing column comes back with its code (see upToDate).
+  let q = admin.from('share_log').select('id', { count: 'exact' }).eq('kind', kind).gte('created_at', since(3600_000))
+  q = uid ? q.eq('owner', uid) : q.eq('ip_hash', ip!)
+  const r = await q.limit(0)
+  if (r.error) {
+    // An early copy of migration 0004, without these kinds or the owner column: nothing to count with.
+    if (missing(r.error)) return true
+    throw r.error
+  }
+  if ((r.count ?? 0) >= max) return false
+  const ins = await admin.from('share_log').insert({ kind, token: null, ip_hash: null, ...who })
+  if (ins.error && !missing(ins.error) && ins.error.code !== '23514') throw ins.error
+  return true
+}
+
+async function logged(admin: SupabaseClient, kind: LogKind, ip: string, within: number, token?: string): Promise<number> {
   let q = admin.from('share_log').select('id', { count: 'exact', head: true }).eq('ip_hash', ip).eq('kind', kind).gte('created_at', since(within))
   if (token) q = q.eq('token', token)
   const r = await q
@@ -240,6 +271,10 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
   if (!uid && !ip) return reject(401, 'Sign in to make a play link.')
   if (!uid && !fresh) return reject(401, 'Links without an account aren’t open yet on this site. Sign in to make a link.')
   const hidden = () => reject(403, 'A moderator hid this link, so it can’t be changed. You can still remove it.')
+  // Every try counts, before anything is read: one that fails costs as much as one that works.
+  if (fresh && !(await attempt(admin, 'attempt', uid, ip, num('SHARE_ATTEMPTS_PER_HOUR', SHARE_RULES.attemptsPerHour)))) {
+    return reject(429, 'That’s a lot of links in an hour. Try again later.')
+  }
 
   // What this is (a new link, or an update of one) and its limit, before the map is read.
   let anonEdit: { keyHash: string; expires_at: string; data_hash: string | null } | null = null
@@ -282,10 +317,13 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
   }
 
   // Check what will be stored, not what the page says about it.
-  let raw: unknown
-  try { raw = unpackShare(fromBase64(body.data)) } catch (e) { return reject(422, (e as Error).message || 'This is not a play link.') }
-  const { problems, doc } = validateShareDoc(raw)
-  if (!doc) return reject(422, 'This map can’t be shared yet.', problems)
+  let text: string, raw: unknown
+  try { text = unpackShareText(fromBase64(body.data)); raw = JSON.parse(text) } catch (e) { return reject(422, (e as Error).message || 'This is not a play link.') }
+  const checked = validateShareDoc(raw)
+  if (!checked.doc) return reject(422, 'This map can’t be shared yet.', checked.problems)
+  // Every share's model settings, listed or not: settings, never text riding along in them.
+  const { doc, problems: buildIssues } = cleanBuilds(checked.doc)
+  if (buildIssues.length) return reject(422, 'This map can’t be shared yet.', buildIssues)
   // A preview is the site's own render of the share, for signed-in links only; links without an account
   // show the site's own picture.
   let thumb: Uint8Array | null = null
@@ -303,21 +341,22 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
     if (why.length) return reject(422, 'This map can’t go in the gallery.', why)
   }
 
-  // Stored as checked: the share rebuilt from its allowed fields, not the bytes that were sent.
-  // Quicker than the browser's packing, and so a little larger: the limit leaves room for that.
-  const packed = packShare(doc, 3)
+  // Stored as checked: the share rebuilt from its allowed fields, not the bytes that were sent. The site's own
+  // page sends it already in that form, and then those bytes are kept; anything else is packed again, quicker than
+  // the browser packs and so a little larger (the limit leaves room for that).
+  const same = JSON.stringify(doc) === text
+  const packed = same ? fromBase64(body.data) : packShare(doc, 3)
   if (packed.length > SHARE_LIMITS.packedBytes * 1.1) return reject(413, 'This map is too large to share.')
-  const data = toBase64(packed)
+  const data = same ? body.data : toBase64(packed)
   const meta = shareMeta(doc)
   const dataHash = await sha256(data)
   const row = { title: doc.title, data, size_bytes: packed.length, updated_at: new Date().toISOString(), modes: meta.modes, players: meta.players, data_hash: dataHash }
-  /** Stores the preview under a new name nobody can guess, waiting for a moderator; the old one goes. */
-  const saveThumb = async (token: string, oldPath: string | null = null) => {
+  /** Stores the preview under a new name nobody can guess, waiting for a moderator (the row is written next). */
+  const saveThumb = async (token: string): Promise<{ thumb?: string; thumb_path?: string; thumb_approved?: boolean }> => {
     if (!thumb) return {}
     const path = `${token}-${newShareToken()}.webp`
-    const up = await admin.storage.from(THUMBS).upload(path, thumb, { contentType: 'image/webp', upsert: false, cacheControl: '3600' })
+    const up = await admin.storage.from(THUMBS).upload(path, thumb, { contentType: 'image/webp', upsert: false, cacheControl: THUMB_CACHE })
     if (up.error) { console.error('Preview upload failed', up.error.message); return {} }
-    await removeThumb(admin, oldPath)
     return { thumb: new Date().toISOString(), thumb_path: path, thumb_approved: false }
   }
   /** A board's times were run on the old map: they go when the map changes. */
@@ -351,7 +390,10 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
   if (ownEdit) {
     await logOwn('update', body.token)
     if (fresh) await mapChanged(body.token, ownEdit.data_hash)
-    await write(admin, { ...row, listed, ...(await saveThumb(body.token, ownEdit.thumb_path)) }, fresh, { token: body.token, owner: uid })
+    const t = await saveThumb(body.token)
+    await write(admin, { ...row, listed, ...t }, fresh, { token: body.token, owner: uid })
+    // The old picture goes once the row no longer names it.
+    if (t.thumb_path) await removeThumb(admin, ownEdit.thumb_path)
     return json(200, { token: body.token })
   }
   const token = newShareToken()
@@ -392,12 +434,8 @@ async function report(admin: SupabaseClient, uid: string | null, ip: string | nu
 async function addTime(admin: SupabaseClient, uid: string | null, ip: string | null, body: any): Promise<Response> {
   if (typeof body.token !== 'string') return reject(400, 'Invalid link.')
   if (!uid && !ip) return reject(401, 'Sign in to post a time.')
-  // The limit first: checking a run means reading the whole map.
-  const perHour = num('SHARE_TIMES_PER_HOUR', SHARE_RULES.timesPerHour)
-  const who = ip ? admin.from('share_times').select('id', { count: 'exact', head: true }).eq('ip_hash', ip) : admin.from('share_times').select('id', { count: 'exact', head: true }).eq('player', uid)
-  const recent = await who.gte('created_at', since(3600_000))
-  if (recent.error) throw recent.error
-  if ((recent.count ?? 0) >= perHour) return reject(429, 'That’s a lot of times in an hour. Try again later.')
+  // The limit first, counting every try (a time refused costs as much to check): checking a run means reading the whole map.
+  if (!(await attempt(admin, 'time', uid, ip, num('SHARE_TIMES_PER_HOUR', SHARE_RULES.timesPerHour)))) return reject(429, 'That’s a lot of times in an hour. Try again later.')
 
   const share = await liveShare(admin, body.token, 'data, expires_at')
   if (!share) return reject(404, 'This link doesn’t lead to a map any more.')
@@ -443,4 +481,37 @@ async function hide(admin: SupabaseClient, uid: string | null, body: any): Promi
   return json(200, { ok: true })
 }
 
-export const config = { path: ['/api/share', '/api/share/report', '/api/share/time', '/api/share/play', '/api/share/hide'] }
+/**
+ * Moderators: approve a link's preview picture (it moves to a new name and shows in link previews and the gallery)
+ * or turn it down (the file is deleted, then the row forgets it). Only the picture that was looked at (`path`): if
+ * the author stored a new one since, nothing changes.
+ */
+async function review(admin: SupabaseClient, uid: string | null, body: any): Promise<Response> {
+  if (typeof body.token !== 'string' || typeof body.path !== 'string' || typeof body.approve !== 'boolean') return reject(400, 'Invalid request body.')
+  if (!uid) return reject(401, 'Sign in first.')
+  const me = await admin.from('profiles').select('is_moderator').eq('id', uid).maybeSingle()
+  if (me.error) throw me.error
+  if (!me.data?.is_moderator) return reject(403, 'Only moderators can do this.')
+  const gone = () => reject(409, 'This picture changed or was removed. Load the list again.')
+  const row = await admin.from('shares').select('token').eq('token', body.token).eq('thumb_path', body.path).maybeSingle()
+  if (row.error) throw row.error
+  if (!row.data) return gone()
+  if (body.approve) {
+    // A new name for the approved picture: the one it waited under is never the one shown.
+    const to = `${body.token}-${newShareToken()}.webp`
+    const mv = await admin.storage.from(THUMBS).move(body.path, to)
+    if (mv.error) throw mv.error
+    const up = await admin.from('shares').update({ thumb_path: to, thumb_approved: true, thumb: new Date().toISOString() }).eq('token', body.token).eq('thumb_path', body.path).select('token')
+    if (up.error) throw up.error
+    if (!up.data?.length) { await removeThumb(admin, to); return gone() }
+    return json(200, { ok: true })
+  }
+  // The file first: if deleting it fails, the row still says it's waiting, so it never shows and can be tried again.
+  const rm = await admin.storage.from(THUMBS).remove([body.path])
+  if (rm.error) throw rm.error
+  const up = await admin.from('shares').update({ thumb: null, thumb_path: null, thumb_approved: false }).eq('token', body.token).eq('thumb_path', body.path)
+  if (up.error) throw up.error
+  return json(200, { ok: true })
+}
+
+export const config = { path: ['/api/share', '/api/share/report', '/api/share/time', '/api/share/play', '/api/share/hide', '/api/share/review'] }

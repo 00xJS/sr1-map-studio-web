@@ -68,6 +68,11 @@ export const SHARE_RULES = {
   boardKeep: 50,
   /** Times an anonymous link can be updated from one address a day (SHARE_ANON_UPDATES_PER_DAY). */
   anonUpdatesPerDay: 30,
+  /**
+   * Tries at making or updating a link per account, or per address without one, an hour (SHARE_ATTEMPTS_PER_HOUR):
+   * counted before the share is read, failed ones included, since checking one is the costly part.
+   */
+  attemptsPerHour: 30,
 }
 
 export const SHARE_LIMITS = {
@@ -118,6 +123,57 @@ export function cleanObj(text: string): string | null {
     out.push(line)
   }
   return out.some((l) => l.startsWith('f ')) ? out.join('\n') + '\n' : null
+}
+
+/** Material names a share keeps as they are; any other name is replaced (see canonicalObj). */
+export const MATERIAL_NAME = /^[A-Za-z0-9_.-]{1,64}$/
+/** Coordinates beyond this aren't a map's (editor units); a model with one isn't shared. */
+const MAX_COORD = 1e7
+const MAX_INDEX = 1e8
+
+/**
+ * A model as a share stores it: vertices, normals, texture coordinates and faces with numbers written to five
+ * decimals, materials only by plain names (others are renamed `_0`, `_1`… and given back in `renamed`), and no
+ * object, group or smoothing lines. So the text says nothing but the geometry. Takes text that passed
+ * isCleanObj; null when a number is out of range.
+ */
+export function canonicalObj(text: string): { obj: string; renamed: Record<string, string> } | null {
+  const lines = text.endsWith('\n') ? text.slice(0, -1).split('\n') : text.split('\n')
+  const kept = new Set<string>(), renamed: Record<string, string> = {}
+  for (const l of lines) if (l.startsWith('usemtl ')) { const m = l.slice(7); if (MATERIAL_NAME.test(m)) kept.add(m) }
+  let next = 0
+  const material = (m: string) => {
+    if (MATERIAL_NAME.test(m)) return m
+    if (!Object.hasOwn(renamed, m)) {
+      while (kept.has('_' + next)) next++
+      renamed[m] = '_' + next++
+    }
+    return renamed[m]
+  }
+  const num = (t: string) => {
+    const x = Number(t)
+    return Number.isFinite(x) && Math.abs(x) <= MAX_COORD ? String(+x.toFixed(5)) : null
+  }
+  const index = (t: string) => {
+    if (t === '') return ''
+    const i = Number(t)
+    return Number.isInteger(i) && Math.abs(i) <= MAX_INDEX ? String(i) : null
+  }
+  const out: string[] = []
+  for (const l of lines) {
+    const [key, ...rest] = l.split(' ')
+    if (key === 'v' || key === 'vt' || key === 'vn') {
+      const ns = rest.map(num)
+      if (ns.includes(null)) return null
+      out.push(key + ' ' + ns.join(' '))
+    } else if (key === 'f' || key === 'l') {
+      const vs = rest.map((v) => v.split('/').map(index))
+      if (vs.some((v) => v.includes(null) || v[0] === '')) return null
+      out.push(key + ' ' + vs.map((v) => v.join('/')).join(' '))
+    } else if (key === 'usemtl') out.push('usemtl ' + material(l.slice(7)))
+    // o, g and s lines go: names and smoothing say nothing about the shape.
+  }
+  return { obj: out.join('\n') + '\n', renamed }
 }
 
 /** True when every line is a geometry line cleanObj would keep as it is. */
@@ -183,12 +239,18 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
     }
   }
   let chars = 0
+  const models: Record<string, string> = {}, renames: Record<string, Record<string, string>> = {}
   for (const [path, text] of Object.entries(d.models)) {
     if (!usedModels.has(path)) { problems.push('The share holds a model no object uses.'); break }
     if (typeof text !== 'string') { problems.push('A model in the share is not text.'); continue }
     chars += text.length
-    if (gameSignature(strToU8(text.slice(0, 4096)), path, text.slice(0, 4096))) problems.push('A model in the share looks like Saints Row game data.')
-    else if (!isCleanObj(text)) problems.push('A model in the share is not plain OBJ geometry.')
+    if (chars > SHARE_LIMITS.modelChars) break
+    // The whole model, not just its start: game data can't hide further down.
+    if (gameSignature(strToU8(text.slice(0, 4096)), path, text)) { problems.push('A model in the share looks like Saints Row game data.'); continue }
+    const c = isCleanObj(text) ? canonicalObj(text) : null
+    if (!c) { problems.push('A model in the share is not plain OBJ geometry.'); continue }
+    models[path] = c.obj
+    if (Object.keys(c.renamed).length) renames[path] = c.renamed
   }
   if (chars > SHARE_LIMITS.modelChars) problems.push('The map\'s models are too large to share.')
   const textures = Object.entries(d.textures)
@@ -214,9 +276,21 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
   const uniq = [...new Set(problems)]
   if (uniq.length) return { problems: uniq, doc: null }
   const clean = Object.fromEntries(textures.map(([k, r]) => [k, cleanRecipe(fromLegacy(r) as TextureRecipe)]))
+  // Objects follow their models' renamed materials.
+  for (const it of project.scene_items) {
+    const r = { ...renames[it.native_mesh_obj ?? ''], ...renames[it.path] }
+    if (!Object.keys(r).length) continue
+    const name = (m: string) => r[m] ?? m
+    const keys = <T,>(o: Record<string, T> | undefined) => o && Object.fromEntries(Object.entries(o).map(([k, v]) => [name(k), v]))
+    it.textures = keys(it.textures)!
+    it.alpha = keys(it.alpha)!
+    if (it.glow) it.glow = keys(it.glow)
+    if (it.surface_ids) it.surface_ids = keys(it.surface_ids)
+    if (it.water_materials) it.water_materials = it.water_materials.map(name)
+  }
   const doc: ShareDoc = {
     format: 'sr1-map-studio-share', version: 1, title: d.title.trim(), created_at: typeof d.created_at === 'string' ? d.created_at.slice(0, 40) : '',
-    project, models: { ...d.models }, textures: clean,
+    project, models, textures: clean,
   }
   if (d.made) doc.made = { ...d.made }
   if (d.builds) doc.builds = JSON.parse(JSON.stringify(d.builds))
@@ -283,14 +357,17 @@ export function previewProblem(b: Uint8Array): string | null {
 export const packShare = (doc: ShareDoc, level: 3 | 9 = 9): Uint8Array => gzipSync(strToU8(JSON.stringify(doc)), { level })
 
 /** Reads a packed share, refusing anything that would unpack past the limits. */
-export function unpackShare(bytes: Uint8Array): unknown {
+export const unpackShare = (bytes: Uint8Array): unknown => JSON.parse(unpackShareText(bytes))
+
+/** A packed share's JSON text (see unpackShare). */
+export function unpackShareText(bytes: Uint8Array): string {
   if (bytes.length < 18 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) throw new Error('This is not an SR1 Map Studio play link.')
   // A tenth over the limit: a server stores its own, quicker packing (level 3), a little larger than a browser's.
   if (bytes.length > SHARE_LIMITS.packedBytes * 1.1) throw new Error('This shared map is too large.')
   // gzip ends with the unpacked size (mod 4 GB): check it before unpacking.
   const n = bytes.length, size = (bytes[n - 4] | (bytes[n - 3] << 8) | (bytes[n - 2] << 16) | (bytes[n - 1] << 24)) >>> 0
   if (size > SHARE_LIMITS.modelChars + SHARE_LIMITS.projectChars + MB) throw new Error('This shared map is too large.')
-  return JSON.parse(strFromU8(gunzipSync(bytes)))
+  return strFromU8(gunzipSync(bytes))
 }
 
 export function toBase64(bytes: Uint8Array): string {

@@ -22,7 +22,7 @@ import type { Part } from '../lib/sampleKit'
 import { compoundObj, faces, shapeObj, type Shape } from '../lib/shapes'
 import { TERRAIN_MAX_CELLS } from '../lib/terrain'
 import { partShape } from '../lib/zfight'
-import { cleanObj, type ModelBuild, type ShareDoc } from './share'
+import { MATERIAL_NAME, canonicalObj, cleanObj, type ModelBuild, type ShareDoc } from './share'
 
 /** Pieces one compound may have (a road network has a few thousand). */
 const MAX_PIECES = 20000
@@ -31,12 +31,15 @@ const MAX_PIECES = 20000
  * map writes about 150,000 and takes about a second; this many takes about 2 s on a laptop.
  */
 export const MAX_LINES = 300_000
-/** What a prefab's own code is charged before it runs (one at its largest settings takes ~10 ms, about 1,500 lines' worth). */
-const PREFAB_CHARGE = 1500
+/** What a prefab's own code is charged before it runs (one at its largest settings takes ~3 ms, about 500 lines' worth). */
+const PREFAB_CHARGE = 1000
 /** What a compound's piece is charged for having its settings checked: about 20 lines' worth. */
 const PIECE_CHARGE = 20
-/** What a prefab's part is charged for being turned into a piece (lifted apart where faces meet): about 60 lines' worth. */
-const PART_CHARGE = 60
+/**
+ * What turning a prefab's parts into one model costs (lifting apart faces that meet, lib/prefabModel.ts), charged
+ * per pair of parts, twice over: the largest prefab at its largest settings (187 parts) takes ~0.2 s, about 31,000 lines’ worth.
+ */
+const PAIR_CHARGE = 2
 /** How far a rebuilt number may be from the share's (OBJ numbers are written rounded). */
 const TOLERANCE = 1e-3
 
@@ -60,7 +63,7 @@ export function buildProblem(b: ModelBuild): string | null {
     case 'shape': return shapeOk(x.shape) ? null : 'are out of range'
     case 'compound':
       if (!Array.isArray(x.pieces) || !x.pieces.length || x.pieces.length > MAX_PIECES) return 'have too many or no pieces'
-      return x.pieces.every((pc: any) => pc && shapeOk(pc.shape) && vec3(pc.at, -5000, 5000) && num(pc.rot, -3600, 3600) && typeof pc.top === 'string' && typeof pc.side === 'string' && pc.top.length <= 64 && pc.side.length <= 64)
+      return x.pieces.every((pc: any) => pc && shapeOk(pc.shape) && vec3(pc.at, -5000, 5000) && num(pc.rot, -3600, 3600) && typeof pc.top === 'string' && typeof pc.side === 'string' && MATERIAL_NAME.test(pc.top) && MATERIAL_NAME.test(pc.side))
         ? null : 'have a piece out of range'
     case 'prefab': {
       const def = typeof x.key === 'string' && Object.hasOwn(ALL_PREFABS, x.key) ? ALL_PREFABS[x.key] : null
@@ -140,19 +143,34 @@ function rebuild(b: ModelBuild, lines: number, budget: Budget): Rebuilt {
     if (!budget.charge(PREFAB_CHARGE)) return { over: true }
     const parts = prefabParts(b)
     if (!parts.length || parts.length > MAX_PIECES) return { mismatch: true }
-    if (!budget.charge(PART_CHARGE * parts.length)) return { over: true }
-    // One part is stored as a plain shape, several as one compound (lib/samples.ts materialize).
-    if (parts.length === 1) shapes = [partShape(parts[0])]
-    else { pieces = prefabModel(parts).pieces; shapes = pieces.map((pc) => pc.shape) }
+    // One part is stored as a plain shape, several as one compound (lib/samples.ts materialize). Counted from the
+    // parts first: turning them into one model is the costly part, and only a model that can match needs it.
+    shapes = parts.map(partShape)
+    const over = count(shapes, parts.length > 1)
+    if (over) return over
+    if (parts.length === 1) return built(shapeObj(shapes[0]))
+    if (!budget.charge(PAIR_CHARGE * parts.length * parts.length)) return { over: true }
+    return built(compoundObj(prefabModel(parts).pieces))
   }
-  let least = 0
-  for (const s of shapes) {
-    const c = shapeLines(s, !!pieces)
-    if (!budget.charge(c.most)) return { over: true }
-    least += c.least
-    if (least > lines) return { mismatch: true }
+  return count(shapes, !!pieces) ?? built(pieces ? compoundObj(pieces) : shapeObj(shapes[0]))
+
+  /** Charges what the shapes write; says when they can't make the model, or the budget ran out. */
+  function count(list: Shape[], inCompound: boolean): Rebuilt | null {
+    let least = 0
+    for (const sh of list) {
+      const c = shapeLines(sh, inCompound)
+      if (!budget.charge(c.most)) return { over: true }
+      least += c.least
+      if (least > lines) return { mismatch: true }
+    }
+    return null
   }
-  return { obj: cleanObj(pieces ? compoundObj(pieces) : shapeObj(shapes[0])) ?? '' }
+}
+
+/** A rebuilt model in the form a share stores (share.ts canonicalObj). */
+function built(obj: string): Rebuilt {
+  const clean = cleanObj(obj)
+  return { obj: (clean && canonicalObj(clean)?.obj) ?? '' }
 }
 
 const NUMERIC = new Set(['v', 'vt', 'vn'])
@@ -180,6 +198,39 @@ export function buildMakes(b: ModelBuild, obj: string): boolean {
   } catch { return false }
 }
 
+// ---------------- what a share stores ----------------
+
+const shapeCopy = (sh: Shape): Shape => {
+  const out: Shape = { kind: sh.kind, size: [sh.size[0], sh.size[1], sh.size[2]], tile: sh.tile }
+  for (const k of ['segments', 'taper', 'bevel', 'lie', 'fit', 'open'] as const) if (sh[k] !== undefined) (out as any)[k] = sh[k]
+  if (sh.outline) out.outline = sh.outline.map(([a, z]) => [a, z])
+  if (sh.cells) out.cells = [sh.cells[0], sh.cells[1]]
+  if (sh.heights) out.heights = [...sh.heights]
+  return out
+}
+
+/** A build's settings, field by field (call only once buildProblem passed). */
+export function cleanBuild(b: ModelBuild): ModelBuild {
+  if (b.kind === 'shape') return { kind: 'shape', shape: shapeCopy(b.shape) }
+  if (b.kind === 'compound') return { kind: 'compound', pieces: b.pieces.map((pc) => ({ shape: shapeCopy(pc.shape), at: [pc.at[0], pc.at[1], pc.at[2]], rot: pc.rot, top: pc.top, side: pc.side })) }
+  return { kind: 'prefab', key: b.key, params: { ...b.params }, at: [b.at[0], b.at[1], b.at[2]], rot: b.rot }
+}
+
+/**
+ * Every share's model settings, checked and rebuilt field by field whether or not the map is listed: settings
+ * out of range, or text where a setting has none, make the share invalid. So what a link stores is settings,
+ * never text riding along in them.
+ */
+export function cleanBuilds<D extends Pick<ShareDoc, 'builds'>>(doc: D): { doc: D; problems: string[] } {
+  if (!doc.builds) return { doc, problems: [] }
+  const builds: Record<string, ModelBuild> = {}
+  for (const [k, b] of Object.entries(doc.builds)) {
+    if (buildProblem(b)) return { doc, problems: ['The share’s model settings are not valid.'] }
+    builds[k] = cleanBuild(b)
+  }
+  return { doc: { ...doc, builds }, problems: [] }
+}
+
 /**
  * Why the map can't go in the gallery: empty when every model rebuilds from its settings as the model in the
  * share. `deadline` (performance.now() ms) is a last guard for the server: past it the check gives up.
@@ -187,6 +238,8 @@ export function buildMakes(b: ModelBuild, obj: string): boolean {
 export function galleryProblems(doc: Pick<ShareDoc, 'models' | 'made' | 'builds'>, o: { deadline?: number } = {}): string[] {
   const out = new Set<string>()
   const budget = new Budget(MAX_LINES, o.deadline)
+  // A map whose models hold more than the budget can't be rebuilt within it: said before any of the work.
+  if (Object.values(doc.models).reduce((n, t) => n + objLines(t), 0) > MAX_LINES) return ['The map has too many models to check for the gallery.']
   for (const [k, text] of Object.entries(doc.models)) {
     const made = doc.made && Object.hasOwn(doc.made, k) ? doc.made[k] : undefined
     if (!made || made === 'import') { out.add('It has imported models. Only maps built from the site’s own shapes and prefabs can go in the gallery.'); continue }

@@ -133,7 +133,7 @@ describe('the gallery rebuilds every model from its settings', () => {
     expect(shapeLines(ground, true).least).toBe(lines(compoundObj([{ shape: ground, at: [0, 0, 0], rot: 0, top: 'a', side: 'b' }])))
   })
 
-  it('stays quick however a share is made to be costly to check', () => {
+  it('refuses a share that is costly to check before doing the work, and stops at its deadline', () => {
     const tiny = cleanObj('v 0 0 0\nf 1 1 1\n')!
     const many = (n: number, build: (i: number) => ModelBuild, obj: (b: ModelBuild) => string = () => tiny) => {
       const d = { models: {} as Record<string, string>, made: {} as Record<string, 'shape' | 'compound' | 'prefab'>, builds: {} as Record<string, ModelBuild> }
@@ -143,16 +143,16 @@ describe('the gallery rebuilds every model from its settings', () => {
     const ball = (i: number): ModelBuild => ({ kind: 'shape', shape: { kind: 'sphere', size: [1 + i / 1000, 1, 1], tile: 1, segments: 128 } })
     const boxes = (i: number): ModelBuild => ({ kind: 'compound', pieces: Array.from({ length: 20000 }, (_, j) => ({ shape: { kind: 'box', size: [1 + j / 1e5, 1, 1 + i / 1e5], tile: 1 }, at: [j % 100, 0, Math.floor(j / 100)], rot: 0, top: 'a', side: 'b' })) })
     const shop = (i: number): ModelBuild => ({ kind: 'prefab', key: 'srblock', params: prefabParams(ALL_PREFABS.srblock, {}), at: [i, 0, 0], rot: 0 })
+    const pad = cleanObj('v 0 0 0\n'.repeat(300_001) + 'f 1 2 3\n')!
     for (const [d, why] of [
       [many(4000, ball), /doesn’t match/], // each would write far more than its model holds: never built
       [many(15, ball, (b) => cleanObj(shapeObj((b as { shape: Shape }).shape))!), /too many models/], // honest, but too much in all
       [many(20, boxes), /too many models/],
       [many(400, shop), /doesn’t match|too many models/],
-    ] as const) {
-      const t = performance.now()
-      expect(galleryProblems(d).join()).toMatch(why)
-      expect(performance.now() - t).toBeLessThan(4000)
-    }
+      [many(2, shop, () => pad), /too many models/], // models padded so nothing can fail early: refused by their size
+    ] as const) expect(galleryProblems(d).join()).toMatch(why)
+    // Past its deadline the check gives up at once.
+    expect(galleryProblems(many(15, ball, (b) => cleanObj(shapeObj((b as { shape: Shape }).shape))!), { deadline: performance.now() - 1 }).join()).toMatch(/too many models/)
   })
 
   it('needs a build for every model the share says the site made', () => {

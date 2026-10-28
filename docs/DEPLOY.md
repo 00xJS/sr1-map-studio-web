@@ -252,8 +252,11 @@ gallery, preview pictures, reports, ratings and time-trial boards) needs:
    its own once deployed). It deletes expired links without an account with their pictures,
    reports, ratings and times, removes hidden links' pictures, and clears the limit log after
    two days. It uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
-7. A moderator (step 4 above). Moderators see reported links in the **Moderation** section of the
-   Account page and can hide one, which stops it opening, takes it out of the gallery and removes its picture.
+7. A moderator (step 4 above). In the **Moderation** section of the Account page, moderators see
+   reported links and can hide one, which stops it opening, takes it out of the gallery and removes its
+   picture. They also see **pictures waiting**: a signed-in link's preview picture shows in link previews and the
+   gallery only once a moderator approves it (until then, and when it is turned down, the link shows the site's
+   own picture). A new picture waits again. Approving and turning down go through the share function.
 
 Optional function variables:
 
@@ -265,7 +268,8 @@ Optional function variables:
 | `SHARE_ANON_PER_DAY` | Links made without an account per address per 24 hours. Default `10`. |
 | `SHARE_ANON_UPDATES_PER_DAY` | Updates of links made without an account, per address per 24 hours. Default `30`. |
 | `SHARE_REPORTS_PER_DAY` | Reports per address per 24 hours. Default `20`. |
-| `SHARE_TIMES_PER_HOUR` | Board times per address (or account) per hour. Default `60`. |
+| `SHARE_TIMES_PER_HOUR` | Board times sent per address (or account) per hour, refused ones included. Default `60`. |
+| `SHARE_ATTEMPTS_PER_HOUR` | Tries at making or updating a link per account (or address) per hour, failed ones included. Default `30`. |
 
 Each share is capped at 8 MB packed (`SHARE_LIMITS` in `src/play/share.ts`). The function checks
 every limit before it reads a share, stores the share rebuilt from only the fields a share may

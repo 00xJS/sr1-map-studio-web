@@ -166,7 +166,12 @@ export interface ShareOptions {
 
 /** Hosts the share of map `projectId`. Without an account the link expires: see `expires_at`. */
 export async function createShare(doc: ShareDoc, projectId: string, opts: ShareOptions = {}): Promise<{ token: string; expires_at?: string }> {
-  const data = toBase64(packShare(doc))
+  // Sent as the server stores it (its allowed fields, models in stored form), so the server keeps these bytes.
+  const checked = validateShareDoc(doc)
+  if (!checked.doc) throw new ShareRejected('This map can’t be shared yet.', checked.problems)
+  const cleaned = (await import('./shareBuilds')).cleanBuilds(checked.doc)
+  if (cleaned.problems.length) throw new ShareRejected('This map can’t be shared yet.', cleaned.problems)
+  const data = toBase64(packShare(cleaned.doc))
   const b = await getBackend()
   if (!b) throw new Error('This site has no link server. Download the share file instead.')
   const user = await b.getUser()
@@ -192,8 +197,10 @@ export async function createShare(doc: ShareDoc, projectId: string, opts: ShareO
 async function localCreate(data: string, user: { id: string; name: string } | null, opts: ShareOptions, thumb: Uint8Array | null, key?: string) {
   await localExpire()
   // What the server does: unpack and check the stored bytes, not what the page says.
-  const { problems, doc: checked } = validateShareDoc(unpackShare(fromBase64(data)))
-  if (!checked) throw new ShareRejected('This map can’t be shared yet.', problems)
+  const v = validateShareDoc(unpackShare(fromBase64(data)))
+  if (!v.doc) throw new ShareRejected('This map can’t be shared yet.', v.problems)
+  const { doc: checked, problems } = (await import('./shareBuilds')).cleanBuilds(v.doc)
+  if (problems.length) throw new ShareRejected('This map can’t be shared yet.', problems)
   if (opts.listed && !user) throw new ShareRejected('Sign in to list a map in the gallery.')
   if (opts.listed) {
     const why = (await import('./shareBuilds')).galleryProblems(checked)
@@ -389,13 +396,8 @@ export async function reviewPicture(p: PendingPicture, approve: boolean) {
     await localPut('shares', p.token, approve ? { ...row, thumb_approved: true } : { ...row, thumb: null, thumb_at: null, thumb_approved: false })
     return
   }
-  const auth = await userToken()
-  const gone = await rpc<string | null>('review_share_thumb', { p_token: p.token, p_path: p.path, p_approve: approve }, auth)
-  if (gone) {
-    const { url, key } = SUPA()
-    const res = await fetch(`${url}/storage/v1/object/share-thumbs/${encodeURIComponent(gone)}`, { method: 'DELETE', headers: { apikey: key, Authorization: `Bearer ${auth}` } })
-    if (!res.ok) throw new Error(`The picture was turned down but couldn’t be deleted (HTTP ${res.status}). The link no longer shows it.`)
-  }
+  // Through the share function, which deletes a turned-down picture before the link forgets it.
+  await fn('/api/share/review', { token: p.token, path: p.path, approve })
 }
 
 // ---------------- the gallery ----------------
