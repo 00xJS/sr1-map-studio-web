@@ -1,5 +1,5 @@
 // Block-out shapes, prefabs and photo frames.
-import { useEditor, currentProject, thingKey, keepQuiet, mirrorPaused } from '../store'
+import { useEditor, currentProject, thingKey, command, type Edits } from '../store'
 import { importImage } from '../../lib/importers'
 import { cacheModel } from '../../lib/assets'
 import { uid, type FileRef, type Project, type SceneItem, type Vec3 } from '../../lib/project'
@@ -30,9 +30,7 @@ async function storeShape(shape: Shape) {
 }
 
 /** Adds a block-out shape at the camera target, resting on the surface below if there is one. */
-export async function addShape(presetKey: string, at: Vec3, groundY: number | null, o: { rot?: number; size?: Vec3 } = {}) {
-  // Called inside withoutMirror (the AI), its edit isn't mirrored either.
-  const noMirror = mirrorPaused()
+export const addShape = command(async (e: Edits, presetKey: string, at: Vec3, groundY: number | null, o: { rot?: number; size?: Vec3 } = {}) => {
   const preset = SHAPE_PRESETS[presetKey]
   if (!preset) return
   const shape = structuredClone(preset.shape)
@@ -44,13 +42,13 @@ export async function addShape(presetKey: string, at: Vec3, groundY: number | nu
     position: [at[0], groundY ?? 0, at[2]], rotation: [0, o.rot ?? 0, 0], scale: 1,
     textures: { top: tex.top, side: tex.side }, alpha: { top: false, side: false }, surface_ids: { top: 0, side: 0 }, physics_intent: 'Static',
   }
-  update('Add ' + preset.label.toLowerCase(), (d) => {
+  e.update('Add ' + preset.label.toLowerCase(), (d) => {
     Object.assign(d.files, tex.files, { [stored.vpath]: stored.ref })
     d.scene_items.push(item)
-  }, { noMirror })
+  })
   useEditor.getState().select({ kind: 'item', index: currentProject()!.scene_items.length - 1 })
   log(`Added ${preset.label.toLowerCase()} (${shapeName('', shape, currentProject()?.settings.world_scale).trim()}). Change its look in the panel on the right.`)
-}
+})
 
 /** Regenerates a shape's mesh after its size, steps/sides or texture scale change. */
 export async function updateShape(index: number, patch: Partial<Shape>) {
@@ -84,12 +82,10 @@ export async function prefabItem(key: string, params: Record<string, number | st
  * With `wall` (the clicked surface's outward direction), one that can go on a
  * wall (a sign, a photo frame) is stuck flat on it, centred on the click.
  */
-export async function addPrefab(key: string, at: Vec3, groundY: number | null, o: { rot?: number; params?: Record<string, number | string>; wall?: Vec3 } = {}) {
-  // Called inside withoutMirror (the AI), its edit isn't mirrored either.
-  const noMirror = mirrorPaused()
+export const addPrefab = command(async (e: Edits, key: string, at: Vec3, groundY: number | null, o: { rot?: number; params?: Record<string, number | string>; wall?: Vec3 } = {}) => {
   const def = ALL_PREFABS[key]
   if (!def) return
-  if ((def as { physicsSet?: boolean }).physicsSet) { const physics = await import('../physicsActions'); return keepQuiet(noMirror, () => physics.addPhysicsSet(key, at, groundY, o.rot ?? 0)) }
+  if ((def as { physicsSet?: boolean }).physicsSet) { const physics = await import('../physicsActions'); return e.quietly(() => physics.addPhysicsSet(key, at, groundY, o.rot ?? 0)) }
   let params = o.params ?? {}, base: Vec3 = [at[0], groundY ?? 0, at[2]], rot = o.rot ?? 0
   const n = o.wall
   if (def.onWall && n && Math.abs(n[1]) < 0.6) {
@@ -101,24 +97,22 @@ export async function addPrefab(key: string, at: Vec3, groundY: number | null, o
     base = [at[0] + (n[0] / len) * 0.03, at[1] - top / 2, at[2] + (n[2] / len) * 0.03]
   }
   const { item, files } = await prefabItem(key, params, base, rot)
-  update('Add ' + def.label.toLowerCase(), (d) => {
+  e.update('Add ' + def.label.toLowerCase(), (d) => {
     Object.assign(d.files, files)
     d.scene_items.push(item)
-  }, { noMirror })
+  })
   useEditor.getState().select({ kind: 'item', index: currentProject()!.scene_items.length - 1 })
   log(`Added ${def.label.toLowerCase()}. Change its settings, turn it or repaint it in its panel.`)
-}
+})
 
 /** Rebuilds a placed prefab with new settings, in place; repaints the user made are kept where the same part still exists. */
-export async function updatePrefab(index: number, params: Record<string, number | string>) {
-  // Called inside withoutMirror (the AI), its edit isn't mirrored either.
-  const noMirror = mirrorPaused()
+export const updatePrefab = command(async (e: Edits, index: number, params: Record<string, number | string>) => {
   const it = currentProject()?.scene_items[index]
   const pf = it?.prefab
   if (!it || !pf || !ALL_PREFABS[pf.key]) return
   const { item, files } = await prefabItem(pf.key, params, it.position, it.rotation[1])
   const repaint = new Map(Object.entries(pf.defaults).filter(([m, v]) => it.textures[m] && it.textures[m] !== v).map(([m, v]) => [v, it.textures[m]]))
-  update('Change ' + ALL_PREFABS[pf.key].label.toLowerCase(), (d) => {
+  e.update('Change ' + ALL_PREFABS[pf.key].label.toLowerCase(), (d) => {
     Object.assign(d.files, files)
     const x = d.scene_items[index]
     x.path = item.path; x.source_path = item.path
@@ -128,8 +122,8 @@ export async function updatePrefab(index: number, params: Record<string, number 
     if (item.water_materials) x.water_materials = item.water_materials
     else delete x.water_materials
     pruneFiles(d)
-  }, { merge: 'prefab-' + thingKey('item', index), noMirror })
-}
+  }, { merge: 'prefab-' + thingKey('item', index) })
+})
 
 /** The material of a placed photo frame that shows its picture (null for anything else). */
 export const photoMaterial = (it: SceneItem, files: Project['files']): string | null =>

@@ -1,5 +1,5 @@
 // Carries out the edits an AI chat reply asks for, as one undo step.
-import { useEditor, currentProject, editJob, withoutMirror } from './store'
+import { useEditor, currentProject, editJob, isCommand, mirrorCentreNow, withoutMirror } from './store'
 import { getViewer } from './Viewport'
 import * as actions from './actions'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
@@ -20,10 +20,18 @@ import type { Swatch } from './store'
 
 // The AI's own edits aren't mirrored (it places both halves itself when asked, mirror: true): every edit command it
 // calls runs inside withoutMirror, and its own updates say noMirror. The user's edits meanwhile are mirrored as usual.
-const quiet = <F extends (...a: never[]) => unknown>(f: F): F => ((...a: Parameters<F>) => withoutMirror(() => f(...a))) as F
-const act = Object.fromEntries(Object.entries(actions).map(([k, v]) => [k, typeof v === 'function' ? quiet(v as () => unknown) : v])) as unknown as typeof actions
-const paintMaterial = quiet(paint), makePhysicsProps = quiet(physicsProps)
-const gameObjects = async () => quiet((await import('./gameObjectActions')).placeGameObject)
+// An async command edits after an await, outside withoutMirror: only ones made with command() carry it there, so
+// any other is refused here rather than quietly mirrored.
+export const quiet = <F extends (...a: never[]) => unknown>(f: F, name = f.name): F => ((...a: Parameters<F>) => withoutMirror(() => {
+  const out = f(...a)
+  if (out instanceof Promise && !isCommand(f)) throw new Error(`${name} is async but not made with command(): its edits would be mirrored`)
+  return out
+})) as F
+let quietActs: typeof actions | null = null
+/** The editor's commands, each run as the AI's (built once, on first use). */
+const acts = () => (quietActs ??= Object.fromEntries(Object.entries(actions).map(([k, v]) => [k, typeof v === 'function' ? quiet(v as () => unknown, k) : v])) as unknown as typeof actions)
+const paintMaterial = quiet(paint, 'paintMaterial'), makePhysicsProps = quiet(physicsProps, 'makePhysicsProps')
+const gameObjects = async () => quiet((await import('./gameObjectActions')).placeGameObject, 'placeGameObject')
 
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
 const TWIN_MARKER: Record<string, string> = { 'Red team spawn': 'Blue team spawn', 'Blue team spawn': 'Red team spawn' }
@@ -73,6 +81,7 @@ export function runAiActions(actions: AiAction[], label: string): Promise<{ done
 }
 
 async function applyAiActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
+  const act = acts()
   const st = { ...useEditor.getState(), update: ((l, r, o) => useEditor.getState().update(l, r, { ...o, noMirror: true })) as ReturnType<typeof useEditor.getState>['update'] }
   if (!st.project) return { done: 0, skipped: ['No map is open.'] }
   const start = st.past.length
@@ -82,9 +91,10 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
   let done = 0
   const count = () => currentProject()!.scene_items.length
   const item = (i: unknown) => (Number.isInteger(i) && (i as number) >= 0 && (i as number) < count() ? (i as number) : null)
-  // Each placement, plus its twin across the middle when asked.
+  // Each placement, plus its twin across the middle when asked: the middle mirror mode and the fairness check use.
+  const [cx, cz] = mirrorCentreNow() ?? [0, 0]
   const spots = (x: number, z: number, turn: number, mirror?: boolean): [number, number, number, boolean][] =>
-    mirror && (Math.abs(x) > 0.5 || Math.abs(z) > 0.5) ? [[x, z, turn, false], [-x, -z, (turn + 180) % 360, true]] : [[x, z, turn, false]]
+    mirror && (Math.abs(x - cx) > 0.5 || Math.abs(z - cz) > 0.5) ? [[x, z, turn, false], [2 * cx - x, 2 * cz - z, (turn + 180) % 360, true]] : [[x, z, turn, false]]
 
   // Lines and rings expand into more edits in place.
   const queue = [...actions]
@@ -216,7 +226,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           if (at.length < want.length) skipped.push(`room for ${at.length} of ${want.length} weapons`)
           at.forEach((p, i) => {
             act.addMarker('Weapon pickup', [p[0], p[1] + 0.1, p[2]], { weapon: want[i] }); done++
-            if (a.mirror !== false) { act.addMarker('Weapon pickup', [-p[0], p[1] + 0.1, -p[2]], { weapon: want[i] }); done++ }
+            if (a.mirror !== false) { act.addMarker('Weapon pickup', [2 * cx - p[0], p[1] + 0.1, 2 * cz - p[2]], { weapon: want[i] }); done++ }
           })
           break
         }

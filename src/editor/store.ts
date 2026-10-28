@@ -165,35 +165,72 @@ let lastMerge: { key: string; at: number } | null = null
 export const breakMerge = () => { lastMerge = null }
 /** Mirror mode's pairs for the edit going on (kept through a merged edit such as a gizmo drag). */
 let mirroring: MirrorSession | null = null
-/** The middle mirror mode turns about, found when it's turned on (at its first edit) and kept until it's turned off
- *  or another map opens: edits it doesn't copy (the AI's, a fix moving spawns) mustn't shift it and break the pairs. */
-let pinned: { projectId: string; centre: Centre } | null = null
+/** The middle mirror mode turns about, found when it's turned on and kept until it's turned off or another map opens:
+ *  edits it doesn't copy (the AI's, a fix moving spawns) mustn't shift it and break the pairs. `depth`: the undo steps
+ *  there were then; undoing past that finds the middle again. */
+let pinned: { projectId: string; centre: Centre; depth: number } | null = null
 
-/** The middle mirror mode turns about on the open map (the one it pinned, else where it would pin it now). */
+function pin(): { projectId: string; centre: Centre; depth: number } | null {
+  const { project, past } = useEditor.getState()
+  pinned = project ? { projectId: project.id, centre: centreOf(project), depth: past.length } : null
+  return pinned
+}
+
+/** The middle on the open map: while mirror mode is on, the one it pinned (the Twins line, the cost line and the
+ *  fairness check all use it then); else where it would pin it now. */
 export function mirrorCentreNow(): Centre | null {
-  const p = useEditor.getState().project
-  if (!p) return null
-  return pinned?.projectId === p.id ? pinned.centre : centreOf(p)
+  const { project, mirror } = useEditor.getState()
+  if (!project) return null
+  if (!mirror) return centreOf(project)
+  return (pinned?.projectId === project.id ? pinned : pin())!.centre
+}
+
+/** After undo or redo: back past where mirror mode pinned its middle, it finds it again on the map as it is now. */
+function repinAfterHistory() {
+  const { mirror, past } = useEditor.getState()
+  if (mirror && pinned && past.length < pinned.depth) pin()
 }
 /** How deep in withoutMirror calls the code running right now is. */
 let unmirrored = 0
 
 /**
  * Runs `fn` with mirror mode's copying off for the edits it makes itself: the ones it makes before it returns, and
- * those of the async edit commands it starts (they note mirrorPaused() as they begin and pass it on, see keepQuiet).
- * Only the call itself: the user's own edits meanwhile, while a job awaits, are mirrored as usual. For edits that make
- * both halves themselves (the AI's "and its twin" placements).
+ * those of the async edit commands it starts (made with command(), they carry it past their awaits). Only the call
+ * itself: the user's own edits meanwhile, while a job awaits, are mirrored as usual. For edits that make both halves
+ * themselves (the AI's "and its twin" placements).
  */
 export function withoutMirror<T>(fn: () => T): T {
   unmirrored++
   try { return fn() } finally { unmirrored-- }
 }
 
-/** Was this edit command called inside withoutMirror? Async commands ask as they begin, before their first await. */
-export const mirrorPaused = () => unmirrored > 0
+const COMMAND = Symbol('edit command')
 
-/** Runs `fn` inside withoutMirror when `quiet` (what an async command noted with mirrorPaused() as it began). */
-export const keepQuiet = <T,>(quiet: boolean, fn: () => T): T => (quiet ? withoutMirror(fn) : fn())
+/** What a command() edits through: update with its caller's mirror setting, and another command run the same way. */
+export interface Edits {
+  update: EditorState['update']
+  quietly<T>(fn: () => T): T
+}
+
+/**
+ * An edit command that awaits before it edits (a model to build, a file to store). Started inside withoutMirror (the
+ * AI's edits), its edits aren't mirrored though they land after the await: `e.update` carries that, and `e.quietly`
+ * runs another command the same way. The AI runs only async commands made with this (aiActions.ts checks).
+ */
+export function command<A extends unknown[], R>(fn: (e: Edits, ...a: A) => Promise<R>): (...a: A) => Promise<R> {
+  const run = (...a: A) => {
+    const quiet = unmirrored > 0
+    const e: Edits = {
+      update: (label, recipe, opts) => useEditor.getState().update(label, recipe, quiet ? { ...opts, noMirror: true } : opts),
+      quietly: (f) => (quiet ? withoutMirror(f) : f()),
+    }
+    return fn(e, ...a)
+  }
+  return Object.assign(run, { [COMMAND]: true as const })
+}
+
+/** Was `f` made with command()? */
+export const isCommand = (f: unknown): boolean => typeof f === 'function' && COMMAND in f
 
 export const useEditor = create<EditorState>((set, get) => ({
   project: null,
@@ -254,8 +291,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     lastMerge = opts?.merge ? { key: opts.merge, at: now } : null
     if (get().mirror && !txn && !unmirrored && !opts?.noMirror && !replaced) {
       // The pairs found at the start of a drag hold for all of it.
-      if (pinned?.projectId !== cur.id) pinned = { projectId: cur.id, centre: centreOf(cur) }
-      if (!merging || mirroring?.projectId !== cur.id) mirroring = mirrorSession(cur, pinned.centre)
+      const at = pinned?.projectId === cur.id ? pinned : pin()!
+      if (!merging || mirroring?.projectId !== cur.id || mirroring.centre !== at.centre) mirroring = mirrorSession(cur, at.centre)
       next = mirrorEdit(cur, next, uid, mirroring)
     }
     // Inside a transaction its edits add no steps of their own: it adds one when it ends.
@@ -270,6 +307,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     lastMerge = null
     set({ project: prev.project, ...reanchor(get(), project, prev.project), past: past.slice(0, -1), future: [{ project, label: prev.label }, ...future], saveState: 'unsaved' })
     get().log('Undo: ' + prev.label)
+    repinAfterHistory()
   },
   redo() {
     if (get().locked) return
@@ -279,6 +317,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     lastMerge = null
     set({ project: next.project, ...reanchor(get(), project, next.project), future: future.slice(1), past: [...past, { project, label: next.label }], saveState: 'unsaved' })
     get().log('Redo: ' + next.label)
+    repinAfterHistory()
   },
   jumpTo(steps) {
     let { past, project, future } = get()
@@ -298,6 +337,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       future = future.slice(1)
     }
     set({ project, ...reanchor(get(), from, project), past, future, saveState: 'unsaved' })
+    repinAfterHistory()
   },
   async transaction(label, fn) {
     if (txn) { await fn(); return }
@@ -438,8 +478,8 @@ export function selectedItems(): number[] {
 }
 
 useEditor.subscribe((s, prev) => {
-  // Turned off (or on again): the next time it's on, it finds the middle afresh.
-  if (s.mirror !== prev.mirror) { pinned = null; mirroring = null }
+  // Turned on: it finds the middle on the map as it is now, and keeps it until it's turned off.
+  if (s.mirror !== prev.mirror) { mirroring = null; if (s.mirror) pin(); else pinned = null }
   if (s.allSettings !== prev.allSettings) writeFlag('sr1-advanced', s.allSettings)
   if (s.freeCam !== prev.freeCam) writeFlag('sr1-freecam', s.freeCam)
   if (s.layeredLook !== prev.layeredLook) writeFlag('sr1-layered', s.layeredLook)

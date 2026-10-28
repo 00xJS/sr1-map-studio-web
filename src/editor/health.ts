@@ -2,7 +2,7 @@
 // overlay the 3D view shows. Kept apart from the editor store; the report
 // is not saved with the map (it is quick to make again).
 import { create } from 'zustand'
-import { useEditor } from './store'
+import { mirrorCentreNow, useEditor } from './store'
 import type { Viewer } from './Viewer'
 import { analysisKey } from '../lib/analysis/collision'
 import { analyzeProject, cancelAnalysis } from '../lib/analysis/client'
@@ -71,7 +71,9 @@ export async function runHealthCheck(overlay?: OverlayKind) {
   const started = performance.now()
   useHealth.setState({ running: true, error: null, progress: { text: 'Reading the map', done: 0 } })
   try {
-    const report = await analyzeProject(project, { onProgress: (text, done) => useHealth.setState({ progress: { text, done } }) })
+    // In mirror mode, the fairness check pairs markers about the middle mirror mode pinned, as the Build tab counts them.
+    const centre = useEditor.getState().mirror ? mirrorCentreNow() ?? undefined : undefined
+    const report = await analyzeProject(project, { centre, onProgress: (text, done) => useHealth.setState({ progress: { text, done } }) })
     // Its textures as the exporter will store them: a map whose textures don't fit the game's memory loads black.
     // Steps too tall to walk up (a flight, a doorstep, a terrace) that have no invisible ramp yet: players stop at each.
     const solid = await solidTriangles(project).catch(() => null)
