@@ -82,18 +82,30 @@ interface EditorState {
 }
 
 const LIMIT = 150
-interface Txn { label: string; start: Project | null; opens: number; stop: () => void }
+interface Txn {
+  label: string
+  /** The map when its edits began (null while it waits for edit jobs to end). */
+  start: Project | null
+  /** Its edits have begun: they add no undo steps of their own. */
+  started: boolean
+  /** Stop, or opening a map, ended it: work it started must not edit after. */
+  stopped: boolean
+  opens: number
+  stop: () => void
+}
 /** The transaction running now, if any (only one runs at a time). */
 let txn: Txn | null = null
-/** Maps opened so far, the same one again included. */
+/** Maps opened (or closed) so far, the same one again included. */
 let opens = 0
-/** Bumped when a map is opened and when a transaction is stopped: async work started before must not edit after. */
-let epoch = 0
-/** Where async work starts: compare with `stillCurrent(run)` after each await before editing. */
-export const editEpoch = () => epoch
-/** Throws if a map was opened (the same one again too) or the transaction was stopped since `run` = editEpoch(). */
-export function stillCurrent(run: number) { if (epoch !== run) throw new Error('the map changed meanwhile') }
-/** Resolves once no transaction holds the editor (edits queued for a map wait for Fix all to end). */
+/** Async work that edits the map: the map it started on, and the transaction it started in (Fix all's fixes). */
+export interface Run { opens: number; txn: Txn | null }
+/** Where async work starts: check `stillCurrent(run)` after each await before editing. */
+export const startRun = (): Run => ({ opens, txn })
+/** False once a map was opened (the same one again too) since `run`, or the transaction it ran in was stopped. */
+export const isCurrent = (run: Run) => run.opens === opens && !run.txn?.stopped
+/** Throws unless `isCurrent(run)`. */
+export function stillCurrent(run: Run) { if (!isCurrent(run)) throw new Error('the map changed meanwhile') }
+/** Resolves once no transaction holds the editor. */
 export function whenUnlocked(): Promise<void> {
   if (!useEditor.getState().locked) return Promise.resolve()
   return new Promise((done) => {
@@ -101,11 +113,27 @@ export function whenUnlocked(): Promise<void> {
   })
 }
 
+/** Edit jobs running now (AI edits, the stair ramps a game-pieces map gets) and who waits for them to end. */
+let jobs = 0
+let jobsDone: (() => void)[] = []
+/**
+ * Runs `fn`, an edit job that runs alongside the user (AI edits), never at the same time as a transaction: each
+ * waits for the other, so neither's edits land in the other's undo step.
+ */
+export async function editJob<T>(fn: () => Promise<T>): Promise<T> {
+  while (useEditor.getState().locked) await whenUnlocked()
+  jobs++
+  try { return await fn() } finally {
+    if (!--jobs) { const w = jobsDone; jobsDone = []; w.forEach((done) => done()) }
+  }
+}
+const whenNoJobs = () => (jobs ? new Promise<void>((done) => jobsDone.push(done)) : Promise.resolve())
+
 /** One step back to where `t` started, unless nothing changed or a map was opened since; then the editor is free. */
 function endTransaction(t: Txn) {
   txn = null
   const { past, project } = useEditor.getState()
-  if (t.start && project && project !== t.start && t.opens === opens) useEditor.setState({ past: [...past, { project: t.start, label: t.label }].slice(-LIMIT), future: [] })
+  if (t.started && t.start && project && project !== t.start && t.opens === opens) useEditor.setState({ past: [...past, { project: t.start, label: t.label }].slice(-LIMIT), future: [] })
   useEditor.setState({ locked: null })
   lastMerge = null
 }
@@ -114,9 +142,9 @@ function endTransaction(t: Txn) {
 function leaveMap() {
   const t = txn
   txn = null
+  if (t) t.stopped = true
   lastMerge = null
   opens++
-  epoch++
   return t
 }
 
@@ -177,7 +205,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     const merging = opts?.merge && lastMerge && lastMerge.key === opts.merge && now - lastMerge.at < 1500
     lastMerge = opts?.merge ? { key: opts.merge, at: now } : null
     // Inside a transaction its edits add no steps of their own: it adds one when it ends.
-    const past = merging || txn ? get().past : [...get().past, { project: cur, label }].slice(-LIMIT)
+    const past = merging || txn?.started ? get().past : [...get().past, { project: cur, label }].slice(-LIMIT)
     set({ project: next, ...reanchor(get(), cur, next), past, future: [], saveState: 'unsaved' })
   },
   undo() {
@@ -221,17 +249,25 @@ export const useEditor = create<EditorState>((set, get) => ({
     if (txn) { await fn(); return }
     let stop = () => {}
     const stopped = new Promise<void>((r) => { stop = r })
-    const mine: Txn = { label, start: get().project, opens, stop }
+    const mine: Txn = { label, start: null, started: false, stopped: false, opens, stop }
     txn = mine
     lastMerge = null
+    // Locked at once (the cover shows, no new edit job starts), then it waits for the jobs already running.
     set({ locked: label })
     // Stop (or opening a map) ends it without waiting for `fn`, which may never finish.
-    try { await Promise.race([fn(), stopped]) } finally { if (txn === mine) endTransaction(mine) }
+    try {
+      if (jobs) await Promise.race([whenNoJobs(), stopped])
+      if (txn !== mine) return
+      mine.start = get().project
+      mine.started = true
+      lastMerge = null
+      await Promise.race([fn(), stopped])
+    } finally { if (txn === mine) endTransaction(mine) }
   },
   stopTransaction() {
     const t = txn
     if (!t) return
-    epoch++
+    t.stopped = true
     endTransaction(t)
     t.stop()
   },

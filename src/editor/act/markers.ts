@@ -1,5 +1,5 @@
 // Spawns, markers and lights.
-import { useEditor, currentProject, editEpoch, stillCurrent } from '../store'
+import { useEditor, currentProject, startRun, stillCurrent } from '../store'
 import { catalogs } from '../../lib/catalogs'
 import { newLight, newMarker, type Marker, type Vec3 } from '../../lib/project'
 import { log, update, UserError } from './core'
@@ -22,7 +22,7 @@ export function removeSelected() {
 
 /** Gives the map the default sky picture (as new maps get), so the game doesn't draw a black sky. */
 export async function addDefaultSky() {
-  const run = editEpoch()
+  const run = startRun()
   const { skyFile } = await import('../../lib/samples')
   const sky = await skyFile()
   // A map opened while the picture loaded keeps its own sky.

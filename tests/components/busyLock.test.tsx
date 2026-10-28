@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-// The cover while Fix all (a transaction) runs: the editor behind it takes no clicks, Tab or keys, and Stop ends it.
+// The cover while Fix all (a transaction) runs: the editor behind it takes no clicks, Tab or keys, focus waits on
+// Stop (and comes back after), and Stop ends it.
 import { createRef } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -10,7 +11,7 @@ import { newProject } from '../../src/lib/project'
 afterEach(() => { cleanup(); useEditor.getState().close() })
 
 describe('Busy cover', () => {
-  it('makes the editor inert, takes focus out of it, and Stop ends the transaction with what it did', async () => {
+  it('makes the editor inert, moves focus to Stop and back, and Stop ends the transaction with what it did', async () => {
     useEditor.getState().open(newProject('Cover'))
     const editor = createRef<HTMLDivElement>()
     render(<div ref={editor}><input aria-label="Name" /><BusyLock editor={editor} /></div>)
@@ -27,16 +28,17 @@ describe('Busy cover', () => {
       })
     })
     expect(editor.current!.inert).toBe(true)
-    expect(document.activeElement).not.toBe(field)
-    // The cover sits outside the editor, so it isn't inert itself.
+    // The cover sits outside the editor, so it isn't inert itself, and Stop has the focus.
     const stop = screen.getByRole('button', { name: 'Stop' })
     expect(editor.current!.contains(stop)).toBe(false)
+    expect(document.activeElement).toBe(stop)
 
     fireEvent.click(stop)
     await act(() => running)
     expect(useEditor.getState().locked).toBeNull()
     expect(editor.current!.inert).toBe(false)
     expect(screen.queryByRole('button', { name: 'Stop' })).toBeNull()
+    expect(document.activeElement).toBe(field)
     expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Fix all'])
     stuck()
   })

@@ -1,7 +1,7 @@
 // "Spawns and weapons" in the health panel: every spawn and weapon where a player can use it (lib/markerPlan.ts), on
 // the open map's real collision. Ones inside something, in the air or on floor nobody can walk to move to the nearest
 // usable spot; spawns and weapons are added up to what a full match wants. One undo step.
-import { useEditor, currentProject, editEpoch, stillCurrent } from './store'
+import { useEditor, currentProject, isCurrent, startRun, stillCurrent, type Run } from './store'
 import { isRamps, solidTriangles } from './stairActions'
 import { prepareMap } from '../lib/analysis/analyze'
 import { collisionFromProject, waterAreas } from '../lib/analysis/collision'
@@ -91,11 +91,26 @@ export function spawnFixSummary({ plan }: SpawnFixPlan): SpawnFix & { text: stri
   return { moved: plan.moved.length, added: { spawns, weapons }, reasons, floor: plan.floor, text }
 }
 
-/** Plans the fix on the open map and applies it. */
+/** The spawn fix being planned now, if any, and the run it belongs to. */
+let planning: { done: Promise<SpawnFix>; run: Run } | null = null
+
+/**
+ * Plans the fix on the open map and applies it. One at a time: a second one (Place spawns automatically clicked
+ * again, or the Check tab's fix meanwhile) waits for the first to land and plans from its result, so nothing is
+ * added twice. A plan whose run ended (Stop, a map opened) can't land, so nothing waits for it.
+ */
 export async function fixSpawnsAndWeapons(): Promise<SpawnFix> {
+  while (planning && isCurrent(planning.run)) await planning.done.catch(() => undefined)
+  const run = startRun()
+  const done = planAndApply(run)
+  const mine = { done, run }
+  planning = mine
+  try { return await done } finally { if (planning === mine) planning = null }
+}
+
+async function planAndApply(run: Run): Promise<SpawnFix> {
   const project = currentProject()
   if (!project) return { moved: 0, added: { spawns: 0, weapons: 0 }, reasons: [], floor: 0 }
-  const run = editEpoch()
   const fix = await planSpawnFix(project)
   // A map was opened (or Fix all stopped) while it planned: this plan is not about it.
   stillCurrent(run)

@@ -232,12 +232,30 @@ function Editor() {
 /** While Fix all (a transaction) edits the map, the whole editor waits: nothing else can change it meanwhile. */
 export function BusyLock({ editor }: { editor: RefObject<HTMLDivElement> }) {
   const locked = useEditor((s) => s.locked)
-  // Behind the cover nothing takes a click, Tab or a key: an edit made meanwhile would land in its undo step.
+  const stop = useRef<HTMLButtonElement>(null)
+  const back = useRef<HTMLElement | null>(null)
+  // Behind the cover nothing takes a click, Tab or a key: an edit made meanwhile would land in its undo step. Focus
+  // goes to Stop, and back where it was once the editor is free (its button may take a moment to be enabled again).
   useEffect(() => {
     const el = editor.current
     if (!el) return
     el.inert = !!locked
-    if (locked && document.activeElement instanceof HTMLElement && el.contains(document.activeElement)) document.activeElement.blur()
+    if (locked) {
+      const was = document.activeElement
+      back.current = was instanceof HTMLElement && was !== document.body ? was : null
+      stop.current?.focus()
+      return
+    }
+    const to = back.current
+    back.current = null
+    let tries = 20, raf = 0
+    const put = () => {
+      if (!to?.isConnected || document.activeElement === to) return
+      to.focus()
+      if (document.activeElement !== to && --tries > 0) raf = requestAnimationFrame(put)
+    }
+    put()
+    return () => cancelAnimationFrame(raf)
   }, [editor, locked])
   if (!locked) return null
   return createPortal(
@@ -245,7 +263,7 @@ export function BusyLock({ editor }: { editor: RefObject<HTMLDivElement> }) {
       <div className="busy-lock-card">
         <b>{locked}…</b>
         <span className="small muted">The editor waits until it's done.</span>
-        <button className="sm" title="Keeps what's fixed so far: one Undo takes it back." onClick={() => useEditor.getState().stopTransaction()}>Stop</button>
+        <button ref={stop} className="sm" title="Keeps what's fixed so far: one Undo takes it back." onClick={() => useEditor.getState().stopTransaction()}>Stop</button>
       </div>
     </div>,
     document.body,

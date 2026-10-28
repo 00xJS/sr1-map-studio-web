@@ -3,7 +3,8 @@
 // others, the editor is locked while it runs, a fix that never finishes can be stopped (or times out) without writing
 // later, opening a map ends it, and one map's findings never show on another.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useEditor, whenUnlocked } from '../../src/editor/store'
+import { editJob, useEditor, whenUnlocked } from '../../src/editor/store'
+import { runAiActions } from '../../src/editor/aiActions'
 import { loadModel } from '../../src/lib/assets'
 import { skyFile } from '../../src/lib/samples'
 import { addDefaultSky } from '../../src/editor/actions'
@@ -73,7 +74,7 @@ function openMap() {
 }
 
 const spawnFix = vi.mocked(fixSpawnsAndWeapons)
-afterEach(() => { useEditor.getState().close(); spawnFix.mockReset() })
+afterEach(() => { useEditor.getState().close(); spawnFix.mockReset(); vi.clearAllMocks() })
 
 /** Makes the next model read hang until the returned function is called (a stuck IndexedDB read). */
 function hangModelRead() {
@@ -217,6 +218,71 @@ describe('Fix all that never finishes', () => {
     await expect(adding).rejects.toThrow(/map changed/)
     expect(useEditor.getState().project).toBe(b)
     expect(useEditor.getState().past).toEqual([])
+  })
+})
+
+describe('Fix all and the edits running beside it', () => {
+  const realSpawnFix = async () => (await vi.importActual<typeof import('../../src/editor/spawnActions')>('../../src/editor/spawnActions')).fixSpawnsAndWeapons()
+
+  it("waits for a spawn plan running in the background, and Stop doesn't cancel that plan", { timeout: 30000 }, async () => {
+    openMap()
+    // Place spawns automatically (the Install dialog's checklist) runs on after the dialog closes.
+    const release = hangModelRead()
+    const background = editJob(realSpawnFix)
+    await vi.waitFor(() => expect(loadModel).toHaveBeenCalled())
+    const running = fixAll([{ kind: 'walls' }])
+    await settle()
+    // Covered at once, but its edits wait for the plan.
+    expect(useEditor.getState().locked).toBe('Fix all')
+    expect(useEditor.getState().project!.settings.remove_invisible_walls).toBe(false)
+
+    useEditor.getState().stopTransaction()
+    expect(await running).toEqual({ done: [], failed: ['invisible walls (stopped)'] })
+    release()
+    const placed = await background
+    expect(placed.floor).toBeGreaterThan(0)
+    expect(placed.added.spawns + placed.added.weapons + placed.moved).toBeGreaterThan(0)
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Fix spawns and weapons'])
+  })
+
+  it('runs after a background spawn plan lands, as its own undo step', { timeout: 30000 }, async () => {
+    openMap()
+    const release = hangModelRead()
+    const background = editJob(realSpawnFix)
+    await vi.waitFor(() => expect(loadModel).toHaveBeenCalled())
+    const running = fixAll([{ kind: 'walls' }])
+    release()
+    await background
+    expect((await running).done).toEqual(['invisible walls left out at export'])
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Fix spawns and weapons', 'Fix all'])
+    useEditor.getState().undo()
+    expect(useEditor.getState().project!.settings.remove_invisible_walls).toBe(false)
+    expect(useEditor.getState().project!.markers.length).toBeGreaterThan(1)
+  })
+
+  it('makes AI edits arriving mid-run wait, so undoing Fix all keeps them and they keep their own step', { timeout: 30000 }, async () => {
+    openMap()
+    let finish = () => {}
+    spawnFix.mockImplementation(async () => {
+      useEditor.getState().update('Fix spawns and weapons', (d) => { d.markers.push(newMarker('Shared spawn', [5, 0, 5])) })
+      await new Promise<void>((r) => { finish = r })
+      return { moved: 0, added: { spawns: 1, weapons: 0 }, reasons: [], floor: 10 }
+    })
+    const running = fixAll([{ kind: 'spawns' }])
+    await vi.waitFor(() => expect(useEditor.getState().project!.markers).toHaveLength(2))
+    // An AI reply comes in while Fix all holds the editor.
+    const ai = runAiActions([{ do: 'rename_map', name: 'Harbor Rumble' }], 'AI extras')
+    await settle()
+    expect(useEditor.getState().project!.settings.display_name).not.toBe('Harbor Rumble')
+    finish()
+    await running
+    expect((await ai).done).toBe(1)
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Fix all', 'AI extras'])
+    // Undo the AI's step, then Fix all's: each takes back only its own.
+    useEditor.getState().undo()
+    expect(useEditor.getState().project!.markers).toHaveLength(2)
+    useEditor.getState().undo()
+    expect(useEditor.getState().project!.markers).toHaveLength(1)
   })
 })
 

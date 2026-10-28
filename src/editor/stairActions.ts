@@ -1,7 +1,7 @@
 // Invisible ramps over stairs too tall to walk up (lib/stairRamps.ts): found in the map's solid objects, added as one
 // object of see-through ramps that players run up in game. Made from site recipes (open ramp shapes and the
 // generated "invisible" texture), so a map with them can still be shared.
-import { useEditor, currentProject, editEpoch, stillCurrent } from './store'
+import { useEditor, currentProject, startRun, stillCurrent } from './store'
 import { cacheModel, loadModel } from '../lib/assets'
 import { parseObj, type ObjModel } from '../lib/geometry'
 import { storeFile } from '../lib/files'
@@ -32,7 +32,7 @@ export async function solidTriangles(project: Project, keep: (it: SceneItem) => 
 export async function addStairRamps(): Promise<number> {
   const project = currentProject()
   if (!project) return 0
-  const run = editEpoch()
+  const run = startRun()
   const input = await solidTriangles(project, (it) => !isRamps(it))
   // The finder measures in the usual editor units (0.5 m each): a map with another world scale is measured in game metres.
   const k = (project.settings.world_scale || 0.5) / 0.5
@@ -48,9 +48,11 @@ export async function addStairRamps(): Promise<number> {
   const origin = sum.map((v) => +(v / runs.length).toFixed(2)) as Vec3
   const pieces = rampPieces(runs, origin, MAT)
   const text = compoundObj(pieces)
+  // The shared invisible picture first: a run stopped meanwhile then leaves no ramp file of its own behind.
+  const tex = await invisibleTexture()
+  stillCurrent(run)
   const obj = await storeFile(tagRecipe(new Blob([text], { type: 'model/obj' }), { kind: 'compound', pieces }), 'stair_ramps.obj')
   cacheModel(obj.vpath, parseObj(text))
-  const tex = await invisibleTexture()
   stillCurrent(run)
   const item: SceneItem = {
     uid: uid(), name: RAMPS_NAME, path: obj.vpath, source_path: obj.vpath, position: origin, rotation: [0, 0, 0], scale: 1,

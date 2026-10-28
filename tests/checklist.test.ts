@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { blockers, mapChecklist } from '../src/lib/checklist'
-import { newMarker, newProject, type Project, type SceneItem } from '../src/lib/project'
+import { PIMP_EXIT, newMarker, newProject, type GameMode, type Project, type SceneItem } from '../src/lib/project'
+import { checkModes } from '../src/lib/levels'
 import { SAMPLES } from '../src/lib/samples'
 
 const item = (textures: Record<string, string>): SceneItem => ({
@@ -59,5 +60,25 @@ describe('ready-to-play checklist', () => {
     const p = withSample('flat')
     expect(ids(p, false)).toEqual(['pack'])
     expect(ids(p, null)).toEqual([])
+  })
+
+  // Install in game is blocked by the checklist's needed lines alone: each game-mode error the exporter fails on
+  // (lib/levels.ts checkModes) must be one of them.
+  it('blocks every game-mode error the exporter would fail on', () => {
+    const cases: [GameMode[], string[]][] = [
+      [[], ['Shared spawn']],
+      [['Gangsta Brawl'], ['Shared spawn', PIMP_EXIT]],
+      [['Protect Tha Pimp'], ['Shared spawn']],
+      [['Protect Tha Pimp'], ['Red team spawn', 'Blue team spawn']],
+      [['Blinged Out Ride'], ['Red team spawn', 'Blue team spawn']],
+    ]
+    for (const [modes, types] of cases) {
+      const p = withSample('flat')
+      p.settings.modes = modes
+      p.markers = types.map((t, i) => newMarker(t, [i * 10, 0, 0]))
+      const errors = checkModes(p.settings, p.markers).errors
+      expect(errors.length).toBeGreaterThan(0)
+      expect(ids(p).filter((id) => ['modes', 'exit', 'ptp', 'bor'].includes(id))).toHaveLength(errors.length)
+    }
   })
 })
