@@ -157,9 +157,11 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
   if (typeof d.title !== 'string' || !d.title.trim() || d.title.length > 80) problems.push('The title must be 1 to 80 characters.')
   if (!d.models || typeof d.models !== 'object' || !d.textures || typeof d.textures !== 'object') return { problems: [...problems, 'The share has no models or textures list.'], doc: null }
   let project: Project
-  try { project = cleanProject(normalizeProject(JSON.parse(JSON.stringify(d.project)))) } catch { return { problems: [...problems, 'The map in the share is not valid.'], doc: null } }
+  try { project = normalizeProject(JSON.parse(JSON.stringify(d.project))) } catch { return { problems: [...problems, 'The map in the share is not valid.'], doc: null } }
   if (Object.keys(project.files).length) problems.push('A share must not hold files.')
   if (project.asset_library.length) problems.push('A share must not hold a model library.')
+  // From here on, only the fields a share may hold.
+  project = cleanProject(project)
   for (const k of FILE_SETTINGS) if (project.settings[k]) problems.push(`The map setting ${k} must be empty in a share.`)
   if (project.scene_items.length > SHARE_LIMITS.items) problems.push(`A share can hold at most ${SHARE_LIMITS.items} objects.`)
   if (project.markers.length > SHARE_LIMITS.markers) problems.push(`A share can hold at most ${SHARE_LIMITS.markers} markers.`)

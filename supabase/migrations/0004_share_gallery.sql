@@ -24,9 +24,13 @@ alter table public.shares
   add column listed boolean not null default false,
   -- Hidden by a moderator: the link stops working.
   add column hidden boolean not null default false,
-  -- When the preview picture (storage: share-thumbs/<token>.webp) was last stored; null for none. The site
-  -- draws it from the share itself, for signed-in links only.
+  -- The preview picture: when it was stored (null for none) and its name in storage (share-thumbs), which has a
+  -- random part so nobody can find it before a moderator approves it. The site draws it from the share itself,
+  -- for signed-in links only. Until approved, link previews and the gallery show the site's own picture; a new
+  -- picture starts out unapproved again.
   add column thumb timestamptz,
+  add column thumb_path text check (thumb_path ~ '^[A-Za-z0-9_-]{22}-[A-Za-z0-9_-]{22}\.webp$'),
+  add column thumb_approved boolean not null default false,
   add column plays integer not null default 0,
   -- SHA-256 of the stored share: a board's times only count for the map they were run on.
   add column data_hash text,
@@ -72,12 +76,15 @@ revoke all on public.share_log from anon, authenticated;
 
 -- A share by its token, unless it expired or a moderator hid it. The link
 -- preview (netlify/edge-functions/og.ts) asks for the small columns only.
+-- Its picture only once a moderator approved it.
 drop function public.get_share(text);
 create function public.get_share(p_token text)
 returns table (title text, data text, created_at timestamptz, updated_at timestamptz, expires_at timestamptz,
-               thumb timestamptz, modes text[], players smallint, listed boolean, plays integer)
+               thumb timestamptz, thumb_path text, modes text[], players smallint, listed boolean, plays integer)
 language sql stable security definer set search_path = '' as $$
-  select s.title, s.data, s.created_at, s.updated_at, s.expires_at, s.thumb, s.modes, s.players, s.listed, s.plays
+  select s.title, s.data, s.created_at, s.updated_at, s.expires_at,
+         case when s.thumb_approved then s.thumb end, case when s.thumb_approved then s.thumb_path end,
+         s.modes, s.players, s.listed, s.plays
   from public.shares s
   where p_token ~ '^[A-Za-z0-9_-]{22}$' and s.token = p_token
     and not s.hidden and (s.expires_at is null or s.expires_at > now())
@@ -89,11 +96,12 @@ grant execute on function public.get_share(text) to anon, authenticated;
 -- The gallery: listed, not hidden, not expired. Sorted 'new', 'top' (rated, with a
 -- few imaginary 3.5-star votes so one 5-star rating doesn't win outright) or 'played'.
 create function public.list_gallery(p_search text default '', p_sort text default 'new', p_limit integer default 48, p_offset integer default 0)
-returns table (token text, title text, thumb timestamptz, modes text[], players smallint, plays integer,
+returns table (token text, title text, thumb timestamptz, thumb_path text, modes text[], players smallint, plays integer,
                rating real, rating_count integer, owner uuid, author_name text, author_avatar text,
                created_at timestamptz, updated_at timestamptz, total bigint)
 language sql stable security definer set search_path = '' as $$
-  select s.token, s.title, s.thumb, s.modes, s.players, s.plays, s.rating, s.rating_count, s.owner,
+  select s.token, s.title, case when s.thumb_approved then s.thumb end, case when s.thumb_approved then s.thumb_path end,
+         s.modes, s.players, s.plays, s.rating, s.rating_count, s.owner,
          p.display_name, p.avatar_url, s.created_at, s.updated_at, count(*) over ()
   from public.shares s
   left join public.profiles p on p.id = s.owner
@@ -118,11 +126,51 @@ $$;
 
 revoke all on function public.record_share_play(text) from public, anon, authenticated;
 
--- Preview pictures: public 640×360 WebP images the site draws from a share, written only by the share
--- function (checked first: src/play/share.ts previewProblem). No uploaded pictures or screenshots.
+-- Preview pictures: 640×360 WebP images the site draws from a share, written only by the share function
+-- (checked first: src/play/share.ts previewProblem). The bucket is public so an approved picture loads in link
+-- previews, but nothing lists it, and each picture's name has a random part: one waiting for a moderator can't
+-- be found (get_share and list_gallery give the name only once it is approved).
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values ('share-thumbs', 'share-thumbs', true, 262144, array['image/webp'])
 on conflict (id) do update set public = true, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types;
+
+-- Moderators remove a picture they turned down (review_share_thumb gives its name).
+create policy "Moderators remove share pictures" on storage.objects
+  for delete to authenticated using (bucket_id = 'share-thumbs' and public.is_moderator());
+
+-- Moderators: the pictures waiting for review, oldest first.
+create function public.pending_share_thumbs()
+returns table (token text, title text, thumb timestamptz, thumb_path text, author_name text)
+language sql stable security definer set search_path = '' as $$
+  select s.token, s.title, s.thumb, s.thumb_path, p.display_name
+  from public.shares s
+  left join public.profiles p on p.id = s.owner
+  where public.is_moderator() and s.thumb_path is not null and not s.thumb_approved and not s.hidden
+  order by s.thumb
+  limit 200
+$$;
+
+revoke all on function public.pending_share_thumbs() from public, anon;
+grant execute on function public.pending_share_thumbs() to authenticated;
+
+-- Moderators: approve a link's picture (it shows in link previews and the gallery), or turn it down (the link
+-- goes back to the site's own picture). `p_path` is the picture that was looked at: if the author has stored a
+-- new one since, nothing changes. Gives back the name of a turned-down picture, for the moderator to remove.
+create function public.review_share_thumb(p_token text, p_path text, p_approve boolean) returns text
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.is_moderator() then raise exception 'Only moderators can review pictures' using errcode = '42501'; end if;
+  if p_approve then
+    update public.shares set thumb_approved = true where token = p_token and thumb_path = p_path;
+    return null;
+  end if;
+  update public.shares set thumb = null, thumb_path = null, thumb_approved = false where token = p_token and thumb_path = p_path;
+  return case when found then p_path end;
+end;
+$$;
+
+revoke all on function public.review_share_thumb(text, text, boolean) from public, anon;
+grant execute on function public.review_share_thumb(text, text, boolean) to authenticated;
 
 -- reports --------------------------------------------------------------------
 -- Anyone who opens a link can report it (no account needed), so reports go

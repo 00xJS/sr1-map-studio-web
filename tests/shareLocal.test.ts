@@ -130,7 +130,8 @@ describe('local play links', () => {
     const g = await api.listGallery({ sort: 'new', page: 1, pageSize: 10 })
     expect(g.items.map((i) => i.title)).toEqual(['Shapes only'])
     expect(g.items[0]).toMatchObject({ token, author: { name: 'builder' }, modes: ['roam', 'weapons'], players: 1 })
-    expect(g.items[0].thumbnail_url).toMatch(/^blob:/)
+    // Its picture waits for a moderator: the site's own picture until then.
+    expect(g.items[0].thumbnail_url).toBe(api.GENERIC_PICTURE)
     expect((await api.listGallery({ search: 'nothing', sort: 'new', page: 1, pageSize: 10 })).total).toBe(0)
   })
 
@@ -157,6 +158,37 @@ describe('local play links', () => {
     await api.rateShare(token, 0)
     item = (await api.listGallery({ sort: 'top', page: 1, pageSize: 10 })).items[0]
     expect(item).toMatchObject({ rating: 0, ratings: 0, my_rating: 0 })
+  })
+
+  it('shows a picture in the gallery only once a moderator approved it, and a new picture waits again', async () => {
+    await signIn('builder')
+    const { token } = await api.createShare(doc('Pictured'), 'p1', { listed: true, thumb: webp() })
+    const shown = async () => (await api.listGallery({ sort: 'new', page: 1, pageSize: 10 })).items[0].thumbnail_url
+    expect(await shown()).toBe(api.GENERIC_PICTURE)
+    await expect(api.listPendingPictures()).resolves.toHaveLength(1)
+    const [pending] = await api.listPendingPictures()
+    await expect(api.reviewPicture(pending, true)).rejects.toThrow(/moderators/)
+    await signIn('mod')
+    expect((await api.listPendingPictures()).map((p) => p.title)).toEqual(['Pictured'])
+    await api.reviewPicture(pending, true)
+    expect(await shown()).toMatch(/^blob:/)
+    expect(await api.listPendingPictures()).toEqual([])
+
+    // A new picture goes back to waiting; turning it down leaves the site's own picture.
+    await signIn('builder')
+    await new Promise((r) => setTimeout(r, 5))
+    await api.createShare(doc('Pictured'), 'p1', { token, listed: true, thumb: webp() })
+    expect(await shown()).toBe(api.GENERIC_PICTURE)
+    await signIn('mod')
+    const [again] = await api.listPendingPictures()
+    // Reviewing the old picture doesn't approve the new one.
+    await api.reviewPicture(pending, true)
+    expect(await shown()).toBe(api.GENERIC_PICTURE)
+    await api.reviewPicture(again, false)
+    expect(await shown()).toBe(api.GENERIC_PICTURE)
+    expect(await api.listPendingPictures()).toEqual([])
+    const row = dbs.get('sr1-local-shares')!.db.stores.get('shares')!.get(token) as { thumb: unknown }
+    expect(row.thumb).toBeNull()
   })
 
   it('takes reports from anyone, once, and lets a moderator hide the link', async () => {

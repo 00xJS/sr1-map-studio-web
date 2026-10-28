@@ -28,7 +28,7 @@ const db = vi.hoisted(() => ({
   plays: [] as string[],
 }))
 
-const NEW_SHARES = ['token', 'owner', 'title', 'data', 'size_bytes', 'created_at', 'updated_at', 'anon', 'expires_at', 'ip_hash', 'key_hash', 'listed', 'hidden', 'thumb', 'plays', 'data_hash', 'modes', 'players']
+const NEW_SHARES = ['token', 'owner', 'title', 'data', 'size_bytes', 'created_at', 'updated_at', 'anon', 'expires_at', 'ip_hash', 'key_hash', 'listed', 'hidden', 'thumb', 'thumb_path', 'thumb_approved', 'plays', 'data_hash', 'modes', 'players']
 const OLD_SHARES = ['token', 'owner', 'title', 'data', 'size_bytes', 'created_at', 'updated_at']
 function schema(fresh: boolean) {
   db.columns = fresh
@@ -94,7 +94,8 @@ class Query implements PromiseLike<Result> {
       db.tables[this.table] = rows.filter((r) => !match(r))
       return { data: this.returning ? gone : null, error: null }
     }
-    let out = rows.filter(match)
+    // Copies, as a real answer is: a later update doesn't change rows already read.
+    let out = rows.filter(match).map((r) => ({ ...r }))
     for (const s of this.sorts.slice().reverse()) out = out.slice().sort((a, b) => (a[s] < b[s] ? -1 : a[s] > b[s] ? 1 : 0))
     const count = out.length
     out = out.slice(this.from, this.to + 1)
@@ -138,6 +139,8 @@ async function call(route: string, body: unknown, o: { method?: string; jwt?: st
   }), { ip: o.ip ?? '203.0.113.7' })
   return { status: res.status, body: await res.json() }
 }
+/** The stored name of a link's preview picture. */
+const picture = (token: string) => db.tables.shares.find((r) => r.token === token)?.thumb_path as string | null | undefined
 /** The share a link stores. */
 const storedDoc = (token: string) => unpackShare(fromBase64(db.tables.shares.find((r) => r.token === token)!.data)) as any
 
@@ -294,7 +297,27 @@ describe('the share function', () => {
     expect(db.stored.size).toBe(0)
     const ok = await call('', { title: 'x', data: data(), thumb: webp() }, { jwt: 'alice' })
     expect(ok.status).toBe(200)
-    expect(db.stored.has(`${ok.body.token}.webp`)).toBe(true)
+    expect(db.stored.has(picture(ok.body.token)!)).toBe(true)
+  })
+
+  it('stores a picture under a name nobody can guess, waiting for a moderator, and a new picture waits again', async () => {
+    const a = await call('', { title: 'x', data: data(), thumb: webp() }, { jwt: 'alice' })
+    const first = picture(a.body.token)!
+    expect(first).toMatch(new RegExp(`^${a.body.token}-[\\w-]{22}\\.webp$`))
+    expect(db.stored.has(`${a.body.token}.webp`)).toBe(false)
+    expect(db.tables.shares[0].thumb_approved).toBe(false)
+    db.tables.shares[0].thumb_approved = true // a moderator approved it (review_share_thumb)
+    // The same picture again is still a new picture: it waits for review, under a new name, and the old one goes.
+    await call('', { title: 'x', data: data(), thumb: webp(), token: a.body.token }, { jwt: 'alice' })
+    const second = picture(a.body.token)!
+    expect(second).not.toBe(first)
+    expect(db.tables.shares[0].thumb_approved).toBe(false)
+    expect(db.removed).toEqual([first])
+    expect([...db.stored.keys()]).toEqual([second])
+    // An update without a picture keeps the reviewed one as it was.
+    db.tables.shares[0].thumb_approved = true
+    await call('', { title: 'x', data: data(), token: a.body.token }, { jwt: 'alice' })
+    expect(db.tables.shares[0]).toMatchObject({ thumb_path: second, thumb_approved: true })
   })
 
   it('lists a map only when every model rebuilds from its settings as the model in the share', async () => {
@@ -321,10 +344,9 @@ describe('the share function', () => {
   })
 
   it('removes a preview only with the link it belongs to', async () => {
-    const a = await call('', { title: 'x', data: data() }, { jwt: 'bob' })
+    const a = await call('', { title: 'x', data: data(), thumb: webp() }, { jwt: 'bob' })
     const mine = await call('', { title: 'x', data: data(), thumb: webp() }, { jwt: 'alice' })
-    db.stored.set(`${a.body.token}.webp`, 'bob’s preview')
-    for (const r of db.tables.shares) if (r.token === a.body.token) r.thumb = new Date().toISOString()
+    const [hers, his] = [picture(mine.body.token)!, picture(a.body.token)!]
     // A key, or someone else's link: nothing goes, picture included.
     expect((await call('', { token: a.body.token, key: 'A'.repeat(22) }, { method: 'DELETE' })).status).toBe(200)
     expect((await call('', { token: mine.body.token }, { method: 'DELETE', jwt: 'bob' })).status).toBe(200)
@@ -333,7 +355,7 @@ describe('the share function', () => {
     // The owners.
     await call('', { token: a.body.token }, { method: 'DELETE', jwt: 'bob' })
     await call('', { token: mine.body.token }, { method: 'DELETE', jwt: 'alice' })
-    expect(db.removed.sort()).toEqual([`${a.body.token}.webp`, `${mine.body.token}.webp`].sort())
+    expect(db.removed.sort()).toEqual([his, hers].sort())
     expect(db.tables.shares).toHaveLength(0)
   })
 
@@ -380,15 +402,16 @@ describe('the share function', () => {
 
   it('lets only moderators hide a link, which takes its preview down at once and stops updates', async () => {
     const a = await call('', { title: 'x', data: data(), thumb: webp() }, { jwt: 'alice' })
+    const pic = picture(a.body.token)!
     await call('/report', { token: a.body.token, reason: 'spam', details: '' })
     expect((await call('/hide', { token: a.body.token }, { jwt: 'alice' })).status).toBe(403)
     expect((await call('/hide', { token: a.body.token }, { jwt: 'mod' })).status).toBe(200)
-    expect(db.tables.shares[0]).toMatchObject({ hidden: true, listed: false, thumb: null })
-    expect(db.removed).toEqual([`${a.body.token}.webp`])
+    expect(db.tables.shares[0]).toMatchObject({ hidden: true, listed: false, thumb: null, thumb_path: null, thumb_approved: false })
+    expect(db.removed).toEqual([pic])
     expect(db.tables.share_reports[0].status).toBe('actioned')
     const up = await call('', { title: 'x', data: data(), thumb: webp(), token: a.body.token }, { jwt: 'alice' })
     expect(up.status).toBe(403)
-    expect(db.stored.has(`${a.body.token}.webp`)).toBe(false)
+    expect(db.stored.size).toBe(0)
   })
 
   it('counts a play once per address, link and day', async () => {
@@ -452,10 +475,15 @@ describe('the link preview', () => {
   const PAGE = '<!doctype html><html><head>\n    <title>SR1 Map Studio</title>\n    <meta property="og:title" content="SR1 Map Studio" />\n  </head><body><div id="root"></div></body></html>'
   const TOKEN = 'A'.repeat(22)
   let fetches = 0
-  async function preview(title: string, ok = true) {
+  /** get_share's answer for a row: its picture only once approved (migration 0004). */
+  const shareRow = (title: string, pic?: { path: string; approved: boolean }) => ({
+    title, modes: ['roam', 'weapons'], players: 2,
+    thumb: pic?.approved ? '2026-10-27T00:00:00Z' : null, thumb_path: pic?.approved ? pic.path : null,
+  })
+  async function preview(title: string, ok = true, pic?: { path: string; approved: boolean }) {
     vi.resetModules()
     ;(globalThis as any).Netlify = { env: { get: (k: string) => ({ VITE_SUPABASE_URL: 'https://example.supabase.co', VITE_SUPABASE_ANON_KEY: 'anon' } as Record<string, string>)[k] } }
-    vi.stubGlobal('fetch', async () => { fetches++; return ok ? new Response(JSON.stringify([{ title, modes: ['roam', 'weapons'], players: 2, thumb: null }])) : new Response('{}', { status: 400 }) })
+    vi.stubGlobal('fetch', async () => { fetches++; return ok ? new Response(JSON.stringify([shareRow(title, pic)])) : new Response('{}', { status: 400 }) })
     const og = (await import('../netlify/edge-functions/og')).default
     const next = async () => new Response(PAGE, { headers: { 'content-type': 'text/html' } })
     return { og, next }
@@ -470,6 +498,17 @@ describe('the link preview', () => {
     expect(html).toContain('content="Evil $&amp; $` $\' &quot;&lt;b&gt; · Play in the browser"')
     expect(html).toContain('Weapon run, 2 spawns')
     expect(html.indexOf('og:image')).toBeLessThan(html.indexOf('</head>'))
+  })
+
+  it('shows a link’s picture only once a moderator approved it, and the site’s own picture until then', async () => {
+    const path = `${TOKEN}-${'b'.repeat(22)}.webp`
+    const waiting = await (await (await preview('x', true, { path, approved: false })).og(new Request(`https://site.example/play/s/${TOKEN}`), { next: async () => new Response(PAGE, { headers: { 'content-type': 'text/html' } }) })).text()
+    expect(waiting).toContain('content="https://site.example/og.jpg"')
+    expect(waiting).not.toContain('share-thumbs')
+    const { og, next } = await preview('x', true, { path, approved: true })
+    const approved = await (await og(new Request(`https://site.example/play/s/${TOKEN}`), { next })).text()
+    expect(approved).toContain(`https://example.supabase.co/storage/v1/object/public/share-thumbs/${path}?v=`)
+    expect(approved).toContain('og:image:width')
   })
 
   it('goes out with the site’s own preview when the lookup fails, and stops asking for a while after three in a row', async () => {

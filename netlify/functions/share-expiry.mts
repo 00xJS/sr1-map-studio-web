@@ -15,21 +15,26 @@ export default async (): Promise<Response> => {
   const admin = createClient(url, key, { auth: { persistSession: false, autoRefreshToken: false } })
   let removed = 0, unpictured = 0
   for (let round = 0; round < 40; round++) {
-    const due = await admin.from('shares').select('token').lt('expires_at', new Date().toISOString()).limit(BATCH)
+    const due = await admin.from('shares').select('token, thumb_path').lt('expires_at', new Date().toISOString()).limit(BATCH)
     if (due.error) { console.error('Finding expired links failed', due.error.message); break }
     const tokens = (due.data ?? []).map((r) => r.token as string)
     if (!tokens.length) break
     const gone = await admin.from('shares').delete().in('token', tokens)
     if (gone.error) { console.error('Removing expired links failed', gone.error.message); break }
-    await admin.storage.from('share-thumbs').remove(tokens.map((t) => `${t}.webp`)).catch(() => {})
+    const paths = (due.data ?? []).map((r) => r.thumb_path as string | null).filter((x): x is string => !!x)
+    if (paths.length) await admin.storage.from('share-thumbs').remove(paths).catch(() => {})
     removed += tokens.length
     if (tokens.length < BATCH) break
   }
-  const hidden = await admin.from('shares').update({ thumb: null }).eq('hidden', true).not('thumb', 'is', null).select('token')
-  if (hidden.error) console.error('Clearing hidden previews failed', hidden.error.message)
+  const hidden = await admin.from('shares').select('token, thumb_path').eq('hidden', true).not('thumb_path', 'is', null).limit(BATCH)
+  if (hidden.error) console.error('Finding hidden previews failed', hidden.error.message)
   else if (hidden.data?.length) {
-    await admin.storage.from('share-thumbs').remove(hidden.data.map((r) => `${r.token}.webp`)).catch(() => {})
-    unpictured = hidden.data.length
+    const cleared = await admin.from('shares').update({ thumb: null, thumb_path: null, thumb_approved: false }).in('token', hidden.data.map((r) => r.token))
+    if (cleared.error) console.error('Clearing hidden previews failed', cleared.error.message)
+    else {
+      await admin.storage.from('share-thumbs').remove(hidden.data.map((r) => r.thumb_path as string)).catch(() => {})
+      unpictured = hidden.data.length
+    }
   }
   const old = await admin.from('share_log').delete().lt('created_at', new Date(Date.now() - 2 * 86400_000).toISOString())
   if (old.error) console.error('Clearing the limit log failed', old.error.message)

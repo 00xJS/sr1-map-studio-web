@@ -7,6 +7,10 @@
 //   data: base64 of the gzip share (src/play/share.ts); thumb: base64 WebP preview the site drew from the
 //   share (src/play/sharePreview.ts), signed-in links only; ghost: src/play/ghost.ts
 //
+// A preview picture is stored under a name with a random part (shares.thumb_path) and waits for a moderator
+// (review_share_thumb in migration 0004): until approved, link previews and the gallery show the site's own
+// picture, and nothing gives out its name. A new picture waits again.
+//
 // Play links. The function unpacks and checks every share with the same rules
 // as the browser (no files, plain OBJ geometry, texture recipes only) and
 // stores the share rebuilt from only the fields a share may hold
@@ -199,25 +203,26 @@ async function writesToday(admin: SupabaseClient, uid: string, fresh: boolean): 
   return r.count ?? 0
 }
 
-async function removeThumb(admin: SupabaseClient, token: string) {
-  await admin.storage.from(THUMBS).remove([`${token}.webp`]).catch(() => {})
+async function removeThumb(admin: SupabaseClient, path: string | null | undefined) {
+  if (path) await admin.storage.from(THUMBS).remove([path]).catch(() => {})
 }
 
 async function remove(admin: SupabaseClient, uid: string | null, body: any, fresh: boolean): Promise<Response> {
   if (typeof body.token !== 'string') return reject(400, 'Invalid link.')
   // A link made without an account goes with its key (whoever is signed in now); others with their owner.
-  let gone: { token: string }[] = []
+  let gone: { token: string; thumb_path?: string | null }[] = []
+  const cols = fresh ? 'token, thumb_path' : 'token'
   if (fresh && typeof body.key === 'string' && SHARE_TOKEN.test(body.key)) {
-    const r = await admin.from('shares').delete().eq('token', body.token).eq('anon', true).eq('key_hash', await sha256(body.key)).select('token')
+    const r = await admin.from('shares').delete().eq('token', body.token).eq('anon', true).eq('key_hash', await sha256(body.key)).select(cols)
     if (r.error) throw r.error
-    gone = r.data ?? []
+    gone = (r.data ?? []) as unknown as typeof gone
   } else if (uid) {
-    const r = await admin.from('shares').delete().eq('token', body.token).eq('owner', uid).select('token')
+    const r = await admin.from('shares').delete().eq('token', body.token).eq('owner', uid).select(cols)
     if (r.error) throw r.error
-    gone = r.data ?? []
+    gone = (r.data ?? []) as unknown as typeof gone
   } else return reject(401, 'Sign in to remove your links.')
   // Only the link that was really removed loses its picture: a wrong key or someone else's link changes nothing.
-  if (gone.length && fresh) await removeThumb(admin, body.token)
+  for (const g of gone) await removeThumb(admin, g.thumb_path)
   return json(200, { ok: true })
 }
 
@@ -238,7 +243,7 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
 
   // What this is (a new link, or an update of one) and its limit, before the map is read.
   let anonEdit: { keyHash: string; expires_at: string; data_hash: string | null } | null = null
-  let ownEdit: { data_hash: string | null } | null = null
+  let ownEdit: { data_hash: string | null; thumb_path: string | null } | null = null
   if (!uid) {
     if (typeof body.token === 'string' && typeof body.key === 'string' && SHARE_TOKEN.test(body.key)) {
       const keyHash = await sha256(body.key)
@@ -259,13 +264,13 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
     const perDay = num('SHARE_MAX_PER_DAY', SHARE_RULES.perDay)
     if ((await writesToday(admin, uid, fresh)) >= perDay) return reject(429, `You can make or update ${perDay} play links a day. Try again tomorrow.`)
     if (body.token) {
-      const old = await admin.from('shares').select(fresh ? 'owner, hidden, data_hash' : 'owner').eq('token', body.token).maybeSingle()
+      const old = await admin.from('shares').select(fresh ? 'owner, hidden, data_hash, thumb_path' : 'owner').eq('token', body.token).maybeSingle()
       if (old.error) throw old.error
-      const prev = old.data as { owner: string; hidden?: boolean; data_hash?: string | null } | null
+      const prev = old.data as { owner: string; hidden?: boolean; data_hash?: string | null; thumb_path?: string | null } | null
       // Not yours (or removed): a new link instead.
       if (prev && prev.owner === uid) {
         if (prev.hidden) return hidden()
-        ownEdit = { data_hash: prev.data_hash ?? null }
+        ownEdit = { data_hash: prev.data_hash ?? null, thumb_path: prev.thumb_path ?? null }
       }
     }
     if (!ownEdit) {
@@ -306,11 +311,14 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
   const meta = shareMeta(doc)
   const dataHash = await sha256(data)
   const row = { title: doc.title, data, size_bytes: packed.length, updated_at: new Date().toISOString(), modes: meta.modes, players: meta.players, data_hash: dataHash }
-  const saveThumb = async (token: string) => {
+  /** Stores the preview under a new name nobody can guess, waiting for a moderator; the old one goes. */
+  const saveThumb = async (token: string, oldPath: string | null = null) => {
     if (!thumb) return {}
-    const up = await admin.storage.from(THUMBS).upload(`${token}.webp`, thumb, { contentType: 'image/webp', upsert: true, cacheControl: '300' })
+    const path = `${token}-${newShareToken()}.webp`
+    const up = await admin.storage.from(THUMBS).upload(path, thumb, { contentType: 'image/webp', upsert: false, cacheControl: '3600' })
     if (up.error) { console.error('Preview upload failed', up.error.message); return {} }
-    return { thumb: new Date().toISOString() }
+    await removeThumb(admin, oldPath)
+    return { thumb: new Date().toISOString(), thumb_path: path, thumb_approved: false }
   }
   /** A board's times were run on the old map: they go when the map changes. */
   const mapChanged = async (token: string, oldHash: string | null) => {
@@ -343,7 +351,7 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
   if (ownEdit) {
     await logOwn('update', body.token)
     if (fresh) await mapChanged(body.token, ownEdit.data_hash)
-    await write(admin, { ...row, listed, ...(await saveThumb(body.token)) }, fresh, { token: body.token, owner: uid })
+    await write(admin, { ...row, listed, ...(await saveThumb(body.token, ownEdit.thumb_path)) }, fresh, { token: body.token, owner: uid })
     return json(200, { token: body.token })
   }
   const token = newShareToken()
@@ -425,9 +433,11 @@ async function hide(admin: SupabaseClient, uid: string | null, body: any): Promi
   const me = await admin.from('profiles').select('is_moderator').eq('id', uid).maybeSingle()
   if (me.error) throw me.error
   if (!me.data?.is_moderator) return reject(403, 'Only moderators can do this.')
-  const up = await admin.from('shares').update({ hidden: true, listed: false, thumb: null }).eq('token', body.token)
+  const old = await admin.from('shares').select('thumb_path').eq('token', body.token).maybeSingle()
+  if (old.error) throw old.error
+  const up = await admin.from('shares').update({ hidden: true, listed: false, thumb: null, thumb_path: null, thumb_approved: false }).eq('token', body.token)
   if (up.error) throw up.error
-  await removeThumb(admin, body.token)
+  await removeThumb(admin, (old.data as { thumb_path?: string | null } | null)?.thumb_path)
   const done = await admin.from('share_reports').update({ status: 'actioned', resolved_at: new Date().toISOString(), resolved_by: uid }).eq('token', body.token).eq('status', 'open')
   if (done.error) throw done.error
   return json(200, { ok: true })

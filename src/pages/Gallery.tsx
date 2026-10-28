@@ -1,8 +1,9 @@
 // The gallery: play links their signed-in owners chose to list. Only maps
 // whose every model was made on the site (shapes, compounds and prefabs) can
 // be listed, because an imported model travels as its full geometry; the share
-// function rebuilds each model to check. Pictures are drawn by the site. Play
-// one in the browser, rate it, report it, or remix it into a map of your own.
+// function rebuilds each model to check. Pictures are drawn by the site and
+// show once a moderator approves them. Play one in the browser, rate it,
+// report it, or remix it into a map of your own.
 import { useEffect, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { useUser } from '../lib/backend'
@@ -97,7 +98,7 @@ export default function Gallery() {
     <div className="page">
       <div className="hero" style={{ paddingTop: 8 }}>
         <h1>The <b>Gallery</b></h1>
-        <p>Maps you can play right here in the browser, on a computer or a phone, with no game or account. Every map in here was built on this site from its own shapes and prefabs, and the site checks each one before it goes in, so none of them carry files from games or other sites. The pictures are drawn by the site from the maps themselves. Rate the maps you like, or remix one into your own.</p>
+        <p>Maps you can play right here in the browser, on a computer or a phone, with no game or account. Every map in here was built on this site from its own shapes and prefabs, and the site checks each one before it goes in, so none of them carry files from games or other sites. The pictures are drawn by the site from the maps themselves, and a moderator looks at each one before it shows. Rate the maps you like, or remix one into your own.</p>
       </div>
       <div className="row wrap">
         <input className="grow" type="search" placeholder="Search maps and authors…" value={text} onChange={(e) => setText(e.target.value)} style={{ minWidth: 200 }} aria-label="Search maps" />

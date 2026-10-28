@@ -14,7 +14,9 @@ const MODES: Record<string, string> = { roam: 'Free roam', weapons: 'Weapon run'
 const esc = (s: string) => s.replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
 const projectUrl = (raw: string) => raw.trim().replace(/\/+$/, '').replace(/\/(rest|auth|storage|functions)\/v1$/i, '')
 
-interface ShareHead { title: string; modes: string[] | null; players: number | null; thumb: string | null }
+/** thumb and thumb_path come only for a picture a moderator approved (get_share). */
+interface ShareHead { title: string; modes: string[] | null; players: number | null; thumb: string | null; thumb_path: string | null }
+const THUMB_PATH = /^[A-Za-z0-9_-]{22}-[A-Za-z0-9_-]{22}\.webp$/
 
 /** How long a page waits for the link's details before going out with the site's own preview. */
 const WAIT_MS = 800
@@ -31,7 +33,7 @@ async function lookUp(token: string): Promise<{ row: ShareHead; base: string } |
   const base = projectUrl(Netlify.env.get('VITE_SUPABASE_URL') || Netlify.env.get('SUPABASE_URL') || '')
   const key = (Netlify.env.get('VITE_SUPABASE_ANON_KEY') || '').trim()
   if (!base || !key || Date.now() < skipUntil) return null
-  const res = await fetch(`${base}/rest/v1/rpc/get_share?select=title,modes,players,thumb`, {
+  const res = await fetch(`${base}/rest/v1/rpc/get_share?select=title,modes,players,thumb,thumb_path`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', apikey: key, Authorization: `Bearer ${key}` },
     body: JSON.stringify({ p_token: token }),
@@ -70,7 +72,8 @@ export default async (req: Request, context: { next(): Promise<Response> }) => {
   const parts = [runs.length ? runs.join(' · ') : 'Free roam', row.players ? `${row.players} spawn${row.players === 1 ? '' : 's'}` : '']
   const title = `${row.title} · Play in the browser`
   const description = `A Saints Row 1 map built with SR1 Map Studio: ${parts.filter(Boolean).join(', ')}. Plays right in the browser on a computer or a phone, with no game or account needed.`
-  const image = row.thumb ? `${base}/storage/v1/object/public/share-thumbs/${token}.webp?v=${new Date(row.thumb).getTime()}` : `${url.origin}/og.jpg`
+  const approved = !!row.thumb && !!row.thumb_path && THUMB_PATH.test(row.thumb_path)
+  const image = approved ? `${base}/storage/v1/object/public/share-thumbs/${row.thumb_path}?v=${new Date(row.thumb!).getTime()}` : `${url.origin}/og.jpg`
 
   let html = await res.text()
   html = html.replace(/<title>[^<]*<\/title>/i, () => `<title>${esc(title)}</title>`)
@@ -82,7 +85,7 @@ export default async (req: Request, context: { next(): Promise<Response> }) => {
   html = meta(html, 'name', 'twitter:title', title)
   html = meta(html, 'name', 'twitter:description', description)
   html = meta(html, 'name', 'twitter:image', image)
-  if (row.thumb) {
+  if (approved) {
     // Stored previews are 640×360 (PREVIEW_W/H in src/play/share.ts), not the site picture's size.
     html = meta(html, 'property', 'og:image:width', '640')
     html = meta(html, 'property', 'og:image:height', '360')

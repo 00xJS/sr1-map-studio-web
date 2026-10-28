@@ -67,7 +67,7 @@ const localDel = (store: LocalStore, key: string) => localTx('readwrite', (s) =>
 export interface LocalRow {
   token: string; owner: string | null; owner_name?: string; title: string; data: string; created_at: string; updated_at?: string
   anon?: boolean; expires_at?: string | null; ip_hash?: string | null; key_hash?: string | null
-  listed?: boolean; hidden?: boolean; thumb?: Blob | null; thumb_at?: string | null; plays?: number
+  listed?: boolean; hidden?: boolean; thumb?: Blob | null; thumb_at?: string | null; thumb_approved?: boolean; plays?: number
   modes?: string[]; players?: number; rating_sum?: number; rating_count?: number; data_hash?: string
 }
 interface LocalReport { id: string; token: string; reason: ReportReason; details: string; reporter: string | null; ip_hash: string | null; status: ShareReport['status']; created_at: string }
@@ -146,7 +146,12 @@ async function fn(path: string, body: unknown, method = 'POST'): Promise<any> {
   if (!res.ok) throw new Error(out.error || `The server had a problem (HTTP ${res.status}). Try again later.`)
   return out
 }
-export const thumbUrl = (token: string, at: string | null | undefined) => at ? `${SUPA().url}/storage/v1/object/public/share-thumbs/${token}.webp?v=${new Date(at).getTime()}` : undefined
+/** What a link without an approved picture shows: the site's own picture. */
+export const GENERIC_PICTURE = '/og.jpg'
+const THUMB_PATH = /^[A-Za-z0-9_-]{22}-[A-Za-z0-9_-]{22}\.webp$/
+/** A preview picture in storage, by its name (which has a random part: get_share gives it only once approved). */
+export const thumbUrl = (path: string | null | undefined, at: string | null | undefined) =>
+  path && at && THUMB_PATH.test(path) ? `${SUPA().url}/storage/v1/object/public/share-thumbs/${path}?v=${new Date(at).getTime()}` : undefined
 
 // ---------------- making and removing links ----------------
 
@@ -199,7 +204,7 @@ async function localCreate(data: string, user: { id: string; name: string } | nu
   // Stored as checked: rebuilt from the fields a share may hold, not the bytes that came in.
   const stored = toBase64(packShare(checked))
   const data_hash = await sha256(stored)
-  const row = { title: checked.title, data: stored, data_hash, updated_at: now, modes: meta.modes, players: meta.players, ...(thumb && user ? { thumb: new Blob([thumb], { type: 'image/webp' }), thumb_at: now } : {}) }
+  const row = { title: checked.title, data: stored, data_hash, updated_at: now, modes: meta.modes, players: meta.players, ...(thumb && user ? { thumb: new Blob([thumb], { type: 'image/webp' }), thumb_at: now, thumb_approved: false } : {}) }
   const rows = await localAll<LocalRow>('shares')
   if (!user) {
     if (opts.token && key) {
@@ -342,7 +347,7 @@ export async function resolveShareReport(r: ShareReport, action: 'dismiss' | 'hi
     if (action === 'dismiss') { await localPut('reports', r.id, { ...(await localGet<LocalReport>('reports', r.id))!, status: 'dismissed' }); return }
     // Hidden at once: it stops opening, leaves the gallery and loses its preview picture.
     const row = await localGet<LocalRow>('shares', r.token)
-    if (row) await localPut('shares', r.token, { ...row, hidden: true, listed: false, thumb: null, thumb_at: null })
+    if (row) await localPut('shares', r.token, { ...row, hidden: true, listed: false, thumb: null, thumb_at: null, thumb_approved: false })
     for (const o of await localAll<LocalReport>('reports')) if (o.token === r.token && o.status === 'open') await localPut('reports', o.id, { ...o, status: 'actioned' })
     return
   }
@@ -350,6 +355,47 @@ export async function resolveShareReport(r: ShareReport, action: 'dismiss' | 'hi
   const me = (await b.getUser())?.id
   const res = await rest(`share_reports?id=eq.${r.id}`, { method: 'PATCH', body: JSON.stringify({ status: 'dismissed', resolved_at: new Date().toISOString(), resolved_by: me }), headers: { Prefer: 'return=minimal' } }, await userToken())
   if (!res.ok) throw new Error(`That didn’t work (HTTP ${res.status}).`)
+}
+
+// ---------------- pictures waiting for a moderator ----------------
+
+/** A link's preview picture that no moderator has looked at yet: it isn't shown anywhere until approved. */
+export interface PendingPicture { token: string; title: string; author: string; url: string; path: string; at: string }
+
+export async function listPendingPictures(): Promise<PendingPicture[]> {
+  const b = await getBackend()
+  if (!b) return []
+  if (b.kind === 'local') {
+    return (await localAll<LocalRow>('shares')).filter((r) => r.thumb && !r.thumb_approved && !r.hidden)
+      .sort((a, z) => (a.thumb_at ?? '').localeCompare(z.thumb_at ?? ''))
+      .map((r) => ({ token: r.token, title: r.title, author: r.owner_name || 'Unknown', url: localThumb(r.token, r.thumb_at ?? '', r.thumb!), path: r.thumb_at ?? '', at: r.thumb_at ?? '' }))
+  }
+  const rows: any[] = await rpc('pending_share_thumbs', {}, await userToken())
+  return (rows ?? []).filter((r) => thumbUrl(r.thumb_path, r.thumb)).map((r) => ({
+    token: r.token, title: r.title, author: r.author_name || 'Unknown', url: thumbUrl(r.thumb_path, r.thumb)!, path: r.thumb_path, at: r.thumb,
+  }))
+}
+
+/** Moderators: approve a picture (it shows in link previews and the gallery), or turn it down (it is deleted). */
+export async function reviewPicture(p: PendingPicture, approve: boolean) {
+  const b = await getBackend()
+  if (!b) return
+  if (b.kind === 'local') {
+    const user = await b.getUser()
+    if (!user?.is_moderator) throw new Error('Only moderators can do this.')
+    const row = await localGet<LocalRow>('shares', p.token)
+    // Only the picture that was looked at: a newer one waits for its own review.
+    if (!row || row.thumb_at !== p.path) return
+    await localPut('shares', p.token, approve ? { ...row, thumb_approved: true } : { ...row, thumb: null, thumb_at: null, thumb_approved: false })
+    return
+  }
+  const auth = await userToken()
+  const gone = await rpc<string | null>('review_share_thumb', { p_token: p.token, p_path: p.path, p_approve: approve }, auth)
+  if (gone) {
+    const { url, key } = SUPA()
+    const res = await fetch(`${url}/storage/v1/object/share-thumbs/${encodeURIComponent(gone)}`, { method: 'DELETE', headers: { apikey: key, Authorization: `Bearer ${auth}` } })
+    if (!res.ok) throw new Error(`The picture was turned down but couldn’t be deleted (HTTP ${res.status}). The link no longer shows it.`)
+  }
 }
 
 // ---------------- the gallery ----------------
@@ -376,7 +422,7 @@ export async function listGallery(q: { search?: string; sort: GallerySort; page:
     return {
       total: rows.length,
       items: page.map((r) => ({
-        token: r.token, title: r.title, thumbnail_url: r.thumb ? localThumb(r.token, r.thumb_at ?? '', r.thumb) : undefined,
+        token: r.token, title: r.title, thumbnail_url: r.thumb && r.thumb_approved ? localThumb(r.token, r.thumb_at ?? '', r.thumb) : GENERIC_PICTURE,
         modes: r.modes ?? [], players: r.players ?? 0, plays: r.plays ?? 0,
         rating: r.rating_count ? (r.rating_sum ?? 0) / r.rating_count : 0, ratings: r.rating_count ?? 0,
         my_rating: user ? ratings.find((x) => x.token === r.token && x.user_id === user.id)?.stars ?? 0 : undefined,
@@ -395,7 +441,7 @@ export async function listGallery(q: { search?: string; sort: GallerySort; page:
   return {
     total: Number(rows[0]?.total ?? 0),
     items: rows.map((r) => ({
-      token: r.token, title: r.title, thumbnail_url: thumbUrl(r.token, r.thumb), modes: r.modes ?? [], players: r.players ?? 0, plays: r.plays ?? 0,
+      token: r.token, title: r.title, thumbnail_url: thumbUrl(r.thumb_path, r.thumb) ?? GENERIC_PICTURE, modes: r.modes ?? [], players: r.players ?? 0, plays: r.plays ?? 0,
       rating: r.rating ?? 0, ratings: r.rating_count ?? 0, my_rating: user ? mine.get(r.token) ?? 0 : undefined,
       author: { id: r.owner, name: r.author_name || 'Unknown', avatar_url: r.author_avatar || undefined }, created_at: r.created_at, updated_at: r.updated_at,
     })),

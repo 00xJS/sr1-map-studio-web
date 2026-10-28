@@ -5,7 +5,8 @@
 // Links made without an account expire; signed-in owners can list a map in
 // the gallery when every model in it was made on the site (the server rebuilds
 // each one to check). A signed-in link's preview picture is drawn by the site
-// from the share itself; links without an account show the site's own picture.
+// from the share itself, and shows once a moderator approves it; links without
+// an account show the site's own picture.
 import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { saveNow, useEditor } from '../editor/store'
@@ -150,7 +151,7 @@ export function ShareDialog({ projectId, onClose }: { projectId: string; onClose
                 {thumbSrc ? <img src={thumbSrc} alt="Link preview" /> : <div className="faint small">{plan.doc.project.scene_items.length && thumb === undefined ? 'Drawing the preview…' : ''}</div>}
                 <span className="small">{thumb === null
                   ? 'This browser couldn’t draw a preview, so the link shows the site’s own picture where it’s posted.'
-                  : <>Preview: drawn by the site from your map, as players of the link see it. It shows wherever the link is posted{canList && listed ? ', and in the gallery' : ''}.</>}</span>
+                  : <>Preview: drawn by the site from your map, as players of the link see it. Once a moderator has approved it, it shows wherever the link is posted{canList && listed ? ' and in the gallery' : ''}. Until then, and each time the picture changes, the link shows the site’s own picture.</>}</span>
               </div>
             )}
           </>}

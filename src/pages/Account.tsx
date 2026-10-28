@@ -7,7 +7,7 @@ import { fmtBytes } from '../lib/files'
 import { Avatar, Field, confirmDialog, timeAgo, toast, toastError, useBusy } from '../ui'
 import { openCloudProject } from './CloudSection'
 import { AccountsOff, HubCard } from './Hub'
-import { ShareReports } from './ShareReports'
+import { SharePictures, ShareReports } from './ShareReports'
 import { hostedShares } from '../play/shareApi'
 
 type Provider = 'github' | 'discord' | 'google'
@@ -192,6 +192,7 @@ export default function Account() {
       {hubEnabled && <Published />}
       {hubEnabled && user.is_moderator && <Moderation />}
       {hostedShares && user.is_moderator && <ShareReports />}
+      {hostedShares && user.is_moderator && <SharePictures />}
     </div>
   )
 }
