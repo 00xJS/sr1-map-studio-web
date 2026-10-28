@@ -4,7 +4,7 @@ import { create } from 'zustand'
 import { produce, type Draft } from 'immer'
 import { db } from '../lib/db'
 import { uid, type Project } from '../lib/project'
-import { mirrorEdit } from '../lib/mirrorEdit'
+import { mirrorEdit, mirrorSession, type MirrorSession } from '../lib/mirrorEdit'
 
 export type Selection = { kind: 'item' | 'marker' | 'light'; index: number } | null
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
@@ -68,7 +68,8 @@ interface EditorState {
   open(project: Project): void
   close(): void
   /** One undo step. In mirror mode the edit is copied across the middle too, unless `noMirror` (an edit that already
-   *  makes both halves, such as make_symmetric) or inside a transaction (Fix all's fixes place what they mean to). */
+   *  makes both halves, such as make_symmetric), inside a transaction (Fix all's fixes place what they mean to) or
+   *  inside withoutMirror (the AI's edits, a single fix). */
   update(label: string, recipe: (d: Draft<Project>) => void, opts?: { merge?: string; noMirror?: boolean }): void
   undo(): void
   redo(): void
@@ -95,6 +96,22 @@ export function writeFlag(key: string, on: boolean) { try { localStorage.setItem
 let lastMerge: { key: string; at: number } | null = null
 /** End the current merged edit (e.g. when a gizmo drag is released). */
 export const breakMerge = () => { lastMerge = null }
+/** Mirror mode's pairs for the edit going on (kept through a merged edit such as a gizmo drag). */
+let mirroring: MirrorSession | null = null
+/** How many withoutMirror calls are running. */
+let unmirrored = 0
+
+/** Runs `fn` (and, when it returns a promise, until that settles) with mirror mode's copying off: for edits that make
+ *  both halves themselves (the AI's "and its twin" placements) or that place things where the map needs them (a
+ *  single fix from the Check tab). */
+export function withoutMirror<T>(fn: () => T): T {
+  unmirrored++
+  let out: T
+  try { out = fn() } catch (e) { unmirrored--; throw e }
+  if (out instanceof Promise) return out.finally(() => { unmirrored-- }) as T
+  unmirrored--
+  return out
+}
 
 export const useEditor = create<EditorState>((set, get) => ({
   project: null,
@@ -129,25 +146,30 @@ export const useEditor = create<EditorState>((set, get) => ({
   mirror: false,
   locked: null,
   open(project) {
-    set({ project, selection: null, multi: [], lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [] })
+    mirroring = null
+    set({ project, mirror: false, selection: null, multi: [], lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [] })
   },
   close() { set({ project: null, selection: null, multi: [], past: [], future: [] }) },
   update(label, recipe, opts) {
     const cur = get().project
     if (!cur) return
-    const mirrored = get().mirror && !txn && !opts?.noMirror
-    const next = mirrored ? produce(cur, (d) => {
-      // A recipe that hands back a whole new project replaces it as it is.
+    let replaced = false
+    let next = produce(cur, (d) => {
       const r = recipe(d) as unknown
-      if (r !== undefined) return r as Project
-      mirrorEdit(cur, d, uid)
-    }) : produce(cur, recipe)
+      // A recipe that hands back a whole new project replaces it as it is (and isn't mirrored).
+      if (r !== undefined) { replaced = true; return r as Project }
+    })
     if (next === cur) return
     const now = performance.now()
     // Consecutive edits with the same merge key (a gizmo drag, typing in a
     // field) become one undo step.
     const merging = opts?.merge && lastMerge && lastMerge.key === opts.merge && now - lastMerge.at < 1500
     lastMerge = opts?.merge ? { key: opts.merge, at: now } : null
+    if (get().mirror && !txn && !unmirrored && !opts?.noMirror && !replaced) {
+      // The pairs found at the start of a drag hold for all of it.
+      if (!merging || mirroring?.projectId !== cur.id) mirroring = mirrorSession(cur)
+      next = mirrorEdit(cur, next, uid, mirroring)
+    }
     // Inside a transaction its edits add no steps of their own: it adds one when it ends.
     const past = merging || txn ? get().past : [...get().past, { project: cur, label }].slice(-LIMIT)
     set({ project: next, ...reanchor(get(), cur, next), past, future: [], saveState: 'unsaved' })

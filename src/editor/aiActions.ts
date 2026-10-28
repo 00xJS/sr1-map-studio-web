@@ -1,5 +1,5 @@
 // Carries out the edits an AI chat reply asks for, as one undo step.
-import { useEditor, currentProject } from './store'
+import { useEditor, currentProject, withoutMirror } from './store'
 import { getViewer } from './Viewport'
 import * as act from './actions'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
@@ -57,7 +57,12 @@ async function swatchFor(name: string, tint: { color?: unknown; accent?: unknown
 }
 
 /** Runs the actions; returns a short note of what happened and what was skipped. */
-export async function runAiActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
+/** The AI's edits, with mirror mode's copying off: they place both halves themselves when asked (mirror: true). */
+export function runAiActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
+  return withoutMirror(() => runActions(actions, label))
+}
+
+async function runActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
   const st = useEditor.getState()
   if (!st.project) return { done: 0, skipped: ['No map is open.'] }
   const start = st.past.length

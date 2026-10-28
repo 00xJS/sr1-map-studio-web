@@ -1,6 +1,6 @@
 // Running the Check tab's fixes (checkIssues.ts): one at a time from its line, or every one at once as a
 // single undo step (Fix all), then the health check again so the list shows what is left.
-import { useEditor } from './store'
+import { useEditor, withoutMirror } from './store'
 import { addDefaultSky, removeMarkersOfType } from './actions'
 import { fixSpawnsAndWeapons } from './spawnActions'
 import { addStairRamps } from './stairActions'
@@ -42,8 +42,10 @@ export async function runAutoFix(f: AutoFix): Promise<string> {
 /** Runs the health check again if the map has one, keeping the overlay that is showing. */
 const recheck = () => { if (useHealth.getState().report) void runHealthCheck(useHealth.getState().overlay) }
 
+/** One fix from the Check tab. Like Fix all, mirror mode leaves it alone: a fix puts things where this map needs
+ *  them, and their mirror images could land in walls or where there are no stairs. */
 export async function fixOne(f: AutoFix): Promise<string> {
-  const said = await runAutoFix(f)
+  const said = await withoutMirror(() => runAutoFix(f))
   recheck()
   return said
 }

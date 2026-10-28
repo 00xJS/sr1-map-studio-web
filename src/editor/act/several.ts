@@ -1,5 +1,6 @@
 // Several objects at once: duplicate, delete, copy and paste, turn, group.
-import { useEditor, currentProject } from '../store'
+import { useEditor, currentProject, withoutMirror } from '../store'
+import { holdsBothHalves } from '../../lib/mirrorEdit'
 import { catalogs } from '../../lib/catalogs'
 import { isGlass, referencedPaths, uid, type FileRef, type Project, type SceneItem, type Vec3 } from '../../lib/project'
 import { log, update, UserError } from './core'
@@ -58,7 +59,7 @@ export function duplicateItems(indices: number[]) {
   const b = bundleItems(indices)
   if (!b) return
   const o = bundleOrigin(indices)
-  placeBundle(b, [o[0] + 4, o[1], o[2] + 4], `Duplicate ${b.items.length} objects`)
+  placeBundleOnce(b, [o[0] + 4, o[1], o[2] + 4], `Duplicate ${b.items.length} objects`)
   log(`Duplicated ${b.items.length} objects, shifted a little so you can see them.`)
 }
 
@@ -90,8 +91,14 @@ export function pasteItems(): number {
   c.pastes = (c.pastes || 0) + 1
   try { localStorage.setItem(CLIPBOARD_KEY, JSON.stringify(c)) } catch { /* the next paste just lands in the same spot */ }
   const step = 4 * c.pastes
-  placeBundle(c, [c.origin[0] + step, c.origin[1], c.origin[2] + step], `Paste ${c.items.length} objects`)
+  placeBundleOnce(c, [c.origin[0] + step, c.origin[1], c.origin[2] + step], `Paste ${c.items.length} objects`)
   return c.items.length
+}
+
+/** placeBundle, but a bundle that already holds both halves of itself (a mirrored pair copied together) goes in as it
+ *  is, mirror mode or not: twinning each half again would make four. Positions are relative to its middle. */
+function placeBundleOnce(b: ItemBundle, at: Vec3, label: string) {
+  return holdsBothHalves(b.items) ? withoutMirror(() => placeBundle(b, at, label)) : placeBundle(b, at, label)
 }
 
 /** Turns several objects together about their shared centre. */

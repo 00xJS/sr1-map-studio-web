@@ -18,7 +18,7 @@ import { markerLabel } from '../../lib/labels'
 import { RETAIL_MARKER_TYPES } from '../../lib/retailModes'
 import { PIMP_EXIT, isCustomNative, isGlass, isProp, type SceneItem, type Vec3 } from '../../lib/project'
 import { symmetryOf } from '../../lib/mirrorEdit'
-import { mirrorCheck } from '../../lib/analysis/analyze'
+import { unmirroredCost } from '../../lib/analysis/analyze'
 
 const PhotoDialog = lazy(() => import('../PhotoDialog').then((m) => ({ default: m.PhotoDialog })))
 export const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
@@ -28,7 +28,7 @@ export function BuildTab() {
   return (
     <>
       <AddThings />
-      {hasItems && <MirrorMode />}
+      <MirrorMode />
       <ObjectList />
       {hasItems && <LayersPanel compact />}
       <More id="build" title="Library, imports and every texture">
@@ -86,8 +86,8 @@ function MirrorMode() {
   const on = useEditor((s) => s.mirror)
   const project = useDeferredValue(useEditor((s) => s.project)!)
   const sym = useMemo(() => (on ? symmetryOf(project) : null), [on, project])
-  // As the fairness score counts them: spawns, weapons and drop-offs with no twin take 3 points each, 20 at most.
-  const unmirrored = useMemo(() => (on ? mirrorCheck(project.markers).length : 0), [on, project])
+  // As the fairness score counts them (analyze.ts).
+  const cost = useMemo(() => (on ? unmirroredCost(project.markers) : null), [on, project])
   return (
     <div className="section">
       <span className="section-title">Mirror mode</span>
@@ -95,10 +95,11 @@ function MirrorMode() {
         <button className={'sm' + (on ? ' on' : '')} aria-pressed={on} onClick={() => useEditor.getState().set({ mirror: !on })}
           title="Shift+M">{on ? '⇄ Mirror mode is on' : '⇄ Mirror mode'}</button>
       </div>
-      <span className="faint small">Every move, turn, new piece and delete is copied to the other half: turned 180° about the centre of the map, red and blue spawns swapped. One Undo takes back both.</span>
-      {sym && <span className="small" data-testid="mirror-numbers">
-        Twins: {sym.objects} of {sym.totalObjects} objects, {sym.markers} of {sym.totalMarkers} markers.{' '}
-        {unmirrored ? `${unmirrored === 1 ? '1 spawn, weapon or drop-off has' : `${unmirrored} spawns, weapons or drop-offs have`} no twin: the fairness score takes ${Math.min(20, unmirrored * 3)} off.` : 'Every spawn, weapon and drop-off has its twin.'}
+      <span className="faint small">What you change on one half happens on the other too: moves, turns, size, paint and settings, new objects, markers and lights, and deletes. Turned 180° about the middle of the spawns, red and blue spawns swapped. One Undo takes back both. The AI's edits and the Check tab's fixes aren't copied.</span>
+      {sym && cost && <span className="small" data-testid="mirror-numbers">
+        Twins: {sym.objects} of {sym.totalObjects} objects, {sym.markers} of {sym.totalMarkers} markers{sym.totalLights ? `, ${sym.lights} of ${sym.totalLights} lights` : ''}.{' '}
+        {!cost.count ? 'Every spawn, weapon and drop-off has its twin.'
+          : `${cost.count === 1 ? '1 spawn, weapon or drop-off has' : `${cost.count} spawns, weapons or drop-offs have`} no twin${cost.points ? `: the fairness score takes ${cost.points} off` : ''}.`}
       </span>}
     </div>
   )

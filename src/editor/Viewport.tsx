@@ -241,6 +241,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
   const walking = useEditor((s) => s.walking)
   const freeCam = useEditor((s) => s.freeCam)
   const plan = useEditor((s) => s.plan)
+  const mirror = useEditor((s) => s.mirror)
   const narrow = useNarrow()
   const [dropping, setDropping] = useState(false)
 
@@ -385,6 +386,8 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
         </div>
       )}
       <CameraPad />
+      {mirror && <button className="sm mirror-badge" onClick={() => useEditor.getState().set({ mirror: false })}
+        title="Edits are copied to the other half. Click to turn mirror mode off (Shift+M).">⇄ Mirror mode</button>}
       <div className="viewport-hint">{plan
         ? (coarse ? 'Plan view · One finger: slide · Pinch: zoom · Tap: select' : 'Plan view · Drag: slide · Scroll: zoom · WASD slide · O: back to 3D')
         : freeCam
