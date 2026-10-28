@@ -30,10 +30,9 @@ async function storeShape(shape: Shape) {
 }
 
 /** Adds a block-out shape at the camera target, resting on the surface below if there is one. */
-export async function addShape(presetKey: string, at: Vec3, groundY: number | null, o: { rot?: number; size?: Vec3 } = {}) {
+export async function addShape(presetKey: string, at: Vec3, groundY: number | null, o: { rot?: number; size?: Vec3 } = {}, run = mapRun()) {
   const preset = SHAPE_PRESETS[presetKey]
   if (!preset) return
-  const run = mapRun()
   const shape = structuredClone(preset.shape)
   if (o.size) shape.size = o.size.map((v) => Math.max(0.1, Math.min(400, +v || 1))) as Vec3
   const stored = await storeShape(shape)
@@ -85,11 +84,10 @@ export async function prefabItem(key: string, params: Record<string, number | st
  * With `wall` (the clicked surface's outward direction), one that can go on a
  * wall (a sign, a photo frame) is stuck flat on it, centred on the click.
  */
-export async function addPrefab(key: string, at: Vec3, groundY: number | null, o: { rot?: number; params?: Record<string, number | string>; wall?: Vec3 } = {}) {
+export async function addPrefab(key: string, at: Vec3, groundY: number | null, o: { rot?: number; params?: Record<string, number | string>; wall?: Vec3 } = {}, run = mapRun()) {
   const def = ALL_PREFABS[key]
   if (!def) return
-  if ((def as { physicsSet?: boolean }).physicsSet) return (await import('../physicsActions')).addPhysicsSet(key, at, groundY, o.rot ?? 0)
-  const run = mapRun()
+  if ((def as { physicsSet?: boolean }).physicsSet) return (await import('../physicsActions')).addPhysicsSet(key, at, groundY, o.rot ?? 0, run)
   let params = o.params ?? {}, base: Vec3 = [at[0], groundY ?? 0, at[2]], rot = o.rot ?? 0
   const n = o.wall
   if (def.onWall && n && Math.abs(n[1]) < 0.6) {
@@ -112,11 +110,10 @@ export async function addPrefab(key: string, at: Vec3, groundY: number | null, o
 }
 
 /** Rebuilds a placed prefab with new settings, in place; repaints the user made are kept where the same part still exists. */
-export async function updatePrefab(index: number, params: Record<string, number | string>) {
+export async function updatePrefab(index: number, params: Record<string, number | string>, run = mapRun()) {
   const it = currentProject()?.scene_items[index]
   const pf = it?.prefab
   if (!it || !pf || !ALL_PREFABS[pf.key]) return
-  const run = mapRun()
   const { item, files } = await prefabItem(pf.key, params, it.position, it.rotation[1])
   // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
   stillCurrent(run)

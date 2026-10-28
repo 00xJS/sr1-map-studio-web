@@ -114,6 +114,8 @@ export interface Run { opens: number; txn: Txn | null; job: Job | null }
 export const startRun = (): Run => ({ opens, txn: txn?.started ? txn : null, job })
 /** The map alone: for an edit anyone may start (placing a prefab), which must not land on a map opened meanwhile. */
 export const mapRun = (): Run => ({ opens, txn: null, job: null })
+/** Whether the map `run` started on is still the open one (its job or transaction may have stopped). */
+export const onSameMap = (run: Run) => run.opens === opens
 /** False once a map was opened (the same one again too) since `run`, or its transaction or job was stopped. */
 export const isCurrent = (run: Run) => run.opens === opens && !run.txn?.stopped && !run.job?.stopped
 /** Throws unless `isCurrent(run)`. */
@@ -128,6 +130,11 @@ export const JOB_TIME_LIMIT = 120_000
 /** What an edit job that ran out of time rejects with; what it does after that changes nothing. */
 export class JobTooLong extends Error {
   constructor(readonly limit: number) { super(`Stopped after ${Math.round(limit / 60_000)} minutes: it was taking too long.`) }
+}
+/** What a cancelled edit job rejects with (its own Cancel was pressed): nothing to report. */
+export class JobCancelled extends Error {
+  readonly quiet = true
+  constructor() { super('cancelled') }
 }
 /** Resolves once no transaction holds the editor. */
 export function whenUnlocked(): Promise<void> {
@@ -147,28 +154,54 @@ let jobs = newQueue()
  * transaction to end; a transaction waits for the job running when it begins (queued ones wait for it). So no job's
  * edits land in another's undo step, nor in Fix all's. Each map has its own queue.
  */
-export async function editJob<T>(fn: () => Promise<T>, limit = JOB_TIME_LIMIT): Promise<T> {
+export async function editJob<T>(fn: () => Promise<T>, opts: EditJobOptions = {}): Promise<T> {
+  const { limit = JOB_TIME_LIMIT, signal, onStop } = opts
   const q = jobs, before = q.last
   let end = () => {}
   const mine = new Promise<void>((r) => { end = r })
   q.last = mine
+  // Past its time, or cancelled, the queue moves on; a running job's runs are stopped first (and `onStop` runs then),
+  // so a late edit of its changes nothing.
+  let me: Job | null = null, fail: (err: Error) => void = () => {}
+  const stopped = new Promise<never>((_, no) => { fail = no })
+  stopped.catch(() => undefined)
+  const stop = (err: Error) => {
+    if (me) { if (me.stopped) return; me.stopped = true; onStop?.() }
+    fail(err)
+  }
+  const cancel = () => stop(new JobCancelled())
+  signal?.addEventListener('abort', cancel, { once: true })
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    await before
-    while (useEditor.getState().locked) await whenUnlocked()
+    if (signal?.aborted) throw new JobCancelled()
+    await Promise.race([before, stopped])
+    while (useEditor.getState().locked) await Promise.race([whenUnlocked(), stopped])
     // Queued on a map that was left meanwhile: its edits were for that map.
     if (q !== jobs) throw new MapChanged()
-    const me: Job = { stopped: false }
+    me = { stopped: false }
     q.running = mine
     job = me
-    // Past its time the queue moves on; its runs are stopped, so a late edit of its changes nothing.
-    let timer: ReturnType<typeof setTimeout> | undefined
-    const late = new Promise<never>((_, fail) => { timer = setTimeout(() => { me.stopped = true; fail(new JobTooLong(limit)) }, limit) })
-    try { return await Promise.race([fn(), late]) } finally {
-      clearTimeout(timer)
+    timer = setTimeout(() => stop(new JobTooLong(limit)), limit)
+    try { return await Promise.race([fn(), stopped]) } finally {
       if (job === me) job = null
       if (q.running === mine) q.running = null
     }
-  } finally { end() }
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', cancel)
+    // Cancelled while still queued: the ones after it still wait for the ones before it.
+    if (me) end()
+    else void before.then(end)
+  }
+}
+
+export interface EditJobOptions {
+  /** How long it may run (JOB_TIME_LIMIT). */
+  limit?: number
+  /** Cancels it, queued or running. */
+  signal?: AbortSignal
+  /** Runs the moment a running job is stopped (time or cancel), before the next job begins. */
+  onStop?: () => void
 }
 
 /** One step back to where `t` started, unless nothing changed or a map was opened since; then the editor is free. */

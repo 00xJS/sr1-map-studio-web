@@ -93,7 +93,8 @@ export async function paintAt(index: number, face: number, swatch: Swatch) {
 }
 
 /** Put the swatch on one material of an object. */
-export async function paintMaterial(index: number, mat: string, swatch: Swatch) {
+export async function paintMaterial(index: number, mat: string, swatch: Swatch, run = mapRun()) {
+  stillCurrent(run)
   if (swatch.source.kind === 'file') {
     const vpath = swatch.source.vpath
     useEditor.getState().update('Paint', (d) => {
@@ -103,7 +104,6 @@ export async function paintMaterial(index: number, mat: string, swatch: Swatch) 
     })
     return
   }
-  const run = mapRun()
   const file = await swatchFile(swatch.source, swatch.key)
   // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
   stillCurrent(run)

@@ -1,5 +1,7 @@
 // Carries out the edits an AI chat reply asks for, as one undo step.
-import { useEditor, currentProject, editJob, isCurrent, startRun, JobTooLong, MapChanged } from './store'
+import { create } from 'zustand'
+import { useEditor, currentProject, editJob, isCurrent, onSameMap, startRun, stillCurrent, JobCancelled, JobTooLong, JOB_TIME_LIMIT, MapChanged, type Run } from './store'
+import type { Project } from '../lib/project'
 import { getViewer } from './Viewport'
 import * as act from './actions'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
@@ -60,27 +62,53 @@ async function swatchFor(name: string, tint: { color?: unknown; accent?: unknown
  * Runs the actions as one undo step called `label`; returns how many were done and what was skipped. An edit job:
  * it waits for Fix all to end, and Fix all waits for it, as it rewrites the undo list from where it started.
  */
-export async function runAiActions(actions: AiAction[], label: string): Promise<AiResult> {
+export async function runAiActions(actions: AiAction[], label: string, limit = JOB_TIME_LIMIT): Promise<{ done: number; skipped: string[] }> {
   const out: AiResult = { done: 0, skipped: [] }
-  try { await editJob(() => applyAiActions(actions, label, out)) } catch (err) {
-    // Queued on a map since left, or past the job's time: what it did so far stays, the rest is left out.
+  const cancel = new AbortController()
+  useAiEdits.setState((s) => ({ running: [...s.running, cancel] }))
+  try {
+    // Stopped by its time or Cancel: what it did by then is one undo step at once, before the next job begins.
+    await editJob(() => applyAiActions(actions, label, out), { limit, signal: cancel.signal, onStop: () => oneStep(out, label) })
+  } catch (err) {
+    // Queued on a map since left, past the job's time, or cancelled: what it did so far stays, the rest is left out.
     if (err instanceof MapChanged) out.skipped.push('another map was opened')
     else if (err instanceof JobTooLong) out.skipped.push(`the rest (it took over ${Math.round(err.limit / 60_000)} minutes)`)
+    else if (err instanceof JobCancelled) out.skipped.push('the rest (cancelled)')
     else throw err
+  } finally {
+    useAiEdits.setState((s) => ({ running: s.running.filter((c) => c !== cancel) }))
   }
   return { done: out.done, skipped: [...out.skipped] }
 }
 
-interface AiResult { done: number; skipped: string[] }
+/** AI edits running or queued: the chat's Cancel stops them all. */
+export const useAiEdits = create<{ running: AbortController[] }>(() => ({ running: [] }))
+export const cancelAiEdits = () => useAiEdits.getState().running.forEach((c) => c.abort())
+
+interface AiResult {
+  done: number
+  skipped: string[]
+  /** Where the reply began: the undo list's length, the map then, and its run. */
+  start?: { past: number; project: Project; run: Run }
+}
+
+/** Everything the reply did becomes one step on the undo list (still on its map only). */
+function oneStep(out: AiResult, label: string) {
+  const b = out.start
+  if (!b || !onSameMap(b.run)) return
+  const now = useEditor.getState()
+  if (now.past.length > b.past) useEditor.setState({ past: [...now.past.slice(0, b.past), { project: b.project, label }], future: [] })
+}
 
 /** Applies the actions, counting into `out` as it goes (so a reply that runs out of time still says what it did). */
 async function applyAiActions(actions: AiAction[], label: string, out: AiResult): Promise<void> {
   const st = useEditor.getState()
   if (!st.project) { out.skipped.push('No map is open.'); return }
-  const start = st.past.length
-  const before = st.project
-  // Another map opened mid-reply: the edits left aren't about it.
+  // Another map opened mid-reply, or the reply was stopped: the edits left aren't made. Every helper it calls gets
+  // this run and checks it after each load, and so does every step here after an await or in a loop.
   const run = startRun()
+  out.start = { past: st.past.length, project: st.project, run }
+  const live = () => stillCurrent(run)
   const skipped = out.skipped
   const deletes = new Set<number>()
   const count = () => currentProject()!.scene_items.length
@@ -99,15 +127,18 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
         case 'add_prefab': {
           if (!ALL_PREFABS[a.key]) { skipped.push(`unknown prefab "${a.key}"`); break }
           for (const [x, z, rot] of spots(num(a.x), num(a.z), num(a.turn), a.mirror)) {
-            await act.addPrefab(a.key, [x, 0, z], floorAt(x, z), { rot, params: a.settings }); out.done++
+            live()
+            await act.addPrefab(a.key, [x, 0, z], floorAt(x, z), { rot, params: a.settings }, run); out.done++
           }
           break
         }
         case 'fill_game_objects': {
           const { loadIndex } = await import('../lib/gameObjects/client')
           const entries = await loadIndex()
+          live()
           if (!entries?.length) { skipped.push('the game object library is not loaded (From my game)'); break }
           const { varietyPick } = await import('../lib/gameObjects/tags')
+          live()
           const n = Math.max(1, Math.min(40, Math.round(num(a.count, 12))))
           const mirror = a.mirror !== false, half = mirror ? Math.ceil(n / 2) : n
           const picks = varietyPick(entries, Array.isArray(a.tags) ? a.tags.map(String) : [], half, 4)
@@ -116,27 +147,31 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
           const at = weaponSpots(currentProject()!, viewer ? (i) => viewer.itemBounds(i) : undefined, picks.length, a.where === 'middle' || a.where === 'ends' ? a.where : 'spread')
           if (at.length < picks.length) skipped.push(`room for ${at.length} of ${picks.length}`)
           const { placeGameObject } = await import('./gameObjectActions')
+          live()
           for (const [i, p] of at.entries()) {
             const turn = Math.round(Math.random() * 8) * 45
-            for (const [x, z, rot] of spots(p[0], p[2], turn, mirror)) { await placeGameObject(picks[i].id, [x, 0, z], floorAt(x, z), rot); out.done++ }
+            for (const [x, z, rot] of spots(p[0], p[2], turn, mirror)) { live(); await placeGameObject(picks[i].id, [x, 0, z], floorAt(x, z), rot, run); out.done++ }
           }
           break
         }
         case 'add_game_object': {
           const { loadIndex } = await import('../lib/gameObjects/client')
           const entries = await loadIndex()
+          live()
           if (!entries?.length) { skipped.push('the game object library is not loaded (From my game)'); break }
           const e = entries.find((x) => x.id === a.id) ?? (a.name ? relevantGameObjects(entries, String(a.name), 1)[0] : undefined)
           if (!e) { skipped.push(`no game object "${a.id ?? a.name}"`); break }
           const { placeGameObject } = await import('./gameObjectActions')
-          for (const [x, z, rot] of spots(num(a.x), num(a.z), num(a.turn), a.mirror)) { await placeGameObject(e.id, [x, 0, z], floorAt(x, z), rot); out.done++ }
+          live()
+          for (const [x, z, rot] of spots(num(a.x), num(a.z), num(a.turn), a.mirror)) { live(); await placeGameObject(e.id, [x, 0, z], floorAt(x, z), rot, run); out.done++ }
           break
         }
         case 'add_shape': {
           if (!SHAPE_PRESETS[a.shape]) { skipped.push(`unknown shape "${a.shape}"`); break }
           const size = Array.isArray(a.size) && a.size.length === 3 ? a.size.map((v) => num(v, 1)) as Vec3 : undefined
           for (const [x, z, rot] of spots(num(a.x), num(a.z), num(a.turn), a.mirror)) {
-            await act.addShape(a.shape, [x, 0, z], floorAt(x, z), { rot, size }); out.done++
+            live()
+            await act.addShape(a.shape, [x, 0, z], floorAt(x, z), { rot, size }, run); out.done++
           }
           break
         }
@@ -176,7 +211,7 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
         case 'prefab_settings': {
           const i = item(a.index)
           if (i === null || !currentProject()!.scene_items[i].prefab) { skipped.push(`object ${a.index} isn't a prefab`); break }
-          await act.updatePrefab(i, a.settings ?? {})
+          await act.updatePrefab(i, a.settings ?? {}, run)
           out.done++
           break
         }
@@ -241,9 +276,9 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
           }
           if (typeof a.physics === 'string') {
             if (a.physics === 'none' || a.physics === 'static') {
-              for (const i of ids) if (currentProject()!.scene_items[i].physics_preset || currentProject()!.scene_items[i].native_prop_behavior) { await act.returnStatic(i); out.done++ }
+              for (const i of ids) if (currentProject()!.scene_items[i].physics_preset || currentProject()!.scene_items[i].native_prop_behavior) { live(); await act.returnStatic(i, run); out.done++ }
             } else if (!PRESET_BY_KEY[a.physics]) skipped.push(`unknown physics preset "${a.physics}"`)
-            else { await makePhysicsProps(ids, a.physics); out.done += ids.length }
+            else { await makePhysicsProps(ids, a.physics, run); out.done += ids.length }
           }
           break
         }
@@ -292,7 +327,7 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
             if (typeof a.game_sky === 'boolean') d.settings.game_sky = a.game_sky
             if (a.loading === 'auto' || a.loading === 'none') d.settings.loading_mode = a.loading
           })
-          if (a.sky_picture === true && !currentProject()!.settings.sky_texture) await act.addDefaultSky()
+          if (a.sky_picture === true && !currentProject()!.settings.sky_texture) { await act.addDefaultSky(); live() }
           out.done++
           break
         }
@@ -339,6 +374,7 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
         case 'paint': {
           const ids = resolveTarget(currentProject()!, a)
           const sw = typeof a.texture === 'string' ? await swatchFor(a.texture, a) : null
+          live()
           if (!sw) { skipped.push(`unknown texture "${a.texture}"`); break }
           if (!ids.length) { skipped.push('nothing matched to paint'); break }
           // A material by its name or by its current texture's name; all of them when none is given.
@@ -347,7 +383,7 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
             const it = currentProject()!.scene_items[i]
             if (isGlass(it)) continue
             const mats = Object.entries(it.textures || {}).filter(([m, v]) => !want || squash(m) === want || (!!v && squash(niceName(v)).includes(want))).map(([m]) => m)
-            for (const m of mats) { await paintMaterial(i, m, sw); out.done++ }
+            for (const m of mats) { live(); await paintMaterial(i, m, sw, run); out.done++ }
           }
           break
         }
@@ -403,9 +439,8 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
     }
   }
   // Another map opened mid-reply (a placement waiting on its model saw it too): none of the rest, no undo step.
-  if (!isCurrent(run)) { skipped.push('another map was opened'); return }
+  // Stopped (time or Cancel): editJob made its step when it stopped.
+  if (!isCurrent(run)) { if (!onSameMap(run)) skipped.push('another map was opened'); return }
   if (deletes.size) { act.removeItems([...deletes]); useEditor.getState().select(null); out.done += deletes.size }
-  // Everything this reply did is one step on the undo list.
-  const now = useEditor.getState()
-  if (now.past.length > start) useEditor.setState({ past: [...now.past.slice(0, start), { project: before, label }], future: [] })
+  oneStep(out, label)
 }

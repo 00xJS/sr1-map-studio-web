@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useEditor, saveNow } from './store'
 import { getViewer } from './Viewport'
-import { runAiActions } from './aiActions'
+import { cancelAiEdits, runAiActions, useAiEdits } from './aiActions'
 import { useChat, type Turn } from './aiSession'
 import { KeySetup, readKey, readModel } from './AiKey'
 import { loadLibrary } from './paint'
@@ -75,6 +75,8 @@ export function AiChat({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   /** Waiting on the model (Stop works), as opposed to applying its edits. */
   const [asking, setAsking] = useState(false)
+  /** Its edits being made, or waiting their turn (Cancel works). */
+  const applying = useAiEdits((s) => s.running.length > 0)
   const abort = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }) }, [turns])
@@ -202,7 +204,9 @@ export function AiChat({ onClose }: { onClose: () => void }) {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(text) } }} aria-label="Message" />
             {asking
               ? <button className="sm" onClick={() => abort.current?.abort()} title="Stop the answer">■ Stop</button>
-              : <button className="primary sm" disabled={busy || !text.trim()} onClick={() => send(text)}>{busy ? 'Working…' : 'Send'}</button>}
+              : applying
+                ? <button className="sm" onClick={cancelAiEdits} title="Stop making the AI's changes: the ones made so far stay, as one undo step">Cancel</button>
+                : <button className="primary sm" disabled={busy || !text.trim()} onClick={() => send(text)}>{busy ? 'Working…' : 'Send'}</button>}
           </div>
         </>
       )}

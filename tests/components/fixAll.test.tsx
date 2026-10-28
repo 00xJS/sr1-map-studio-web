@@ -7,13 +7,16 @@ import { JobTooLong, MapChanged, editJob, startRun, stillCurrent, useEditor, whe
 import { storeFile } from '../../src/lib/files'
 import { addShape } from '../../src/editor/act/shapes'
 import { runMapChecks } from '../../src/editor/mapChecks'
+import { cancelAiEdits } from '../../src/editor/aiActions'
+import { gameObjectItem } from '../../src/lib/gameObjects/place'
+import { loadIndex } from '../../src/lib/gameObjects/client'
 import { runAiActions } from '../../src/editor/aiActions'
 import { loadModel } from '../../src/lib/assets'
 import { skyFile } from '../../src/lib/samples'
 import { addDefaultSky } from '../../src/editor/actions'
 import { useHealth } from '../../src/editor/health'
 import { handleKey } from '../../src/editor/shortcuts'
-import { fixAll } from '../../src/editor/checkFixes'
+import { FIX_TIME_LIMIT, fixAll } from '../../src/editor/checkFixes'
 import { applySpawnFix, fixSpawnsAndWeapons } from '../../src/editor/spawnActions'
 import { parseObj } from '../../src/lib/geometry'
 import { newMarker, newProject, type SceneItem } from '../../src/lib/project'
@@ -49,6 +52,25 @@ vi.mock('../../src/lib/files', async (orig) => ({
   ...(await orig<typeof import('../../src/lib/files')>()),
   storeFile: vi.fn(async (_b: Blob, name: string) => ({ vpath: 'files/' + name, ref: { hash: 'h-' + name, name, type: 'model/obj', size: 1, origin: 'user' } })),
   storeFileIf: vi.fn(async (_b: Blob, name: string, keep: () => boolean) => keep() ? { vpath: 'files/' + name, ref: { hash: 'h-' + name, name, type: 'model/obj', size: 1, origin: 'user' } } : null),
+}))
+// The game object library: its index and an object's files, stood in for; placeGameObject is the real one.
+const GAME = [{ id: 'bench', name: 'Bench', size: [2, 1, 1] }, { id: 'bin', name: 'Bin', size: [1, 1, 1] }] as never[]
+vi.mock('../../src/lib/gameObjects/client', async (orig) => ({
+  ...(await orig<typeof import('../../src/lib/gameObjects/client')>()),
+  loadIndex: vi.fn(async () => GAME),
+  entryById: (id: string) => (GAME as { id: string }[]).find((e) => e.id === id),
+}))
+vi.mock('../../src/lib/gameObjects/tags', async (orig) => ({
+  ...(await orig<typeof import('../../src/lib/gameObjects/tags')>()),
+  varietyPick: () => GAME,
+}))
+vi.mock('../../src/lib/gameObjects/place', async (orig) => ({
+  ...(await orig<typeof import('../../src/lib/gameObjects/place')>()),
+  sinkUnits: () => 0,
+  gameObjectItem: vi.fn(async (e: { id: string; name: string }, at: [number, number, number]) => ({
+    item: { uid: 'g-' + Math.random(), name: e.name, path: 'files/' + e.id + '.obj', position: at, rotation: [0, 0, 0], scale: 1, textures: {} },
+    files: {},
+  })),
 }))
 vi.mock('../../src/lib/importers', async (orig) => ({
   ...(await orig<typeof import('../../src/lib/importers')>()),
@@ -347,7 +369,7 @@ describe('Edit jobs take turns', () => {
     openMap()
     const job = stuckJob('Stuck job')
     await settle()
-    const r = await fixAll([{ kind: 'walls' }, { kind: 'spawns' }], 100)
+    const r = await fixAll([{ kind: 'walls' }, { kind: 'spawns' }], FIX_TIME_LIMIT, 100)
     expect(r.done).toEqual([])
     expect(r.failed).toEqual([
       "invisible walls (other changes to the map took over 0 minutes, so Fix all didn't start)",
@@ -440,6 +462,62 @@ describe('Work queued or loading when another map opens', () => {
   })
 })
 
+/** Makes the next game object's files hang until the returned function is called. */
+function hangGameObject() {
+  let release = () => {}
+  vi.mocked(gameObjectItem).mockImplementationOnce((e, at) => new Promise((r) => { release = () => r({ item: { uid: 'late', name: (e as { name: string }).name, path: 'files/late.obj', position: at, rotation: [0, 0, 0], scale: 1, textures: {} } as never, files: {} }) }))
+  return () => release()
+}
+const names = () => useEditor.getState().project!.scene_items.map((it) => it.name)
+
+describe('An AI reply stopped partway', () => {
+  it('places nothing more once its time runs out, even mid-loop, and what it did is one undo step', { timeout: 30000 }, async () => {
+    openMap()
+    // The first object lands, the second (its mirrored twin) waits on its files past the reply's time.
+    let calls = 0
+    vi.mocked(gameObjectItem).mockImplementation(async (e, at) => {
+      if (++calls === 2) await new Promise((r) => setTimeout(r, 300))
+      return { item: { uid: 'g' + calls, name: (e as { name: string }).name, path: 'files/g.obj', position: at, rotation: [0, 0, 0], scale: 1, textures: {} } as never, files: {} }
+    })
+    const r = await runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: benches', 100)
+    expect(r.skipped).toContain('the rest (it took over 0 minutes)')
+    expect(r.done).toBe(1)
+    // The next job runs at once; the stuck placement wakes after it and writes nothing.
+    await editJob(async () => { useEditor.getState().update('Next', (d) => { d.name = 'Next' }) })
+    await new Promise((res) => setTimeout(res, 400))
+    expect(names()).toEqual(['Stairs', 'Bench'])
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['AI: benches', 'Next'])
+    vi.mocked(gameObjectItem).mockReset()
+  })
+
+  it('stops at Cancel the same way', { timeout: 30000 }, async () => {
+    openMap()
+    const release = hangGameObject()
+    const reply = runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: bench')
+    await vi.waitFor(() => expect(gameObjectItem).toHaveBeenCalled())
+    cancelAiEdits()
+    expect(await reply).toEqual({ done: 0, skipped: ['the rest (cancelled)'] })
+    release()
+    await settle()
+    expect(names()).toEqual(['Stairs'])
+    expect(useEditor.getState().past).toEqual([])
+  })
+
+  it('writes nothing to a map opened while the game object library loaded', { timeout: 30000 }, async () => {
+    openMap()
+    let release = () => {}
+    vi.mocked(loadIndex).mockImplementationOnce(() => new Promise((r) => { release = () => r(GAME as never) }))
+    const reply = runAiActions([{ do: 'fill_game_objects', count: 2 }, { do: 'rename_map', name: 'Harbor Rumble' }], 'AI: benches')
+    await vi.waitFor(() => expect(loadIndex).toHaveBeenCalled())
+    const b = openMap()
+    release()
+    expect(await reply).toEqual({ done: 0, skipped: ['another map was opened'] })
+    expect(useEditor.getState().project).toBe(b)
+    expect(names()).toEqual(['Stairs'])
+    expect(useEditor.getState().past).toEqual([])
+  })
+})
+
 describe('An edit job past its time', () => {
   it('lets the queue go on, and what it does after that changes nothing', { timeout: 30000 }, async () => {
     openMap()
@@ -450,7 +528,7 @@ describe('An edit job past its time', () => {
       stillCurrent(run)
       useEditor.getState().update('Late', (d) => { d.name = 'Late' })
       wrote = true
-    }, 100)
+    }, { limit: 100 })
     const next = editJob(async () => { useEditor.getState().update('Next', (d) => { d.name = 'Next' }) })
     await expect(slow).rejects.toBeInstanceOf(JobTooLong)
     await next

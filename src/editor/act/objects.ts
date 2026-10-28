@@ -182,11 +182,12 @@ export async function convertBreakable(index: number, mode: 'glass' | 'wood') {
   log('Experimental native custom-mesh breakable: ' + item.name + '; fitted Havok collision experiment enabled.')
 }
 
-export async function returnStatic(index: number) {
+export async function returnStatic(index: number, run = mapRun()) {
   const p = currentProject()
   const it = p?.scene_items[index]
   if (!p || !it || index <= 0 || !isGlass(it)) return
   const item = await py.sceneOp<SceneItem>('return_static', { item: it })
+  stillCurrent(run)
   update('Return to static', (d) => { d.scene_items[index] = { ...item, uid: it.uid } })
   log('Returned selected prop to normal static map geometry; re-export to apply.')
 }

@@ -21,8 +21,7 @@ async function entry(id: string) {
 const ws = () => currentProject()?.settings.world_scale || 0.5
 
 /** Places a library object standing on the clicked surface. */
-export async function placeGameObject(id: string, at: Vec3, groundY: number | null, rot: number) {
-  const run = mapRun()
+export async function placeGameObject(id: string, at: Vec3, groundY: number | null, rot: number, run = mapRun()) {
   const e = await entry(id)
   // On a floor: sunk into it as the city has it (place.ts sinkUnits).
   const { item, files } = await gameObjectItem(e, [at[0], groundY !== null ? groundY - sinkUnits(e, ws()) : at[1], at[2]], rot, ws())

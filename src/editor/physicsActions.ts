@@ -35,7 +35,7 @@ async function oneMaterialShape(it: SceneItem) {
 }
 
 /** Makes the objects physics props with a behaviour preset (or switches the preset of ones that are). */
-export async function makePhysicsProps(indices: number[], key: string) {
+export async function makePhysicsProps(indices: number[], key: string, run = mapRun()) {
   const preset = PRESET_BY_KEY[key]
   const p = currentProject()
   if (!p || !preset) return
@@ -71,6 +71,7 @@ export async function makePhysicsProps(indices: number[], key: string) {
   }
   const done = indices.filter((i) => converted.has(i) || isProp(p.scene_items[i]))
   if (done.length) {
+    stillCurrent(run)
     update('Physics prop: ' + preset.label, (d) => {
       Object.assign(d.files, files)
       for (const i of done) {
@@ -93,11 +94,10 @@ export function setBottomHeavy(index: number, on: boolean) {
 }
 
 /** Places a physics showcase set (lib/prefabsPhysics.ts): its static parts as one object, each prop as its own physics prop. */
-export async function addPhysicsSet(key: string, at: Vec3, groundY: number | null, rot = 0) {
+export async function addPhysicsSet(key: string, at: Vec3, groundY: number | null, rot = 0, run = mapRun()) {
   const def = ALL_PREFABS[key]
   const p = currentProject()
   if (!def || !p) return
-  const run = mapRun()
   const parts = def.make(at[0], at[2], rot, groundY ?? 0) as PhysicsPart[]
   const props = parts.filter((x) => x.physics)
   const natives = p.scene_items.filter(isGlass).length

@@ -25,4 +25,11 @@ describe('storeFileIf', () => {
     expect(await storeFileIf(data, 'ramps.obj', () => false)).toBeNull()
     expect(await db.hasBlob(ref.hash)).toBe(true)
   })
+
+  it('leaves a file stored at the same time by other work (the same map reopened, making the same ramps)', async () => {
+    const data = obj('v 0 0 0 twice')
+    const [dropped, kept] = await Promise.all([storeFileIf(data, 'ramps.obj', () => false), storeFile(data, 'ramps.obj')])
+    expect(dropped).toBeNull()
+    expect(await db.hasBlob(kept.ref.hash)).toBe(true)
+  })
 })
