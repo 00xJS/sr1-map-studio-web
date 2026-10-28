@@ -1,5 +1,5 @@
 // Carries out the edits an AI chat reply asks for, as one undo step.
-import { useEditor, currentProject, editJob, isCurrent, startRun } from './store'
+import { useEditor, currentProject, editJob, isCurrent, startRun, JobTooLong, MapChanged } from './store'
 import { getViewer } from './Viewport'
 import * as act from './actions'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
@@ -60,20 +60,29 @@ async function swatchFor(name: string, tint: { color?: unknown; accent?: unknown
  * Runs the actions as one undo step called `label`; returns how many were done and what was skipped. An edit job:
  * it waits for Fix all to end, and Fix all waits for it, as it rewrites the undo list from where it started.
  */
-export function runAiActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
-  return editJob(() => applyAiActions(actions, label))
+export async function runAiActions(actions: AiAction[], label: string): Promise<AiResult> {
+  const out: AiResult = { done: 0, skipped: [] }
+  try { await editJob(() => applyAiActions(actions, label, out)) } catch (err) {
+    // Queued on a map since left, or past the job's time: what it did so far stays, the rest is left out.
+    if (err instanceof MapChanged) out.skipped.push('another map was opened')
+    else if (err instanceof JobTooLong) out.skipped.push(`the rest (it took over ${Math.round(err.limit / 60_000)} minutes)`)
+    else throw err
+  }
+  return { done: out.done, skipped: [...out.skipped] }
 }
 
-async function applyAiActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
+interface AiResult { done: number; skipped: string[] }
+
+/** Applies the actions, counting into `out` as it goes (so a reply that runs out of time still says what it did). */
+async function applyAiActions(actions: AiAction[], label: string, out: AiResult): Promise<void> {
   const st = useEditor.getState()
-  if (!st.project) return { done: 0, skipped: ['No map is open.'] }
+  if (!st.project) { out.skipped.push('No map is open.'); return }
   const start = st.past.length
   const before = st.project
   // Another map opened mid-reply: the edits left aren't about it.
   const run = startRun()
-  const skipped: string[] = []
+  const skipped = out.skipped
   const deletes = new Set<number>()
-  let done = 0
   const count = () => currentProject()!.scene_items.length
   const item = (i: unknown) => (Number.isInteger(i) && (i as number) >= 0 && (i as number) < count() ? (i as number) : null)
   // Each placement, plus its twin across the middle when asked.
@@ -83,14 +92,14 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
   // Lines and rings expand into more edits in place.
   const queue = [...actions]
   for (let n = 0; n < queue.length && n < 400; n++) {
-    if (!isCurrent(run)) { skipped.push('another map was opened'); break }
+    if (!isCurrent(run)) break
     const a = queue[n]
     try {
       switch (a.do) {
         case 'add_prefab': {
           if (!ALL_PREFABS[a.key]) { skipped.push(`unknown prefab "${a.key}"`); break }
           for (const [x, z, rot] of spots(num(a.x), num(a.z), num(a.turn), a.mirror)) {
-            await act.addPrefab(a.key, [x, 0, z], floorAt(x, z), { rot, params: a.settings }); done++
+            await act.addPrefab(a.key, [x, 0, z], floorAt(x, z), { rot, params: a.settings }); out.done++
           }
           break
         }
@@ -109,7 +118,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           const { placeGameObject } = await import('./gameObjectActions')
           for (const [i, p] of at.entries()) {
             const turn = Math.round(Math.random() * 8) * 45
-            for (const [x, z, rot] of spots(p[0], p[2], turn, mirror)) { await placeGameObject(picks[i].id, [x, 0, z], floorAt(x, z), rot); done++ }
+            for (const [x, z, rot] of spots(p[0], p[2], turn, mirror)) { await placeGameObject(picks[i].id, [x, 0, z], floorAt(x, z), rot); out.done++ }
           }
           break
         }
@@ -120,14 +129,14 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           const e = entries.find((x) => x.id === a.id) ?? (a.name ? relevantGameObjects(entries, String(a.name), 1)[0] : undefined)
           if (!e) { skipped.push(`no game object "${a.id ?? a.name}"`); break }
           const { placeGameObject } = await import('./gameObjectActions')
-          for (const [x, z, rot] of spots(num(a.x), num(a.z), num(a.turn), a.mirror)) { await placeGameObject(e.id, [x, 0, z], floorAt(x, z), rot); done++ }
+          for (const [x, z, rot] of spots(num(a.x), num(a.z), num(a.turn), a.mirror)) { await placeGameObject(e.id, [x, 0, z], floorAt(x, z), rot); out.done++ }
           break
         }
         case 'add_shape': {
           if (!SHAPE_PRESETS[a.shape]) { skipped.push(`unknown shape "${a.shape}"`); break }
           const size = Array.isArray(a.size) && a.size.length === 3 ? a.size.map((v) => num(v, 1)) as Vec3 : undefined
           for (const [x, z, rot] of spots(num(a.x), num(a.z), num(a.turn), a.mirror)) {
-            await act.addShape(a.shape, [x, 0, z], floorAt(x, z), { rot, size }); done++
+            await act.addShape(a.shape, [x, 0, z], floorAt(x, z), { rot, size }); out.done++
           }
           break
         }
@@ -138,21 +147,21 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
             const p = d.scene_items[i].position
             d.scene_items[i].position = [num(a.x, p[0]) + num(a.dx), num(a.y, p[1]) + num(a.dy), num(a.z, p[2]) + num(a.dz)]
           })
-          done++
+          out.done++
           break
         }
         case 'turn': {
           const i = item(a.index)
           if (i === null) { skipped.push(`no object ${a.index}`); break }
           st.update('Turn', (d) => { const r = d.scene_items[i].rotation; r[1] = ((r[1] + num(a.degrees)) % 360 + 360) % 360 })
-          done++
+          out.done++
           break
         }
         case 'scale': {
           const i = item(a.index), f = num(a.factor, 1)
           if (i === null || f <= 0 || f > 20) { skipped.push(`can't scale ${a.index} by ${a.factor}`); break }
           st.update('Scale', (d) => { d.scene_items[i].scale = +(d.scene_items[i].scale * f).toFixed(5) })
-          done++
+          out.done++
           break
         }
         case 'duplicate': {
@@ -161,14 +170,14 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           act.duplicateItem(i)
           const n = count() - 1
           if (a.dx || a.dz) st.update('Move', (d) => { const p = d.scene_items[n].position; d.scene_items[n].position = [p[0] + num(a.dx), p[1], p[2] + num(a.dz)] })
-          done++
+          out.done++
           break
         }
         case 'prefab_settings': {
           const i = item(a.index)
           if (i === null || !currentProject()!.scene_items[i].prefab) { skipped.push(`object ${a.index} isn't a prefab`); break }
           await act.updatePrefab(i, a.settings ?? {})
-          done++
+          out.done++
           break
         }
         case 'delete': {
@@ -184,7 +193,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
             const type = twin ? TWIN_MARKER[a.type] ?? a.type : a.type
             const { patch, bad } = markerPatch(a as unknown as Record<string, unknown>, markerLists())
             if (bad.length && !twin) skipped.push(...bad)
-            act.addMarker(type, [x, floorAt(x, z) + 0.1, z], { ...patch, ...(twin && patch.yaw !== undefined ? { yaw: ((patch.yaw + 360) % 360) - 180 } : {}) }); done++
+            act.addMarker(type, [x, floorAt(x, z) + 0.1, z], { ...patch, ...(twin && patch.yaw !== undefined ? { yaw: ((patch.yaw + 360) % 360) - 180 } : {}) }); out.done++
           }
           break
         }
@@ -197,7 +206,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           const markers = spreadSpawns(currentProject()!, viewer ? (i) => viewer.itemBounds(i) : undefined, which, typeof a.count === 'number' ? a.count : undefined, hotspots)
           if (!markers) { skipped.push('no open floor to put spawns on'); break }
           st.update('Spread spawns', (d) => { d.markers = markers })
-          done++
+          out.done++
           break
         }
         case 'add_weapons': {
@@ -210,8 +219,8 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           const at = weaponSpots(currentProject()!, viewer ? (i) => viewer.itemBounds(i) : undefined, want.length, a.where === 'middle' || a.where === 'ends' ? a.where : 'spread')
           if (at.length < want.length) skipped.push(`room for ${at.length} of ${want.length} weapons`)
           at.forEach((p, i) => {
-            act.addMarker('Weapon pickup', [p[0], p[1] + 0.1, p[2]], { weapon: want[i] }); done++
-            if (a.mirror !== false) { act.addMarker('Weapon pickup', [-p[0], p[1] + 0.1, -p[2]], { weapon: want[i] }); done++ }
+            act.addMarker('Weapon pickup', [p[0], p[1] + 0.1, p[2]], { weapon: want[i] }); out.done++
+            if (a.mirror !== false) { act.addMarker('Weapon pickup', [-p[0], p[1] + 0.1, -p[2]], { weapon: want[i] }); out.done++ }
           })
           break
         }
@@ -228,13 +237,13 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
                 if (typeof a.rename === 'string' && a.rename.trim()) it.name = a.rename.trim().slice(0, 60)
               }
             })
-            done += ids.length
+            out.done += ids.length
           }
           if (typeof a.physics === 'string') {
             if (a.physics === 'none' || a.physics === 'static') {
-              for (const i of ids) if (currentProject()!.scene_items[i].physics_preset || currentProject()!.scene_items[i].native_prop_behavior) { await act.returnStatic(i); done++ }
+              for (const i of ids) if (currentProject()!.scene_items[i].physics_preset || currentProject()!.scene_items[i].native_prop_behavior) { await act.returnStatic(i); out.done++ }
             } else if (!PRESET_BY_KEY[a.physics]) skipped.push(`unknown physics preset "${a.physics}"`)
-            else { await makePhysicsProps(ids, a.physics); done += ids.length }
+            else { await makePhysicsProps(ids, a.physics); out.done += ids.length }
           }
           break
         }
@@ -250,7 +259,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
               if (a.face === 'middle') d.markers[i].yaw = faceMiddle(d.markers[i].position)
             }
           })
-          done += ids.length
+          out.done += ids.length
           break
         }
         case 'edit_light': {
@@ -264,14 +273,14 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
               if (move) { const q = d.lights[i].position; d.lights[i].position = [num(a.x, q[0]), num(a.y, q[1]), num(a.z, q[2])] }
             }
           })
-          done += ids.length
+          out.done += ids.length
           break
         }
         case 'delete_lights': {
           const ids = new Set(lightTargets(currentProject()!, a))
           if (!ids.size) { skipped.push('no light matched'); break }
           st.update('Remove lights', (d) => { d.lights = d.lights.filter((_, i) => !ids.has(i)) })
-          done += ids.size
+          out.done += ids.size
           break
         }
         case 'set_map': {
@@ -284,7 +293,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
             if (a.loading === 'auto' || a.loading === 'none') d.settings.loading_mode = a.loading
           })
           if (a.sky_picture === true && !currentProject()!.settings.sky_texture) await act.addDefaultSky()
-          done++
+          out.done++
           break
         }
         case 'delete_markers': {
@@ -294,7 +303,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           st.update('Remove markers', (d) => {
             d.markers = d.markers.filter((m, i) => !((!only || only.has(i)) && (!a.type || m.type === a.type) && Math.hypot(m.position[0] - nx, m.position[2] - nz) <= (nr || Infinity)))
           })
-          done += before - currentProject()!.markers.length
+          out.done += before - currentProject()!.markers.length
           break
         }
         case 'add_light': {
@@ -302,7 +311,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           for (const [x, z] of spots(num(a.x), num(a.z), 0, a.mirror)) {
             if (currentProject()!.lights.length >= catalogs.limits.max_lights) { skipped.push(`light limit (${catalogs.limits.max_lights}) reached`); break }
             st.update('Add light', (d) => { d.lights.push({ ...newLight([x, num(a.y, 8), z], 'interior', d.settings.world_scale), ...(color ? { color } : {}) }) })
-            done++
+            out.done++
           }
           break
         }
@@ -310,11 +319,11 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           const modes = (a.modes ?? []).filter((m): m is GameMode => (GAME_MODES as string[]).includes(m))
           if (!modes.length) { skipped.push('no known game modes given'); break }
           st.update('Game modes', (d) => { d.settings.modes = modes })
-          done++
+          out.done++
           break
         }
         case 'rename_map':
-          if (typeof a.name === 'string' && a.name.trim()) { st.update('Rename map', (d) => { d.settings.display_name = a.name.trim().slice(0, 60) }); done++ }
+          if (typeof a.name === 'string' && a.name.trim()) { st.update('Rename map', (d) => { d.settings.display_name = a.name.trim().slice(0, 60) }); out.done++ }
           break
         case 'select':
           useEditor.getState().selectItems(resolveTarget(currentProject()!, a))
@@ -324,7 +333,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           if (!m) { skipped.push(`no marker #${a.index}`); break }
           const x = num(a.x, m.position[0]), z = num(a.z, m.position[2])
           st.update('Move marker', (d) => { d.markers[a.index].position = [x, floorAt(x, z) + 0.1, z] })
-          done++
+          out.done++
           break
         }
         case 'paint': {
@@ -338,7 +347,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
             const it = currentProject()!.scene_items[i]
             if (isGlass(it)) continue
             const mats = Object.entries(it.textures || {}).filter(([m, v]) => !want || squash(m) === want || (!!v && squash(niceName(v)).includes(want))).map(([m]) => m)
-            for (const m of mats) { await paintMaterial(i, m, sw); done++ }
+            for (const m of mats) { await paintMaterial(i, m, sw); out.done++ }
           }
           break
         }
@@ -359,7 +368,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
             for (const i of ids) d.scene_items.push(twinItem(p.scene_items[i], uid, groups))
             for (const i of marks) d.markers.push(twinMarker(p.markers[i], uid))
           })
-          done += ids.length + marks.length
+          out.done += ids.length + marks.length
           break
         }
         case 'make_symmetric': {
@@ -376,12 +385,12 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
             })]
           })
           useEditor.getState().select(null)
-          done += plan.items.copy.length + plan.markers.copy.length + plan.lights.copy.length
+          out.done += plan.items.copy.length + plan.markers.copy.length + plan.lights.copy.length
           break
         }
         case 'set_weather':
           st.update('Weather', (d) => { d.settings.always_clear_weather = a.clear !== false })
-          done++
+          out.done++
           break
         case 'generate_map':
           skipped.push('a new map is made from the chat, not as an edit')
@@ -390,13 +399,13 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           skipped.push(`unknown edit "${(a as { do: string }).do}"`)
       }
     } catch (err) {
-      skipped.push(err instanceof Error ? err.message : String(err))
+      if (!(err instanceof MapChanged)) skipped.push(err instanceof Error ? err.message : String(err))
     }
   }
-  if (!isCurrent(run)) return { done, skipped }
-  if (deletes.size) { act.removeItems([...deletes]); useEditor.getState().select(null); done += deletes.size }
+  // Another map opened mid-reply (a placement waiting on its model saw it too): none of the rest, no undo step.
+  if (!isCurrent(run)) { skipped.push('another map was opened'); return }
+  if (deletes.size) { act.removeItems([...deletes]); useEditor.getState().select(null); out.done += deletes.size }
   // Everything this reply did is one step on the undo list.
   const now = useEditor.getState()
   if (now.past.length > start) useEditor.setState({ past: [...now.past.slice(0, start), { project: before, label }], future: [] })
-  return { done, skipped }
 }

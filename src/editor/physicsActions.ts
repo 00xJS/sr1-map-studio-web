@@ -1,7 +1,7 @@
 // Editor commands for physics props (see lib/physicsProps.ts). Turning an
 // object into a native prop goes through the same Python rules as the
 // "Movable and explosive props", under the inspector's More settings.
-import { useEditor, currentProject } from './store'
+import { useEditor, currentProject, mapRun, stillCurrent } from './store'
 import { py } from '../lib/py'
 import { isGlass, isProp, type FileRef, type SceneItem, type Vec3 } from '../lib/project'
 import { OBJECT_BUDGET, PRESET_BY_KEY, type PhysicsShape } from '../lib/physicsProps'
@@ -97,6 +97,7 @@ export async function addPhysicsSet(key: string, at: Vec3, groundY: number | nul
   const def = ALL_PREFABS[key]
   const p = currentProject()
   if (!def || !p) return
+  const run = mapRun()
   const parts = def.make(at[0], at[2], rot, groundY ?? 0) as PhysicsPart[]
   const props = parts.filter((x) => x.physics)
   const natives = p.scene_items.filter(isGlass).length
@@ -118,6 +119,8 @@ export async function addPhysicsSet(key: string, at: Vec3, groundY: number | nul
     items.push({ ...rest, name: part.label, path: stored.vpath, source_path: stored.vpath, textures: { m0: tex }, alpha: { m0: false }, surface_ids: { m0: m.items[0].surface_ids?.top ?? 0 } })
   }
   const start = p.scene_items.length
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   update('Add ' + def.label.toLowerCase(), (d) => {
     Object.assign(d.files, files)
     d.scene_items.push(...items)

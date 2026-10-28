@@ -1,5 +1,5 @@
 // Objects: importing models, the asset library, glass, per-object edits, breakables, textures and map files.
-import { useEditor, currentProject, thingKey } from '../store'
+import { useEditor, currentProject, mapRun, stillCurrent, thingKey } from '../store'
 import { importModels, importImage, type ImportedModel } from '../../lib/importers'
 import { cacheModel, loadModel } from '../../lib/assets'
 import { groundOffset, meshPivot, withPivot } from '../../lib/geometry'
@@ -223,8 +223,9 @@ export async function sceneAudit(): Promise<string> {
 }
 
 /** surface: also set the material's physical surface (texture studio presets know theirs). */
-export async function assignTexture(index: number, mat: string, file: File, surface?: number) {
+export async function assignTexture(index: number, mat: string, file: File, surface?: number, run = mapRun()) {
   const s = await importImage(file)
+  stillCurrent(run)
   update('Assign texture', (d) => {
     d.files[s.vpath] = s.ref
     const it = d.scene_items[index]

@@ -76,6 +76,9 @@ export const db = {
   async putBlob(hash: string, blob: Blob) {
     await wrap((await store('blobs', 'readwrite')).put({ hash, blob, size: blob.size } satisfies BlobRecord))
   },
+  async deleteBlob(hash: string) {
+    await wrap((await store('blobs', 'readwrite')).delete(hash))
+  },
   async getDataPackFile(path: string): Promise<DataPackRecord | undefined> {
     return wrap((await store('datapack')).get(path))
   },

@@ -1,5 +1,5 @@
 // Block-out shapes, prefabs and photo frames.
-import { useEditor, currentProject, thingKey } from '../store'
+import { useEditor, currentProject, mapRun, stillCurrent, thingKey } from '../store'
 import { importImage } from '../../lib/importers'
 import { cacheModel } from '../../lib/assets'
 import { uid, type FileRef, type Project, type SceneItem, type Vec3 } from '../../lib/project'
@@ -33,10 +33,13 @@ async function storeShape(shape: Shape) {
 export async function addShape(presetKey: string, at: Vec3, groundY: number | null, o: { rot?: number; size?: Vec3 } = {}) {
   const preset = SHAPE_PRESETS[presetKey]
   if (!preset) return
+  const run = mapRun()
   const shape = structuredClone(preset.shape)
   if (o.size) shape.size = o.size.map((v) => Math.max(0.1, Math.min(400, +v || 1))) as Vec3
   const stored = await storeShape(shape)
   const tex = await defaultShapeTextures()
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   const item: SceneItem = {
     uid: uid(), name: shapeName(preset.label, shape, currentProject()?.settings.world_scale), path: stored.vpath, source_path: stored.vpath, shape,
     position: [at[0], groundY ?? 0, at[2]], rotation: [0, o.rot ?? 0, 0], scale: 1,
@@ -86,6 +89,7 @@ export async function addPrefab(key: string, at: Vec3, groundY: number | null, o
   const def = ALL_PREFABS[key]
   if (!def) return
   if ((def as { physicsSet?: boolean }).physicsSet) return (await import('../physicsActions')).addPhysicsSet(key, at, groundY, o.rot ?? 0)
+  const run = mapRun()
   let params = o.params ?? {}, base: Vec3 = [at[0], groundY ?? 0, at[2]], rot = o.rot ?? 0
   const n = o.wall
   if (def.onWall && n && Math.abs(n[1]) < 0.6) {
@@ -97,6 +101,8 @@ export async function addPrefab(key: string, at: Vec3, groundY: number | null, o
     base = [at[0] + (n[0] / len) * 0.03, at[1] - top / 2, at[2] + (n[2] / len) * 0.03]
   }
   const { item, files } = await prefabItem(key, params, base, rot)
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   update('Add ' + def.label.toLowerCase(), (d) => {
     Object.assign(d.files, files)
     d.scene_items.push(item)
@@ -110,7 +116,10 @@ export async function updatePrefab(index: number, params: Record<string, number 
   const it = currentProject()?.scene_items[index]
   const pf = it?.prefab
   if (!it || !pf || !ALL_PREFABS[pf.key]) return
+  const run = mapRun()
   const { item, files } = await prefabItem(pf.key, params, it.position, it.rotation[1])
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   const repaint = new Map(Object.entries(pf.defaults).filter(([m, v]) => it.textures[m] && it.textures[m] !== v).map(([m, v]) => [v, it.textures[m]]))
   update('Change ' + ALL_PREFABS[pf.key].label.toLowerCase(), (d) => {
     Object.assign(d.files, files)

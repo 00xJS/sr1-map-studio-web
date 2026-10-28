@@ -16,6 +16,18 @@ export async function storeFile(data: Blob, name: string, origin: FileRef['origi
   return { vpath: fileVPath(hash, name), ref: { hash, size: data.size, name, type, origin: gameData ? 'game' : origin, ...(recipe ? { recipe } : {}) } }
 }
 
+/**
+ * storeFile for work that may be called off while it stores: when `keep()` says no afterwards, the file is taken out
+ * again if this call added it (files are shared by content, so one stored before stays). Null then.
+ */
+export async function storeFileIf(data: Blob, name: string, keep: () => boolean): Promise<StoredFile | null> {
+  const had = await db.hasBlob(await sha256(data))
+  const out = await storeFile(data, name)
+  if (keep()) return out
+  if (!had) await db.deleteBlob(out.ref.hash).catch(() => undefined)
+  return null
+}
+
 export function guessType(name: string): string {
   const ext = name.toLowerCase().split('.').pop() || ''
   return ({

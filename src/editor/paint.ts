@@ -1,7 +1,7 @@
 // Paint bucket and eyedropper: the palette of textures (generated, starter
 // library, or already in this map) and applying one to the material under a
 // clicked triangle.
-import { useEditor, currentProject, type Swatch } from './store'
+import { useEditor, currentProject, mapRun, stillCurrent, type Swatch } from './store'
 import * as act from './actions'
 import { loadModel, textureUrl } from '../lib/assets'
 import { KINDS, PREFAB_ONLY, defaultParams, generate, type TextureKind } from '../lib/procedural'
@@ -103,7 +103,11 @@ export async function paintMaterial(index: number, mat: string, swatch: Swatch) 
     })
     return
   }
-  await act.assignTexture(index, mat, await swatchFile(swatch.source, swatch.key), swatch.surface)
+  const run = mapRun()
+  const file = await swatchFile(swatch.source, swatch.key)
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
+  await act.assignTexture(index, mat, file, swatch.surface, run)
 }
 
 /** Eyedropper: the texture on the clicked triangle becomes the paint bucket's swatch. */

@@ -67,7 +67,6 @@ interface EditorState {
   redo(): void
   /** Several undo (negative) or redo (positive) steps at once, as one history move. */
   jumpTo(steps: number): void
-  /** Runs `fn` with editing locked (`locked`), and makes every edit it made one undo step called `label` (Fix all). */
   /**
    * Runs `fn` with editing locked (`locked`), and makes every edit it made one undo step called `label` (Fix all).
    * It first waits for the edit job running now; with `wait`, for that many ms at most. Says how it ended: 'ran' (fn
@@ -102,16 +101,34 @@ interface Txn {
 let txn: Txn | null = null
 /** Maps opened (or closed) so far, the same one again included. */
 let opens = 0
-/** Async work that edits the map: the map it started on, and the transaction it started in (Fix all's fixes). */
-export interface Run { opens: number; txn: Txn | null }
+/** An edit job running (see editJob); stopped when it ran out of time. */
+interface Job { stopped: boolean }
+/** The edit job running now, if any (one at a time). */
+let job: Job | null = null
+/**
+ * Async work that edits the map: the map it started on, and the transaction (Fix all's fixes) or edit job it is
+ * part of. Only that work calls startRun (fixes, the sky, AI edits), so the job running then is its own.
+ */
+export interface Run { opens: number; txn: Txn | null; job: Job | null }
 /** Where async work starts: check `stillCurrent(run)` after each await before editing. */
-export const startRun = (): Run => ({ opens, txn: txn?.started ? txn : null })
-/** False once a map was opened (the same one again too) since `run`, or the transaction it ran in was stopped. */
-export const isCurrent = (run: Run) => run.opens === opens && !run.txn?.stopped
+export const startRun = (): Run => ({ opens, txn: txn?.started ? txn : null, job })
+/** The map alone: for an edit anyone may start (placing a prefab), which must not land on a map opened meanwhile. */
+export const mapRun = (): Run => ({ opens, txn: null, job: null })
+/** False once a map was opened (the same one again too) since `run`, or its transaction or job was stopped. */
+export const isCurrent = (run: Run) => run.opens === opens && !run.txn?.stopped && !run.job?.stopped
 /** Throws unless `isCurrent(run)`. */
 export function stillCurrent(run: Run) { if (!isCurrent(run)) throw new MapChanged() }
-/** What `stillCurrent` throws: the work was for a map no longer open, or a stopped Fix all, so nothing is wrong. */
-export class MapChanged extends Error { constructor() { super('the map changed meanwhile') } }
+/** What `stillCurrent` throws: the work was for a map no longer open, or a stopped Fix all, so nothing is wrong (quiet). */
+export class MapChanged extends Error {
+  readonly quiet = true
+  constructor() { super('the map changed meanwhile') }
+}
+/** How long an edit job may run before the ones after it go ahead without it. */
+export const JOB_TIME_LIMIT = 120_000
+/** What an edit job that ran out of time rejects with; what it does after that changes nothing. */
+export class JobTooLong extends Error {
+  constructor(readonly limit: number) { super(`Stopped after ${Math.round(limit / 60_000)} minutes: it was taking too long.`) }
+}
 /** Resolves once no transaction holds the editor. */
 export function whenUnlocked(): Promise<void> {
   if (!useEditor.getState().locked) return Promise.resolve()
@@ -130,7 +147,7 @@ let jobs = newQueue()
  * transaction to end; a transaction waits for the job running when it begins (queued ones wait for it). So no job's
  * edits land in another's undo step, nor in Fix all's. Each map has its own queue.
  */
-export async function editJob<T>(fn: () => Promise<T>): Promise<T> {
+export async function editJob<T>(fn: () => Promise<T>, limit = JOB_TIME_LIMIT): Promise<T> {
   const q = jobs, before = q.last
   let end = () => {}
   const mine = new Promise<void>((r) => { end = r })
@@ -138,8 +155,19 @@ export async function editJob<T>(fn: () => Promise<T>): Promise<T> {
   try {
     await before
     while (useEditor.getState().locked) await whenUnlocked()
+    // Queued on a map that was left meanwhile: its edits were for that map.
+    if (q !== jobs) throw new MapChanged()
+    const me: Job = { stopped: false }
     q.running = mine
-    try { return await fn() } finally { if (q.running === mine) q.running = null }
+    job = me
+    // Past its time the queue moves on; its runs are stopped, so a late edit of its changes nothing.
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<never>((_, fail) => { timer = setTimeout(() => { me.stopped = true; fail(new JobTooLong(limit)) }, limit) })
+    try { return await Promise.race([fn(), late]) } finally {
+      clearTimeout(timer)
+      if (job === me) job = null
+      if (q.running === mine) q.running = null
+    }
   } finally { end() }
 }
 

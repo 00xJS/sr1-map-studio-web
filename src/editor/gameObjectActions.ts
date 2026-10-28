@@ -1,6 +1,6 @@
 // Editor commands for the "From my game" library: placing an object (the Shape tool's "game:<id>"), its
 // placement ghost, its thumbnails, and rebuilding placed objects whose files are not in this browser.
-import { useEditor, currentProject } from './store'
+import { useEditor, currentProject, mapRun, stillCurrent } from './store'
 import { toast } from '../ui'
 import { db } from '../lib/db'
 import { registerThumbSource, resetThumbs } from '../lib/prefabThumbs'
@@ -22,9 +22,12 @@ const ws = () => currentProject()?.settings.world_scale || 0.5
 
 /** Places a library object standing on the clicked surface. */
 export async function placeGameObject(id: string, at: Vec3, groundY: number | null, rot: number) {
+  const run = mapRun()
   const e = await entry(id)
   // On a floor: sunk into it as the city has it (place.ts sinkUnits).
   const { item, files } = await gameObjectItem(e, [at[0], groundY !== null ? groundY - sinkUnits(e, ws()) : at[1], at[2]], rot, ws())
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   const st = useEditor.getState()
   st.update('Add ' + e.name, (d) => {
     Object.assign(d.files, files)
