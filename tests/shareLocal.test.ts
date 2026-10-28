@@ -75,7 +75,8 @@ beforeEach(async () => { dbs.delete('sr1-local-shares'); mem.delete('sr1-play-li
 
 const signIn = (who: string) => backend.signInWithEmail(`${who}@example.com`)
 
-describe('local play links', () => {
+// Making a link loads the prefab library (to check model settings) the first time: slow while every test file runs at once.
+describe('local play links', { timeout: 30_000 }, () => {
   it('runs against the local server', () => {
     expect(api.hostedShares).toBe(true)
     expect(backend.kind).toBe('local')
