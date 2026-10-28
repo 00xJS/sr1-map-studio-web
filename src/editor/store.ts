@@ -10,7 +10,7 @@ export type Selection = { kind: 'item' | 'marker' | 'light'; index: number } | n
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
 export type PlaceMode = null | 'marker' | 'light' | 'face' | 'decal'
 /** Paint-style tools: 'select' shows the gizmo; the others act on every click in the viewport. */
-export type Tool = 'select' | 'shape' | 'paint' | 'pick' | 'spawn' | 'weapon' | 'light' | 'erase' | 'sculpt' | 'road'
+export type Tool = 'select' | 'shape' | 'paint' | 'pick' | 'spawn' | 'weapon' | 'light' | 'erase' | 'sculpt' | 'road' | 'measure'
 
 /** A texture the paint bucket applies: generated, from the starter library, or a file already in the map. */
 export interface Swatch {
@@ -59,6 +59,8 @@ interface EditorState {
   allSettings: boolean
   /** Desktop-style free camera instead of orbiting. */
   freeCam: boolean
+  /** Plan view: the map from straight above, flat (orthographic), sliding and zooming but not turning. */
+  plan: boolean
   /** The view only: the site's own surfaces drawn layered like retail's (even base tile, grime, tint mask). */
   layeredLook: boolean
   /** Mirror mode: every edit is copied across the middle (lib/mirrorEdit.ts), in the same undo step. */
@@ -122,6 +124,7 @@ export const useEditor = create<EditorState>((set, get) => ({
   tab: 'build',
   allSettings: readFlag('sr1-advanced'),
   freeCam: readFlag('sr1-freecam'),
+  plan: false,
   layeredLook: readFlag('sr1-layered'),
   mirror: false,
   locked: null,

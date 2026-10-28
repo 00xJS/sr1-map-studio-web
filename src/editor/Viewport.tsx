@@ -20,6 +20,8 @@ import { PhysicsHud } from './PhysicsHud'
 import { WeatherHud } from './WeatherHud'
 import { attachHealthOverlay } from './health'
 import { attachGroundTools } from './groundTools'
+import { attachMeasure, measureClick } from './measure'
+import { ViewsMenu } from './ViewsMenu'
 import { dropHasMap } from '../lib/mapFolder/files'
 import { openMapDrop } from '../lib/mapFolder/store'
 import { coarsePointer, useNarrow } from '../lib/touch'
@@ -71,6 +73,9 @@ function applyTool(point: Vec3, item: number, face: number, normal?: Vec3): bool
     case 'light':
       try { addLight([point[0], point[1] + 1.5, point[2]]) } catch (e) { toastError(e) }
       return true
+    case 'measure':
+      measureClick(point)
+      return true
     case 'paint':
       if (!st.swatch) { toast('Choose a texture first: click the box next to the tool options.'); return true }
       if (item >= 0) paintAt(item, face, st.swatch).catch(toastError)
@@ -99,11 +104,15 @@ const PAD: [string, string, () => void][] = [
 /** Camera buttons for people who don't use mouse-drag controls. */
 function CameraPad() {
   const freeCam = useEditor((s) => s.freeCam)
+  const plan = useEditor((s) => s.plan)
   return (
     <div className="camera-pad" data-tour="camera">
-      <button className={'sm' + (freeCam ? ' on' : '')} title={freeCam ? 'Free camera on: hold right mouse to look, WASD to fly. Click for the orbit camera.' : 'Free camera, like the desktop app'} aria-label="Free camera"
-        onClick={() => useEditor.getState().set({ freeCam: !freeCam })}>🎥</button>
-      {PAD.map(([icon, label, fn]) => <button key={label} className="sm" title={label} aria-label={label} onClick={fn}>{icon}</button>)}
+      <button className={'sm' + (plan ? ' on' : '')} title={plan ? 'Plan view on: the map from straight above. Click for the 3D view (O).' : 'Plan view: the map from straight above, flat (O)'} aria-label="Plan view" aria-pressed={plan}
+        onClick={() => useEditor.getState().set({ plan: !plan })}>▦</button>
+      {!plan && <button className={'sm' + (freeCam ? ' on' : '')} title={freeCam ? 'Free camera on: hold right mouse to look, WASD to fly. Click for the orbit camera.' : 'Free camera, like the desktop app'} aria-label="Free camera"
+        onClick={() => useEditor.getState().set({ freeCam: !freeCam })}>🎥</button>}
+      {PAD.filter(([, label]) => !plan || !label.startsWith('Circle')).map(([icon, label, fn]) => <button key={label} className="sm" title={label} aria-label={label} onClick={fn}>{icon}</button>)}
+      <ViewsMenu />
     </div>
   )
 }
@@ -231,6 +240,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
   const placeMode = useEditor((s) => s.placeMode)
   const walking = useEditor((s) => s.walking)
   const freeCam = useEditor((s) => s.freeCam)
+  const plan = useEditor((s) => s.plan)
   const narrow = useNarrow()
   const [dropping, setDropping] = useState(false)
 
@@ -303,6 +313,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
     })
     active = viewer
     const ground = attachGroundTools(viewer)
+    const offMeasure = attachMeasure(viewer)
     if (import.meta.env.DEV) (window as any).__viewer = viewer
     setThumbnailProvider(() => viewer.capture())
     const sync = () => {
@@ -312,7 +323,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
       el.style.cursor = place ? (place === 'erase' ? 'not-allowed' : 'crosshair') : ''
       viewer.sync(s.project, {
         selection: s.selection, gizmo: s.gizmo, wireframe: s.wireframe, collisionView: s.collisionView, soloMaterial: s.soloMaterial,
-        faceRange: s.faceRange, snap: s.snap, step: s.step, showGizmo: !place, multi: s.multi, freeCam: s.freeCam, layeredLook: s.layeredLook,
+        faceRange: s.faceRange, snap: s.snap, step: s.step, showGizmo: !place, multi: s.multi, freeCam: s.freeCam, plan: s.plan, layeredLook: s.layeredLook,
       })
     }
     sync()
@@ -332,7 +343,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
     const unsubGhost = useEditor.subscribe(syncGhost)
     const offHealth = attachHealthOverlay(viewer)
     const offLook = attachLook(viewer)
-    return () => { unsub(); unsubGhost(); offHealth(); offLook(); ground(); setThumbnailProvider(null); active = null; viewer.dispose() }
+    return () => { unsub(); unsubGhost(); offHealth(); offLook(); ground(); offMeasure(); setThumbnailProvider(null); active = null; viewer.dispose() }
   }, [])
 
   const empty = !project?.scene_items.length
@@ -374,7 +385,9 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
         </div>
       )}
       <CameraPad />
-      <div className="viewport-hint">{freeCam
+      <div className="viewport-hint">{plan
+        ? (coarse ? 'Plan view · One finger: slide · Pinch: zoom · Tap: select' : 'Plan view · Drag: slide · Scroll: zoom · WASD slide · O: back to 3D')
+        : freeCam
         ? 'Free camera: hold right mouse to look · WASD fly · Q/E down/up · Shift faster · Wheel: speed'
         : coarse ? 'One finger: spin · Pinch: zoom · Two fingers: slide · Tap: select'
         : 'Left-drag: spin · Right-drag: slide · Scroll: zoom · WASD fly · Esc: back to Move · ?: all shortcuts'}</div>

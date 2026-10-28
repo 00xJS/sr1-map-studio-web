@@ -1,6 +1,5 @@
 // The Check tab: the map's health score, then one list of everything worth fixing (checklist, health check,
 // tall stairs, invisible walls), worst first, each with its own fix, and Fix all.
-import { Vector3 } from 'three'
 import { useEditor } from '../store'
 import { findNow, useFindings, useHealth, useHealthStale } from '../health'
 import { Controls, HealthDetails, Headline, OverlayButtons, focusSpawn } from '../HealthPanel'
@@ -18,13 +17,7 @@ const TONE = ['needed', 'bad', 'warn', 'tip'] as const
 
 /** Looks at a spot from where the camera is. */
 function lookAt(at: [number, number, number], distance = 25) {
-  const v = getViewer()
-  if (!v) return
-  const back = v.camera.position.clone().sub(v.orbit.target)
-  if (back.lengthSq() < 1e-6) back.set(1, 1, 1)
-  v.orbit.target.copy(new Vector3(...at))
-  v.camera.position.copy(v.orbit.target).add(back.setLength(distance))
-  v.requestRender()
+  getViewer()?.lookAt(at, distance)
 }
 
 function show(what: NonNullable<Issue['show']>['what']) {

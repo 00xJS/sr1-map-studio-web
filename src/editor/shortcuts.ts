@@ -7,6 +7,7 @@ import { useEditor, saveNow, selectedItems } from './store'
 import { toggleOverlay } from './overlays'
 import { TOOL_ENTRIES, chooseTool } from './Tools'
 import * as act from './actions'
+import { goToView, useSavedViews } from './savedViews'
 import { toast, toastError } from '../ui'
 
 type St = ReturnType<typeof useEditor.getState>
@@ -44,6 +45,16 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: 'W A S D', what: 'Fly', group: 'Camera', where: 'canvas' },
   { keys: 'Q / E', what: 'Down / up', group: 'Camera', where: 'canvas' },
   { keys: 'Shift', what: 'Fly faster', group: 'Camera', where: 'canvas' },
+  { keys: 'O', what: 'Plan view on / off (the map from straight above)', group: 'Camera', test: ({ mod, key, e }) => !mod && !e.altKey && key === 'o', run: ({ st }) => st.set({ plan: !st.plan }) },
+  {
+    keys: 'Alt+1 … Alt+9', what: 'Go to a saved view (📍 on the camera buttons)', group: 'Camera',
+    test: ({ mod, e }) => !mod && e.altKey && /^Digit[1-9]$/.test(e.code),
+    run: ({ e }) => {
+      e.preventDefault()
+      const n = Number(e.code.slice(5))
+      if (!goToView(n - 1)) toast(useSavedViews.getState().views.length ? `No saved view ${n}.` : 'No saved views yet: 📍 on the camera buttons saves one.', 'info', 2000)
+    },
+  },
 
   // Editing: modifier keys first, so Ctrl+Shift+S wins over Ctrl+S.
   { keys: 'Ctrl+Z', what: 'Undo', group: 'Editing', whileTyping: true, test: ({ mod, key, e, typing }) => mod && key === 'z' && !e.shiftKey && !typing, run: ({ st }) => st.undo() },

@@ -8,6 +8,7 @@ import { getViewer } from './Viewport'
 import { saveMyPrefab } from './myPrefabs'
 import { Palette } from './Tools'
 import { niceName, paintMaterial } from './paint'
+import { ArrangePanel } from './ArrangePanel'
 import { More } from './More'
 import { Check, Field, FileButton, NumberInput, Status, Vec3Input, confirmDialog, toast, toastError, useBusy } from '../ui'
 import { statusParen, triedInGame } from '../lib/featureStatus'
@@ -142,6 +143,7 @@ function MultiInspector({ indices }: { indices: number[] }) {
         <SaveMine indices={indices} suggest={grouped ? 'My group' : 'My piece'} />
         <span className="faint small">{grouped ? 'A group: clicking any part picks the whole group. ' : ''}Drag the arrows to move them together. Shift+click an object to add or remove it.</span>
       </div>
+      <ArrangePanel pieces={new Set(items.map((it, k) => it.group ?? '#' + k)).size} />
       <div className="section">
         <span className="section-title">Picked</span>
         <span className="small muted">{[...counts].map(([n, c]) => (c > 1 ? `${n} ×${c}` : n)).join(', ')}</span>
