@@ -137,7 +137,7 @@ const MAX_INDEX = 1e8
 const CANON_NUM = /^-?(?:0|[1-9]\d{0,6})(?:\.\d{0,4}[1-9])?$/
 const ANY_NUM = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/
 const INDEX = /^-?\d{1,9}$/
-const NAME_OK = /^[^\x00-\x1f\x7f]{1,64}$/
+const NAME_OK = new RegExp(`^${NAME}$`)
 const SMOOTH = /^(?:\d{1,6}|on|off)$/
 /** Numbers each kind of line takes. */
 const COUNTS: Record<string, [number, number]> = { v: [3, 6], vt: [1, 3], vn: [3, 3], f: [3, 64], l: [2, 64] }
@@ -289,7 +289,7 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
     models[path] = c.obj
     renames[path] = c.renamed
   }
-  if (materials > MAX_SHARE_MATERIALS) problems.push(`The share's models use more than ${MAX_SHARE_MATERIALS} materials in all.`)
+  if (materials > MAX_SHARE_MATERIALS) problems.push(`The share’s models use more than ${MAX_SHARE_MATERIALS.toLocaleString('en')} materials in all.`)
   if (chars > SHARE_LIMITS.modelChars) problems.push('The map\'s models are too large to share.')
   const textures = Object.entries(d.textures)
   if (textures.length > SHARE_LIMITS.textures) problems.push(`A share can hold at most ${SHARE_LIMITS.textures} textures.`)
