@@ -7,6 +7,8 @@ import { useEditor, saveNow, selectedItems } from './store'
 import { toggleOverlay } from './overlays'
 import { TOOL_ENTRIES, chooseTool } from './Tools'
 import * as act from './actions'
+import { goToView, useSavedViews } from './savedViews'
+import { getViewer } from './Viewport'
 import { toast, toastError } from '../ui'
 
 type St = ReturnType<typeof useEditor.getState>
@@ -44,6 +46,18 @@ export const SHORTCUTS: Shortcut[] = [
   { keys: 'W A S D', what: 'Fly', group: 'Camera', where: 'canvas' },
   { keys: 'Q / E', what: 'Down / up', group: 'Camera', where: 'canvas' },
   { keys: 'Shift', what: 'Fly faster', group: 'Camera', where: 'canvas' },
+  { keys: 'O', what: 'Plan view on / off (the map from straight above)', group: 'Camera', test: ({ mod, key, e }) => !mod && !e.altKey && key === 'o', run: ({ st }) => st.set({ plan: !st.plan }) },
+  {
+    keys: 'Alt+1 … 9 or Shift+1 … 9', what: 'Go to a saved view (📍 on the camera buttons)', group: 'Camera',
+    // Shift+number too, for browsers that keep Alt+number for their tabs (Linux); only where Shift makes a symbol,
+    // so keyboards that need Shift for the digits keep 1, 2 and 3 for the tools.
+    test: ({ mod, e }) => !mod && /^Digit[1-9]$/.test(e.code) && (e.altKey || (e.shiftKey && !/^[0-9]$/.test(e.key) && !getViewer()?.view.flying)),
+    run: ({ e }) => {
+      e.preventDefault()
+      const n = Number(e.code.slice(5))
+      if (!goToView(n - 1)) toast(useSavedViews.getState().views.length ? `No saved view ${n}.` : 'No saved views yet: 📍 on the camera buttons saves one.', 'info', 2000)
+    },
+  },
 
   // Editing: modifier keys first, so Ctrl+Shift+S wins over Ctrl+S.
   { keys: 'Ctrl+Z', what: 'Undo', group: 'Editing', whileTyping: true, test: ({ mod, key, e, typing }) => mod && key === 'z' && !e.shiftKey && !typing, run: ({ st }) => st.undo() },
@@ -89,6 +103,12 @@ export const SHORTCUTS: Shortcut[] = [
     keys: 'R / Shift+R', what: 'Turn the shape preview (Shape tool)', group: 'Tools',
     test: ({ mod, key, st }) => !mod && st.tool === 'shape' && key === 'r',
     run: ({ st, e }) => st.set({ placeRot: (((st.placeRot + (e.shiftKey ? -15 : 15)) % 360) + 360) % 360 }),
+  },
+  // Before the tool letters: Shift+M is mirror mode, M alone the Measure tool.
+  {
+    keys: 'Shift+M', what: 'Mirror mode on / off (edits copied across the middle)', group: 'Editing',
+    test: ({ mod, key, e }) => !mod && e.shiftKey && key === 'm',
+    run: ({ st }) => { st.set({ mirror: !st.mirror }); toast(st.mirror ? 'Mirror mode off' : 'Mirror mode on: edits are copied across the middle', 'info', 1800) },
   },
   ...toolRows,
   { keys: 'G', what: 'Snap on / off', group: 'Tools', test: ({ mod, key }) => !mod && key === 'g', run: ({ st }) => st.set({ snap: !st.snap }) },

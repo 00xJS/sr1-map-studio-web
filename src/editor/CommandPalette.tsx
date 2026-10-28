@@ -10,6 +10,8 @@ import { openMore } from './More'
 import { markPrefabUsed } from './prefabLists'
 import { setLook } from './look'
 import { runHealthCheck } from './health'
+import { alignSelected, distributeSelected } from './ArrangePanel'
+import { saveCurrentView, useSavedViews } from './savedViews'
 import { Modal, toast } from '../ui'
 import { normalize, prefabEntries } from '../lib/prefabIndex'
 
@@ -49,7 +51,8 @@ const TAB_NAME: Record<SideTab, string> = { build: 'Build', check: 'Check', game
 
 function commands(a: PaletteActions): Command[] {
   const st = useEditor.getState
-  const flip = (k: 'snap' | 'wireframe' | 'freeCam' | 'allSettings', label: string) => ({ id: 'toggle-' + k, label, group: 'Settings' as const, hint: st()[k] ? 'on' : 'off', run: () => st().set({ [k]: !st()[k] }) })
+  const flip = (k: 'snap' | 'wireframe' | 'freeCam' | 'allSettings' | 'plan' | 'mirror', label: string, keys?: string) => ({ id: 'toggle-' + k, label, group: 'Settings' as const, keys, hint: st()[k] ? 'on' : 'off', run: () => st().set({ [k]: !st()[k] }) })
+  const several = 'two or more objects picked'
   const out: Command[] = [
     { id: 'walk', label: 'Walk the map', group: 'Actions', hint: 'at player height', run: a.walk },
     { id: 'play', label: 'Play in browser', group: 'Actions', run: a.playHere },
@@ -68,6 +71,14 @@ function commands(a: PaletteActions): Command[] {
     { id: 'keys', label: 'Keyboard, mouse and touch', group: 'Actions', keys: '?', run: () => toggleOverlay('keys', true) },
     ...TOOL_ENTRIES.map((t): Command => ({ id: 'tool-' + t.id, label: t.label, group: 'Tools', keys: t.key, hint: t.help, run: () => chooseTool(t.id) })),
     flip('allSettings', 'Show all settings'), flip('snap', 'Snap to the grid'), flip('wireframe', 'Wireframe'), flip('freeCam', 'Free camera'),
+    flip('plan', 'Plan view (from straight above)', 'O'), flip('mirror', 'Mirror mode (edits copied across the middle)', 'Shift+M'),
+    { id: 'view-save', label: 'Save this camera view', group: 'Actions', run: () => { const n = saveCurrentView(); if (n) toast(`Saved as ${n}.`, 'ok', 1800) } },
+    { id: 'view-list', label: 'Saved camera views', group: 'Actions', keys: 'Alt+1 … 9 or Shift+1 … 9', run: () => useSavedViews.setState({ open: true }) },
+    { id: 'align-x', label: 'Line up along X (middles)', group: 'Actions', hint: several, run: () => alignSelected(0, 'mid') },
+    { id: 'align-z', label: 'Line up along Z (middles)', group: 'Actions', hint: several, run: () => alignSelected(2, 'mid') },
+    { id: 'align-y', label: 'Level the bottoms', group: 'Actions', hint: several, run: () => alignSelected(1, 'min') },
+    { id: 'space-x', label: 'Space evenly along X', group: 'Actions', hint: 'three or more objects picked', run: () => distributeSelected(0) },
+    { id: 'space-z', label: 'Space evenly along Z', group: 'Actions', hint: 'three or more objects picked', run: () => distributeSelected(2) },
     { id: 'collision', label: 'Show collision', group: 'Settings', run: () => st().set({ collisionView: st().collisionView === 'faces' ? 'off' : 'faces' }) },
     { id: 'look-game', label: 'Game lighting', group: 'Settings', run: () => setLook({ mode: 'game' }) },
     { id: 'look-editor', label: 'Bright editor lighting', group: 'Settings', run: () => setLook({ mode: 'editor' }) },

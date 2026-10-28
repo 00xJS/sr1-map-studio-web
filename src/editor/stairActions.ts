@@ -28,6 +28,9 @@ export async function solidTriangles(project: Project, keep: (it: SceneItem) => 
   return collisionFromProject({ ...project, scene_items: items }, (p) => models.get(p))
 }
 
+/** Ramps go over the stairs this map has: mirror mode doesn't copy them (there may be no stairs across the middle). */
+const NOT_MIRRORED = { noMirror: true }
+
 /** Finds the stairs too tall to walk up and puts a ramp over each. Returns how many ramps (0: none needed). */
 export async function addStairRamps(): Promise<number> {
   const project = currentProject()
@@ -40,7 +43,7 @@ export async function addStairRamps(): Promise<number> {
   const state = useEditor.getState()
   stillCurrent(run)
   if (!runs.length) {
-    state.update('Remove invisible stair ramps', (d) => { d.scene_items = d.scene_items.filter((it) => !isRamps(it)) })
+    state.update('Remove invisible stair ramps', (d) => { d.scene_items = d.scene_items.filter((it) => !isRamps(it)) }, NOT_MIRRORED)
     state.log('No stairs with steps too tall to walk up (over about 0.28 m each).')
     return 0
   }
@@ -62,7 +65,7 @@ export async function addStairRamps(): Promise<number> {
     d.scene_items = d.scene_items.filter((it) => !isRamps(it))
     Object.assign(d.files, { [obj.vpath]: obj.ref, [tex.vpath]: tex.ref })
     d.scene_items.push(item)
-  })
+  }, NOT_MIRRORED)
   const steps = runs.reduce((a, r) => a + r.steps, 0)
   const m = (u: number) => (u * (project.settings.world_scale || 0.5)).toFixed(2)
   state.log(`Invisible stair ramps: ${runs.length} flight${runs.length === 1 ? '' : 's'} of stairs (${steps} steps, ` +

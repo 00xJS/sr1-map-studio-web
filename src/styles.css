@@ -337,6 +337,11 @@ button.big { padding: 12px; font-size: 15px; }
 .menu-item:hover { background: var(--accent-soft); border: 0; }
 .menu-item .check { width: 16px; color: var(--accent); flex: none; }
 .editor-bar .menu-wrap:last-of-type .menu { left: auto; right: 0; }
+.mirror-badge { position: absolute; right: 10px; bottom: 56px; z-index: 5; background: var(--accent-soft); border-color: var(--accent); }
+@media (pointer: coarse) { .mirror-badge { bottom: 68px; } }
+.camera-pad .views-menu { top: auto; bottom: calc(100% + 8px); left: auto; right: -5px; }
+.camera-pad .views-menu .menu-item { width: auto; height: auto; font-size: 13px; }
+.camera-pad .views-menu .row button.sm { width: 26px; height: 26px; }
 .tour { position: fixed; inset: 0; z-index: 200; pointer-events: none; }
 .tour-ring { position: fixed; border: 2px solid var(--accent); border-radius: 10px; box-shadow: 0 0 0 9999px rgba(5, 3, 7, 0.55); transition: all .2s; }
 .tour-card { position: fixed; pointer-events: auto; background: var(--bg-raised); border: 1px solid var(--accent); border-radius: 10px; box-shadow: var(--shadow); padding: 12px 14px; display: flex; flex-direction: column; gap: 6px; }
