@@ -12,13 +12,13 @@ export async function runMapChecks(found: string[] = []): Promise<string[]> {
   const ramps = await addStairRamps().catch((e) => { toastError(e); return 0 })
   const project = useEditor.getState().project
   const walls = project ? await solidTriangles(project).then((t) => findSlivers(t.tris, t.flags)).catch(() => null) : null
-  if (useEditor.getState().advanced) useEditor.getState().set({ tab: 'health' })
+  useEditor.getState().set({ tab: 'check' })
   // The score and findings only: the sight-lines colours stay off the floor until the player asks for them.
   await runHealthCheck('off')
   const report = useHealth.getState().report
   const removed = useEditor.getState().project?.settings.remove_invisible_walls !== false
   const lines = [
-    report ? `Health ${report.score}/100${report.findings[0] ? `: ${report.findings[0]}` : ''} (Health tab: Sight lines shows it on the map).` : 'The health check didn\'t finish (Health tab → Check again).',
+    report ? `Health ${report.score}/100${report.findings[0] ? `: ${report.findings[0]}` : ''} (Check tab: Sight lines shows it on the map).` : 'The health check didn\'t finish (Check tab → Check again).',
     ...(ramps ? [`${ramps} flight${ramps === 1 ? '' : 's'} of stairs too tall to run up got invisible ramps.`] : []),
     ...(walls?.count ? [`${walls.count} invisible wall${walls.count === 1 ? '' : 's'} (paper-thin triangles in the models): ${removed ? 'left out of the collision at export' : 'kept at export, as Remove invisible walls is off'}.`] : []),
     ...found,

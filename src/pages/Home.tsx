@@ -189,7 +189,7 @@ export default function Home() {
           </li>
           <li>
             <span className="step-num">3</span>
-            <div className="col"><b>Play <span className="faint small">· 15 s</span></b><span className="small muted">Press <b>▶ Play</b>: the map is built in your browser and installed into Saints Reborn.</span></div>
+            <div className="col"><b>Play <span className="faint small">· 15 s</span></b><span className="small muted">Press <b>▶ Install in game</b>: the map is built in your browser and installed into Saints Reborn.</span></div>
           </li>
         </ol>
       </section>

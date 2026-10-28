@@ -12,6 +12,7 @@ const item = (name: string, layer?: string): SceneItem => ({
 
 describe('layers', () => {
   it('names an object\'s layer by what it is called, copy numbers left off', () => {
+    expect(['Wall 6×3×0.5 m', 'Wall 138×13×1'].map((n) => autoLayer({ name: n }))).toEqual(['Wall', 'Wall'])
     expect(['House', 'House 2', 'house_03', 'House (copy)', 'picnic_table', 'Tree.obj', ''].map((n) => autoLayer({ name: n })))
       .toEqual(['House', 'House', 'House', 'House', 'Picnic table', 'Tree', 'Objects'])
   })

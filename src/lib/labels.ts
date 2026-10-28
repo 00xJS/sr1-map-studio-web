@@ -25,7 +25,7 @@ export const MARKER_HINTS: Record<string, string> = {
   'Vehicle spawn': 'A car or bike that appears on the map.',
 }
 
-/** The markers offered in simple mode; triggers, navpoints and NPCs are in advanced mode. */
+/** The markers offered first; triggers, navpoints and NPCs are under the inspector's More settings (and Show all settings). */
 export const SIMPLE_MARKERS = Object.keys(MARKER_HINTS)
 // Blinged Out Ride and sound zone markers: offered by the spawn tool on their own terms (retailToolMarkers).
 Object.assign(MARKER_HINTS, RETAIL_MARKER_HINTS)

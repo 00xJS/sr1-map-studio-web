@@ -155,9 +155,10 @@ describe('prefab objects', () => {
 describe('shape names', () => {
   it('keep the preset label through resizes, but leave user names alone', () => {
     const n = shapeName('Wall', { kind: 'box', size: [12, 6, 1], tile: 4 })
-    expect(n).toBe('Wall 12×6×1')
+    expect(n).toBe('Wall 6×3×0.5 m')
     expect(shapeLabel(n)).toBe('Wall')
     expect(shapeLabel('Wall 12.5×6×0.25')).toBe('Wall')
+    expect(shapeName('Wall', { kind: 'box', size: [12, 6, 1], tile: 4 }, 1)).toBe('Wall 12×6×1 m')
     expect(shapeLabel('North wall')).toBeNull()
   })
 })

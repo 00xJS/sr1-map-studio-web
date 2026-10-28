@@ -1,5 +1,6 @@
-// Which editor overlays are open (history panel, saved versions, shortcut sheet).
+// Which editor overlays are open (history panel, saved versions, shortcut sheet, command palette).
 import { create } from 'zustand'
 
-export const useOverlays = create<{ history: boolean; versions: boolean; keys: boolean }>(() => ({ history: false, versions: false, keys: false }))
-export const toggleOverlay = (k: 'history' | 'versions' | 'keys', on?: boolean) => useOverlays.setState((s) => ({ [k]: on ?? !s[k] }))
+type Overlay = 'history' | 'versions' | 'keys' | 'palette'
+export const useOverlays = create<Record<Overlay, boolean>>(() => ({ history: false, versions: false, keys: false, palette: false }))
+export const toggleOverlay = (k: Overlay, on?: boolean) => useOverlays.setState((s) => ({ [k]: on ?? !s[k] }))

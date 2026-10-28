@@ -31,13 +31,15 @@ export function AssetsPanel() {
 
   return (
     <>
-      <p className="muted">Import models to your library, then drag them onto the map. Double-click an asset to place it where the camera is looking.</p>
-      <div className="row">
+      <div className="section">
+      <span className="section-title">Your library</span>
+      <span className="small muted">Import models to your library, then drag them onto the map. Double-click one to place it where the camera is looking.</span>
+      <div className="row wrap">
         <FileButton className="primary" multiple accept=".obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff" onFiles={(f) => run(() => act.importModelFiles(f, 'library'))}>+ Import to library</FileButton>
         <button disabled={selected < 0 || !project.scene_items.length} onClick={() => run(() => act.placeAsset(selected, center() as any))}>Place selected</button>
         <button className="quiet" disabled={selected < 0} onClick={() => run(async () => { if (await act.removeAsset(selected)) setSelected(-1) })}>Remove</button>
       </div>
-      <div className="list" style={{ maxHeight: 340 }}>
+      <div className="list">
         {lib.map((a, i) => (
           <div
             key={a.uid} draggable className={'list-item' + (i === selected ? ' selected' : '')}
@@ -54,8 +56,9 @@ export function AssetsPanel() {
         ))}
         {!lib.length && <div className="list-item faint">Your library is empty.</div>}
       </div>
+      </div>
 
-      <div className="group">
+      <div className="section">
         <span className="section-title">Breakable glass</span>
         {hasGroup(pack, 'glass') ? (
           <>
@@ -70,7 +73,7 @@ export function AssetsPanel() {
         ) : <p className="faint small">Needs the glass prefab from your data pack. <Link to="/setup">Set up data pack</Link></p>}
       </div>
 
-      <div className="group">
+      <div className="section">
         <span className="section-title">From your files</span>
         <div className="row wrap">
           {hasGroup(pack, 'demo') && <button className="sm" disabled={busy} onClick={() => run(importDemoCrate)}>Add demo crate to library</button>}
@@ -82,7 +85,7 @@ export function AssetsPanel() {
         </div>
         <p className="faint small"><b>Open a map folder</b> opens a finished map (yours from a while ago, or one from <code>SaintsReborn/dist/maps</code>) as a new map with every object, spawn and trigger, to change and export again; it can also add the game's sky to it without rebuilding. You can drop a map folder or zip on the 3D view too.</p>
         <p className="faint small"><b>Where to load from:</b> "Import a map from the game" converts a <code>.bbchunk_xbox2</code> (select its <code>.peg_xbox2</code> too for textures) from your own game install into an editable model. Installed maps live in <code>SaintsReborn/dist/maps/&lt;map name&gt;/levels/</code>, for example <code>SaintsReborn/dist/maps/Dust/levels/dust.bbchunk_xbox2</code> and <code>dust.peg_xbox2</code>. The original game's own maps are packed inside <code>SaintsReborn/dist/game/packfiles</code> and can't be picked directly.</p>
-        <p className="faint small"><b>Where your maps go:</b> exports install into <code>SaintsReborn/dist/maps/&lt;your map name&gt;/</code>. ▶ Play puts them there for you, or unzip a downloaded export into <code>SaintsReborn/dist/maps</code>.</p>
+        <p className="faint small"><b>Where your maps go:</b> exports install into <code>SaintsReborn/dist/maps/&lt;your map name&gt;/</code>. Install in game puts them there for you, or unzip a downloaded export into <code>SaintsReborn/dist/maps</code>.</p>
         <p className="faint small">Files from your game stay on this device and can't be shared to the Showcase.</p>
       </div>
     </>

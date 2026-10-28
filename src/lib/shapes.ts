@@ -348,8 +348,8 @@ export function compoundObj(pieces: CompoundPiece[]): string {
   return w.text('# SR1 Map Studio prefab')
 }
 
-/** "Wall 12×6×1": the preset label plus the size. */
-export const shapeName = (label: string, s: Shape) => `${label} ${s.size.map((v) => +v.toFixed(2)).join('×')}`
+/** "Wall 6×3×0.5 m": the preset label plus the size in game metres (editor units × the world scale). */
+export const shapeName = (label: string, s: Shape, worldScale = 0.5) => `${label} ${s.size.map((v) => +(v * worldScale).toFixed(2)).join('×')} m`
 
-/** The label part of a generated name, or null if the user renamed it. */
-export const shapeLabel = (name: string) => /^([A-Za-z]+) [\d.]+×[\d.]+×[\d.]+$/.exec(name)?.[1] ?? null
+/** The label part of a generated name (in metres, or editor units as older maps have them), or null if the user renamed it. */
+export const shapeLabel = (name: string) => /^([A-Za-z]+) [\d.]+×[\d.]+×[\d.]+( m)?$/.exec(name)?.[1] ?? null

@@ -27,7 +27,7 @@ export function LayersPanel({ compact = false }: { compact?: boolean }) {
   const finish = (from: string) => { L.rename(from, draft); setEditing(null) }
 
   return (
-    <div className="group layers">
+    <div className="section layers">
       <div className="row between">
         <span className="section-title">Layers</span>
         <div className="row">
