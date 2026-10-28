@@ -11,6 +11,7 @@ import { deleteMyPrefab, renameMyPrefab, useMyPrefabs } from './myPrefabs'
 import { PrefabButton } from './PrefabBrowser'
 import { confirmDialog } from '../ui'
 import { GroundToolOptions } from './GroundToolOptions'
+import { clearMeasure, measureText, useMeasure } from './measure'
 
 const I = (d: ReactNode) => <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{d}</svg>
 const ICONS = {
@@ -26,6 +27,7 @@ const ICONS = {
   erase: I(<><path d="M20 20H9L4 15l9-9 7 7-6 6" /><path d="M9 11l6 6" /></>),
   sculpt: I(<><path d="M2 19l6-9 4 5 3-4 7 8z" /><path d="M14.5 6.5l2-2 2 2" /></>),
   road: I(<><path d="M8 3L5 21M16 3l3 18" /><path d="M12 4v3M12 10.5v3M12 17v3" /></>),
+  measure: I(<><path d="M3 17L17 3l4 4L7 21z" /><path d="M7 13l2 2M10 10l2 2M13 7l2 2" /></>),
 }
 
 type Entry = { id: string; label: string; short: string; key: string; tool: Tool; gizmo?: GizmoMode; help: string }
@@ -42,6 +44,7 @@ export const TOOL_ENTRIES: Entry[] = [
   { id: 'weapon', label: 'Weapon', short: 'Weapon', key: 'K', tool: 'weapon', help: 'Click the map to place a weapon pickup.' },
   { id: 'light', label: 'Light', short: 'Light', key: 'L', tool: 'light', help: 'Click the map to place a light.' },
   { id: 'erase', label: 'Eraser', short: 'Erase', key: 'X', tool: 'erase', help: 'Click anything to delete it.' },
+  { id: 'measure', label: 'Measure', short: 'Measure', key: 'M', tool: 'measure', help: 'Click two points to see how far apart they are, in metres.' },
 ]
 
 export function chooseTool(id: string) {
@@ -66,6 +69,18 @@ export function ToolStrip() {
         </button>
       ))}
     </div>
+  )
+}
+
+/** The Measure tool's answer: what to click next, or the distance in metres. */
+function MeasureReadout() {
+  const m = useMeasure()
+  const worldScale = useEditor((s) => s.project?.settings.world_scale)
+  return (
+    <>
+      <b className="small" aria-live="polite" data-testid="measure-text">{measureText(m, worldScale)}</b>
+      {m.a && <button className="sm quiet" onClick={clearMeasure}>Clear</button>}
+    </>
   )
 }
 
@@ -176,7 +191,8 @@ export function ToolOptions() {
           {catalogs.weapons.map(([n, id]) => <option key={id} value={id}>{n}</option>)}
         </select>
       )}
-      {tool !== 'sculpt' && tool !== 'road' && <span className="small muted">{tool === 'spawn' ? MARKER_HINTS[toolSpawn] ?? help : help}</span>}
+      {tool === 'measure' && <MeasureReadout />}
+      {tool !== 'sculpt' && tool !== 'road' && tool !== 'measure' && <span className="small muted">{tool === 'spawn' ? MARKER_HINTS[toolSpawn] ?? help : help}</span>}
       <button className="sm quiet" onClick={() => chooseTool('select')} title="Back to Select (Esc)">Done</button>
     </div>
   )

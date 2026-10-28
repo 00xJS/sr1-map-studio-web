@@ -3,13 +3,14 @@
 import { create } from 'zustand'
 import { produce, type Draft } from 'immer'
 import { db } from '../lib/db'
-import type { Project } from '../lib/project'
+import { uid, type Project } from '../lib/project'
+import { centreOf, mirrorEdit, mirrorSession, type Centre, type MirrorSession } from '../lib/mirrorEdit'
 
 export type Selection = { kind: 'item' | 'marker' | 'light'; index: number } | null
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
 export type PlaceMode = null | 'marker' | 'light' | 'face' | 'decal'
 /** Paint-style tools: 'select' shows the gizmo; the others act on every click in the viewport. */
-export type Tool = 'select' | 'shape' | 'paint' | 'pick' | 'spawn' | 'weapon' | 'light' | 'erase' | 'sculpt' | 'road'
+export type Tool = 'select' | 'shape' | 'paint' | 'pick' | 'spawn' | 'weapon' | 'light' | 'erase' | 'sculpt' | 'road' | 'measure'
 
 /** A texture the paint bucket applies: generated, from the starter library, or a file already in the map. */
 export interface Swatch {
@@ -58,11 +59,18 @@ interface EditorState {
   allSettings: boolean
   /** Desktop-style free camera instead of orbiting. */
   freeCam: boolean
+  /** Plan view: the map from straight above, flat (orthographic), sliding and zooming but not turning. */
+  plan: boolean
   /** The view only: the site's own surfaces drawn layered like retail's (even base tile, grime, tint mask). */
   layeredLook: boolean
+  /** Mirror mode: every edit is copied across the middle (lib/mirrorEdit.ts), in the same undo step. */
+  mirror: boolean
   open(project: Project): void
   close(): void
-  update(label: string, recipe: (d: Draft<Project>) => void, opts?: { merge?: string }): void
+  /** One undo step. In mirror mode the edit is copied across the middle too, unless `noMirror` (an edit that already
+   *  makes both halves, such as make_symmetric), inside a transaction (Fix all's fixes place what they mean to) or
+   *  inside withoutMirror (the AI's edits, a single fix). */
+  update(label: string, recipe: (d: Draft<Project>) => void, opts?: { merge?: string; noMirror?: boolean }): void
   undo(): void
   redo(): void
   /** Several undo (negative) or redo (positive) steps at once, as one history move. */
@@ -144,6 +152,8 @@ function leaveMap() {
   txn = null
   if (t) t.stopped = true
   lastMerge = null
+  mirroring = null
+  pinned = null
   opens++
   return t
 }
@@ -153,6 +163,37 @@ export function writeFlag(key: string, on: boolean) { try { localStorage.setItem
 let lastMerge: { key: string; at: number } | null = null
 /** End the current merged edit (e.g. when a gizmo drag is released). */
 export const breakMerge = () => { lastMerge = null }
+/** Mirror mode's pairs for the edit going on (kept through a merged edit such as a gizmo drag). */
+let mirroring: MirrorSession | null = null
+/** The middle mirror mode turns about, found when it's turned on (at its first edit) and kept until it's turned off
+ *  or another map opens: edits it doesn't copy (the AI's, a fix moving spawns) mustn't shift it and break the pairs. */
+let pinned: { projectId: string; centre: Centre } | null = null
+
+/** The middle mirror mode turns about on the open map (the one it pinned, else where it would pin it now). */
+export function mirrorCentreNow(): Centre | null {
+  const p = useEditor.getState().project
+  if (!p) return null
+  return pinned?.projectId === p.id ? pinned.centre : centreOf(p)
+}
+/** How deep in withoutMirror calls the code running right now is. */
+let unmirrored = 0
+
+/**
+ * Runs `fn` with mirror mode's copying off for the edits it makes itself: the ones it makes before it returns, and
+ * those of the async edit commands it starts (they note mirrorPaused() as they begin and pass it on, see keepQuiet).
+ * Only the call itself: the user's own edits meanwhile, while a job awaits, are mirrored as usual. For edits that make
+ * both halves themselves (the AI's "and its twin" placements).
+ */
+export function withoutMirror<T>(fn: () => T): T {
+  unmirrored++
+  try { return fn() } finally { unmirrored-- }
+}
+
+/** Was this edit command called inside withoutMirror? Async commands ask as they begin, before their first await. */
+export const mirrorPaused = () => unmirrored > 0
+
+/** Runs `fn` inside withoutMirror when `quiet` (what an async command noted with mirrorPaused() as it began). */
+export const keepQuiet = <T,>(quiet: boolean, fn: () => T): T => (quiet ? withoutMirror(fn) : fn())
 
 export const useEditor = create<EditorState>((set, get) => ({
   project: null,
@@ -182,11 +223,13 @@ export const useEditor = create<EditorState>((set, get) => ({
   tab: 'build',
   allSettings: readFlag('sr1-advanced'),
   freeCam: readFlag('sr1-freecam'),
+  plan: false,
   layeredLook: readFlag('sr1-layered'),
+  mirror: false,
   locked: null,
   open(project) {
     const t = leaveMap()
-    set({ project, selection: null, multi: [], lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [], locked: null })
+    set({ project, mirror: false, selection: null, multi: [], lastItem: -1, past: [], future: [], saveState: 'saved', placeMode: null, tool: 'select', logs: [], locked: null })
     t?.stop()
   },
   close() {
@@ -197,13 +240,24 @@ export const useEditor = create<EditorState>((set, get) => ({
   update(label, recipe, opts) {
     const cur = get().project
     if (!cur) return
-    const next = produce(cur, recipe)
+    let replaced = false
+    let next = produce(cur, (d) => {
+      const r = recipe(d) as unknown
+      // A recipe that hands back a whole new project replaces it as it is (and isn't mirrored).
+      if (r !== undefined) { replaced = true; return r as Project }
+    })
     if (next === cur) return
     const now = performance.now()
     // Consecutive edits with the same merge key (a gizmo drag, typing in a
     // field) become one undo step.
     const merging = opts?.merge && lastMerge && lastMerge.key === opts.merge && now - lastMerge.at < 1500
     lastMerge = opts?.merge ? { key: opts.merge, at: now } : null
+    if (get().mirror && !txn && !unmirrored && !opts?.noMirror && !replaced) {
+      // The pairs found at the start of a drag hold for all of it.
+      if (pinned?.projectId !== cur.id) pinned = { projectId: cur.id, centre: centreOf(cur) }
+      if (!merging || mirroring?.projectId !== cur.id) mirroring = mirrorSession(cur, pinned.centre)
+      next = mirrorEdit(cur, next, uid, mirroring)
+    }
     // Inside a transaction its edits add no steps of their own: it adds one when it ends.
     const past = merging || txn?.started ? get().past : [...get().past, { project: cur, label }].slice(-LIMIT)
     set({ project: next, ...reanchor(get(), cur, next), past, future: [], saveState: 'unsaved' })
@@ -384,6 +438,8 @@ export function selectedItems(): number[] {
 }
 
 useEditor.subscribe((s, prev) => {
+  // Turned off (or on again): the next time it's on, it finds the middle afresh.
+  if (s.mirror !== prev.mirror) { pinned = null; mirroring = null }
   if (s.allSettings !== prev.allSettings) writeFlag('sr1-advanced', s.allSettings)
   if (s.freeCam !== prev.freeCam) writeFlag('sr1-freecam', s.freeCam)
   if (s.layeredLook !== prev.layeredLook) writeFlag('sr1-layered', s.layeredLook)

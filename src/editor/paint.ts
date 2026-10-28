@@ -1,7 +1,7 @@
 // Paint bucket and eyedropper: the palette of textures (generated, starter
 // library, or already in this map) and applying one to the material under a
 // clicked triangle.
-import { useEditor, currentProject, type Swatch } from './store'
+import { useEditor, currentProject, keepQuiet, mirrorPaused, type Swatch } from './store'
 import * as act from './actions'
 import { loadModel, textureUrl } from '../lib/assets'
 import { KINDS, PREFAB_ONLY, defaultParams, generate, type TextureKind } from '../lib/procedural'
@@ -94,16 +94,19 @@ export async function paintAt(index: number, face: number, swatch: Swatch) {
 
 /** Put the swatch on one material of an object. */
 export async function paintMaterial(index: number, mat: string, swatch: Swatch) {
+  // Called inside withoutMirror (the AI), its edit isn't mirrored either.
+  const noMirror = mirrorPaused()
   if (swatch.source.kind === 'file') {
     const vpath = swatch.source.vpath
     useEditor.getState().update('Paint', (d) => {
       const x = d.scene_items[index]
       if (isCustomNative(x)) x.glass_custom_texture = vpath
       else { x.textures[mat] = vpath; (x.surface_ids ||= {})[mat] = swatch.surface }
-    })
+    }, { noMirror })
     return
   }
-  await act.assignTexture(index, mat, await swatchFile(swatch.source, swatch.key), swatch.surface)
+  const file = await swatchFile(swatch.source, swatch.key)
+  await keepQuiet(noMirror, () => act.assignTexture(index, mat, file, swatch.surface))
 }
 
 /** Eyedropper: the texture on the clicked triangle becomes the paint bucket's swatch. */

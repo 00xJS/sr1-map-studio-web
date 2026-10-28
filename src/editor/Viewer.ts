@@ -3,8 +3,11 @@
 // what changed. Transforms follow sr1_scene.transform exactly:
 //   world = T(position) · Ry · Rx · Rz · S(scale) · T(-pivot)
 import * as THREE from 'three'
-import { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
+import type { OrbitControls } from 'three/examples/jsm/controls/OrbitControls.js'
 import { TransformControls } from 'three/examples/jsm/controls/TransformControls.js'
+import { ViewCamera, type CameraView } from './viewer/camera'
+import { Picker, type SurfaceHit } from './viewer/picking'
+import { captureTopDown, captureView } from './viewer/capture'
 import type { MinimapRect } from '../lib/minimap'
 import { RADIUS, STAND_HEIGHT, Walker, type WalkBody, type WalkState } from './walk'
 import { CAMERA_FOV, FOG } from '../lib/player'
@@ -62,6 +65,8 @@ export interface ViewOptions {
   multi?: number[]
   /** Desktop-style free camera: right-drag looks around in place, WASD/QE fly, wheel sets the speed. */
   freeCam?: boolean
+  /** Plan view: straight down, orthographic, no turning (viewer/camera.ts). */
+  plan?: boolean
   /** The site's own shapes and prefabs drawn with retail-style layered surfaces (gameMaterial.ts; the view only). */
   layeredLook?: boolean
 }
@@ -116,10 +121,12 @@ function checker(): THREE.Texture {
 export class Viewer {
   readonly renderer: THREE.WebGLRenderer
   readonly scene = new THREE.Scene()
-  readonly camera = new THREE.PerspectiveCamera(55, 1, 0.05, 50000)
-  readonly orbit: OrbitControls
+  /** The camera, the plan view, framing and the free camera (viewer/camera.ts). */
+  readonly view: ViewCamera
+  /** What's under the cursor (viewer/picking.ts). */
+  readonly picker: Picker
   readonly gizmo: TransformControls
-  private root = new THREE.Group()
+  private mapRoot = new THREE.Group()
   private markerRoot = new THREE.Group()
   private lightRoot = new THREE.Group()
   private grid: THREE.GridHelper
@@ -139,7 +146,6 @@ export class Viewer {
   private project: Project | null = null
   private opts: ViewOptions = { selection: null, gizmo: 'translate', wireframe: false, collisionView: 'off', soloMaterial: null, faceRange: [0, 0] }
   private raf = 0
-  private keys = new Set<string>()
   private dragging = false
   private framed = false
   private resizeObs: ResizeObserver
@@ -152,6 +158,23 @@ export class Viewer {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace
     host.appendChild(this.renderer.domElement)
     this.renderer.domElement.tabIndex = 0
+    this.view = new ViewCamera({
+      canvas: this.renderer.domElement,
+      requestRender: () => this.requestRender(),
+      freeCam: () => !!this.opts.freeCam,
+      busy: () => !!this.walker || this.dragging,
+      pointerDown: () => this.pointerDown,
+      mapRadius: () => { const box = new THREE.Box3().setFromObject(this.mapRoot); return box.isEmpty() ? 50 : box.getSize(new THREE.Vector3()).length() / 2 },
+      onFlySpeed: (v) => this.events.onFlySpeed?.(v),
+    })
+    this.picker = new Picker({
+      canvas: this.renderer.domElement,
+      camera: () => this.camera,
+      meshes: () => [...this.items.values()].flatMap((n) => (n.mesh ? [{ uid: n.uid, mesh: n.mesh, visible: n.group.visible }] : [])),
+      indexOf: (uid) => this.project?.scene_items.findIndex((it) => it.uid === uid) ?? -1,
+      handles: () => [...this.markerRoot.children, ...this.lightRoot.children],
+      groundY: () => this.grid.position.y,
+    })
     this.scene.background = new THREE.Color(0x120f15)
     installFogCap()
     this.renderer.shadowMap.enabled = true
@@ -164,27 +187,19 @@ export class Viewer {
     this.scene.add(this.hemi, this.sunLight, this.sunLight.target, this.fillLight, this.ambientLight, this.mapLights)
     this.applyLook()
     this.grid = new THREE.GridHelper(200, 40, 0x6b2a5a, 0x2b1c2b)
-    this.scene.add(this.grid, this.root, this.markerRoot, this.lightRoot, this.box, this.pivot, this.batch.root, this.rain.root)
+    this.scene.add(this.grid, this.mapRoot, this.markerRoot, this.lightRoot, this.box, this.pivot, this.batch.root, this.rain.root)
     this.box.visible = false
-    this.camera.position.set(30, 25, 30)
-    this.orbit = new OrbitControls(this.camera, this.renderer.domElement)
-    this.orbit.enableDamping = true
-    this.orbit.dampingFactor = 0.15
-    this.orbit.screenSpacePanning = true
-    // Tablets: one finger spins, two fingers pinch to zoom and drag to slide.
-    this.orbit.touches = { ONE: THREE.TOUCH.ROTATE, TWO: THREE.TOUCH.DOLLY_PAN }
     this.gizmo = new TransformControls(this.camera, this.renderer.domElement)
     this.gizmo.setSize(0.9)
     this.scene.add(this.gizmo.getHelper())
     this.gizmo.addEventListener('dragging-changed', (e: any) => {
-      this.orbit.enabled = !e.value && !this.opts.freeCam && !this.walker
       this.dragging = e.value
+      this.view.syncFreeCam()
       if (!e.value) this.emitTransform(true)
     })
     this.gizmo.addEventListener('objectChange', () => this.emitTransform(false))
     this.loaded.onLoad = () => this.requestRender()
     this.bindInput()
-    this.bindFreeCam()
     this.renderer.domElement.addEventListener('pointermove', (e) => this.moveGhost(e.clientX, e.clientY))
     this.renderer.domElement.addEventListener('pointerleave', () => { if (this.ghost?.visible) { this.ghost.visible = false; this.requestRender() } })
     this.resizeObs = new ResizeObserver(() => this.resize())
@@ -201,7 +216,7 @@ export class Viewer {
     // TransformControls.dispose() in r169 assumes an Object3D; detach manually.
     this.gizmo.detach()
     this.gizmo.disconnect()
-    this.orbit.dispose()
+    this.view.dispose()
     this.renderer.dispose()
     this.renderer.domElement.remove()
   }
@@ -213,15 +228,15 @@ export class Viewer {
     this.raf = requestAnimationFrame(this.loop)
     if (this.walker) {
       const now = performance.now()
-      this.walker.step((now - this.lastFly) / 1000)
-      this.rain.step(Math.min((now - this.lastFly) / 1000, 0.1), this.camera.position)
-      this.physics?.step(Math.min((now - this.lastFly) / 1000, 0.1))
-      this.lastFly = now
+      this.walker.step((now - this.lastWalk) / 1000)
+      this.rain.step(Math.min((now - this.lastWalk) / 1000, 0.1), this.camera.position)
+      this.physics?.step(Math.min((now - this.lastWalk) / 1000, 0.1))
+      this.lastWalk = now
       this.followSun(this.walker.pos)
       this.renderer.render(this.scene, this.camera)
       return
     }
-    const moved = this.flyStep() || this.tourStep()
+    const moved = this.view.flyStep() || this.tourStep()
     const damped = this.orbit.update()
     if (this.needsRender || moved || damped || this.dragging) {
       this.needsRender = false
@@ -263,7 +278,7 @@ export class Viewer {
       this.fillLight.intensity = GAME_INTENSITY
       this.fillLight.position.set(...L.fillDir)
     }
-    if (!this.walker) this.scene.fog = game && this.look.fogWhileEditing ? this.gameFog() : null
+    if (!this.walker) this.scene.fog = this.editFog()
     this.syncMapLights()
   }
 
@@ -277,6 +292,11 @@ export class Viewer {
     this.sunLight.position.copy(this.sunLight.target.position).addScaledVector(d, 1200)
   }
 
+  /** Fog while editing: the game's, when asked for, but never in the plan view (its camera sits far above the map). */
+  private editFog(): THREE.Fog | null {
+    return this.look.mode === 'game' && this.look.fogWhileEditing && !this.view?.plan ? this.gameFog() : null
+  }
+
   /** The game's fog (metres in the tables, editor units here). */
   private gameFog(): THREE.Fog {
     const f = this.look.light.fog
@@ -288,7 +308,7 @@ export class Viewer {
   private syncMapLights() {
     for (const l of [...this.mapLights.children]) { this.mapLights.remove(l); (l as THREE.PointLight).dispose() }
     if (this.look.mode !== 'game' || !this.project) return
-    const t = this.orbit?.target ?? new THREE.Vector3()
+    const t = this.view?.target ?? new THREE.Vector3()
     const lights = this.project.lights.filter((l) => l.enabled && l.intensity > 0)
       .sort((a, b) => t.distanceToSquared(new THREE.Vector3(...a.position)) - t.distanceToSquared(new THREE.Vector3(...b.position)))
       .slice(0, MAX_MAP_LIGHTS)
@@ -314,8 +334,7 @@ export class Viewer {
     this.renderer.setSize(w, h, false)
     this.renderer.domElement.style.width = '100%'
     this.renderer.domElement.style.height = '100%'
-    this.camera.aspect = w / h
-    this.camera.updateProjectionMatrix()
+    this.view.resize(w, h)
     this.requestRender()
   }
 
@@ -345,13 +364,11 @@ export class Viewer {
     el.addEventListener('pointercancel', (e) => { this.fingers.delete(e.pointerId); this.pointerDown = null })
     el.addEventListener('keydown', (e) => {
       if (e.ctrlKey || e.metaKey || e.altKey) return
-      const k = e.key.toLowerCase()
-      if ('wasdqe'.includes(k) && k.length === 1) { this.keys.add(k); e.preventDefault() }
-      if (e.key === 'Shift') this.keys.add('shift')
-      if (k === 'f') this.focusSelection()
+      this.view.keyDown(e)
+      if (e.key.toLowerCase() === 'f') this.focusSelection()
     })
-    el.addEventListener('keyup', (e) => { this.keys.delete(e.key.toLowerCase()); if (e.key === 'Shift') this.keys.delete('shift') })
-    el.addEventListener('blur', () => this.keys.clear())
+    el.addEventListener('keyup', (e) => this.view.keyUp(e))
+    el.addEventListener('blur', () => this.view.clearKeys())
     el.addEventListener('dragover', (e) => { if (e.dataTransfer?.types.includes('application/x-sr1-asset')) e.preventDefault() })
     el.addEventListener('drop', (e) => {
       const data = e.dataTransfer?.getData('application/x-sr1-asset')
@@ -363,114 +380,25 @@ export class Viewer {
     })
   }
 
-  // ---------------- free camera (as in the desktop SR1 Map Studio) ----------------
+  // ---------------- camera and picking (viewer/camera.ts, viewer/picking.ts) ----------------
 
+  /** The camera that's showing: the perspective one, or the plan view's. */
+  get camera() { return this.view.camera }
+  get orbit(): OrbitControls { return this.view.orbit }
   /** Units per second while flying in the free camera. */
-  flySpeed = 8
-  private looking: { lock: boolean } | null = null
-
-  private setFreeCam(on: boolean) {
-    this.orbit.enabled = !on && !this.walker && !this.dragging
-    if (on) {
-      // Fly at a speed that suits the map's size, keeping the current view.
-      const box = new THREE.Box3().setFromObject(this.root)
-      const radius = box.isEmpty() ? 50 : box.getSize(new THREE.Vector3()).length() / 2
-      this.flySpeed = Math.max(0.6, Math.min(80, radius * 0.08))
-    }
-    this.renderer.domElement.style.cursor = on ? 'crosshair' : ''
-  }
-
-  /** Turns the camera in place by a mouse movement (0.22° per pixel, like the desktop app). */
-  private lookBy(dx: number, dy: number) {
-    const dir = this.camera.getWorldDirection(new THREE.Vector3())
-    let yaw = Math.atan2(-dir.x, -dir.z)
-    let pitch = Math.asin(Math.max(-1, Math.min(1, dir.y)))
-    const k = (0.22 * Math.PI) / 180
-    yaw -= dx * k
-    pitch = Math.max((-89 * Math.PI) / 180, Math.min((89 * Math.PI) / 180, pitch - dy * k))
-    const look = new THREE.Vector3(-Math.sin(yaw) * Math.cos(pitch), Math.sin(pitch), -Math.cos(yaw) * Math.cos(pitch))
-    const dist = Math.max(1, this.camera.position.distanceTo(this.orbit.target))
-    this.orbit.target.copy(this.camera.position).addScaledVector(look, dist)
-    this.camera.lookAt(this.orbit.target)
-    this.requestRender()
-  }
-
-  private bindFreeCam() {
-    const el = this.renderer.domElement
-    el.addEventListener('contextmenu', (e) => { if (this.opts.freeCam) e.preventDefault() })
-    el.addEventListener('pointerdown', (e) => {
-      if (!this.opts.freeCam || this.walker || this.dragging) return
-      if (e.button === 2) {
-        // Right button: hide the cursor and look around until it's released.
-        this.looking = { lock: true }
-        void el.requestPointerLock?.()
-      } else if (e.button === 0) this.looking = { lock: false }
-    })
-    el.addEventListener('pointermove', (e) => {
-      if (!this.looking || this.dragging || this.gizmo.dragging || document.pointerLockElement === el) return
-      if (!this.looking.lock && Math.hypot(e.clientX - (this.pointerDown?.x ?? e.clientX), e.clientY - (this.pointerDown?.y ?? e.clientY)) < 5) return
-      this.lookBy(e.movementX, e.movementY)
-    })
-    // Moves while the pointer is locked arrive on the document.
-    document.addEventListener('mousemove', (e) => { if (this.looking?.lock && document.pointerLockElement === el) this.lookBy(e.movementX, e.movementY) })
-    const end = () => { if (this.looking?.lock && document.pointerLockElement === el) document.exitPointerLock(); this.looking = null }
-    window.addEventListener('pointerup', end)
-    window.addEventListener('blur', end)
-    el.addEventListener('wheel', (e) => {
-      if (!this.opts.freeCam || this.walker) return
-      e.preventDefault()
-      e.stopImmediatePropagation()
-      this.flySpeed = Math.max(0.05, Math.min(1000, this.flySpeed * 1.22 ** (-e.deltaY / 100)))
-      this.events.onFlySpeed?.(this.flySpeed)
-    }, { capture: true, passive: false })
-  }
-
-  private lastFly = performance.now()
-  private flyStep(): boolean {
-    const now = performance.now()
-    const dt = Math.min(0.1, (now - this.lastFly) / 1000)
-    this.lastFly = now
-    if (!this.keys.size || (this.keys.size === 1 && this.keys.has('shift'))) return false
-    const dist = this.camera.position.distanceTo(this.orbit.target)
-    // Free camera: a set speed the wheel changes. Orbit camera: faster the further out you are.
-    const speed = (this.opts.freeCam ? this.flySpeed : Math.max(2, dist * 0.9)) * (this.keys.has('shift') ? 3 : 1) * dt
-    const fwd = new THREE.Vector3()
-    this.camera.getWorldDirection(fwd)
-    const right = new THREE.Vector3().crossVectors(fwd, this.camera.up).normalize()
-    const move = new THREE.Vector3()
-    if (this.keys.has('w')) move.add(fwd)
-    if (this.keys.has('s')) move.sub(fwd)
-    if (this.keys.has('d')) move.add(right)
-    if (this.keys.has('a')) move.sub(right)
-    if (this.keys.has('e')) move.y += 1
-    if (this.keys.has('q')) move.y -= 1
-    if (this.opts.freeCam && (this.keys.has('e') || this.keys.has('q')) && move.lengthSq() > 1) move.y = Math.sign(move.y)
-    if (!move.lengthSq()) return false
-    move.normalize().multiplyScalar(speed)
-    this.camera.position.add(move)
-    this.orbit.target.add(move)
-    return true
-  }
-
-  private ndc(x: number, y: number) {
-    const r = this.renderer.domElement.getBoundingClientRect()
-    return new THREE.Vector2(((x - r.left) / r.width) * 2 - 1, -((y - r.top) / r.height) * 2 + 1)
-  }
+  get flySpeed() { return this.view.flySpeed }
 
   /** Nearest scene-item surface under the cursor. */
-  raycast(x: number, y: number): { point: Vec3; item: number; face: number; normal: Vec3 } | null {
-    const rc = new THREE.Raycaster()
-    rc.setFromCamera(this.ndc(x, y), this.camera)
-    const meshes: THREE.Object3D[] = []
-    this.items.forEach((n) => { if (n.mesh && n.group.visible) meshes.push(n.mesh) })
-    const hit = rc.intersectObjects(meshes, false)[0]
-    if (!hit) return null
-    const node = [...this.items.values()].find((n) => n.mesh === hit.object)
-    const index = this.project?.scene_items.findIndex((it) => it.uid === node?.uid) ?? -1
-    const info = (hit.object as THREE.Mesh).userData.faceOrder as Uint32Array | undefined
-    const face = info && hit.faceIndex != null ? info[hit.faceIndex] : -1
-    const normal = hit.face ? hit.face.normal.clone().transformDirection(hit.object.matrixWorld).toArray() as Vec3 : [0, 1, 0] as Vec3
-    return { point: hit.point.toArray() as Vec3, item: index, face, normal }
+  raycast(x: number, y: number): SurfaceHit | null { return this.picker.surface(x, y) }
+
+  /** A surface under the cursor, else the point on the ground; null looking at the sky. */
+  pointAt(x: number, y: number): Vec3 | null { return this.picker.point(x, y) }
+
+  /** Plan view on or off (the gizmo follows the camera that's showing). */
+  private setPlan(on: boolean) {
+    this.view.setPlan(on)
+    this.gizmo.camera = this.camera
+    if (!this.walker) this.scene.fog = this.editFog()
   }
 
   // ---------------- walk-through ----------------
@@ -479,6 +407,7 @@ export class Viewer {
   private physics: PhysicsPreview | null = null
   private walkBody: WalkBody | null = null
   private beforeWalk: { pos: THREE.Vector3; target: THREE.Vector3; fov: number; hidden: [THREE.Object3D, boolean][]; background: THREE.Scene['background']; fog: THREE.Scene['fog'] } | null = null
+  private lastWalk = performance.now()
   private daySky: THREE.Texture | null = null
 
   /** A noon sky: deep blue overhead fading to a hazy horizon, like the game's clear weather. */
@@ -571,27 +500,30 @@ export class Viewer {
   /** Puts the camera at player height at `at` (a spawn, say) and hands the controls to the walker. */
   startWalk(at: Vec3, yaw: number, onExit: () => void, onState?: (s: WalkState) => void) {
     this.stopWalk()
+    // The walk sees through the perspective camera; the plan view comes back after.
+    this.setPlan(false)
+    const cam = this.view.persp
     const hidden: [THREE.Object3D, boolean][] = [this.grid, this.box, this.lightRoot, this.markerRoot, this.gizmo.getHelper(), this.pivot].map((o) => [o, o.visible])
     hidden.forEach(([o]) => { o.visible = false })
-    this.beforeWalk = { pos: this.camera.position.clone(), target: this.orbit.target.clone(), fov: this.camera.fov, hidden, background: this.scene.background, fog: this.scene.fog }
+    this.beforeWalk = { pos: cam.position.clone(), target: this.orbit.target.clone(), fov: cam.fov, hidden, background: this.scene.background, fog: this.scene.fog }
     this.orbit.enabled = false
     this.gizmo.enabled = false
-    this.camera.fov = CAMERA_FOV
-    this.camera.near = 0.05
-    this.camera.updateProjectionMatrix()
+    cam.fov = CAMERA_FOV
+    cam.near = 0.05
+    cam.updateProjectionMatrix()
     const solids = this.solids()
     // Props blown away in the physics preview are hidden: the walker no longer bumps into them.
-    this.walker = new Walker({ camera: this.camera, scene: this.scene, canvas: this.renderer.domElement, solids: () => solids.filter((o) => o.parent?.visible !== false) }, at, yaw, onExit, this.walkBody)
+    this.walker = new Walker({ camera: cam, scene: this.scene, canvas: this.renderer.domElement, solids: () => solids.filter((o) => o.parent?.visible !== false) }, at, yaw, onExit, this.walkBody)
     this.walker.onState = onState
     this.showGameSky()
     const walker = this.walker
     // Physics props move in the walk-through (the engine loads only for maps that have some).
     if (this.project?.scene_items.some((it) => presetOf(it))) this.physics = new PhysicsPreview({
-      scene: this.scene, camera: this.camera, canvas: this.renderer.domElement,
+      scene: this.scene, camera: cam, canvas: this.renderer.domElement,
       objects: () => (this.project?.scene_items ?? []).flatMap((it) => { const n = this.items.get(it.uid); return n ? [{ it, group: n.group, mesh: n.mesh }] : [] }),
       player: () => ({ pos: walker.pos, height: STAND_HEIGHT, radius: RADIUS }),
     })
-    this.lastFly = performance.now()
+    this.lastWalk = performance.now()
   }
 
   /** The third-person body for this and later walks (null: the stand-in). The caller owns it. */
@@ -629,13 +561,16 @@ export class Viewer {
     b.hidden.forEach(([o, v]) => { o.visible = v })
     this.scene.background = b.background
     this.scene.fog = b.fog
-    this.camera.position.copy(b.pos)
+    const cam = this.view.persp
+    cam.position.copy(b.pos)
     this.orbit.target.copy(b.target)
-    this.camera.fov = b.fov
-    this.camera.updateProjectionMatrix()
-    this.orbit.enabled = !this.opts.freeCam
+    cam.fov = b.fov
+    cam.updateProjectionMatrix()
     this.gizmo.enabled = true
     this.beforeWalk = null
+    this.view.syncFreeCam()
+    this.view.resetClock()
+    if (this.opts.plan) this.setPlan(true)
     this.requestRender()
   }
 
@@ -680,32 +615,14 @@ export class Viewer {
   }
 
   /** Height of the first scene surface straight below (x, z), or null. */
-  surfaceBelow(x: number, y: number, z: number): number | null {
-    const meshes: THREE.Object3D[] = []
-    this.items.forEach((n) => { if (n.mesh) meshes.push(n.mesh) })
-    const box = new THREE.Box3()
-    meshes.forEach((m) => box.expandByObject(m))
-    const top = Math.max(y, box.isEmpty() ? y : box.max.y) + 5
-    const rc = new THREE.Raycaster(new THREE.Vector3(x, top, z), new THREE.Vector3(0, -1, 0))
-    rc.params.Line = { threshold: 0 }
-    const hit = rc.intersectObjects(meshes, false).find((h) => h.point.y <= y + 0.01) ?? rc.intersectObjects(meshes, false)[0]
-    return hit ? hit.point.y : null
-  }
+  surfaceBelow(x: number, y: number, z: number): number | null { return this.picker.surfaceBelow(x, y, z) }
 
   private click(x: number, y: number, additive = false) {
     if (this.opts.readOnly || this.walker) return
-    const rc = new THREE.Raycaster()
-    rc.setFromCamera(this.ndc(x, y), this.camera)
     // Markers and lights first: they are small and sit on top of geometry.
-    const handles = rc.intersectObjects([...this.markerRoot.children, ...this.lightRoot.children], true)[0]
+    const handle = this.picker.handle(x, y)
     const surface = this.raycast(x, y)
     const placing = this.host.dataset.place || ''
-    let handle: ViewOptions['selection'] = null
-    if (handles) {
-      let o: THREE.Object3D | null = handles.object
-      while (o && !o.userData.kind) o = o.parent
-      if (o) handle = { kind: o.userData.kind, index: o.userData.index }
-    }
     if (placing === 'erase') {
       const target = handle ?? (surface && surface.item >= 0 ? { kind: 'item' as const, index: surface.item } : null)
       if (target) this.events.onErase(target)
@@ -713,6 +630,8 @@ export class Viewer {
     }
     if (placing) {
       if (surface) this.events.onSurface(surface.point, surface.item, surface.face, 'click', undefined, surface.normal)
+      // Measuring works off the map too: on the ground, at the guide grid's height.
+      else if (placing === 'measure') { const p = this.picker.point(x, y); if (p) this.events.onSurface(p, -1, -1, 'click') }
       return
     }
     if (handle) { this.events.onPick(handle); return }
@@ -755,8 +674,10 @@ export class Viewer {
   sync(project: Project | null, opts: ViewOptions) {
     const firstProject = this.project?.id !== project?.id
     this.project = project
-    if (!!opts.freeCam !== !!this.opts.freeCam) this.setFreeCam(!!opts.freeCam)
+    const freeCam = !!opts.freeCam !== !!this.opts.freeCam
     this.opts = opts
+    if (freeCam) this.view.freeCamToggled(!!opts.freeCam)
+    if (!!opts.plan !== this.view.plan && !this.walker) this.setPlan(!!opts.plan)
     if (firstProject) this.framed = false
     this.syncItems()
     this.syncMarkers(project?.markers || [])
@@ -829,7 +750,7 @@ export class Viewer {
         node = { uid: it.uid, group: new THREE.Group(), mesh: null, key: '', overlay: null, overlayKey: '', path: it.path }
         node.group.userData = { kind: 'item' }
         this.items.set(it.uid, node)
-        this.root.add(node.group)
+        this.mapRoot.add(node.group)
       }
       node.group.userData.index = index
       // Its layer hidden (layers.ts): out of the view, picking and the walk-through.
@@ -848,7 +769,7 @@ export class Viewer {
     })
     for (const [uid, node] of this.items) {
       if (!seen.has(uid)) {
-        this.root.remove(node.group)
+        this.mapRoot.remove(node.group)
         node.overlay?.geometry.dispose()
         this.items.delete(uid)
       }
@@ -1130,15 +1051,8 @@ export class Viewer {
 
   private frame(obj: THREE.Object3D | THREE.Box3) {
     const box = obj instanceof THREE.Box3 ? obj : new THREE.Box3().setFromObject(obj)
-    if (box.isEmpty()) return
-    const size = box.getSize(new THREE.Vector3()).length()
-    const center = box.getCenter(new THREE.Vector3())
-    this.orbit.target.copy(center)
-    const dir = new THREE.Vector3(0.8, 0.65, 0.9).normalize()
-    this.camera.position.copy(center).addScaledVector(dir, Math.max(2, size * 0.75))
-    this.camera.near = Math.max(0.01, size / 5000)
-    this.camera.far = Math.max(1000, size * 20)
-    this.camera.updateProjectionMatrix()
+    const size = this.view.frame(box)
+    if (!size) return
     const span = Math.max(20, Math.ceil(size / 10) * 10)
     const shown = this.grid.visible
     this.scene.remove(this.grid)
@@ -1146,7 +1060,7 @@ export class Viewer {
     this.grid.visible = shown
     // At the map's lowest ground, a hair under it, so floors hide it instead of flickering with it; never up at
     // the bottom of a wall or balcony that was zoomed to, where it would cut through the buildings.
-    const all = new THREE.Box3().setFromObject(this.root).union(new THREE.Box3().setFromObject(this.batch.root))
+    const all = new THREE.Box3().setFromObject(this.mapRoot).union(new THREE.Box3().setFromObject(this.batch.root))
     const floor = all.isEmpty() ? box.min.y : Math.min(all.min.y, box.min.y)
     this.grid.position.y = floor - Math.max(0.05, size * 0.002)
     this.scene.add(this.grid)
@@ -1166,53 +1080,45 @@ export class Viewer {
   resetView() { this.framed = false; this.focusSelection() }
 
   /** Fit the whole map in view. */
-  frameAll() { this.frame(this.root) }
+  frameAll() { this.frame(this.mapRoot) }
 
   /** The guide grid on or off. */
   showGrid(on: boolean) { this.grid.visible = on; this.requestRender() }
   get gridShown() { return this.grid.visible }
 
-  private tour = 0
-  private tourAt = 0
   /** Showreel (the home page): no grid or handles, the camera circles the map at `degPerSec`; 0 stops. */
   flythrough(degPerSec: number) {
-    this.tour = degPerSec
-    this.tourAt = performance.now()
+    this.view.flythrough(degPerSec)
     for (const o of [this.grid, this.markerRoot, this.lightRoot, this.box]) o.visible = !degPerSec
-    this.orbit.enabled = !degPerSec
     this.requestRender()
   }
   private tourStep(): boolean {
-    if (!this.tour) return false
-    const now = performance.now()
-    this.orbitBy(this.tour * Math.min(0.1, (now - this.tourAt) / 1000))
-    this.tourAt = now
+    if (!this.view.tourStep()) return false
     this.grid.visible = false
     return true
   }
 
-  /** Camera buttons: circle the target by `deg` degrees. */
-  orbitBy(deg: number) {
-    const offset = this.camera.position.clone().sub(this.orbit.target)
-    offset.applyAxisAngle(new THREE.Vector3(0, 1, 0), deg * Math.PI / 180)
-    this.camera.position.copy(this.orbit.target).add(offset)
-    this.requestRender()
-  }
+  /** Camera buttons: circle the target by `deg` degrees (not in plan view). */
+  orbitBy(deg: number) { this.view.orbitBy(deg) }
 
   /** Camera buttons: move toward (factor < 1) or away from the target. */
-  zoomBy(factor: number) {
-    const offset = this.camera.position.clone().sub(this.orbit.target).multiplyScalar(factor)
-    if (offset.length() < 0.5) return
-    this.camera.position.copy(this.orbit.target).add(offset)
-    this.requestRender()
-  }
+  zoomBy(factor: number) { this.view.zoomBy(factor) }
+
+  /** Looks at `at` from where the camera is, `distance` away (the Check tab's Show buttons). */
+  lookAt(at: Vec3, distance: number) { this.view.lookAt(at, distance) }
+
+  /** Where the camera is and what it looks at (saved views). */
+  cameraView(): CameraView { return this.view.view() }
+
+  /** Back to a saved view; the plan view must already match (the editor sets it first). */
+  setCameraView(v: CameraView) { if (v.plan === this.view.plan) this.view.setView(v) }
 
   /** Point at the camera target (used to place things "in front of you"). */
   center(): Vec3 { return this.orbit.target.toArray() as Vec3 }
 
   /** Square area the minimap covers, in editor units: the map's footprint plus `padUnits` on every side. */
   minimapRect(padUnits: number): MinimapRect | null {
-    const box = new THREE.Box3().setFromObject(this.root, true)
+    const box = new THREE.Box3().setFromObject(this.mapRoot, true)
     if (box.isEmpty()) return null
     const half = Math.max(box.max.x - box.min.x, box.max.z - box.min.z) / 2 + padUnits
     const cx = (box.min.x + box.max.x) / 2, cz = (box.min.z + box.max.z) / 2
@@ -1220,68 +1126,25 @@ export class Viewer {
     return [r(cx - half), r(cz - half), r(cx + half), r(cz + half)]
   }
 
-  /**
-   * Straight-down picture of `rect` for the minimap: +X right, +Z down (the
-   * exporter's X mirror turns that into the game's layout; `mirror` flips it
-   * for maps exported without the mirror).
-   */
-  async captureTopDown(o: { size: number; rect: MinimapRect; mirror?: boolean }): Promise<Blob | null> {
-    const box = new THREE.Box3().setFromObject(this.root)
-    if (box.isEmpty()) return null
-    const [x0, z0, x1, z1] = o.rect
-    const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2
-    const cam = new THREE.OrthographicCamera(-(x1 - x0) / 2, (x1 - x0) / 2, (z1 - z0) / 2, -(z1 - z0) / 2, 0.1, box.max.y - box.min.y + 2000)
-    cam.position.set(cx, box.max.y + 500, cz)
-    cam.up.set(0, 0, -1)
-    cam.lookAt(cx, box.min.y, cz)
-    const hidden = [this.markerRoot, this.lightRoot, this.grid, this.box, this.gizmo.getHelper()]
-    const was = hidden.map((h) => h.visible)
-    hidden.forEach((h) => { h.visible = false })
-    const bg = this.scene.background, fog = this.scene.fog
-    this.scene.background = new THREE.Color(0x000000)
-    this.scene.fog = null
-    const rt = new THREE.WebGLRenderTarget(o.size, o.size, { colorSpace: THREE.SRGBColorSpace })
-    this.renderer.setRenderTarget(rt)
-    this.renderer.render(this.scene, cam)
-    const px = new Uint8Array(o.size * o.size * 4)
-    this.renderer.readRenderTargetPixels(rt, 0, 0, o.size, o.size, px)
-    this.renderer.setRenderTarget(null)
-    rt.dispose()
-    this.scene.background = bg
-    this.scene.fog = fog
-    hidden.forEach((h, i) => { h.visible = was[i] })
-    this.requestRender()
-    // GL rows run bottom-up; images run top-down.
-    const canvas = new OffscreenCanvas(o.size, o.size)
-    const img = new ImageData(o.size, o.size)
-    const row = o.size * 4
-    for (let y = 0; y < o.size; y++) {
-      const src = (o.size - 1 - y) * row
-      if (!o.mirror) { img.data.set(px.subarray(src, src + row), y * row); continue }
-      for (let x = 0; x < o.size; x++) img.data.set(px.subarray(src + (o.size - 1 - x) * 4, src + (o.size - x) * 4), y * row + x * 4)
-    }
-    canvas.getContext('2d')!.putImageData(img, 0, 0)
-    return canvas.convertToBlob({ type: 'image/png' })
+  /** Straight-down picture of `rect` for the minimap (viewer/capture.ts). */
+  captureTopDown(o: { size: number; rect: MinimapRect; mirror?: boolean }): Promise<Blob | null> {
+    return captureTopDown(this, [this.markerRoot, this.lightRoot, this.grid, this.box, this.gizmo.getHelper(), ...this.helpers], o)
   }
 
-  async capture(width = 640, height = 360): Promise<Blob | null> {
-    const prevBox = this.box.visible
-    const helper = this.gizmo.getHelper()
-    const prevGizmo = helper.visible
-    this.box.visible = false
-    helper.visible = false
-    const w = this.renderer.domElement.width, h = this.renderer.domElement.height
-    this.renderer.render(this.scene, this.camera)
-    const canvas = new OffscreenCanvas(width, height)
-    const ctx = canvas.getContext('2d')!
-    const scale = Math.max(width / w, height / h)
-    const sw = width / scale, sh = height / scale
-    ctx.drawImage(this.renderer.domElement, (w - sw) / 2, (h - sh) / 2, sw, sh, 0, 0, width, height)
-    this.box.visible = prevBox
-    helper.visible = prevGizmo
-    this.requestRender()
-    return canvas.convertToBlob({ type: 'image/webp', quality: 0.82 })
+  /** The view as the camera sees it, for the map's thumbnail. */
+  capture(width = 640, height = 360): Promise<Blob | null> {
+    return captureView({ ...this.captureHost(), camera: this.view.perspective() }, [this.box, this.gizmo.getHelper(), ...this.helpers], width, height)
   }
+
+  private captureHost() { return { renderer: this.renderer, scene: this.scene, root: this.mapRoot, camera: this.camera, requestRender: () => this.requestRender() } }
+
+  /** Things drawn over the map for a tool (the measured line): left out of the thumbnail and the minimap. */
+  private helpers: THREE.Object3D[] = []
+  addHelper(o: THREE.Object3D) { this.helpers.push(o); this.scene.add(o); this.requestRender() }
+  removeHelper(o: THREE.Object3D) { this.helpers = this.helpers.filter((h) => h !== o); this.scene.remove(o); this.requestRender() }
+
+  /** The map's objects (capture.ts). */
+  get root(): THREE.Object3D { return this.mapRoot }
 }
 
 function applyTransform(g: THREE.Object3D, it: SceneItem) {

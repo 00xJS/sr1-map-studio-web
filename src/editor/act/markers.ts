@@ -27,7 +27,7 @@ export async function addDefaultSky() {
   const sky = await skyFile()
   // A map opened while the picture loaded keeps its own sky.
   stillCurrent(run)
-  update('Add a sky', (d) => { d.files[sky.vpath] = sky.ref; d.settings.sky_texture = sky.vpath })
+  update('Add a sky', (d) => { d.files[sky.vpath] = sky.ref; d.settings.sky_texture = sky.vpath }, { noMirror: true })
   log('Added a sky: the game shows it overhead (change it in the Game tab, under Sky).')
 }
 
