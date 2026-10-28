@@ -1,7 +1,7 @@
 // Editor commands for physics props (see lib/physicsProps.ts). Turning an
 // object into a native prop goes through the same Python rules as the
 // "Movable and explosive props", under the inspector's More settings.
-import { useEditor, currentProject, mapRun, stillCurrent } from './store'
+import { useEditor, currentProject, mapRun, mirrorPaused, stillCurrent } from './store'
 import { py } from '../lib/py'
 import { isGlass, isProp, type FileRef, type SceneItem, type Vec3 } from '../lib/project'
 import { OBJECT_BUDGET, PRESET_BY_KEY, type PhysicsShape } from '../lib/physicsProps'
@@ -36,6 +36,8 @@ async function oneMaterialShape(it: SceneItem) {
 
 /** Makes the objects physics props with a behaviour preset (or switches the preset of ones that are). */
 export async function makePhysicsProps(indices: number[], key: string, run = mapRun()) {
+  // Called inside withoutMirror (the AI), its edit isn't mirrored either.
+  const noMirror = mirrorPaused()
   const preset = PRESET_BY_KEY[key]
   const p = currentProject()
   if (!p || !preset) return
@@ -79,7 +81,7 @@ export async function makePhysicsProps(indices: number[], key: string, run = map
         if (converted.has(i)) d.scene_items[i] = { ...converted.get(i)!, uid: d.scene_items[i].uid }
         presetFields(d.scene_items[i], key, keepShape, fit.get(i))
       }
-    })
+    }, { noMirror })
     useEditor.getState().log(`${done.length} object(s) are now "${preset.label}" physics props. Try them in Walk (shoot, G to blast); re-export the map to play them in game.`)
   }
   if (errors.length) throw new UserError(errors.slice(0, 4).join('\n') + (errors.length > 4 ? `\n…and ${errors.length - 4} more` : ''))
@@ -95,6 +97,8 @@ export function setBottomHeavy(index: number, on: boolean) {
 
 /** Places a physics showcase set (lib/prefabsPhysics.ts): its static parts as one object, each prop as its own physics prop. */
 export async function addPhysicsSet(key: string, at: Vec3, groundY: number | null, rot = 0, run = mapRun()) {
+  // Called inside withoutMirror (the AI), its edit isn't mirrored either.
+  const noMirror = mirrorPaused()
   const def = ALL_PREFABS[key]
   const p = currentProject()
   if (!def || !p) return
@@ -124,7 +128,7 @@ export async function addPhysicsSet(key: string, at: Vec3, groundY: number | nul
   update('Add ' + def.label.toLowerCase(), (d) => {
     Object.assign(d.files, files)
     d.scene_items.push(...items)
-  })
+  }, { noMirror })
   const first = start + built.items.length
   const byPreset = new Map<string, number[]>()
   props.forEach((part, k) => {
@@ -139,7 +143,7 @@ export async function addPhysicsSet(key: string, at: Vec3, groundY: number | nul
       if (part.physics!.shape) it.physics_shape = part.physics!.shape
       if (part.physics!.bottomHeavy) it.physics_bottom_heavy = true
     })
-  }, { merge: 'physics-set' })
+  }, { merge: 'physics-set', noMirror })
   useEditor.getState().select({ kind: 'item', index: first })
   useEditor.getState().log(`Added ${def.label.toLowerCase()}: ${props.length} physics props. Walk the map to try them (click shoots, G blasts).`)
 }

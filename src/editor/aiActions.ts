@@ -1,9 +1,9 @@
 // Carries out the edits an AI chat reply asks for, as one undo step.
 import { create } from 'zustand'
-import { useEditor, currentProject, editJob, isCurrent, onSameMap, startRun, stillCurrent, JobCancelled, JobTooLong, JOB_TIME_LIMIT, MapChanged, type Run } from './store'
+import { useEditor, currentProject, editJob, isCurrent, manualEdits, onSameMap, startRun, stillCurrent, withoutMirror, JobCancelled, JobTooLong, JOB_TIME_LIMIT, MapChanged, type Run } from './store'
 import type { Project } from '../lib/project'
 import { getViewer } from './Viewport'
-import * as act from './actions'
+import * as actions from './actions'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
 import { SHAPE_PRESETS } from '../lib/shapes'
 import { catalogs } from '../lib/catalogs'
@@ -11,14 +11,21 @@ import { GAME_MODES, isGlass, newLight, uid, type GameMode, type Vec3 } from '..
 import { KINDS, defaultParams, type TextureKind } from '../lib/procedural'
 import { relevantGameObjects, type AiAction } from '../lib/aiChat'
 import { expandPlacement, findMarkerTwin, findTwin, lightPatch, lightTargets, markerPatch, markerTargets, resolveTarget, symmetricPlan, twinItem, twinMarker } from '../lib/aiEdits'
-import { makePhysicsProps } from './physicsActions'
+import { makePhysicsProps as physicsProps } from './physicsActions'
 import { PRESET_BY_KEY } from '../lib/physicsProps'
 import { AMBIENCE_OPTIONS } from '../lib/mapFeatures'
 import { faceMiddle } from '../lib/markerPlacer'
-import { loadLibrary, niceName, paintMaterial } from './paint'
+import { loadLibrary, niceName, paintMaterial as paint } from './paint'
 import { spreadSpawns, weaponSpots } from '../lib/markerPlacer'
 import { useHealth } from './health'
 import type { Swatch } from './store'
+
+// The AI's own edits aren't mirrored (it places both halves itself when asked, mirror: true): every edit command it
+// calls runs inside withoutMirror, and its own updates say noMirror. The user's edits meanwhile are mirrored as usual.
+const quiet = <F extends (...a: never[]) => unknown>(f: F): F => ((...a: Parameters<F>) => withoutMirror(() => f(...a))) as F
+const act = Object.fromEntries(Object.entries(actions).map(([k, v]) => [k, typeof v === 'function' ? quiet(v as () => unknown) : v])) as unknown as typeof actions
+const paintMaterial = quiet(paint), makePhysicsProps = quiet(physicsProps)
+const gameObjects = async () => quiet((await import('./gameObjectActions')).placeGameObject)
 
 const num = (v: unknown, fallback = 0) => (typeof v === 'number' && Number.isFinite(v) ? v : fallback)
 const TWIN_MARKER: Record<string, string> = { 'Red team spawn': 'Blue team spawn', 'Blue team spawn': 'Red team spawn' }
@@ -60,7 +67,8 @@ async function swatchFor(name: string, tint: { color?: unknown; accent?: unknown
 
 /**
  * Runs the actions as one undo step called `label`; returns how many were done and what was skipped. An edit job:
- * it waits for Fix all to end, and Fix all waits for it, as it rewrites the undo list from where it started.
+ * it waits for Fix all to end, and Fix all waits for it, as it rewrites the undo list from where it started. Mirror
+ * mode's copying is off: the AI places both halves itself when asked (mirror: true).
  */
 export async function runAiActions(actions: AiAction[], label: string, limit = JOB_TIME_LIMIT): Promise<{ done: number; skipped: string[] }> {
   const out: AiResult = { done: 0, skipped: [] }
@@ -88,26 +96,30 @@ export const cancelAiEdits = () => useAiEdits.getState().running.forEach((c) => 
 interface AiResult {
   done: number
   skipped: string[]
-  /** Where the reply began: the undo list's length, the map then, and its run. */
-  start?: { past: number; project: Project; run: Run }
+  /** Where the reply began: the undo list's length, the map then, its run, and the user's edits so far. */
+  start?: { past: number; project: Project; run: Run; manual: number }
 }
 
-/** Everything the reply did becomes one step on the undo list (still on its map only). */
+/**
+ * Everything the reply did becomes one step on the undo list (still on its map only). Not when the user edited,
+ * undid or redid meanwhile: their steps sit among the reply's, so the reply's stay as they are, and undoing them
+ * never takes the user's edits too.
+ */
 function oneStep(out: AiResult, label: string) {
   const b = out.start
-  if (!b || !onSameMap(b.run)) return
+  if (!b || !onSameMap(b.run) || manualEdits() !== b.manual) return
   const now = useEditor.getState()
   if (now.past.length > b.past) useEditor.setState({ past: [...now.past.slice(0, b.past), { project: b.project, label }], future: [] })
 }
 
 /** Applies the actions, counting into `out` as it goes (so a reply that runs out of time still says what it did). */
 async function applyAiActions(actions: AiAction[], label: string, out: AiResult): Promise<void> {
-  const st = useEditor.getState()
+  const st = { ...useEditor.getState(), update: ((l, r, o) => useEditor.getState().update(l, r, { ...o, noMirror: true })) as ReturnType<typeof useEditor.getState>['update'] }
   if (!st.project) { out.skipped.push('No map is open.'); return }
   // Another map opened mid-reply, or the reply was stopped: the edits left aren't made. Every helper it calls gets
   // this run and checks it after each load, and so does every step here after an await or in a loop.
   const run = startRun()
-  out.start = { past: st.past.length, project: st.project, run }
+  out.start = { past: st.past.length, project: st.project, run, manual: manualEdits() }
   const live = () => stillCurrent(run)
   const skipped = out.skipped
   const deletes = new Set<number>()
@@ -146,7 +158,7 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
           const viewer = getViewer()
           const at = weaponSpots(currentProject()!, viewer ? (i) => viewer.itemBounds(i) : undefined, picks.length, a.where === 'middle' || a.where === 'ends' ? a.where : 'spread')
           if (at.length < picks.length) skipped.push(`room for ${at.length} of ${picks.length}`)
-          const { placeGameObject } = await import('./gameObjectActions')
+          const placeGameObject = await gameObjects()
           live()
           for (const [i, p] of at.entries()) {
             const turn = Math.round(Math.random() * 8) * 45
@@ -161,7 +173,7 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
           if (!entries?.length) { skipped.push('the game object library is not loaded (From my game)'); break }
           const e = entries.find((x) => x.id === a.id) ?? (a.name ? relevantGameObjects(entries, String(a.name), 1)[0] : undefined)
           if (!e) { skipped.push(`no game object "${a.id ?? a.name}"`); break }
-          const { placeGameObject } = await import('./gameObjectActions')
+          const placeGameObject = await gameObjects()
           live()
           for (const [x, z, rot] of spots(num(a.x), num(a.z), num(a.turn), a.mirror)) { live(); await placeGameObject(e.id, [x, 0, z], floorAt(x, z), rot, run); out.done++ }
           break
@@ -419,7 +431,7 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
               const l = p.lights[i]
               return { ...structuredClone(l), uid: uid(), position: [-l.position[0], l.position[1], -l.position[2]] as Vec3 }
             })]
-          })
+          }, { noMirror: true })
           useEditor.getState().select(null)
           out.done += plan.items.copy.length + plan.markers.copy.length + plan.lights.copy.length
           break

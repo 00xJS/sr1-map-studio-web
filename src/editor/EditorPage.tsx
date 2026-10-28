@@ -335,6 +335,7 @@ function TopBar({ actions, compact }: { actions: PaletteActions; compact: boolea
   const wireframe = useEditor((s) => s.wireframe)
   const snap = useEditor((s) => s.snap)
   const freeCam = useEditor((s) => s.freeCam)
+  const plan = useEditor((s) => s.plan)
   const layered = useEditor((s) => s.layeredLook)
   const collision = useEditor((s) => s.collisionView)
   const walking = useEditor((s) => s.walking)
@@ -356,6 +357,7 @@ function TopBar({ actions, compact }: { actions: PaletteActions; compact: boolea
     { label: 'Layered surfaces (preview)', on: layered, run: () => st().set({ layeredLook: !layered }), title: 'Draws your shapes and prefabs the way the game\'s own surfaces avoid repeating: an even base tile with soft grime every 10-15 m and a gentle colour change every 100 m. Only in this view: your textures and the exported map stay as they are.' },
     { label: 'Show both sides of walls', on: doubleSided, run: () => update('Show both sides', (d) => { d.settings.double_sided = !doubleSided }), title: 'In the game, surfaces normally show from the front only. On also shows their backs.' },
     null,
+    { label: 'Plan view (O)', on: plan, run: () => st().set({ plan: !plan }), title: 'The map from straight above, flat: drag to slide, scroll to zoom' },
     { label: 'Free camera (like the desktop app)', on: freeCam, run: () => st().set({ freeCam: !freeCam }), title: 'Hold the right mouse button to look around, WASD to fly, Q/E down and up, Shift faster, mouse wheel sets the speed' },
     { label: 'Zoom to selection (F)', run: () => getViewer()?.focusSelection() },
     { label: 'See the whole map', run: () => getViewer()?.frameAll() },

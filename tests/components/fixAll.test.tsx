@@ -474,11 +474,10 @@ describe('An AI reply stopped partway', () => {
   it('places nothing more once its time runs out, even mid-loop, and what it did is one undo step', { timeout: 30000 }, async () => {
     openMap()
     // The first object lands, the second (its mirrored twin) waits on its files past the reply's time.
-    let calls = 0
-    vi.mocked(gameObjectItem).mockImplementation(async (e, at) => {
-      if (++calls === 2) await new Promise((r) => setTimeout(r, 300))
-      return { item: { uid: 'g' + calls, name: (e as { name: string }).name, path: 'files/g.obj', position: at, rotation: [0, 0, 0], scale: 1, textures: {} } as never, files: {} }
-    })
+    const bench = (e: unknown, at: [number, number, number]) => ({ item: { uid: 'g' + Math.random(), name: (e as { name: string }).name, path: 'files/g.obj', position: at, rotation: [0, 0, 0], scale: 1, textures: {} } as never, files: {} })
+    vi.mocked(gameObjectItem)
+      .mockImplementationOnce(async (e, at) => bench(e, at))
+      .mockImplementationOnce(async (e, at) => { await new Promise((r) => setTimeout(r, 300)); return bench(e, at) })
     const r = await runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: benches', 100)
     expect(r.skipped).toContain('the rest (it took over 0 minutes)')
     expect(r.done).toBe(1)
@@ -487,7 +486,6 @@ describe('An AI reply stopped partway', () => {
     await new Promise((res) => setTimeout(res, 400))
     expect(names()).toEqual(['Stairs', 'Bench'])
     expect(useEditor.getState().past.map((x) => x.label)).toEqual(['AI: benches', 'Next'])
-    vi.mocked(gameObjectItem).mockReset()
   })
 
   it('stops at Cancel the same way', { timeout: 30000 }, async () => {
@@ -515,6 +513,37 @@ describe('An AI reply stopped partway', () => {
     expect(useEditor.getState().project).toBe(b)
     expect(names()).toEqual(['Stairs'])
     expect(useEditor.getState().past).toEqual([])
+  })
+})
+
+describe('An AI reply and the user', () => {
+  afterEach(() => useEditor.getState().set({ mirror: false }))
+
+  it("in mirror mode, places the AI's own twin once, as one undo step, through the real placement", { timeout: 30000 }, async () => {
+    openMap()
+    useEditor.getState().set({ mirror: true })
+    const r = await runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: benches')
+    expect(r).toEqual({ done: 2, skipped: [] })
+    expect(names()).toEqual(['Stairs', 'Bench', 'Bench'])
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['AI: benches'])
+    expect(useEditor.getState().mirror).toBe(true)
+  })
+
+  it("leaves the user's own edits made mid-reply out of the reply's undo step", { timeout: 30000 }, async () => {
+    openMap()
+    const release = hangGameObject()
+    const reply = runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: benches')
+    await vi.waitFor(() => expect(gameObjectItem).toHaveBeenCalled())
+    // The user renames the map while the reply waits on its first bench.
+    useEditor.getState().update('Rename', (d) => { d.name = 'Mine' })
+    release()
+    expect((await reply).done).toBe(2)
+    // The reply's steps stay as they are, so undoing them never takes the rename.
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Rename', 'Add Bench', 'Add Bench'])
+    useEditor.getState().undo()
+    useEditor.getState().undo()
+    expect(names()).toEqual(['Stairs'])
+    expect(useEditor.getState().project!.name).toBe('Mine')
   })
 })
 

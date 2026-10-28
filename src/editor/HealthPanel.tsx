@@ -3,7 +3,6 @@
 // people will run) and shows the answers on the map. The Check tab shows the
 // headline numbers and, under More settings, these details.
 import type { ReactNode } from 'react'
-import { Vector3 } from 'three'
 import { useEditor } from './store'
 import { getViewer } from './Viewport'
 import { runHealthCheck, stopHealthCheck, useHealth, useHealthStale, type OverlayKind } from './health'
@@ -131,14 +130,7 @@ export function focusSpawn(s: SpawnReport) {
   useHealth.setState({ overlay: 'spawns', focus: s.number })
   if (index >= 0) st.select({ kind: 'marker', index })
   // Look at it from where the camera is, far enough back to see what's around.
-  const v = getViewer()
-  if (!v) return
-  const target = new Vector3(...s.position)
-  const back = v.camera.position.clone().sub(v.orbit.target)
-  if (back.lengthSq() < 1e-6) back.set(1, 1, 1)
-  v.orbit.target.copy(target)
-  v.camera.position.copy(target).add(back.setLength(70))
-  v.requestRender()
+  getViewer()?.lookAt(s.position, 70)
 }
 
 /** Shows one of the gaps, drops or walls on the map (with the others), the camera looking at it from where it is. */
@@ -146,14 +138,7 @@ export function focusMove(moves: MoveFinding[], i: number) {
   const mv = moves[i]
   if (!mv) return
   useHealth.setState({ overlay: 'moves', focus: i })
-  const v = getViewer()
-  if (!v) return
-  const target = new Vector3(...(mv.to ? mv.at.map((a, k) => (a + mv.to![k]) / 2) as [number, number, number] : mv.at))
-  const back = v.camera.position.clone().sub(v.orbit.target)
-  if (back.lengthSq() < 1e-6) back.set(1, 1, 1)
-  v.orbit.target.copy(target)
-  v.camera.position.copy(target).add(back.setLength(40))
-  v.requestRender()
+  getViewer()?.lookAt(mv.to ? mv.at.map((a, k) => (a + mv.to![k]) / 2) as [number, number, number] : mv.at, 40)
 }
 
 /** Gaps, drops and climb-only walls, by kind; click one to see it. */

@@ -94,6 +94,9 @@ export function spawnFixSummary({ plan }: SpawnFixPlan): SpawnFix & { text: stri
 /** The spawn fix being planned now, if any, and the run it belongs to. */
 let planning: { done: Promise<SpawnFix>; run: Run } | null = null
 
+/** Placed where this map needs them: mirror mode doesn't copy them (their mirror images could land in walls). */
+const NOT_MIRRORED = { noMirror: true }
+
 /**
  * Plans the fix on the open map and applies it. One at a time: a second one (Place spawns automatically clicked
  * again, or the Check tab's fix meanwhile) waits for the first to land and plans from its result, so nothing is
@@ -114,7 +117,7 @@ async function planAndApply(run: Run): Promise<SpawnFix> {
   const fix = await planSpawnFix(project)
   // A map was opened (or Fix all stopped) while it planned: this plan is not about it.
   stillCurrent(run)
-  if (fix.plan.moved.length || fix.plan.added.length) useEditor.getState().update('Fix spawns and weapons', (d) => applySpawnFix(d, fix))
+  if (fix.plan.moved.length || fix.plan.added.length) useEditor.getState().update('Fix spawns and weapons', (d) => applySpawnFix(d, fix), NOT_MIRRORED)
   const { text, ...out } = spawnFixSummary(fix)
   useEditor.getState().log(text)
   return out

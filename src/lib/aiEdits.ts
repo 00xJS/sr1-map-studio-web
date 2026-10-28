@@ -78,7 +78,7 @@ export function expandPlacement(a: Extract<AiAction, { do: 'place_line' | 'place
 }
 
 /** What makes two objects the same thing: prefab and settings, shape and size, or else the name. */
-function kindOf(it: SceneItem): string {
+export function kindOf(it: SceneItem): string {
   if (it.prefab) return `p:${it.prefab.key}`
   if (it.shape) return `s:${it.shape.kind}:${it.shape.size.map((v) => r2(v * it.scale)).join('x')}`
   // Imported models and baked groups: each side has its own file, already turned in it.
@@ -89,6 +89,13 @@ function kindOf(it: SceneItem): string {
 const halfTurnSymmetric = (it: SceneItem) => !!it.shape && ['box', 'cylinder'].includes(it.shape.kind) && !it.shape.lie
 
 const angleDiff = (a: number, b: number, period = 360) => { const d = Math.abs(wrap(a - b) % period); return Math.min(d, period - d) }
+
+/** Is `o` turned as `it`'s twin would be: half way round (either way for shapes that look the same turned), or any
+ *  way for imported models and prefabs whose settings make them face their own way (a shop's front)? */
+export function turnedAsTwin(it: SceneItem, o: SceneItem): boolean {
+  const ownFacing = !!it.prefab && JSON.stringify(it.prefab.params) !== JSON.stringify(o.prefab?.params)
+  return !(it.prefab || it.shape) || ownFacing || angleDiff(o.rotation[1], it.rotation[1] + 180, halfTurnSymmetric(it) ? 180 : 360) <= 6
+}
 
 /** Near the middle, where an object is its own twin. */
 export const atCentre = (x: number, z: number, tol = 1) => Math.abs(x) <= tol && Math.abs(z) <= tol
@@ -105,10 +112,7 @@ export function findTwin(p: Project, i: number, tol = 1.5): number | null {
     if (j === i || kindOf(o) !== k) return
     const d = Math.hypot(o.position[0] + x, o.position[2] + z)
     if (d > tol || Math.abs(o.position[1] - y) > tol) return
-    // A prefab whose settings differ faces its own way through them (a shop's front), whatever its turn.
-    const ownFacing = !!it.prefab && JSON.stringify(it.prefab.params) !== JSON.stringify(o.prefab?.params)
-    const turnOk = !(it.prefab || it.shape) || ownFacing || angleDiff(o.rotation[1], it.rotation[1] + 180, halfTurnSymmetric(it) ? 180 : 360) <= 6
-    if (turnOk && d < bestD) { best = j; bestD = d }
+    if (turnedAsTwin(it, o) && d < bestD) { best = j; bestD = d }
   })
   return best
 }

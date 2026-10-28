@@ -243,6 +243,17 @@ describe('fairness', () => {
     expect(r.fairness.unmirrored).toHaveLength(1)
   })
 
+  it('scores an off-centre map as it scores the same map round the origin', () => {
+    // Opened maps sit wherever their bounds put them: the twins pair about the middle of the spawns, not the origin.
+    const shift = (at: Vec3): Vec3 => [at[0] + 37, at[1], at[2] - 23]
+    const moved = (p: Part): Part => ({ ...p, at: shift(p.at) })
+    const here = check([ground(), ...cover], sym)
+    const there = check([ground(), ...cover].map(moved), sym.map(([t, at, o]) => [t, shift(at), o] as MarkerSpec))
+    expect(there.fairness.unmirrored).toEqual([])
+    expect(there.fairness.score).toBe(here.fairness.score)
+    expect(there.score).toBe(here.score)
+  })
+
   it('mirror check pairs red with blue and weapons by kind', () => {
     const m = (type: string, at: Vec3, weapon?: string) => ({ type, position: at, weapon })
     expect(mirrorCheck([m('Red team spawn', [5, 0, -5]), m('Blue team spawn', [-5, 0, 5])])).toEqual([])

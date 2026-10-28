@@ -1,7 +1,7 @@
 // The Build tab: adding things (tools, prefabs, your own models and photos), the layers, and every object,
 // spawn and light in the map, with the selected one scrolled into view.
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react'
-import { useEditor } from '../store'
+import { lazy, Suspense, useDeferredValue, useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
+import { mirrorCentreNow, useEditor } from '../store'
 import * as act from '../actions'
 import { getViewer } from '../Viewport'
 import { chooseTool } from '../Tools'
@@ -17,6 +17,8 @@ import { dataPackStatus, hasGroup, type DataPackStatus } from '../../lib/datapac
 import { markerLabel } from '../../lib/labels'
 import { RETAIL_MARKER_TYPES } from '../../lib/retailModes'
 import { PIMP_EXIT, isCustomNative, isGlass, isProp, type SceneItem, type Vec3 } from '../../lib/project'
+import { symmetryOf } from '../../lib/mirrorEdit'
+import { unmirroredCost } from '../../lib/analysis/analyze'
 
 const PhotoDialog = lazy(() => import('../PhotoDialog').then((m) => ({ default: m.PhotoDialog })))
 export const MODEL_ACCEPT = '.obj,.mtl,.glb,.gltf,.fbx,.bin,.png,.jpg,.jpeg,.tga,.bmp,.dds,.tif,.tiff'
@@ -26,6 +28,7 @@ export function BuildTab() {
   return (
     <>
       <AddThings />
+      <MirrorMode />
       <ObjectList />
       {hasItems && <LayersPanel compact />}
       <More id="build" title="Library, imports and every texture">
@@ -74,6 +77,30 @@ function AddThings() {
         </div>
       )}
       <span className="faint small">Pick a tool, then click the map where you want it.</span>
+    </div>
+  )
+}
+
+/** Mirror mode on or off, and while it's on, how much of the map has its twin (updated with every edit). */
+function MirrorMode() {
+  const on = useEditor((s) => s.mirror)
+  const project = useDeferredValue(useEditor((s) => s.project)!)
+  const sym = useMemo(() => (on ? symmetryOf(project, mirrorCentreNow() ?? undefined) : null), [on, project])
+  // As the fairness score counts them (analyze.ts).
+  const cost = useMemo(() => (on ? unmirroredCost(project.markers) : null), [on, project])
+  return (
+    <div className="section">
+      <span className="section-title">Mirror mode</span>
+      <div className="row wrap">
+        <button className={'sm' + (on ? ' on' : '')} aria-pressed={on} onClick={() => useEditor.getState().set({ mirror: !on })}
+          title="Shift+M">{on ? '⇄ Mirror mode is on' : '⇄ Mirror mode'}</button>
+      </div>
+      <span className="faint small">What you change on one half happens on the other too: moves, turns, size, paint and settings, new objects, markers and lights, and deletes. Turned 180° about the middle of the spawns as they are when you turn it on, red and blue spawns swapped. One Undo takes back both. Something moved onto the middle and its twin become one. Not copied: the AI's edits, the Check tab's fixes, and spawns, weapons and stair ramps placed automatically.</span>
+      {sym && cost && <span className="small" data-testid="mirror-numbers">
+        Twins: {sym.objects} of {sym.totalObjects} objects, {sym.markers} of {sym.totalMarkers} markers{sym.totalLights ? `, ${sym.lights} of ${sym.totalLights} lights` : ''}.{' '}
+        {!cost.count ? 'Every spawn, weapon and drop-off has its twin.'
+          : `${cost.count === 1 ? '1 spawn, weapon or drop-off has' : `${cost.count} spawns, weapons or drop-offs have`} no twin${cost.points ? `: the fairness score takes ${cost.points} off` : ''}.`}
+      </span>}
     </div>
   )
 }
