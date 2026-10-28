@@ -167,7 +167,7 @@ export default function HubMap() {
       {map.description && <div className="card"><p style={{ whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{map.description}</p></div>}
 
       <div className="callout">
-        <p className="small muted">Remixing rebuilds this map in your browser from Map Studio's own textures, shapes and prefabs, as a new project in My maps. Showcase maps never include anyone's files or Saints Row game data: to preview game props and export the map to the game you need your own <Link to="/setup">data pack</Link>.</p>
+        <p className="small muted">Remixing rebuilds this map in your browser from Map Studio's own textures, shapes and prefabs, as a new project in My maps. Showcase maps never include anyone's files or Saints Row game data: to preview game props and export the map to the game you need your own <Link to="/connect#datapack">data pack</Link>.</p>
       </div>
 
       {(mine || user?.is_moderator) && (

@@ -1,11 +1,12 @@
 import { useIsAdmin } from './lib/admin'
 import { lazy, Suspense, type ReactNode } from 'react'
 import { NavLink, Link, Navigate, Route, Routes, useParams } from 'react-router-dom'
-import { Dialogs, ErrorBoundary, FileButton, Toasts, Avatar, Kewizzle, ZeroXJS, toastError } from './ui'
+import { Dialogs, ErrorBoundary, Toasts, Avatar, Kewizzle, ZeroXJS } from './ui'
 import { accountsEnabled, hubEnabled, useUser } from './lib/backend'
-import { openMapFiles, useOpenMap } from './lib/mapFolder/store'
+import { useOpenMap } from './lib/mapFolder/store'
 import Home from './pages/Home'
-import Setup from './pages/Setup'
+import Connect from './pages/Connect'
+import { OpenOrImport } from './pages/OpenOrImport'
 import About from './pages/About'
 
 const Editor = lazy(() => import('./editor/EditorPage'))
@@ -19,6 +20,7 @@ const City = lazy(() => import('./pages/City'))
 const GamePiecesCheck = lazy(() => import('./pages/GamePiecesCheck'))
 const AdminLabels = lazy(() => import('./pages/AdminLabels'))
 const OpenMapHost = lazy(() => import('./pages/OpenMapDialog'))
+const Proven = lazy(() => import('./pages/Proven'))
 // Development only: checking the game library's names and roles against pictures.
 const GameLabels = import.meta.env.DEV ? lazy(() => import('./pages/GameLabels')) : null
 
@@ -40,12 +42,11 @@ export function Shell({ children }: { children: ReactNode }) {
           <NavLink to="/maps">Map catalog</NavLink>
           <NavLink to="/city" title="The real city from your own game: start a map from it, or scan it for holes">Stilwater</NavLink>
           {hubEnabled ? <NavLink to="/showcase">Showcase</NavLink> : accountsEnabled && <NavLink to="/gallery" title="Maps to play in the browser, built from the site's own pieces">Gallery</NavLink>}
-          <NavLink to="/setup">Data pack</NavLink>
+          <NavLink to="/connect" title="Connect your game: the data pack, your game folder and library, the maps folder and an AI key">Connect</NavLink>
           <NavLink to="/about">About</NavLink>
           {admin && <NavLink to="/admin/labels" title="Your labelling desk (only you see this)">Labels</NavLink>}
         </nav>
-        <FileButton className="sm" directory onFiles={(f) => openMapFiles(f).catch(toastError)}
-          title="Open a finished Saints Row map folder (from SaintsReborn/dist/maps) to edit it, or to add the game's sky to it. You can also drop a map folder or zip on My maps.">Open a game map…</FileButton>
+        <OpenOrImport />
         {accountsEnabled && (user
           ? <Link to="/account" className="row" title="Account"><Avatar name={user.name} url={user.avatar_url} /><span className="muted">{user.name}</span></Link>
           : <Link to="/account" className="btn">Sign in</Link>)}
@@ -85,8 +86,10 @@ export default function App() {
           <Route path="/city" element={<Shell><ErrorBoundary label="The city page hit an error"><Suspense fallback={null}><City /></Suspense></ErrorBoundary></Shell>} />
           <Route path="/game-pieces" element={<Shell><ErrorBoundary label="The game pieces page hit an error"><Suspense fallback={null}><GamePiecesCheck /></Suspense></ErrorBoundary></Shell>} />
           <Route path="/admin/labels" element={<Shell><ErrorBoundary label="The labelling desk hit an error"><Suspense fallback={null}><AdminLabels /></Suspense></ErrorBoundary></Shell>} />
-          <Route path="/setup" element={<Shell><Setup /></Shell>} />
+          <Route path="/connect" element={<Shell><Connect /></Shell>} />
+          <Route path="/setup" element={<Navigate to="/connect" replace />} />
           <Route path="/about" element={<Shell><About /></Shell>} />
+          <Route path="/proven" element={<Shell><ErrorBoundary label="The tried-in-game page hit an error"><Suspense fallback={null}><Proven /></Suspense></ErrorBoundary></Shell>} />
           <Route path="/showcase" element={<Shell>{hubEnabled ? <Hub /> : <HubOff />}</Shell>} />
           <Route path="/showcase/:id" element={<Shell>{hubEnabled ? <HubMap /> : <HubOff />}</Shell>} />
           <Route path="/gallery" element={<Shell><ErrorBoundary label="The gallery hit an error"><Gallery /></ErrorBoundary></Shell>} />

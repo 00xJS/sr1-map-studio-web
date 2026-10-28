@@ -1,4 +1,4 @@
-// The "Describe it" tab of the Start a map dialog: say what you want in a
+// "Describe it" in the Start a map dialog: say what you want in a
 // sentence; the AI picks the map wizard's options plus a few extra edits,
 // you see it from above, and create it (or fine-tune it in the wizard).
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -13,12 +13,13 @@ import { KeySetup, readKey, readModel } from '../editor/AiKey'
 import { loadLibrary } from '../editor/paint'
 import { Sketch } from './MapWizard'
 import { gameCity, useGameSource } from './BuildWith'
+import { FooterActions } from './FooterActions'
 
 const EXAMPLES = ['A rainy rooftop map with a central tower for 8 players', 'Tight neon arena for 1v1', 'Paintball field with long lanes, 10 players', 'Docks at night with lots of cover']
 /** Characters: long, imaginative descriptions are welcome; the model reads all of it. */
 const MAX_CHARS = 3000
 
-export function DescribeMap({ busy, onCreate, onTune, game = false }: { busy: boolean; onCreate: (s: Sample, edits?: PendingEdits) => void; onTune: (o: WizardOptions) => void; game?: boolean }) {
+export function DescribeMap({ busy, onCreate, onTune, game = false, footer = null }: { busy: boolean; onCreate: (s: Sample, edits?: PendingEdits) => void; onTune: (o: WizardOptions) => void; game?: boolean; footer?: HTMLElement | null }) {
   const [text, setText] = useState('')
   const [plan, setPlan] = useState<MapPlan | null>(null)
   const [asking, setAsking] = useState(false)
@@ -92,16 +93,16 @@ export function DescribeMap({ busy, onCreate, onTune, game = false }: { busy: bo
                 <ul>{plan.then.map((a, i) => <li key={i}>{describeEdit(a)}</li>)}</ul>
               </div>
             )}
-            <div className="row wrap">
-              <button className="primary" disabled={busy} onClick={() => sample && onCreate({ ...sample, name: plan.options.name || sample.name }, plan.then.length ? { actions: plan.then, label: 'AI: extras for ' + (plan.options.name || sample.name) } : undefined)}>Create this map</button>
-              <button disabled={busy} onClick={() => setPlan({ ...plan, options: { ...plan.options, seed: newSeed() } })} title="Same choices, a different map">🎲 Reroll</button>
-              {!plan.city && <button className="link small" disabled={busy} onClick={() => onTune(plan.options)}>Fine-tune in the wizard</button>}
-            </div>
+            {!plan.city && <button className="link small" style={{ alignSelf: 'flex-start' }} disabled={busy} onClick={() => onTune(plan.options)}>Fine-tune in Generate</button>}
           </div>
         )}
       </div>
       <div className="col" style={{ gap: 6, flex: '1 1 300px', alignItems: 'stretch', minWidth: 0 }}>
         {sample ? (plan?.city ? <CitySketch s={sample} /> : <Sketch s={sample} />) : <div className="card muted small" style={{ aspectRatio: '1', maxWidth: 420, display: 'grid', placeItems: 'center', textAlign: 'center' }}>Your map's layout shows here, seen from above.</div>}
+        {plan && <FooterActions footer={footer}>
+          <button disabled={busy} onClick={() => setPlan({ ...plan, options: { ...plan.options, seed: newSeed() } })} title="Same choices, a different map">🎲 Reroll</button>
+          <button className="primary" disabled={busy || !sample} onClick={() => sample && onCreate({ ...sample, name: plan.options.name || sample.name }, plan.then.length ? { actions: plan.then, label: 'AI: extras for ' + (plan.options.name || sample.name) } : undefined)}>Create this map</button>
+        </FooterActions>}
         {plan && <span className="faint small">{plan.city ? 'Spawns and weapons are spread along the streets.' : 'Fair by design: both halves match, red starts at the top, blue at the bottom.'}{plan.then.length ? ' Extras are added in the editor and undo as one step.' : ''}</span>}
       </div>
     </div>

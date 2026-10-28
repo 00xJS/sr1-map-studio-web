@@ -27,6 +27,10 @@ Component tests are `tests/**/*.test.tsx` (jsdom, Testing Library). `tests/prefa
 
 Deploying with Supabase and Netlify: see [docs/DEPLOY.md](docs/DEPLOY.md).
 
+## After an in-game test
+
+Change the feature in `src/lib/featureStatus.ts`: its `state` (`'proven'` once it works in game) and `tested` (when, and on which map, as `'2026-10-24, Dust and Sublot'`), and its `note` to what was seen. Every badge and note on the site reads from there: the `<Status>` chips, the hints, the export summary and the site's `/proven` page, which also builds the sprint's test maps (`src/lib/testMaps.ts`; checks in `tests/testMaps.test.ts`).
+
 ## Layout
 
 | Path | What it is |
@@ -47,6 +51,7 @@ Deploying with Supabase and Netlify: see [docs/DEPLOY.md](docs/DEPLOY.md).
 | `src/lib/geometry.ts` | JS port of the OBJ parser and scene transforms (must match the Python face order). |
 | `src/editor/` | Editor UI, three.js viewer, undo/redo store (selection follows each thing by uid through edits and undo). Commands are in `act/` (`actions.ts` re-exports them); every key and the `?` sheet come from `shortcuts.ts`. |
 | `src/lib/featureStatus.ts` | What has been tried in game. Every "not yet tried in game" note (`<Status>` in `ui.tsx`, `statusSentence`, the export summary) reads from it: after an in-game test, change the feature's state there. |
+| `src/lib/testMaps.ts` | The in-game test sprint's maps, one per batch (the defaults, dry interiors, the opt-ins), built from sample-map parts with a checklist from the features' notes; shown on `/proven` (`src/pages/Proven.tsx`). |
 | `src/lib/prefabKit.ts` | The helpers the prefab packs share (`pf`, `pfp`, `num`, `sel`, `yesNo`, `solid`). |
 | `src/lib/units.ts`, `src/lib/touch.ts` | Editor units to game metres (by the map's world scale) and metre formatting; pointer and screen checks. |
 | `scripts/bundle-pyodide.mjs` | Run by `bundle:py`: the Python runtime into `public/pyodide` (numpy and Pillow wheels downloaded once, checked against `pyodide-lock.json`, kept in `.cache/`), so export doesn't depend on a CDN. |
@@ -81,5 +86,6 @@ with both a v1.13 and a v1.15 folder as `SR1_DATA_PACK`: the data pack page acce
 ## Notes
 
 - Python changes (`studio-py/`, `py/`) only reach the browser after `npm run bundle:py`; `npm run dev` runs it on start.
+- Prefab thumbnails ship with the site (`public/thumbs/`, about 2.5 MB). After adding or changing a prefab, run `npm run thumbs` and commit `public/thumbs/`. Playwright draws in Chromium, or the installed Edge or Chrome, through `prefabRender.drawParts`. Only prefabs whose signature changed are redrawn, and every one when what they are drawn with changed (or with `-- --all`), and the new set replaces the old only once it is complete. `tests/prefabThumbsShipped.test.ts` fails until you do. It also fails when what they are drawn with changes: the renderer, the texture generators, the shape builders, three.js or `public/textures/thumbs` (`scripts/thumbSources.mjs`). If prefabs look different then, bump `THUMB_VERSION` (`src/lib/prefabIndex.ts`); either way run `npm run thumbs`. A prefab without a matching picture is drawn live in the visitor's browser, so nothing breaks in the meantime.
 - The AI assistant calls NVIDIA's chat API through the edge function `netlify/edge-functions/ai.ts` (in development, the Vite proxy in `vite.config.ts`). Users bring their own key; the relay stores nothing.
 - Sample-map previews in `public/samples` are rendered by the editor; regenerate `stats.json` with `UPDATE_STATS=1 npx vitest run tests/sampleStats.test.ts`.

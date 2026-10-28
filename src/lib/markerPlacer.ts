@@ -4,17 +4,29 @@
 import { HeightGrid, extentOf, solids, type BoundsFn } from './mapFacts'
 import { SPAWN_TYPES, newMarker, type Marker, type Project, type Vec3 } from './project'
 import { SPAWN_RULES } from './player'
+import { openHeading, towardMiddle, type RayTest } from './markerPlan'
 
 const flip = (p: Vec3): Vec3 => [-p[0], p[1], -p[2]]
 const dist = (a: Vec3, b: Vec3) => Math.hypot(a[0] - b[0], a[2] - b[2]) + Math.abs(a[1] - b[1]) * 2
 /** Red's half, plus one side of the middle line (so a spot and its twin are never the same half). */
 const redHalf = (p: Vec3) => p[2] < 0 || (p[2] === 0 && p[0] < 0)
 /** Yaw facing the middle of the map (yaw 0 faces −Z). */
-export const faceMiddle = (p: Vec3) => +((Math.atan2(-p[0], p[2]) * 180) / Math.PI).toFixed(1)
+export const faceMiddle = towardMiddle
+/** Standing eye height, metres. */
+const EYE_M = 1.62
 /** The most spots weighed at once; bigger maps are sampled evenly. */
 const MAX_POOL = 5000
 
-export interface OpenFloor { spots: Vec3[]; depth: number }
+export interface OpenFloor { spots: Vec3[]; depth: number; grid: HeightGrid }
+
+/** openHeading's ray test on the height grid: anything standing taller than the line, a step at a time. */
+export function gridRay(g: HeightGrid): RayTest {
+  return (ax, ay, az, bx, _by, bz) => {
+    const steps = Math.max(1, Math.ceil(Math.hypot(bx - ax, bz - az)))
+    for (let s = 1; s <= steps; s++) if (g.at(ax + ((bx - ax) * s) / steps, az + ((bz - az) * s) / steps) > ay) return true
+    return false
+  }
+}
 
 /** Flat, open floor at ground level (not roofs or prop tops): every cell whose neighbours are the same height. */
 export function openFloor(p: Project, bounds?: BoundsFn): OpenFloor {
@@ -31,7 +43,7 @@ export function openFloor(p: Project, bounds?: BoundsFn): OpenFloor {
     if (flat) { const [x, z] = g.centre(i, k); spots.push([x, h, z]) }
   }
   const every = Math.ceil(spots.length / MAX_POOL)
-  return { spots: every > 1 ? spots.filter((_, n) => n % every === 0) : spots, depth: ex.maxZ - ex.minZ }
+  return { spots: every > 1 ? spots.filter((_, n) => n % every === 0) : spots, depth: ex.maxZ - ex.minZ, grid: g }
 }
 
 /** `n` spots from the pool, each as far as it can be from the others, their twins and `keepAway`. */
@@ -70,8 +82,10 @@ const busyMarkers = (p: Project) => p.markers.filter((m) => m.type === 'Weapon p
  * and `hotspots` (the busiest spots from a health check) where the floor allows.
  */
 export function spreadSpawns(p: Project, bounds: BoundsFn | undefined, which: SpawnSet, count?: number, hotspots: Vec3[] = []): Marker[] | null {
-  const { spots, depth } = openFloor(p, bounds)
+  const { spots, depth, grid } = openFloor(p, bounds)
   if (!spots.length) return null
+  // Each spawn looks the way it sees farthest, the middle of the map where it sees as far (markerPlan.ts).
+  const ray = gridRay(grid), eye = EYE_M / (p.settings.world_scale || 0.5)
   const shared = which !== 'team', team = which !== 'shared'
   const moving = (m: Marker) => (shared && m.type === 'Shared spawn') || (team && (m.type === 'Red team spawn' || m.type === 'Blue team spawn'))
   const has = (type: string) => p.markers.filter((m) => m.type === type).length
@@ -79,7 +93,7 @@ export function spreadSpawns(p: Project, bounds: BoundsFn | undefined, which: Sp
   const away = kept.filter((m) => SPAWN_TYPES.includes(m.type) || m.type === 'Chains drop-off').map((m) => m.position)
   const clear = clearOf([...busyMarkers(p), ...hotspots], p.settings.world_scale || 0.5)
   const out = [...kept]
-  const add = (type: string, at: Vec3) => { const m = newMarker(type, [at[0], at[1] + 0.1, at[2]]); m.yaw = faceMiddle(at); out.push(m) }
+  const add = (type: string, at: Vec3) => { const m = newMarker(type, [at[0], at[1] + 0.1, at[2]]); m.yaw = openHeading(ray, [at[0], at[1] + eye, at[2]]); out.push(m) }
   /** Clear spots first; if there aren't enough, the rest anywhere allowed. */
   const choose = (n: number, ok: (q: Vec3) => boolean) => {
     const first = farthest(spots, away, n, (q) => ok(q) && clear(q))

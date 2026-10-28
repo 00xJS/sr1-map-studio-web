@@ -1,28 +1,30 @@
-// Thumbnails for the prefab browser: small 3D pictures drawn in this browser
-// from each prefab's own parts (no pictures ship with the site), kept in
-// IndexedDB so each is drawn once. A picture is drawn only while a tile that
+// Thumbnails for the prefab browser: small 3D pictures of each prefab's own
+// parts, kept in IndexedDB so each is fetched or drawn once. The site ships one
+// per prefab, drawn ahead of time (npm run thumbs → public/thumbs); a prefab
+// whose parts changed since, a saved piece or a game object is drawn here. A picture is drawn only while a tile that
 // shows it is on screen, the newest request first, one at a time, so scrolling
 // through hundreds of prefabs stays smooth. A prefab whose parts change gets a
 // new picture by itself (its signature is a hash of its parts).
 import { openDb } from './db'
-import { hashText, prefabParts } from './prefabIndex'
+import { THUMB_VERSION, prefabParts, prefabThumbSig } from './prefabIndex'
 import type { ThumbBundle } from './prefabRender'
 
-/** Bump to redraw every thumbnail (after changing how they look). */
-const VERSION = 1
 const PREFIX = 'prefabThumb:'
 
 interface Cached { sig: string; blob: Blob }
 type Listener = (url: string | null) => void
 
 /** How the thumbnails have done this session (shown nowhere; handy in the console). */
-export const thumbStats = { drawn: 0, fromCache: 0, failed: 0, drawMs: 0 }
+export const thumbStats = { drawn: 0, fromCache: 0, shipped: 0, failed: 0, drawMs: 0 }
 
 const ready = new Map<string, string | null>()
 const listeners = new Map<string, Set<Listener>>()
 const queue: string[] = []
 const mine = new Map<string, { sig: string; bundle: ThumbBundle }>()
 const sigs = new Map<string, string>()
+/** Shipped pictures on their way, and ones the site couldn't give (drawn here instead). */
+const fetching = new Set<string>()
+const unshipped = new Set<string>()
 let running = false
 
 /** Other kinds of thumbnail, by key prefix ("game:" for the From my game library): a signature and a drawing. */
@@ -70,10 +72,47 @@ async function save(key: string, value: Cached) {
 function signature(key: string): string | null {
   const src = sourceFor(key)
   if (src) return src.sig(key)
-  if (key.startsWith('mine:')) { const m = mine.get(key); return m ? `${VERSION}:${m.sig}` : null }
+  if (key.startsWith('mine:')) { const m = mine.get(key); return m ? `${THUMB_VERSION}:${m.sig}` : null }
   let s = sigs.get(key)
-  if (s === undefined) { s = `${VERSION}:${hashText(JSON.stringify(prefabParts(key.slice(7))))}`; sigs.set(key, s) }
+  if (s === undefined) { s = prefabThumbSig(key.slice(7)); sigs.set(key, s) }
   return s
+}
+
+/** How long after a manifest that couldn't be read (offline, a blip) it is asked for again. */
+export const MANIFEST_RETRY_MS = 15_000
+let shipped: Promise<Record<string, string>> | null = null
+let shippedRetry = 0
+/** The pictures the site ships: prefab key → the signature each was drawn from. None while it can't be read. */
+function loadShipped(): Promise<Record<string, string>> {
+  if (shipped) return shipped
+  if (Date.now() < shippedRetry) return Promise.resolve({})
+  // A missing file comes back as the app's own page, which isn't JSON.
+  return (shipped = fetch('/thumbs/manifest.json')
+    .then((r) => (r.ok ? r.json() : Promise.reject(new Error(`manifest: ${r.status}`))))
+    .catch(() => { shipped = null; shippedRetry = Date.now() + MANIFEST_RETRY_MS; return {} }))
+}
+
+/** Fetches a shipped picture alongside the drawing queue (they are quick); one the site can't give goes back in the queue to be drawn. */
+function fetchShipped(key: string, sig: string, stored: Map<string, Cached>) {
+  fetching.add(key)
+  void (async () => {
+    let blob: Blob | null = null
+    try {
+      const r = await fetch(`/thumbs/${encodeURIComponent(key.slice(7))}.webp?v=${encodeURIComponent(sig)}`)
+      const b = r.ok ? await r.blob() : null
+      if (b?.type.startsWith('image/')) blob = b
+    } catch { /* offline: drawn instead */ }
+    fetching.delete(key)
+    if (!blob) {
+      unshipped.add(key)
+      if (listeners.has(key)) { queue.push(key); void pump() }
+      return
+    }
+    thumbStats.shipped++
+    stored.set(key, { sig, blob })
+    void save(key, { sig, blob })
+    finish(key, URL.createObjectURL(blob))
+  })()
 }
 
 let renderer: Promise<typeof import('./prefabRender')> | null = null
@@ -100,12 +139,13 @@ async function pump() {
     const stored = await loadCache()
     while (queue.length) {
       const key = queue.pop()!
-      if (!listeners.has(key) || ready.has(key)) continue
+      if (!listeners.has(key) || ready.has(key) || fetching.has(key)) continue
       let url: string | null = null
       try {
         const sig = signature(key)
         const hit = stored.get(key)
         if (sig && hit?.sig === sig) { url = URL.createObjectURL(hit.blob); thumbStats.fromCache++ }
+        else if (sig && key.startsWith('prefab:') && !unshipped.has(key) && (await loadShipped())[key.slice(7)] === sig) { fetchShipped(key, sig, stored); continue }
         else if (sig) {
           const t0 = performance.now()
           const blob = await draw(key)

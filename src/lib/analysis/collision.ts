@@ -22,7 +22,7 @@ export function collisionFromProject(project: Project, model: (path: string) => 
   }
   const markers: AnalysisMarker[] = project.markers
     .filter((mk) => KINDS.includes(mk.type))
-    .map((mk) => ({ type: mk.type, position: mk.position, uid: mk.uid, ...(mk.type === 'Weapon pickup' ? { weapon: mk.weapon } : {}) }))
+    .map((mk) => ({ type: mk.type, position: mk.position, uid: mk.uid, ...(mk.type === 'Weapon pickup' ? { weapon: mk.weapon } : /spawn/i.test(mk.type) ? { yaw: mk.yaw } : {}) }))
   return { tris: Float32Array.from(tris), flags: Uint8Array.from(flags), markers }
 }
 
@@ -71,7 +71,7 @@ function addItem(it: SceneItem, mdl: ObjModel, tris: number[], flags: number[]) 
 /** A short key that changes whenever something the checks look at changes (to tell when a report is out of date). */
 export function analysisKey(project: Project): string {
   const items = project.scene_items.map((it) => [it.path, it.position, it.rotation, it.scale, it.pivot, it.collision_disabled, it.collision_excluded_faces?.length, it.swimmable_water, it.water_materials, it.alpha, it.native_prefab])
-  const markers = project.markers.filter((mk) => KINDS.includes(mk.type)).map((mk) => [mk.type, mk.position, mk.type === 'Weapon pickup' ? mk.weapon : ''])
+  const markers = project.markers.filter((mk) => KINDS.includes(mk.type)).map((mk) => [mk.type, mk.position, mk.type === 'Weapon pickup' ? mk.weapon : /spawn/i.test(mk.type) ? mk.yaw : ''])
   const text = JSON.stringify([items, markers])
   // FNV-1a, enough to notice a change.
   let h = 0x811c9dc5

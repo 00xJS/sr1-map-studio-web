@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom'
 import { catalogs } from '../lib/catalogs'
 import { Kewizzle, ZeroXJS } from '../ui'
 
@@ -40,6 +41,7 @@ export default function About() {
           <li>Up to {catalogs.limits.max_native_objects} native props and glass panes per map, subject to free native slots.</li>
           <li>Lighting, native skies and new prop behaviors still need in-game testing.</li>
         </ul>
+        <p className="small" style={{ margin: 0 }}><Link to="/proven">What's been tried in game</Link>: every feature by how far it has got, with test maps to try them.</p>
       </div>
     </div>
   )

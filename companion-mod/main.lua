@@ -41,10 +41,14 @@ wml.hook(0x82209E30, function(ctx)
 end)
 
 if setting("playtest_log", true) == true then
-  local PLAYTEST = require("playtest")
-  PLAYTEST.setup(RELOAD, debug)
-  -- Every frame, like the Minimap Probe (reads only, so not in the update hook).
-  wml.on_frame(PLAYTEST.update)
+  -- A missing or broken playtest.lua turns the log off, not the mod.
+  local ok, err = pcall(function()
+    local PLAYTEST = require("playtest")
+    PLAYTEST.setup(RELOAD, debug, { keep = setting("playtest_keep", 20) })
+    -- Every frame, like the Minimap Probe (reads only, so not in the update hook).
+    wml.on_frame(PLAYTEST.update)
+  end)
+  if not ok then wml.log("Playtest log off: " .. tostring(err)) end
 end
 
 wml.log("SR1 Map Studio Companion loaded" .. (debug and " (debug log on)" or ""))
