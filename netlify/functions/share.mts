@@ -8,8 +8,10 @@
 //   share (src/play/sharePreview.ts), signed-in links only; ghost: src/play/ghost.ts
 //
 // Play links. The function unpacks and checks every share with the same rules
-// as the browser (no files, plain OBJ geometry, texture recipes only) before
-// storing it, and is the only thing that can write to public.shares, its
+// as the browser (no files, plain OBJ geometry, texture recipes only) and
+// stores the share rebuilt from only the fields a share may hold
+// (src/play/shareSchema.ts), never the bytes it was sent. It is the only thing
+// that can write to public.shares, its
 // reports, its boards and its preview pictures. Anyone can read a share with
 // its token through the get_share RPC; only links their signed-in owner listed
 // show in the gallery, and a map is listed only after the function rebuilds
@@ -19,9 +21,12 @@
 // Without an account a link still works, but expires after SHARE_RULES.anonDays
 // and is limited per salted hash of the maker's address (SHARE_IP_SALT; IPv6 by
 // its /64 network; the address itself is never stored). Creations and updates
-// are logged in share_log, so removing a link doesn't give its count back. The
-// maker's browser keeps a random key to update or remove it. Reports, board
-// times and plays are limited the same way.
+// are logged in share_log (by address hash, or by account when signed in), so
+// removing a link doesn't give its count back and updating one counts each
+// time. The maker's browser keeps a random key to update or remove it.
+// Reports, board times and plays are limited the same way. Every limit is
+// checked before the share is unpacked: reading and checking a map is the
+// costly part.
 //
 // Until migration 0004 is applied, signed-in links keep working as before
 // (without previews or the gallery) and everything new answers "not open yet".
@@ -29,7 +34,7 @@ import { createClient, type PostgrestError, type SupabaseClient } from '@supabas
 import { isValidThumbnail, supabaseProjectUrl } from '../../src/lib/hubRules'
 import { checkTime, cleanName } from '../../src/play/ghost'
 import { wallsOf } from '../../src/play/ghostWalls'
-import { MAX_PREVIEW_BYTES, SHARE_LIMITS, SHARE_RULES, SHARE_TOKEN, fromBase64, newShareToken, previewProblem, shareMeta, unpackShare, validateShareDoc } from '../../src/play/share'
+import { MAX_PREVIEW_BYTES, SHARE_LIMITS, SHARE_RULES, SHARE_TOKEN, fromBase64, newShareToken, packShare, previewProblem, shareMeta, toBase64, unpackShare, validateShareDoc } from '../../src/play/share'
 import { galleryProblems } from '../../src/play/shareBuilds'
 
 const env = (k: string) => process.env[k] || ''
@@ -46,6 +51,8 @@ const MAX_TIME_BODY = 400_000
 const REASONS = ['game-data', 'stolen', 'offensive', 'spam', 'broken', 'other']
 const THUMBS = 'share-thumbs'
 const DAY = 86400_000
+/** The gallery's rebuild gives up after this long, well inside the function's own time limit. */
+const GALLERY_MS = 6000
 /** The share columns that existed before migration 0004. */
 const LEGACY = ['title', 'data', 'size_bytes', 'updated_at', 'token', 'owner'] as const
 
@@ -54,25 +61,43 @@ async function sha256(text: string): Promise<string> {
   return [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, '0')).join('')
 }
 
-/** What an address is counted as: IPv4 as it is, IPv6 by its /64 network (one home or phone gets a whole /64). */
+const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+
+/**
+ * What an address is counted as: IPv4 as it is, IPv6 by its /64 network (one home or phone gets a whole /64).
+ * An IPv4 address carried in IPv6 (::ffff:a.b.c.d, or NAT64's 64:ff9b::a.b.c.d) counts as that IPv4 address.
+ */
 export function ipPrefix(ip: string): string | null {
-  const a = ip.trim().replace(/^\[|\]$/g, '').replace(/%.*$/, '').toLowerCase()
-  const mapped = /^(?:::ffff:)(\d+\.\d+\.\d+\.\d+)$/.exec(a)
-  if (mapped) return mapped[1]
-  if (/^\d+\.\d+\.\d+\.\d+$/.test(a)) return a
+  let a = ip.trim().replace(/^\[|\]$/g, '').replace(/%.*$/, '').toLowerCase()
+  if (IPV4.test(a)) return a
   if (!a.includes(':') || !/^[0-9a-f:.]+$/.test(a)) return null
+  // A dotted IPv4 tail as its two groups.
+  const tail4 = /:(\d+\.\d+\.\d+\.\d+)$/.exec(a)
+  if (tail4) {
+    const q = IPV4.exec(tail4[1])?.slice(1).map(Number)
+    if (!q || q.some((n) => n > 255)) return null
+    a = a.slice(0, -tail4[1].length) + ((q[0] << 8) | q[1]).toString(16) + ':' + ((q[2] << 8) | q[3]).toString(16)
+  }
+  if (a.split('::').length > 2) return null
   const [head, tail = ''] = a.split('::')
   const h = head ? head.split(':') : [], t = a.includes('::') && tail ? tail.split(':') : []
   if (!a.includes('::') && h.length !== 8) return null
   const groups = [...h, ...new Array(Math.max(0, 8 - h.length - t.length)).fill('0'), ...t]
   if (groups.length !== 8 || groups.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return null
-  return groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, '')).join(':') + '::/64'
+  const n = groups.map((g) => parseInt(g, 16))
+  const mapped = n.slice(0, 5).every((x) => x === 0) && n[5] === 0xffff
+  const nat64 = n[0] === 0x64 && n[1] === 0xff9b && n.slice(2, 6).every((x) => x === 0)
+  if (mapped || nat64) return [n[6] >> 8, n[6] & 255, n[7] >> 8, n[7] & 255].join('.')
+  return n.slice(0, 4).map((x) => x.toString(16)).join(':') + '::/64'
 }
 
-/** Salted hash of the caller's address, or null when the site has no salt (then nothing anonymous is allowed). */
-async function ipHash(req: Request): Promise<string | null> {
+/**
+ * Salted hash of the caller's address, or null when the site has no salt (then nothing anonymous is allowed).
+ * The address is the one Netlify saw connect, never X-Forwarded-For, which the caller can write.
+ */
+async function ipHash(req: Request, context?: { ip?: string }): Promise<string | null> {
   const salt = env('SHARE_IP_SALT')
-  const raw = req.headers.get('x-nf-client-connection-ip') || (req.headers.get('x-forwarded-for') || '').split(',')[0]
+  const raw = context?.ip || req.headers.get('x-nf-client-connection-ip') || ''
   const ip = raw ? ipPrefix(raw) : null
   if (!salt || !ip) return null
   return sha256(`${salt}:${ip}`)
@@ -82,15 +107,21 @@ async function ipHash(req: Request): Promise<string | null> {
 const missing = (e: Pick<PostgrestError, 'code' | 'message'> | null | undefined) =>
   !!e && (['PGRST202', 'PGRST204', 'PGRST205', '42703', '42P01', '42883'].includes(e.code) || /schema cache|does not exist/i.test(e.message || ''))
 
-/** True when this database has migration 0004. */
+let schema: { fresh: boolean; at: number } | null = null
+/** Forgets what the database was found to have (tests switch databases). */
+export const forgetSchema = () => { schema = null }
+
+/** True when this database has migration 0004. Remembered: for good once it has, a minute while it hasn't. */
 async function upToDate(admin: SupabaseClient): Promise<boolean> {
-  const r = await admin.from('shares').select('anon', { head: true, count: 'exact' }).limit(1)
-  if (missing(r.error)) return false
-  if (r.error) throw r.error
-  return true
+  if (schema && (schema.fresh || Date.now() - schema.at < 60_000)) return schema.fresh
+  // A GET for no rows, not a HEAD: a HEAD that fails comes back with no body, so no code to tell a missing column by.
+  const r = await admin.from('shares').select('anon').limit(0)
+  if (r.error && !missing(r.error)) throw r.error
+  schema = { fresh: !r.error, at: Date.now() }
+  return schema.fresh
 }
 
-export default async (req: Request): Promise<Response> => {
+export default async (req: Request, context?: { ip?: string }): Promise<Response> => {
   const route = new URL(req.url).pathname.replace(/\/+$/, '').split('/').pop()
   if (route === 'share' ? req.method !== 'POST' && req.method !== 'DELETE' : req.method !== 'POST') return reject(405, 'Method not allowed')
   if (route === 'share' && req.method === 'POST' && env('SHARES_ENABLED') === 'false') return reject(403, 'Play links are turned off on this site.')
@@ -123,7 +154,7 @@ export default async (req: Request): Promise<Response> => {
   if (typeof body.token !== 'undefined' && body.token !== null && (typeof body.token !== 'string' || !SHARE_TOKEN.test(body.token))) return reject(400, 'Invalid link.')
 
   try {
-    const ip = await ipHash(req)
+    const ip = await ipHash(req, context)
     const fresh = await upToDate(admin)
     if (!fresh && route === 'play') return json(200, { ok: true })
     if (!fresh && route !== 'share') return notOpen(route === 'report' ? 'Reports on play links' : route === 'time' ? 'Boards' : 'Moderation tools for play links')
@@ -151,6 +182,21 @@ async function logged(admin: SupabaseClient, kind: 'create' | 'update' | 'play',
 async function log(admin: SupabaseClient, kind: 'create' | 'update' | 'play', ip: string, token: string) {
   const r = await admin.from('share_log').insert({ kind, ip_hash: ip, token })
   if (r.error) throw r.error
+}
+/**
+ * Links an account made or updated in the last day: from the log, or (without migration 0004, or with an early
+ * copy of it whose log has no owner column) its links' dates.
+ */
+async function writesToday(admin: SupabaseClient, uid: string, fresh: boolean): Promise<number> {
+  if (fresh) {
+    // A GET for no rows, so a missing column comes back with its code (see upToDate).
+    const r = await admin.from('share_log').select('id', { count: 'exact' }).eq('owner', uid).in('kind', ['create', 'update']).gte('created_at', since(DAY)).limit(0)
+    if (!r.error) return r.count ?? 0
+    if (!missing(r.error)) throw r.error
+  }
+  const r = await admin.from('shares').select('token', { count: 'exact', head: true }).eq('owner', uid).gte('updated_at', since(DAY))
+  if (r.error) throw r.error
+  return r.count ?? 0
 }
 
 async function removeThumb(admin: SupabaseClient, token: string) {
@@ -188,6 +234,47 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
   if (typeof body.data !== 'string') return reject(400, 'Invalid request body.')
   if (!uid && !ip) return reject(401, 'Sign in to make a play link.')
   if (!uid && !fresh) return reject(401, 'Links without an account aren’t open yet on this site. Sign in to make a link.')
+  const hidden = () => reject(403, 'A moderator hid this link, so it can’t be changed. You can still remove it.')
+
+  // What this is (a new link, or an update of one) and its limit, before the map is read.
+  let anonEdit: { keyHash: string; expires_at: string; data_hash: string | null } | null = null
+  let ownEdit: { data_hash: string | null } | null = null
+  if (!uid) {
+    if (typeof body.token === 'string' && typeof body.key === 'string' && SHARE_TOKEN.test(body.key)) {
+      const keyHash = await sha256(body.key)
+      const old = await admin.from('shares').select('token, expires_at, hidden, data_hash').eq('token', body.token).eq('anon', true).eq('key_hash', keyHash).maybeSingle()
+      if (old.error) throw old.error
+      if (old.data?.hidden) return hidden()
+      if (old.data && new Date(old.data.expires_at).getTime() > Date.now()) anonEdit = { keyHash, expires_at: old.data.expires_at, data_hash: old.data.data_hash }
+    }
+    if (anonEdit) {
+      const perDay = num('SHARE_ANON_UPDATES_PER_DAY', SHARE_RULES.anonUpdatesPerDay)
+      if ((await logged(admin, 'update', ip!, DAY)) >= perDay) return reject(429, `Without an account you can update links ${perDay} times a day. Sign in for more, or try again tomorrow.`)
+    } else {
+      const perDay = num('SHARE_ANON_PER_DAY', SHARE_RULES.anonPerDay)
+      // Counted from the log, not the links that still exist: removing one doesn't give its place back.
+      if ((await logged(admin, 'create', ip!, DAY)) >= perDay) return reject(429, `Without an account you can make ${perDay} play links a day. Sign in for more, or try again tomorrow.`)
+    }
+  } else {
+    const perDay = num('SHARE_MAX_PER_DAY', SHARE_RULES.perDay)
+    if ((await writesToday(admin, uid, fresh)) >= perDay) return reject(429, `You can make or update ${perDay} play links a day. Try again tomorrow.`)
+    if (body.token) {
+      const old = await admin.from('shares').select(fresh ? 'owner, hidden, data_hash' : 'owner').eq('token', body.token).maybeSingle()
+      if (old.error) throw old.error
+      const prev = old.data as { owner: string; hidden?: boolean; data_hash?: string | null } | null
+      // Not yours (or removed): a new link instead.
+      if (prev && prev.owner === uid) {
+        if (prev.hidden) return hidden()
+        ownEdit = { data_hash: prev.data_hash ?? null }
+      }
+    }
+    if (!ownEdit) {
+      const perUser = num('SHARE_MAX_PER_USER', SHARE_RULES.perUser)
+      const total = await admin.from('shares').select('token', { count: 'exact', head: true }).eq('owner', uid)
+      if (total.error) throw total.error
+      if ((total.count ?? 0) >= perUser) return reject(429, `You have ${perUser} play links. Remove some you no longer need first.`)
+    }
+  }
 
   // Check what will be stored, not what the page says about it.
   let raw: unknown
@@ -207,13 +294,18 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
   if (listed && !uid) return reject(422, 'Sign in to list a map in the gallery.')
   if (listed) {
     // Rebuilt here from the share's own settings: what the page says about how a model was made isn't trusted.
-    const why = galleryProblems(doc)
+    const why = galleryProblems(doc, { deadline: performance.now() + GALLERY_MS })
     if (why.length) return reject(422, 'This map can’t go in the gallery.', why)
   }
 
+  // Stored as checked: the share rebuilt from its allowed fields, not the bytes that were sent.
+  // Quicker than the browser's packing, and so a little larger: the limit leaves room for that.
+  const packed = packShare(doc, 3)
+  if (packed.length > SHARE_LIMITS.packedBytes * 1.1) return reject(413, 'This map is too large to share.')
+  const data = toBase64(packed)
   const meta = shareMeta(doc)
-  const dataHash = await sha256(body.data)
-  const row = { title: doc.title, data: body.data, size_bytes: Math.floor(body.data.length * 0.75), updated_at: new Date().toISOString(), modes: meta.modes, players: meta.players, data_hash: dataHash }
+  const dataHash = await sha256(data)
+  const row = { title: doc.title, data, size_bytes: packed.length, updated_at: new Date().toISOString(), modes: meta.modes, players: meta.players, data_hash: dataHash }
   const saveThumb = async (token: string) => {
     if (!thumb) return {}
     const up = await admin.storage.from(THUMBS).upload(`${token}.webp`, thumb, { contentType: 'image/webp', upsert: true, cacheControl: '300' })
@@ -226,57 +318,36 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
     const r = await admin.from('share_times').delete().eq('token', token)
     if (r.error) throw r.error
   }
+  /** Signed-in writes are logged by account (without migration 0004 there's no log: links' dates count instead). */
+  const logOwn = async (kind: 'create' | 'update', token: string) => {
+    if (!fresh) return
+    const r = await admin.from('share_log').insert({ kind, owner: uid, ip_hash: null, token })
+    if (r.error && !missing(r.error)) throw r.error
+  }
 
   if (!uid) {
     // Anonymous: limited per address hash, expires, edited only with its key.
-    if (typeof body.token === 'string' && typeof body.key === 'string' && SHARE_TOKEN.test(body.key)) {
-      const keyHash = await sha256(body.key)
-      const old = await admin.from('shares').select('token, expires_at, hidden, data_hash').eq('token', body.token).eq('anon', true).eq('key_hash', keyHash).maybeSingle()
-      if (old.error) throw old.error
-      if (old.data?.hidden) return reject(403, 'A moderator hid this link, so it can’t be changed. You can still remove it.')
-      if (old.data && new Date(old.data.expires_at).getTime() > Date.now()) {
-        const perDay = num('SHARE_ANON_UPDATES_PER_DAY', SHARE_RULES.anonUpdatesPerDay)
-        if ((await logged(admin, 'update', ip!, DAY)) >= perDay) return reject(429, `Without an account you can update links ${perDay} times a day. Sign in for more, or try again tomorrow.`)
-        await log(admin, 'update', ip!, body.token)
-        await mapChanged(body.token, old.data.data_hash)
-        await write(admin, { ...row, ...(await saveThumb(body.token)) }, fresh, { token: body.token, key_hash: keyHash })
-        return json(200, { token: body.token, key: body.key, expires_at: old.data.expires_at })
-      }
+    if (anonEdit) {
+      await log(admin, 'update', ip!, body.token)
+      await mapChanged(body.token, anonEdit.data_hash)
+      await write(admin, row, fresh, { token: body.token, key_hash: anonEdit.keyHash })
+      return json(200, { token: body.token, key: body.key, expires_at: anonEdit.expires_at })
     }
-    const perDay = num('SHARE_ANON_PER_DAY', SHARE_RULES.anonPerDay)
-    // Counted from the log, not the links that still exist: removing one doesn't give its place back.
-    if ((await logged(admin, 'create', ip!, DAY)) >= perDay) return reject(429, `Without an account you can make ${perDay} play links a day. Sign in for more, or try again tomorrow.`)
     const token = newShareToken(), editKey = newShareToken()
     const expires_at = new Date(Date.now() + SHARE_RULES.anonDays * DAY).toISOString()
     await log(admin, 'create', ip!, token)
     await write(admin, { ...row, token, owner: null, anon: true, expires_at, ip_hash: ip, key_hash: await sha256(editKey) }, fresh)
-    const t = await saveThumb(token)
-    if (t.thumb) await write(admin, t, fresh, { token })
     return json(200, { token, key: editKey, expires_at })
   }
 
-  const perDay = num('SHARE_MAX_PER_DAY', SHARE_RULES.perDay)
-  const perUser = num('SHARE_MAX_PER_USER', SHARE_RULES.perUser)
-  const recent = await admin.from('shares').select('token', { count: 'exact', head: true }).eq('owner', uid).gte('updated_at', since(DAY))
-  if (recent.error) throw recent.error
-  if ((recent.count ?? 0) >= perDay) return reject(429, `You can make or update ${perDay} play links a day. Try again tomorrow.`)
-
-  if (body.token) {
-    const old = await admin.from('shares').select(fresh ? 'owner, hidden, data_hash' : 'owner').eq('token', body.token).maybeSingle()
-    if (old.error) throw old.error
-    const prev = old.data as { owner: string; hidden?: boolean; data_hash?: string | null } | null
-    if (prev && prev.owner === uid) {
-      if (prev.hidden) return reject(403, 'A moderator hid this link, so it can’t be changed. You can still remove it.')
-      if (fresh) await mapChanged(body.token, prev.data_hash ?? null)
-      await write(admin, { ...row, listed, ...(await saveThumb(body.token)) }, fresh, { token: body.token, owner: uid })
-      return json(200, { token: body.token })
-    }
-    // Not yours (or removed): make a new link instead.
+  if (ownEdit) {
+    await logOwn('update', body.token)
+    if (fresh) await mapChanged(body.token, ownEdit.data_hash)
+    await write(admin, { ...row, listed, ...(await saveThumb(body.token)) }, fresh, { token: body.token, owner: uid })
+    return json(200, { token: body.token })
   }
-  const total = await admin.from('shares').select('token', { count: 'exact', head: true }).eq('owner', uid)
-  if (total.error) throw total.error
-  if ((total.count ?? 0) >= perUser) return reject(429, `You have ${perUser} play links. Remove some you no longer need first.`)
   const token = newShareToken()
+  await logOwn('create', token)
   await write(admin, { ...row, token, owner: uid, listed }, fresh)
   const t = await saveThumb(token)
   if (t.thumb) await write(admin, t, fresh, { token })
@@ -313,6 +384,13 @@ async function report(admin: SupabaseClient, uid: string | null, ip: string | nu
 async function addTime(admin: SupabaseClient, uid: string | null, ip: string | null, body: any): Promise<Response> {
   if (typeof body.token !== 'string') return reject(400, 'Invalid link.')
   if (!uid && !ip) return reject(401, 'Sign in to post a time.')
+  // The limit first: checking a run means reading the whole map.
+  const perHour = num('SHARE_TIMES_PER_HOUR', SHARE_RULES.timesPerHour)
+  const who = ip ? admin.from('share_times').select('id', { count: 'exact', head: true }).eq('ip_hash', ip) : admin.from('share_times').select('id', { count: 'exact', head: true }).eq('player', uid)
+  const recent = await who.gte('created_at', since(3600_000))
+  if (recent.error) throw recent.error
+  if ((recent.count ?? 0) >= perHour) return reject(429, 'That’s a lot of times in an hour. Try again later.')
+
   const share = await liveShare(admin, body.token, 'data, expires_at')
   if (!share) return reject(404, 'This link doesn’t lead to a map any more.')
   const { doc } = validateShareDoc(unpackShare(fromBase64(share.data)))
@@ -320,12 +398,6 @@ async function addTime(admin: SupabaseClient, uid: string | null, ip: string | n
   const entry = { mode: body.mode, ms: body.ms, name: cleanName(body.name), ghost: body.ghost }
   const problems = checkTime(entry, doc.project.markers, wallsOf(doc) ?? undefined)
   if (problems.length) return reject(422, 'This time can’t go on the board.', problems)
-
-  const perHour = num('SHARE_TIMES_PER_HOUR', SHARE_RULES.timesPerHour)
-  const who = ip ? admin.from('share_times').select('id', { count: 'exact', head: true }).eq('ip_hash', ip) : admin.from('share_times').select('id', { count: 'exact', head: true }).eq('player', uid)
-  const recent = await who.gte('created_at', since(3600_000))
-  if (recent.error) throw recent.error
-  if ((recent.count ?? 0) >= perHour) return reject(429, 'That’s a lot of times in an hour. Try again later.')
 
   const ins = await admin.from('share_times').insert({ token: body.token, mode: entry.mode, name: entry.name, ms: entry.ms, ghost: entry.ghost, player: uid, ip_hash: ip })
   if (ins.error) throw ins.error

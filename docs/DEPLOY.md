@@ -230,15 +230,47 @@ Hosting a link needs:
    If `/api/share` returns the app's HTML, apply the same redirect fix as for `/api/publish`
    (step 6), with `/api/share` and `/.netlify/functions/share`.
 
+That is enough for signed-in links. The rest of play links (links without an account, the
+gallery, preview pictures, reports, ratings and time-trial boards) needs:
+
+3. The migration `supabase/migrations/0004_share_gallery.sql`, run after `0002`. It adds the
+   expiry, gallery, report, rating and board columns and tables, the limit log `share_log`, the
+   public `share-thumbs` bucket (640×360 WebP pictures the site draws, written only by the share
+   function), and the `get_share` and `list_gallery` functions. From this migration on, owners
+   remove their links only through the share function, so a link's picture goes with it.
+   Until it is applied, signed-in links keep working and everything else answers "not open yet".
+4. `SHARE_IP_SALT` (Functions): a long random secret, for example the output of
+   `openssl rand -hex 32`. Links without an account, reports and board times are limited per
+   salted hash of the maker's address (IPv6 by its /64 network); the address itself is never
+   stored. Without a salt nothing anonymous is allowed: links need an account. Changing it resets
+   the counts.
+5. The link preview, the edge function `netlify/edge-functions/og.ts` (on `/play/s/*`). It puts
+   the map's title and picture in the page's head, so a link posted in a chat unfurls as the
+   map. It needs `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` at run time too: give both
+   the **Edge Functions** scope as well as Builds. Without them, links unfurl with the site's own picture.
+6. The daily job `netlify/functions/share-expiry.mts` (scheduled `@daily`; Netlify runs it on
+   its own once deployed). It deletes expired links without an account with their pictures,
+   reports, ratings and times, removes hidden links' pictures, and clears the limit log after
+   two days. It uses `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`.
+7. A moderator (step 4 above). Moderators see reported links in the **Moderation** section of the
+   Account page and can hide one, which stops it opening, takes it out of the gallery and removes its picture.
+
 Optional function variables:
 
 | Variable | Value |
 | --- | --- |
 | `SHARES_ENABLED` | `false` stops new links (removing them still works). Default on. |
-| `SHARE_MAX_PER_DAY` | Links made or updated per user per 24 hours. Default `50`. |
+| `SHARE_MAX_PER_DAY` | Links made or updated per user per 24 hours (each update counts). Default `50`. |
 | `SHARE_MAX_PER_USER` | Links one user can have. Default `200`. |
+| `SHARE_ANON_PER_DAY` | Links made without an account per address per 24 hours. Default `10`. |
+| `SHARE_ANON_UPDATES_PER_DAY` | Updates of links made without an account, per address per 24 hours. Default `30`. |
+| `SHARE_REPORTS_PER_DAY` | Reports per address per 24 hours. Default `20`. |
+| `SHARE_TIMES_PER_HOUR` | Board times per address (or account) per hour. Default `60`. |
 
-Each share is capped at 8 MB packed (`SHARE_LIMITS` in `src/play/share.ts`).
+Each share is capped at 8 MB packed (`SHARE_LIMITS` in `src/play/share.ts`). The function checks
+every limit before it reads a share, stores the share rebuilt from only the fields a share may
+hold (`src/play/shareSchema.ts`), and lists a map in the gallery only after rebuilding every
+model from its settings (`src/play/shareBuilds.ts`), which takes a couple of seconds at most.
 
 Without Supabase (accounts off), **Share** offers a `.sr1play` file instead; the other person
 opens it at `/play`. With `VITE_BACKEND=local`, links are simulated in this browser's IndexedDB

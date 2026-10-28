@@ -18,8 +18,13 @@ interface ShareHead { title: string; modes: string[] | null; players: number | n
 
 /** How long a page waits for the link's details before going out with the site's own preview. */
 const WAIT_MS = 800
-/** After the lookup fails (slow, down, or the database without migration 0004), pages skip it this long. */
-const RETRY_MS = 10 * 60_000
+/**
+ * After this many lookups in a row fail (slow, down, or the database without migration 0004), pages skip it for
+ * RETRY_MS: one slow answer doesn't turn unfurls off.
+ */
+const FAILS = 3
+const RETRY_MS = 60_000
+let failed = 0
 let skipUntil = 0
 
 async function lookUp(token: string): Promise<{ row: ShareHead; base: string } | null> {
@@ -32,7 +37,11 @@ async function lookUp(token: string): Promise<{ row: ShareHead; base: string } |
     body: JSON.stringify({ p_token: token }),
     signal: AbortSignal.timeout(WAIT_MS),
   }).catch(() => null)
-  if (!res?.ok) { skipUntil = Date.now() + RETRY_MS; return null }
+  if (!res?.ok) {
+    if (++failed >= FAILS) { skipUntil = Date.now() + RETRY_MS; failed = 0 }
+    return null
+  }
+  failed = 0
   const rows = await res.json().catch(() => null)
   const row = Array.isArray(rows) ? rows[0] : rows
   return row && typeof row.title === 'string' ? { row, base } : null

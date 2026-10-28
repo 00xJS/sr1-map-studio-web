@@ -12,7 +12,8 @@ import { prefabParams, tagPrefab } from '../src/lib/prefabs'
 import { prefabModel } from '../src/lib/prefabModel'
 import { compoundObj, shapeObj, type CompoundPiece, type Shape } from '../src/lib/shapes'
 import { terrainShape } from '../src/lib/terrain'
-import { galleryProblems } from '../src/play/shareBuilds'
+import { galleryProblems, shapeLines } from '../src/play/shareBuilds'
+import { buildKeysOk } from '../src/play/shareSchema'
 import { availableRuns, newRun, raceScores, stepBot, stepRun, targets } from '../src/play/game'
 import { GHOST_MAX, GhostRecorder, checkTime, cleanName, ghostAt, loadGhost, saveGhost, type GhostSample } from '../src/play/ghost'
 import { cleanObj, galleryReady, previewProblem, shareMeta, validateShareDoc, type ModelBuild, type ShareDoc } from '../src/play/share'
@@ -108,6 +109,52 @@ describe('the gallery rebuilds every model from its settings', () => {
     expect(one(built, { kind: 'prefab', key: 'shop', params: { ...params, [num.key]: num.max! + 1 }, at: [10, 0, 20], rot: 30 }).join()).toMatch(/out of range/)
     expect(one(built, { kind: 'prefab', key: 'shop', params: { ...params, nonsense: 1 }, at: [10, 0, 20], rot: 30 }).join()).toMatch(/doesn’t have/)
   })
+  it('never rebuilds a road from its points (only from its pieces), and bounds a sign’s text and colors', () => {
+    const params = prefabParams(ALL_PREFABS.road, {})
+    expect(one(OBJ, { kind: 'prefab', key: 'road', params, at: [0, 0, 0], rot: 0 }).join()).toMatch(/for a road/)
+    const sign = prefabParams(ALL_PREFABS.textsign, {})
+    expect(one(OBJ, { kind: 'prefab', key: 'textsign', params: { ...sign, text: 'x'.repeat(201) }, at: [0, 0, 0], rot: 0 }).join()).toMatch(/out of range/)
+    expect(one(OBJ, { kind: 'prefab', key: 'textsign', params: { ...sign, color: 'red; junk' }, at: [0, 0, 0], rot: 0 }).join()).toMatch(/out of range/)
+    expect(one(OBJ, { kind: 'prefab', key: 'textsign', params: { ...sign, color: '#a0b0c0' }, at: [0, 0, 0], rot: 0 }).join()).toMatch(/doesn’t match/)
+  })
+
+  it('counts the lines a shape writes without overstating them, so an honest model is never turned away', () => {
+    const lines = (o: string) => o.split('\n').filter((l) => /^(v|vt|vn|f) /.test(l)).length
+    const shapes: Shape[] = [
+      { kind: 'box', size: [3, 2, 1], tile: 2 }, { kind: 'box', size: [8, 3, 8], tile: 2, bevel: 1 }, { kind: 'ramp', size: [4, 2, 6], tile: 2, open: true },
+      { kind: 'stairs', size: [4, 3, 6], tile: 2, segments: 9 }, { kind: 'stairs', size: [4, 3, 6], tile: 2 }, { kind: 'roof', size: [6, 3, 5], tile: 2 },
+      { kind: 'cylinder', size: [2, 5, 2], tile: 2, segments: 128, taper: 0.3, lie: true }, { kind: 'sphere', size: [3, 3, 3], tile: 2, segments: 128 },
+      { kind: 'torus', size: [4, 4, 1], tile: 2, segments: 7, lie: true }, { kind: 'blob', size: [5, 2, 5], tile: 2, outline: [[0, 2], [2, 0], [0, -2], [-1, -1], [-2, 1]] },
+    ]
+    for (const sh of shapes) expect(shapeLines(sh, false).least).toBe(lines(shapeObj(sh)))
+    const ground = terrainShape(30, 20, { cell: 2 }) as Shape
+    expect(shapeLines(ground, false).least).toBeLessThanOrEqual(lines(shapeObj(ground)))
+    expect(shapeLines(ground, false).most).toBeGreaterThanOrEqual(lines(shapeObj(ground)))
+    expect(shapeLines(ground, true).least).toBe(lines(compoundObj([{ shape: ground, at: [0, 0, 0], rot: 0, top: 'a', side: 'b' }])))
+  })
+
+  it('stays quick however a share is made to be costly to check', () => {
+    const tiny = cleanObj('v 0 0 0\nf 1 1 1\n')!
+    const many = (n: number, build: (i: number) => ModelBuild, obj: (b: ModelBuild) => string = () => tiny) => {
+      const d = { models: {} as Record<string, string>, made: {} as Record<string, 'shape' | 'compound' | 'prefab'>, builds: {} as Record<string, ModelBuild> }
+      for (let i = 0; i < n; i++) { const b = build(i); d.models['m' + i] = obj(b); d.made['m' + i] = b.kind; d.builds['m' + i] = b }
+      return d
+    }
+    const ball = (i: number): ModelBuild => ({ kind: 'shape', shape: { kind: 'sphere', size: [1 + i / 1000, 1, 1], tile: 1, segments: 128 } })
+    const boxes = (i: number): ModelBuild => ({ kind: 'compound', pieces: Array.from({ length: 20000 }, (_, j) => ({ shape: { kind: 'box', size: [1 + j / 1e5, 1, 1 + i / 1e5], tile: 1 }, at: [j % 100, 0, Math.floor(j / 100)], rot: 0, top: 'a', side: 'b' })) })
+    const shop = (i: number): ModelBuild => ({ kind: 'prefab', key: 'srblock', params: prefabParams(ALL_PREFABS.srblock, {}), at: [i, 0, 0], rot: 0 })
+    for (const [d, why] of [
+      [many(4000, ball), /doesn’t match/], // each would write far more than its model holds: never built
+      [many(15, ball, (b) => cleanObj(shapeObj((b as { shape: Shape }).shape))!), /too many models/], // honest, but too much in all
+      [many(20, boxes), /too many models/],
+      [many(400, shop), /doesn’t match|too many models/],
+    ] as const) {
+      const t = performance.now()
+      expect(galleryProblems(d).join()).toMatch(why)
+      expect(performance.now() - t).toBeLessThan(4000)
+    }
+  })
+
   it('needs a build for every model the share says the site made', () => {
     expect(galleryProblems({ models: { m: cleanObj(shapeObj(shape))! }, made: { m: 'shape' } }).join()).toMatch(/no settings/)
     expect(galleryProblems({ models: { m: cleanObj(shapeObj(shape))! }, made: { m: 'compound' }, builds: { m: { kind: 'shape', shape } } }).join()).toMatch(/no settings/)
@@ -122,6 +169,43 @@ describe('the gallery rebuilds every model from its settings', () => {
     const b = modelBuild(obj, { name: 'terrain.obj', hash: 'h', size: 1, origin: 'user', recipe: { kind: 'shape', shape: ground as Shape } } as any, [item])
     expect(b).toEqual({ kind: 'shape', shape: full })
     expect(modelBuild(obj, { name: 'terrain.obj', hash: 'h', size: 1, origin: 'user', recipe: { kind: 'shape', shape: ground as Shape } } as any, [])).toBeNull()
+  })
+})
+
+describe('what a share may hold', () => {
+  it('keeps only the fields a share has, cleaned', () => {
+    const p: any = newProject('Fields')
+    p.scene_items.push({ uid: 'a', name: 'Box', path: 'mesh/0', position: [1, 2, 3], rotation: [0, 0, 0], scale: 1, textures: { top: 'tex/0', junk: 7 }, alpha: {}, junk: 'x', game_object: { path: 'x' }, shape: { kind: 'box', size: [1, 1, 1], tile: 1, junk: 1 } })
+    p.markers.push({ ...newMarker('Shared spawn'), junk: 'x', yaw: 'not a number' })
+    p.lights.push({ uid: 'l', name: 'Lamp', enabled: true, position: [0, 3, 0], color: [1, 1, 1], intensity: 1, inner_range: 1, range: 3, junk: 1 })
+    p.junk = 'x'
+    p.settings.junk = 'x'
+    const raw = { format: 'sr1-map-studio-share', version: 1, title: 'Fields', created_at: 'now', project: p, models: { 'mesh/0': OBJ }, textures: { 'tex/0': { kind: 'library', id: 'concrete' } }, junk: 'x' }
+    const { doc, problems } = validateShareDoc(raw)
+    expect(problems).toEqual([])
+    const it0 = doc!.project.scene_items[0] as any
+    expect(it0.junk).toBeUndefined()
+    expect(it0.game_object).toBeUndefined()
+    expect(it0.textures).toEqual({ top: 'tex/0' })
+    expect(it0.shape).toEqual({ kind: 'box', size: [1, 1, 1], tile: 1 })
+    expect(it0.position).toEqual([1, 2, 3])
+    expect((doc!.project.markers[0] as any).junk).toBeUndefined()
+    expect('yaw' in doc!.project.markers[0]).toBe(false)
+    expect((doc!.project.lights[0] as any).junk).toBeUndefined()
+    expect((doc!.project as any).junk).toBeUndefined()
+    expect((doc!.project.settings as any).junk).toBeUndefined()
+    expect((doc as any).junk).toBeUndefined()
+  })
+  it('takes model settings with only the keys a build has', () => {
+    const box: Shape = { kind: 'box', size: [1, 1, 1], tile: 1 }
+    expect(buildKeysOk({ kind: 'shape', shape: box })).toBe(true)
+    expect(buildKeysOk({ kind: 'shape', shape: box, extra: 1 })).toBe(false)
+    expect(buildKeysOk({ kind: 'shape', shape: { ...box, extra: 1 } })).toBe(false)
+    expect(buildKeysOk({ kind: 'compound', pieces: [{ shape: box, at: [0, 0, 0], rot: 0, top: 'a', side: 'b' }] })).toBe(true)
+    expect(buildKeysOk({ kind: 'compound', pieces: [{ shape: box, at: [0, 0, 0], rot: 0, top: 'a', side: 'b', extra: 1 }] })).toBe(false)
+    expect(buildKeysOk({ kind: 'prefab', key: 'shop', params: { w: 10 }, at: [0, 0, 0], rot: 0 })).toBe(true)
+    expect(buildKeysOk({ kind: 'prefab', key: 'shop', params: { w: { deep: 1 } }, at: [0, 0, 0], rot: 0 })).toBe(false)
+    expect(buildKeysOk({ kind: 'prefab', key: 'shop', params: {}, at: [0, 0, 0], rot: 0, extra: 1 })).toBe(false)
   })
 })
 

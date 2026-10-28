@@ -73,8 +73,8 @@ export interface LocalRow {
 interface LocalReport { id: string; token: string; reason: ReportReason; details: string; reporter: string | null; ip_hash: string | null; status: ShareReport['status']; created_at: string }
 interface LocalRating { token: string; user_id: string; stars: number }
 interface LocalTime { id: string; token: string; mode: RunMode; name: string; ms: number; ghost: GhostSample[]; player: string | null; ip_hash: string | null; created_at: string }
-/** share_log: what the limits count (removing a link doesn't give its place back). */
-interface LocalLog { id: string; kind: 'create' | 'update' | 'play'; ip_hash: string; token: string; created_at: string }
+/** share_log: what the limits count (removing a link doesn't give its place back); by account when signed in. */
+interface LocalLog { id: string; kind: 'create' | 'update' | 'play'; ip_hash: string | null; owner?: string; token: string; created_at: string }
 
 async function sha256(text: string) {
   const d = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text))
@@ -99,9 +99,9 @@ async function localExpire() {
 async function localLogged(kind: LocalLog['kind'], within: number, token?: string) {
   return (await localAll<LocalLog>('log')).filter((l) => l.kind === kind && l.ip_hash === LOCAL_IP && ago(l.created_at, within) && (!token || l.token === token)).length
 }
-async function localLog(kind: LocalLog['kind'], token: string) {
+async function localLog(kind: LocalLog['kind'], token: string, owner?: string) {
   const id = crypto.randomUUID()
-  await localPut('log', id, { id, kind, ip_hash: LOCAL_IP, token, created_at: new Date().toISOString() } satisfies LocalLog)
+  await localPut('log', id, { id, kind, ip_hash: owner ? null : LOCAL_IP, ...(owner ? { owner } : {}), token, created_at: new Date().toISOString() } satisfies LocalLog)
 }
 /** A board's times were run on the old map: they go when the map changes. */
 async function localMapChanged(token: string, oldHash: string | undefined, newHash: string) {
@@ -196,8 +196,10 @@ async function localCreate(data: string, user: { id: string; name: string } | nu
   }
   const now = new Date().toISOString()
   const meta = shareMeta(checked)
-  const data_hash = await sha256(data)
-  const row = { title: checked.title, data, data_hash, updated_at: now, modes: meta.modes, players: meta.players, ...(thumb && user ? { thumb: new Blob([thumb], { type: 'image/webp' }), thumb_at: now } : {}) }
+  // Stored as checked: rebuilt from the fields a share may hold, not the bytes that came in.
+  const stored = toBase64(packShare(checked))
+  const data_hash = await sha256(stored)
+  const row = { title: checked.title, data: stored, data_hash, updated_at: now, modes: meta.modes, players: meta.players, ...(thumb && user ? { thumb: new Blob([thumb], { type: 'image/webp' }), thumb_at: now } : {}) }
   const rows = await localAll<LocalRow>('shares')
   if (!user) {
     if (opts.token && key) {
@@ -221,18 +223,20 @@ async function localCreate(data: string, user: { id: string; name: string } | nu
     await localPut('shares', token, { ...row, token, owner: null, anon: true, expires_at, ip_hash: LOCAL_IP, key_hash: await sha256(editKey), created_at: now, plays: 0 } satisfies LocalRow)
     return { token, key: editKey, expires_at }
   }
-  if (rows.filter((r) => r.owner === user.id && ago(r.updated_at ?? r.created_at, 86400_000)).length >= SHARE_RULES.perDay) {
-    throw new ShareRejected(`You can make or update ${SHARE_RULES.perDay} play links a day. Try again tomorrow.`)
-  }
+  // Every make and update counts, from the log: updating one link again and again isn't free.
+  const writes = (await localAll<LocalLog>('log')).filter((l) => l.owner === user.id && l.kind !== 'play' && ago(l.created_at, 86400_000)).length
+  if (writes >= SHARE_RULES.perDay) throw new ShareRejected(`You can make or update ${SHARE_RULES.perDay} play links a day. Try again tomorrow.`)
   const old = opts.token ? await localGet<LocalRow>('shares', opts.token) : undefined
   if (old && old.owner === user.id) {
     if (old.hidden) throw new ShareRejected(HIDDEN)
+    await localLog('update', old.token, user.id)
     await localMapChanged(old.token, old.data_hash, data_hash)
     await localPut('shares', old.token, { ...old, ...row, listed: !!opts.listed, owner_name: user.name })
     return { token: old.token }
   }
   if (rows.filter((r) => r.owner === user.id).length >= SHARE_RULES.perUser) throw new ShareRejected(`You have ${SHARE_RULES.perUser} play links. Remove some you no longer need first.`)
   const token = newShareToken()
+  await localLog('create', token, user.id)
   await localPut('shares', token, { ...row, token, owner: user.id, owner_name: user.name, listed: !!opts.listed, created_at: now, plays: 0 } satisfies LocalRow)
   return { token }
 }

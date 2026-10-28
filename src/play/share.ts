@@ -11,6 +11,7 @@ import { gameSignature, MB } from '../lib/hubRules'
 import { isDataPackPath, normalizeProject, type Project, type Vec3 } from '../lib/project'
 import { LIBRARY_ID, cleanRecipe, fromLegacy, textureRecipeProblem, type TextureRecipe } from '../lib/recipes'
 import type { CompoundPiece, Shape } from '../lib/shapes'
+import { buildKeysOk, cleanProject } from './shareSchema'
 
 export interface ShareDoc {
   format: 'sr1-map-studio-share'
@@ -145,6 +146,10 @@ export function itemPaths(it: Project['scene_items'][number]): { models: string[
   return { models: [...new Set(models)], textures: [...new Set(textures)] }
 }
 
+/**
+ * Checks a share and, when it passes, gives it back rebuilt from only the fields a share may hold
+ * (shareSchema.ts): what a server stores is this doc, never what it was sent.
+ */
 export function validateShareDoc(raw: unknown): { problems: string[]; doc: ShareDoc | null } {
   const problems: string[] = []
   const d = raw as ShareDoc
@@ -152,7 +157,7 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
   if (typeof d.title !== 'string' || !d.title.trim() || d.title.length > 80) problems.push('The title must be 1 to 80 characters.')
   if (!d.models || typeof d.models !== 'object' || !d.textures || typeof d.textures !== 'object') return { problems: [...problems, 'The share has no models or textures list.'], doc: null }
   let project: Project
-  try { project = normalizeProject(JSON.parse(JSON.stringify(d.project))) } catch { return { problems: [...problems, 'The map in the share is not valid.'], doc: null } }
+  try { project = cleanProject(normalizeProject(JSON.parse(JSON.stringify(d.project)))) } catch { return { problems: [...problems, 'The map in the share is not valid.'], doc: null } }
   if (Object.keys(project.files).length) problems.push('A share must not hold files.')
   if (project.asset_library.length) problems.push('A share must not hold a model library.')
   for (const k of FILE_SETTINGS) if (project.settings[k]) problems.push(`The map setting ${k} must be empty in a share.`)
@@ -200,14 +205,20 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
   if (d.builds !== undefined) {
     // Checked in full only when the map is listed (shareBuilds.ts); here just its shape and size.
     const ok = !!d.builds && typeof d.builds === 'object' && !Array.isArray(d.builds)
-      && Object.entries(d.builds).every(([k, b]) => Object.hasOwn(d.models, k) && !!b && typeof b === 'object' && ['shape', 'compound', 'prefab'].includes((b as ModelBuild).kind))
+      && Object.entries(d.builds).every(([k, b]) => Object.hasOwn(d.models, k) && buildKeysOk(b))
     if (!ok) problems.push('The share’s model settings are not valid.')
     else if (JSON.stringify(d.builds).length > SHARE_LIMITS.projectChars) problems.push('The share’s model settings are too large.')
   }
   const uniq = [...new Set(problems)]
   if (uniq.length) return { problems: uniq, doc: null }
   const clean = Object.fromEntries(textures.map(([k, r]) => [k, cleanRecipe(fromLegacy(r) as TextureRecipe)]))
-  return { problems: uniq, doc: { ...d, title: d.title.trim(), project, textures: clean } }
+  const doc: ShareDoc = {
+    format: 'sr1-map-studio-share', version: 1, title: d.title.trim(), created_at: typeof d.created_at === 'string' ? d.created_at.slice(0, 40) : '',
+    project, models: { ...d.models }, textures: clean,
+  }
+  if (d.made) doc.made = { ...d.made }
+  if (d.builds) doc.builds = JSON.parse(JSON.stringify(d.builds))
+  return { problems: uniq, doc }
 }
 
 /** What a link shows before the map loads: its timed runs and how many can start at once. */
@@ -266,12 +277,14 @@ export function previewProblem(b: Uint8Array): string | null {
 // ---------------- packing ----------------
 
 /** gzip of the share's JSON. */
-export const packShare = (doc: ShareDoc): Uint8Array => gzipSync(strToU8(JSON.stringify(doc)), { level: 9 })
+/** `level` 3 is what a server repacks with: a third of the time of 9, and about 3% larger. */
+export const packShare = (doc: ShareDoc, level: 3 | 9 = 9): Uint8Array => gzipSync(strToU8(JSON.stringify(doc)), { level })
 
 /** Reads a packed share, refusing anything that would unpack past the limits. */
 export function unpackShare(bytes: Uint8Array): unknown {
   if (bytes.length < 18 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) throw new Error('This is not an SR1 Map Studio play link.')
-  if (bytes.length > SHARE_LIMITS.packedBytes) throw new Error('This shared map is too large.')
+  // A tenth over the limit: a server stores its own, quicker packing (level 3), a little larger than a browser's.
+  if (bytes.length > SHARE_LIMITS.packedBytes * 1.1) throw new Error('This shared map is too large.')
   // gzip ends with the unpacked size (mod 4 GB): check it before unpacking.
   const n = bytes.length, size = (bytes[n - 4] | (bytes[n - 3] << 8) | (bytes[n - 2] << 16) | (bytes[n - 1] << 24)) >>> 0
   if (size > SHARE_LIMITS.modelChars + SHARE_LIMITS.projectChars + MB) throw new Error('This shared map is too large.')

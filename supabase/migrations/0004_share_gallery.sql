@@ -8,6 +8,8 @@
 -- (netlify/functions/share-expiry.mts) deletes them and their thumbnails.
 -- Moderators hide links through the share function too, so the preview
 -- picture goes at once (storage objects can only be removed through its API).
+-- For the same reason owners now remove their links only through the share
+-- function, which removes the picture with them.
 
 alter table public.shares
   alter column owner drop not null,
@@ -44,18 +46,25 @@ create index shares_ip on public.shares (ip_hash, created_at desc) where ip_hash
 -- Moderators see every link (the moderation queue shows titles). Hiding one goes through the share function.
 create policy "shares: moderators read" on public.shares for select to authenticated using (public.is_moderator());
 revoke insert, update on public.shares from anon, authenticated;
+-- Removing a link goes through the share function too, so its public preview picture goes with it.
+drop policy "shares: owner deletes" on public.shares;
+revoke delete on public.shares from anon, authenticated;
 
--- What the share function counts for its limits: links made and updated without an account, and plays
--- (one per address, link and day). Salted address hashes only; rows older than two days are deleted daily.
+-- What the share function counts for its limits: links made and updated (by salted address hash without an
+-- account, by account when signed in, so updating one link again and again counts each time), and plays (one
+-- per address, link and day). Never an address itself; rows older than two days are deleted daily.
 create table public.share_log (
   id bigint generated always as identity primary key,
   kind text not null check (kind in ('create', 'update', 'play')),
-  ip_hash text not null,
+  ip_hash text,
+  owner uuid references auth.users (id) on delete cascade,
   token text,
-  created_at timestamptz not null default now()
+  created_at timestamptz not null default now(),
+  constraint share_log_who check (ip_hash is not null or owner is not null)
 );
 
-create index share_log_ip on public.share_log (ip_hash, kind, created_at desc);
+create index share_log_ip on public.share_log (ip_hash, kind, created_at desc) where ip_hash is not null;
+create index share_log_owner on public.share_log (owner, kind, created_at desc) where owner is not null;
 create index share_log_token on public.share_log (token, ip_hash, kind, created_at desc);
 
 alter table public.share_log enable row level security;
