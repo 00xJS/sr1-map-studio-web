@@ -29,6 +29,7 @@ import { CrateDebrisNote, RetailMarkerFields } from './RetailMarkerFields'
 import { VehiclePicker } from './VehiclePicker'
 import { SwapPanel } from './SwapPanel'
 import { LayerField } from './panels/LayersPanel'
+import { DummyFields } from './DummyPanel'
 
 const TextureStudio = lazy(() => import('./TextureStudio').then((m) => ({ default: m.TextureStudio })))
 
@@ -175,6 +176,7 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
         {it.game_object && <span className="small muted">From your game files: usable in your own maps, not shareable (share links, the hub and the Showcase leave it out; backups carry only where it came from).</span>}
       </div>
 
+      <DummyFields it={it} index={index} />
       <SwapPanel it={it} index={index} />
       {it.prefab && ALL_PREFABS[it.prefab.key]?.params && <PrefabSettings it={it} index={index} />}
       {it.prefab?.key === 'road' && <RoadPanel />}

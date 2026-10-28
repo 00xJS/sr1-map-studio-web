@@ -2,6 +2,8 @@
 // game ('needed' blocks Play), and what would make it better ('suggested').
 import { PIMP_EXIT, SPAWN_TYPES, gameSkyWanted, isCustomNative, isGlass, type Project } from './project'
 import { retailChecklist } from './retailModes'
+import { isDummy, dummyRefOf } from './dummies/standIn'
+import { MANY_LOOKS, MAX_DUMMIES, lookKey } from './dummies/models'
 import { CHAINS_DROPS, DROP_GAP, FFA_SPAWNS, SPAWN_GAP, bunched, crowdedSpawns, crowdedText, freeForAll, unusedModeMarkers } from './levels'
 
 export type Fix =
@@ -116,6 +118,13 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
     id: 'unused-' + i, state: 'suggested', text: `${u.text} Remove ${u.count === 1 ? 'it' : `the ${u.count}`}?`,
     fix: { kind: 'removeMarkers', types: u.types, label: u.text }, action: 'Remove',
   }))
+
+  // Decoy dummies: a lobby's worth at most, and each different look costs texture memory.
+  const dummies = p.scene_items.filter(isDummy)
+  const first = p.scene_items.findIndex(isDummy)
+  if (dummies.length > MAX_DUMMIES) add({ id: 'dummies', state: 'suggested', text: `${dummies.length} decoy dummies: ${MAX_DUMMIES} at most is about a lobby's worth of extra people for the game to draw. Delete ${dummies.length - MAX_DUMMIES}.`, fix: { kind: 'select', index: first }, action: 'Show' })
+  const looks = new Set(dummies.map((it) => lookKey(dummyRefOf(it)!))).size
+  if (looks > MANY_LOOKS) add({ id: 'dummy-looks', state: 'suggested', text: `${looks} different dummy looks add about ${looks} MB to the map's textures: give some the same look (copies share their pictures).`, fix: { kind: 'select', index: first }, action: 'Show' })
 
   const exits = count(PIMP_EXIT)
   if (exits) add({ id: 'exit', state: 'needed', text: `Erase ${exits === 1 ? 'the pimp exit marker' : `${exits} pimp exit markers`}: the game has no pimp exit`, fix: { kind: 'tool', tool: 'erase' }, action: 'Erase' })

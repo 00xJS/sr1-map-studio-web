@@ -200,6 +200,22 @@ def water_faces(item, model):
     return [i for i, f in enumerate(faces) if (f[3] or 'default') in want]
 
 
+def prepare_solid_materials(items, parse):
+    """Objects that name their solid materials (collision_materials, a decoy dummy's body boxes): every other
+    triangle is drawn but left out of the collision. Returns how many triangles were left out."""
+    left = 0
+    for it in items:
+        solid = it.get('collision_materials')
+        if solid is None or it.get('collision_disabled') or it.get('native_prefab'):
+            continue
+        want = set(solid)
+        faces = [i for i, f in enumerate(parse(it['path'])['faces']) if (f[3] or 'default') not in want]
+        if faces:
+            it['collision_excluded_faces'] = sorted(set(it.get('collision_excluded_faces') or []) | set(faces))
+            left += len(faces)
+    return left
+
+
 def see_through_copy(path, out_dir, alpha=WATER_ALPHA):
     """A copy of a texture with partial transparency, for the visible water surface."""
     from PIL import Image

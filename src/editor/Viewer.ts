@@ -12,6 +12,7 @@ import { PhysicsPreview, type PhysicsStatus } from './physicsPreview'
 import { presetOf } from '../lib/physicsProps'
 import { StaticBatch, batchable, type BatchSource } from './batch'
 import type { ObjModel } from '../lib/geometry'
+import { solidMaterial } from '../lib/analysis/collision'
 import { setNormals } from '../lib/prefabRender'
 import { loadModel, peekModel, textureUrl } from '../lib/assets'
 import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
@@ -938,7 +939,7 @@ export class Viewer {
   private syncOverlay(node: ItemNode, it: SceneItem, index: number, force = false) {
     const on = this.opts.collisionView === 'faces'
     const sel = this.opts.selection?.kind === 'item' && this.opts.selection.index === index ? this.opts.faceRange : null
-    const key = on ? JSON.stringify([it.path, it.collision_disabled, it.collision_excluded_faces?.length, it.collision_excluded_faces?.slice(0, 50), isGlass(it), sel]) : ''
+    const key = on ? JSON.stringify([it.path, it.collision_disabled, it.collision_excluded_faces?.length, it.collision_excluded_faces?.slice(0, 50), it.collision_materials, isGlass(it), sel]) : ''
     if (!force && key === node.overlayKey) return
     node.overlayKey = key
     if (node.overlay) { node.mesh?.remove(node.overlay); node.overlay.geometry.dispose(); node.overlay = null }
@@ -953,7 +954,7 @@ export class Viewer {
       const col = new Float32Array(tris * 9)
       const green = [0.2, 0.95, 0.45], red = [1, 0.25, 0.3], blue = [0.35, 0.6, 1], orange = [1, 0.6, 0.1]
       for (let f = 0; f < tris; f++) {
-        const c = native ? blue : sel && f >= Math.min(...sel) && f <= Math.max(...sel) ? orange : it.collision_disabled || excluded.has(f) ? red : green
+        const c = native ? blue : sel && f >= Math.min(...sel) && f <= Math.max(...sel) ? orange : it.collision_disabled || excluded.has(f) || !solidMaterial(it, m.mats[m.faceMat[f]]) ? red : green
         for (let k = 0; k < 3; k++) {
           const v = m.faces[f * 3 + k] * 3
           pos.set([m.positions[v], m.positions[v + 1], m.positions[v + 2]], f * 9 + k * 3)

@@ -1,5 +1,10 @@
 # Decoy dummies: research and plan
 
+> **Status (2026-10-27):** phase 2 is built on branch `decoy-dummies` with the recommended choices: body boxes for
+> collision, player decoys plus the NPC list in section 6, a cap of 12, the five hand-set poses, and moving decoys
+> left for a later companion-mod track. Where the code lives is in `docs/DEVELOPING.md` (`src/lib/dummies/`).
+> Nothing is tried in game yet.
+
 Phase 1 findings for a "Dummy" piece: real Saints Row 1 player or character models standing in a map as static,
 posed decoys, like clothing-store mannequins, to distract from real players in a game mode. Nothing here has been
 tried in game. Claims are marked **H** (read in code or measured on a local install), **M** (inference) or

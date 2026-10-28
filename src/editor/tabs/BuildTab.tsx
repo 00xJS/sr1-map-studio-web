@@ -10,6 +10,7 @@ import { LayersPanel } from '../panels/LayersPanel'
 import { AssetsPanel } from '../panels/AssetsPanel'
 import { MaterialsPanel } from '../panels/MaterialsPanel'
 import { More } from '../More'
+import { DummyPicker } from '../DummyPanel'
 import { weaponName } from '../Inspector'
 import { FileButton, confirmDialog, toastError, useBusy } from '../../ui'
 import { catalogs } from '../../lib/catalogs'
@@ -45,6 +46,7 @@ function AddThings() {
   const [pack, setPack] = useState<DataPackStatus | null>(null)
   const [run, busy] = useBusy()
   const [photo, setPhoto] = useState(false)
+  const [dummy, setDummy] = useState(false)
   useEffect(() => { dataPackStatus().then(setPack).catch(() => setPack(null)) }, [])
   const center = () => (getViewer()?.center() ?? [0, 0, 0]) as Vec3
   const lib = project.asset_library
@@ -61,7 +63,9 @@ function AddThings() {
           title="OBJ (with its MTL and textures), GLB, glTF or FBX from Blender or a model website"
           onFiles={(f) => run(() => act.importModelFiles(f, project.scene_items.length ? 'add' : 'base'))}>Your own 3D model…</FileButton>
         <button className="sm" onClick={() => setPhoto(true)} title="Turn a photo into a building front or a cut-out sign">From a photo…</button>
+        <button className={'sm' + (dummy ? ' on' : '')} onClick={() => setDummy(!dummy)} aria-expanded={dummy} title="A posed Saints Row player or person standing still, to keep players guessing">Dummy…</button>
       </div>
+      {dummy && <DummyPicker onClose={() => setDummy(false)} />}
       <AnyMarker />
       {photo && <Suspense fallback={null}><PhotoDialog onClose={() => setPhoto(false)} /></Suspense>}
       {lib.length > 0 && (
