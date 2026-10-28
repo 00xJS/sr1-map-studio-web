@@ -520,18 +520,21 @@ const OTHER = '\u0000other'
 /** The weapon a pickup gives: one from the list, or any weapon ID typed in (Other…). */
 function WeaponField({ m, set }: { m: Marker; set: SetMarker }) {
   const known = catalogs.weapons.some(([, id]) => id === m.weapon)
-  const [other, setOther] = useState(!known)
+  // "Other…" picked here stays open while its ID is typed (even one in the list); any other change of weapon (Undo,
+  // another marker) shows the control its value calls for.
+  const [chose, setChose] = useState<string | null>(null)
+  const other = !known || chose === m.weapon
   return (
     <Field label="Weapon" hint={other ? "The game's own weapon ID, as in its weapon tables" : undefined}>
       <select value={other ? OTHER : m.weapon} onChange={(e) => {
-        if (e.target.value === OTHER) { setOther(true); return }
-        setOther(false)
+        if (e.target.value === OTHER) { setChose(m.weapon); return }
+        setChose(null)
         set('Weapon', (d) => { d.weapon = e.target.value })
       }}>
         {catalogs.weapons.map(([n, id]) => <option key={id} value={id}>{n}</option>)}
         <option value={OTHER}>Other…</option>
       </select>
-      {other && <input value={m.weapon} aria-label="Weapon ID" placeholder="e.g. ak47" onChange={(e) => set('Weapon', (d) => { d.weapon = e.target.value.trim() }, 'weapon')}
+      {other && <input value={m.weapon} aria-label="Weapon ID" placeholder="e.g. ak47" onChange={(e) => { const id = e.target.value.trim(); setChose(id); set('Weapon', (d) => { d.weapon = id }, 'weapon') }}
         onBlur={() => { if (!m.weapon) set('Weapon', (d) => { d.weapon = 'ak47' }) }} />}
     </Field>
   )

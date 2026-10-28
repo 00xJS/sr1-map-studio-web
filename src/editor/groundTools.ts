@@ -319,7 +319,8 @@ export function attachGroundTools(viewer: Viewer): () => void {
   }
 
   const key = (e: KeyboardEvent) => {
-    if (tool() !== 'road' || !draft || useEditor.getState().walking) return
+    // While Fix all holds the editor (locked), Enter must not finish a road into its undo step.
+    if (tool() !== 'road' || !draft || useEditor.getState().walking || useEditor.getState().locked) return
     const t = e.target as HTMLElement
     if (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.tagName === 'SELECT') return
     if (e.key === 'Enter') { e.preventDefault(); e.stopImmediatePropagation(); finish() }

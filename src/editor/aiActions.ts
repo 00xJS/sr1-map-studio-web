@@ -1,5 +1,5 @@
 // Carries out the edits an AI chat reply asks for, as one undo step.
-import { useEditor, currentProject, withoutMirror } from './store'
+import { useEditor, currentProject, editJob, withoutMirror } from './store'
 import { getViewer } from './Viewport'
 import * as act from './actions'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
@@ -56,13 +56,16 @@ async function swatchFor(name: string, tint: { color?: unknown; accent?: unknown
   return part ? { key: 'lib:' + part.id, label: part.name, surface: part.surface, source: { kind: 'library', id: part.id } } : null
 }
 
-/** Runs the actions; returns a short note of what happened and what was skipped. */
-/** The AI's edits, with mirror mode's copying off: they place both halves themselves when asked (mirror: true). */
+/**
+ * Runs the actions as one undo step called `label`; returns how many were done and what was skipped. An edit job:
+ * it waits for Fix all to end, and Fix all waits for it, as it rewrites the undo list from where it started. Mirror
+ * mode's copying is off: the AI places both halves itself when asked (mirror: true).
+ */
 export function runAiActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
-  return withoutMirror(() => runActions(actions, label))
+  return editJob(() => withoutMirror(() => applyAiActions(actions, label)))
 }
 
-async function runActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
+async function applyAiActions(actions: AiAction[], label: string): Promise<{ done: number; skipped: string[] }> {
   const st = useEditor.getState()
   if (!st.project) return { done: 0, skipped: ['No map is open.'] }
   const start = st.past.length
