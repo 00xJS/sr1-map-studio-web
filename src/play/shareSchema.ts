@@ -22,12 +22,13 @@ const vec3 = nums(3)
 const strs: Clean = (v) => (Array.isArray(v) && v.length <= MAX_ENTRIES && v.every((x) => typeof x === 'string') ? v.map((x) => x.slice(0, TEXT)) : undefined)
 const record = (value: Clean): Clean => (v) => {
   if (!v || typeof v !== 'object' || Array.isArray(v)) return undefined
-  const out: Record<string, unknown> = {}
+  // Built from entries, so a key like __proto__ is a key like any other.
+  const out: [string, unknown][] = []
   for (const [k, x] of Object.entries(v).slice(0, MAX_ENTRIES)) {
     const c = value(x)
-    if (c !== undefined && k.length <= TEXT) out[k] = c
+    if (c !== undefined && k.length <= TEXT) out.push([k, c])
   }
-  return out
+  return Object.fromEntries(out)
 }
 
 /** Keeps the listed fields that have the right type, cleaned; everything else goes. */

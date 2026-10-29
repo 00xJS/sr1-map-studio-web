@@ -192,22 +192,25 @@ type LogKind = 'create' | 'update' | 'play' | 'attempt' | 'time'
  */
 async function attempt(admin: SupabaseClient, kind: 'attempt' | 'time', uid: string | null, ip: string | null, max: number): Promise<boolean> {
   const who = uid ? { owner: uid } : { ip_hash: ip! }
-  // Logged first, then counted with this try included: tries sent at the same moment can't all slip under.
+  const count = async () => {
+    // A GET for no rows, so a missing column comes back with its code (see upToDate).
+    let q = admin.from('share_log').select('id', { count: 'exact' }).eq('kind', kind).gte('created_at', since(3600_000))
+    q = uid ? q.eq('owner', uid) : q.eq('ip_hash', ip!)
+    const r = await q.limit(0)
+    if (r.error && !missing(r.error)) throw r.error
+    return r.error ? null : r.count ?? 0
+  }
+  // Already at the limit: refused without logging, so a flood of tries doesn't grow the log.
+  const before = await count()
+  if (before === null) return true // an early copy of migration 0004, without these kinds: nothing to count with
+  if (before >= max) return false
+  // Logged, then counted again with this try included: tries sent at the same moment can't all slip under.
   const ins = await admin.from('share_log').insert({ kind, token: null, ip_hash: null, ...who })
   if (ins.error) {
-    // An early copy of migration 0004, without these kinds or the owner column: nothing to count with.
     if (missing(ins.error) || ins.error.code === '23514') return true
     throw ins.error
   }
-  // A GET for no rows, so a missing column comes back with its code (see upToDate).
-  let q = admin.from('share_log').select('id', { count: 'exact' }).eq('kind', kind).gte('created_at', since(3600_000))
-  q = uid ? q.eq('owner', uid) : q.eq('ip_hash', ip!)
-  const r = await q.limit(0)
-  if (r.error) {
-    if (missing(r.error)) return true
-    throw r.error
-  }
-  return (r.count ?? 0) <= max
+  return ((await count()) ?? 0) <= max
 }
 
 async function logged(admin: SupabaseClient, kind: LogKind, ip: string, within: number, token?: string): Promise<number> {

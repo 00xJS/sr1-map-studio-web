@@ -268,8 +268,8 @@ describe('the share function', () => {
     for (let i = 0; i < 3; i++) expect((await call('', { title: 'x', data: 'not a share' })).status).toBe(422)
     expect((await call('', { title: 'x', data: data() })).status).toBe(429)
     expect((await call('', { title: 'x', data: data() }, { ip: '198.51.100.20' })).status).toBe(200)
-    // The refused try is logged too.
-    expect(db.tables.share_log.filter((l) => l.kind === 'attempt' && l.owner === 'u-alice')).toHaveLength(4)
+    // A try refused at the limit isn't logged: a flood doesn't grow the log.
+    expect(db.tables.share_log.filter((l) => l.kind === 'attempt' && l.owner === 'u-alice')).toHaveLength(3)
   })
 
   it('counts every board time sent, refused ones too', async () => {
@@ -648,6 +648,112 @@ describe('the share function', () => {
     expect((await call('/play', { token: r.body.token })).status).toBe(200)
     expect((await call('', { token: r.body.token }, { method: 'DELETE', jwt: 'alice' })).status).toBe(200)
     expect(db.tables.shares).toHaveLength(0)
+  })
+})
+
+describe('round-5 review: what a share can still be made to do', () => {
+  const imported = (model: string): any => { const d: any = siteDoc(); d.made = { 'mesh/0': 'import' }; delete d.builds; d.models['mesh/0'] = model; return d }
+
+  it('refuses a model with a long run of digits quickly, however many there are', async () => {
+    const { cleanObj, isCleanObj } = await import('../src/play/share')
+    for (const n of [60_000, 200_000]) {
+      const bad = 'v ' + '1'.repeat(n) + 'x 0 0\nf 1 1 1\n'
+      let t = performance.now()
+      expect(isCleanObj(bad)).toBe(false)
+      expect(cleanObj(bad)).toBeNull()
+      expect(performance.now() - t).toBeLessThan(500)
+      t = performance.now()
+      const r = await call('', { title: 'x', data: data(imported(bad)) }, { ip: '198.51.100.' + (n % 200) })
+      expect(r.status).toBe(422)
+      expect(performance.now() - t).toBeLessThan(1500)
+    }
+    // Several such models in one share, and runs in the fraction and the exponent.
+    const d: any = imported('v 0 0 0\nf 1 1 1\n')
+    for (let i = 1; i < 8; i++) {
+      d.project.scene_items.push({ uid: 'w' + i, name: 'W', path: 'mesh/' + i, position: [0, 0, 0], rotation: [0, 0, 0], scale: 1, textures: {}, alpha: {} })
+      d.models['mesh/' + i] = ['v ' + '1'.repeat(40_000) + 'x 0 0', 'v 1.' + '1'.repeat(40_000) + 'x 0 0', 'v 1e' + '1'.repeat(40_000) + 'x 0 0'][i % 3] + '\nf 1 1 1\n'
+      d.made['mesh/' + i] = 'import'
+    }
+    const t = performance.now()
+    expect((await call('', { title: 'x', data: data(d) }, { jwt: 'bob' })).status).toBe(422)
+    expect(performance.now() - t).toBeLessThan(1500)
+  })
+
+  it('caps the triangles a map places in all, so a board time’s wall check stays quick', async () => {
+    const big = 'v 0 0 0\nv 1 0 0\nv 0 1 0\nv 0 0 1\n' + 'f 1 2 3\nf 1 3 4\n'.repeat(50_000) // 100,000 triangles
+    const placedTimes = (n: number) => {
+      const d = imported(big)
+      d.project.scene_items = Array.from({ length: n }, (_, i) => ({ uid: 'w' + i, name: 'W', path: 'mesh/0', position: [i, 0, 0], rotation: [0, 0, 0], scale: 1, textures: {}, alpha: {} }))
+      return d
+    }
+    const over = await call('', { title: 'x', data: data(placedTimes(11)) }, { jwt: 'alice' })
+    expect(over.status).toBe(422)
+    expect(over.body.problems.join()).toMatch(/more than 1,000,000 triangles/)
+    const ok = await call('', { title: 'x', data: data(placedTimes(10)) }, { jwt: 'alice' })
+    expect(ok.status).toBe(200)
+    const t = performance.now()
+    await call('/time', { token: ok.body.token, mode: 'weapons', name: 'Ace', ...around() })
+    expect(performance.now() - t).toBeLessThan(8000)
+    // A link stored before the cap: the wall check is skipped rather than built.
+    const { wallsOf } = await import('../src/play/ghostWalls')
+    expect(wallsOf(placedTimes(11))).toBeNull()
+  })
+
+  it('takes a share whose objects name materials their model doesn’t have, and is the same when checked twice', async () => {
+    const { validateShareDoc } = await import('../src/play/share')
+    const d: any = siteDoc()
+    d.project.scene_items[0].textures = { '(default)': 'tex/0', oldMat: 'tex/1' }
+    d.textures = { 'tex/0': { kind: 'library', id: 'concrete' }, 'tex/1': { kind: 'library', id: 'concrete' } }
+    const r = await call('', { title: 'x', data: data(d) }, { jwt: 'alice' })
+    expect(r.status).toBe(200)
+    const kept = storedDoc(r.body.token)
+    expect(Object.keys(kept.textures)).toEqual(['tex/0'])
+    const once = validateShareDoc(d).doc!
+    const twice = validateShareDoc(JSON.parse(JSON.stringify(once)))
+    expect(twice.problems).toEqual([])
+    expect(JSON.stringify(twice.doc)).toBe(JSON.stringify(once))
+  })
+
+  it('treats __proto__ as a name like any other', async () => {
+    const d = imported('v 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl __proto__\nf 1 2 3\nusemtl constructor\nf 1 2 3\n')
+    d.project.scene_items[0].textures = JSON.parse('{"__proto__":"tex/0","constructor":"tex/0"}')
+    d.textures = { 'tex/0': { kind: 'library', id: 'concrete' } }
+    const r = await call('', { title: 'x', data: data(d) }, { jwt: 'alice' })
+    expect(r.status).toBe(200)
+    const kept = storedDoc(r.body.token)
+    expect(kept.models['mesh/0']).toBe('v 0 0 0\nv 1 0 0\nv 0 1 0\nusemtl m0\nf 1 2 3\nusemtl m1\nf 1 2 3\n')
+    expect(kept.project.scene_items[0].textures).toEqual({ m0: 'tex/0', m1: 'tex/0' })
+  })
+
+  it('packs the same share to the same bytes, so a board keeps its times when nothing changed', async () => {
+    const d = siteDoc()
+    expect(toBase64(packShare(d))).toBe(toBase64(packShare(JSON.parse(JSON.stringify(d)))))
+    const a = await call('', { title: 'x', data: data(d) }, { jwt: 'alice' })
+    const first = db.tables.shares[0].data_hash
+    await new Promise((r) => setTimeout(r, 1100)) // a gzip timestamp is in whole seconds
+    await call('', { title: 'x', data: data(d), token: a.body.token }, { jwt: 'alice' })
+    expect(db.tables.shares[0].data_hash).toBe(first)
+  })
+
+  it('stops logging tries once at the limit, so a flood doesn’t grow the log', async () => {
+    process.env.SHARE_ATTEMPTS_PER_HOUR = '3'
+    for (let i = 0; i < 10; i++) await call('', { title: 'x', data: 'bm90IGEgc2hhcmU=' }, { jwt: 'alice' })
+    expect(db.tables.share_log.filter((l) => l.kind === 'attempt')).toHaveLength(3)
+  })
+
+  it('asks about pictures in batches small enough for a request’s address', async () => {
+    const old = new Date(Date.now() - 2 * 3600_000).toISOString()
+    const files = Array.from({ length: 250 }, (_, i) => ({ name: `stray${i}.webp`, created_at: old }))
+    const batches: number[] = []
+    const admin: any = {
+      from: () => ({ select: () => ({
+        not: () => ({ order: () => ({ range: async () => ({ data: [], error: null }) }) }),
+        in: async (_: string, names: string[]) => { batches.push(names.length); return { data: [], error: null } },
+      }) }),
+      storage: { from: () => ({ list: async () => ({ data: files, error: null }), remove: async () => ({ error: null }) }) },
+    }
+    expect(await sweepPictures(admin)).toBe(250)
+    expect(Math.max(...batches)).toBeLessThanOrEqual(100)
   })
 })
 

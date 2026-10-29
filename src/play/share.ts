@@ -91,7 +91,9 @@ export const SHARE_LIMITS = {
 
 // ---------------- OBJ geometry ----------------
 
-const NUM = '[-+]?(?:\\d+\\.?\\d*|\\.\\d+)(?:[eE][-+]?\\d+)?'
+// A run of digits splits only one way (an optional fraction after it), so a long run followed by a bad
+// character fails in linear time instead of trying every split.
+const NUM = '[-+]?(?:\\d+(?:\\.\\d*)?|\\.\\d+)(?:[eE][-+]?\\d+)?'
 const IDX = '-?\\d+(?:/-?\\d*)?(?:/-?\\d+)?'
 const NAME = '[^\\x00-\\x1f\\x7f]{1,64}'
 const OBJ_RULES: Record<string, RegExp> = {
@@ -114,6 +116,7 @@ const OBJ_RULES: Record<string, RegExp> = {
 export function cleanObj(text: string): string | null {
   const out: string[] = []
   for (const raw of text.split(/\r?\n/)) {
+    if (raw.length > MAX_LINE && !raw.trimStart().startsWith('#')) return null
     const line = raw.trim().replace(/\s+/g, ' ')
     if (!line || line.startsWith('#')) continue
     const key = line.split(' ', 1)[0]
@@ -130,12 +133,21 @@ export const MATERIAL_NAME = /^[A-Za-z0-9_.-]{1,64}$/
 /** Materials one model may use, and a whole share. */
 export const MAX_MATERIALS = 256
 export const MAX_SHARE_MATERIALS = 4096
+/**
+ * Triangles placed in all, each object counting its model's: what a board time's wall check builds (about 3 s for
+ * a million on the server), and what a phone has to draw.
+ */
+export const MAX_PLACED_TRIANGLES = 1_000_000
 /** Coordinates beyond this aren't a map's (editor units); a model with one isn't shared. */
 const MAX_COORD = 1e7
 const MAX_INDEX = 1e8
 /** A number already as canonicalObj writes it: at most five decimals, no trailing zeros, no sign on zero. */
 const CANON_NUM = /^-?(?:0|[1-9]\d{0,6})(?:\.\d{0,4}[1-9])?$/
-const ANY_NUM = /^[-+]?(?:\d+\.?\d*|\.\d+)(?:[eE][-+]?\d+)?$/
+const ANY_NUM = /^[-+]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][-+]?\d+)?$/
+/** No number or index a model needs is longer; anything longer is refused before any pattern is tried. */
+const MAX_TOKEN = 32
+/** Longer than any line cleanObj keeps (64 corners of three indices). */
+const MAX_LINE = 4096
 const INDEX = /^-?\d{1,9}$/
 const NAME_OK = new RegExp(`^${NAME}$`)
 const SMOOTH = /^(?:\d{1,6}|on|off)$/
@@ -149,12 +161,13 @@ const COUNTS: Record<string, [number, number]> = { v: [3, 6], vt: [1, 3], vn: [3
  * names); and no object, group or smoothing lines. So the text says nothing but the geometry. `materials` is how
  * many it uses (validateShareDoc caps them).
  */
-export function canonicalObj(text: string): { obj: string; renamed: Record<string, string>; materials: number } | null {
+export function canonicalObj(text: string): { obj: string; renamed: Map<string, string>; materials: number; triangles: number } | null {
   if (!text.endsWith('\n')) return null
-  const renamed: Record<string, string> = {}
-  let materials = 0, faces = false
+  const renamed = new Map<string, string>()
+  let materials = 0, triangles = 0, faces = false
   const out: string[] = []
   const num = (t: string) => {
+    if (t.length > MAX_TOKEN) return null
     if (CANON_NUM.test(t) && t !== '-0') return t
     if (!ANY_NUM.test(t)) return null
     const x = Number(t)
@@ -162,7 +175,7 @@ export function canonicalObj(text: string): { obj: string; renamed: Record<strin
   }
   const index = (t: string, first: boolean) => {
     if (t === '') return first ? null : ''
-    if (!INDEX.test(t)) return null
+    if (t.length > 10 || !INDEX.test(t)) return null
     const i = Number(t)
     return i !== 0 && Math.abs(i) <= MAX_INDEX ? String(i) : null
   }
@@ -170,14 +183,15 @@ export function canonicalObj(text: string): { obj: string; renamed: Record<strin
     const end = text.indexOf('\n', at)
     const line = text.slice(at, end)
     at = end + 1
+    if (line.length > MAX_LINE) return null
     const cut = line.indexOf(' ')
     if (cut <= 0) return null
     const key = line.slice(0, cut), rest = line.slice(cut + 1)
     if (key === 'usemtl' || key === 'o' || key === 'g') {
       if (!NAME_OK.test(rest)) return null
       if (key !== 'usemtl') continue // names say nothing about the shape
-      if (!Object.hasOwn(renamed, rest)) renamed[rest] = 'm' + materials++
-      out.push('usemtl ' + renamed[rest])
+      if (!renamed.has(rest)) renamed.set(rest, 'm' + materials++)
+      out.push('usemtl ' + renamed.get(rest))
       continue
     }
     if (key === 's') { if (!SMOOTH.test(rest)) return null; continue }
@@ -196,7 +210,7 @@ export function canonicalObj(text: string): { obj: string; renamed: Record<strin
         }
         toks[i] = parts.join('/')
       }
-      if (key === 'f') faces = true
+      if (key === 'f') { faces = true; triangles += toks.length - 2 }
     } else {
       for (let i = 0; i < toks.length; i++) {
         const v = num(toks[i])
@@ -206,14 +220,14 @@ export function canonicalObj(text: string): { obj: string; renamed: Record<strin
     }
     out.push(key + ' ' + toks.join(' '))
   }
-  return faces ? { obj: out.join('\n') + '\n', renamed, materials } : null
+  return faces ? { obj: out.join('\n') + '\n', renamed, materials, triangles } : null
 }
 
 /** True when every line is a geometry line cleanObj would keep as it is. */
 export function isCleanObj(text: string): boolean {
   if (!text.endsWith('\n')) return false
   const lines = text.slice(0, -1).split('\n')
-  return lines.some((l) => l.startsWith('f ')) && lines.every((l) => OBJ_RULES[l.split(' ', 1)[0]]?.test(l) ?? false)
+  return lines.some((l) => l.startsWith('f ')) && lines.every((l) => l.length <= MAX_LINE && (OBJ_RULES[l.split(' ', 1)[0]]?.test(l) ?? false))
 }
 
 // ---------------- texture recipes ----------------
@@ -257,22 +271,16 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
   if (project.lights.length > SHARE_LIMITS.lights) problems.push(`A share can hold at most ${SHARE_LIMITS.lights} lights.`)
   if (JSON.stringify(project).length > SHARE_LIMITS.projectChars) problems.push('The map data is too large to share.')
 
-  const usedModels = new Set<string>(), usedTextures = new Set<string>()
+  const usedModels = new Set<string>()
   for (const it of project.scene_items) {
-    const { models, textures } = itemPaths(it)
-    for (const m of models) {
+    for (const m of itemPaths(it).models) {
       if (isDataPackPath(m)) continue
       if (!Object.hasOwn(d.models, m)) { problems.push(`Object "${String(it.name).slice(0, 60)}" uses a model the share doesn't hold.`); continue }
       usedModels.add(m)
     }
-    for (const t of textures) {
-      if (isDataPackPath(t)) continue
-      if (!Object.hasOwn(d.textures, t)) { problems.push(`Object "${String(it.name).slice(0, 60)}" uses a texture the share doesn't hold.`); continue }
-      usedTextures.add(t)
-    }
   }
   let chars = 0
-  const models: Record<string, string> = {}, renames: Record<string, Record<string, string>> = {}
+  const models = new Map<string, string>(), renames = new Map<string, Map<string, string>>(), triangles = new Map<string, number>()
   let materials = 0
   for (const [path, text] of Object.entries(d.models)) {
     if (!usedModels.has(path)) { problems.push('The share holds a model no object uses.'); break }
@@ -286,15 +294,42 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
     if (!c) { problems.push('A model in the share is not plain OBJ geometry.'); continue }
     if (c.materials > MAX_MATERIALS) { problems.push(`A model in the share uses more than ${MAX_MATERIALS} materials.`); continue }
     materials += c.materials
-    models[path] = c.obj
-    renames[path] = c.renamed
+    models.set(path, c.obj)
+    renames.set(path, c.renamed)
+    triangles.set(path, c.triangles)
   }
   if (materials > MAX_SHARE_MATERIALS) problems.push(`The share’s models use more than ${MAX_SHARE_MATERIALS.toLocaleString('en')} materials in all.`)
   if (chars > SHARE_LIMITS.modelChars) problems.push('The map\'s models are too large to share.')
-  const textures = Object.entries(d.textures)
-  if (textures.length > SHARE_LIMITS.textures) problems.push(`A share can hold at most ${SHARE_LIMITS.textures} textures.`)
-  for (const [path, r] of textures) {
-    if (!usedTextures.has(path)) { problems.push('The share holds a texture no object uses.'); break }
+  let placed = 0
+  for (const it of project.scene_items) for (const m of itemPaths(it).models) placed += triangles.get(m) ?? 0
+  if (placed > MAX_PLACED_TRIANGLES) problems.push(`The map places more than ${MAX_PLACED_TRIANGLES.toLocaleString('en')} triangles in all (each object counts its model’s).`)
+
+  // Objects follow their models' renamed materials; settings for materials their model doesn't have go. Which
+  // textures are used is worked out after that, so a texture only a dropped setting named goes too.
+  for (const it of project.scene_items) {
+    const own = renames.get(it.path), mesh = renames.get(it.native_mesh_obj ?? '')
+    if (!own && !mesh) continue
+    const r = new Map<string, string>([['(default)', '(default)'], ...(mesh ?? []), ...(own ?? [])])
+    const keys = <T,>(o: Record<string, T> | undefined) => o && Object.fromEntries(Object.entries(o).filter(([k]) => r.has(k)).map(([k, v]) => [r.get(k)!, v]))
+    it.textures = keys(it.textures)!
+    it.alpha = keys(it.alpha)!
+    if (it.glow) it.glow = keys(it.glow)
+    if (it.surface_ids) it.surface_ids = keys(it.surface_ids)
+    if (it.water_materials) it.water_materials = it.water_materials.filter((m) => r.has(m)).map((m) => r.get(m)!)
+  }
+  const usedTextures = new Set<string>()
+  for (const it of project.scene_items) {
+    for (const t of itemPaths(it).textures) {
+      if (isDataPackPath(t)) continue
+      if (!Object.hasOwn(d.textures, t)) { problems.push(`Object "${String(it.name).slice(0, 60)}" uses a texture the share doesn't hold.`); continue }
+      usedTextures.add(t)
+    }
+  }
+  const allTextures = Object.entries(d.textures)
+  if (allTextures.length > SHARE_LIMITS.textures) problems.push(`A share can hold at most ${SHARE_LIMITS.textures} textures.`)
+  // A texture no object uses is left out (not refused): settings for a material its model doesn't have may have named it.
+  const textures = allTextures.filter(([path]) => usedTextures.has(path))
+  for (const [, r] of textures) {
     const bad = checkRecipe(r)
     if (bad) { problems.push(`A texture in the share ${bad}.`); break }
   }
@@ -314,21 +349,9 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
   const uniq = [...new Set(problems)]
   if (uniq.length) return { problems: uniq, doc: null }
   const clean = Object.fromEntries(textures.map(([k, r]) => [k, cleanRecipe(fromLegacy(r) as TextureRecipe)]))
-  // Objects follow their models' renamed materials; settings for materials their model doesn't have go.
-  for (const it of project.scene_items) {
-    if (!Object.hasOwn(renames, it.path) && !Object.hasOwn(renames, it.native_mesh_obj ?? '')) continue
-    const r: Record<string, string> = { '(default)': '(default)', ...renames[it.native_mesh_obj ?? ''], ...renames[it.path] }
-    const name = (m: string) => r[m] ?? m
-    const keys = <T,>(o: Record<string, T> | undefined) => o && Object.fromEntries(Object.entries(o).filter(([k]) => Object.hasOwn(r, k)).map(([k, v]) => [name(k), v]))
-    it.textures = keys(it.textures)!
-    it.alpha = keys(it.alpha)!
-    if (it.glow) it.glow = keys(it.glow)
-    if (it.surface_ids) it.surface_ids = keys(it.surface_ids)
-    if (it.water_materials) it.water_materials = it.water_materials.filter((m) => Object.hasOwn(r, m)).map(name)
-  }
   const doc: ShareDoc = {
     format: 'sr1-map-studio-share', version: 1, title: d.title.trim(), created_at: typeof d.created_at === 'string' ? d.created_at.slice(0, 40) : '',
-    project, models, textures: clean,
+    project, models: Object.fromEntries(models), textures: clean,
   }
   if (d.made) doc.made = { ...d.made }
   if (d.builds) doc.builds = JSON.parse(JSON.stringify(d.builds))
@@ -392,7 +415,8 @@ export function previewProblem(b: Uint8Array): string | null {
 
 /** gzip of the share's JSON. */
 /** `level` 3 is what a server repacks with: a third of the time of 9, and about 3% larger. */
-export const packShare = (doc: ShareDoc, level: 3 | 9 = 9): Uint8Array => gzipSync(strToU8(JSON.stringify(doc)), { level })
+/** No timestamp in the gzip: the same share packs to the same bytes, so its hash (a board's map) stays the same. */
+export const packShare = (doc: ShareDoc, level: 3 | 9 = 9): Uint8Array => gzipSync(strToU8(JSON.stringify(doc)), { level, mtime: 0 })
 
 /** Reads a packed share, refusing anything that would unpack past the limits. */
 export const unpackShare = (bytes: Uint8Array): unknown => JSON.parse(unpackShareText(bytes))

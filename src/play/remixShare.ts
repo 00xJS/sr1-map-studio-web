@@ -34,7 +34,7 @@ export async function remixShare(token: string, onProgress?: (text: string) => v
       if (raw && c && sameObj(c.obj, text)) {
         obj = raw
         recipe = b
-        back.set(k, Object.fromEntries(Object.entries(c.renamed).map(([from, to]) => [to, from])))
+        back.set(k, Object.fromEntries([...c.renamed].map(([from, to]) => [to, from])))
       }
     }
     const stored = await storeFile(new Blob([obj], { type: 'model/obj' }), `${k.replace(/\W+/g, '_')}.obj`)

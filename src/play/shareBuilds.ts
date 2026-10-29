@@ -237,12 +237,12 @@ export function cleanBuild(b: ModelBuild): ModelBuild {
  */
 export function cleanBuilds<D extends Pick<ShareDoc, 'builds'>>(doc: D): { doc: D; problems: string[] } {
   if (!doc.builds) return { doc, problems: [] }
-  const builds: Record<string, ModelBuild> = {}
+  const builds: [string, ModelBuild][] = []
   for (const [k, b] of Object.entries(doc.builds)) {
     if (buildProblem(b)) return { doc, problems: ['The share’s model settings are not valid.'] }
-    builds[k] = cleanBuild(b)
+    builds.push([k, cleanBuild(b)])
   }
-  return { doc: { ...doc, builds }, problems: [] }
+  return { doc: { ...doc, builds: Object.fromEntries(builds) }, problems: [] }
 }
 
 /**

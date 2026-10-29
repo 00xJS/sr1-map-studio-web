@@ -65,8 +65,9 @@ export async function sweepPictures(admin: SupabaseClient): Promise<number> {
   // Asked again just before deleting: a picture a moderator approved meanwhile moved to a name the first look missed,
   // and keeps its old upload time.
   let gone = 0
-  for (let i = 0; i < stray.length; i += 500) {
-    const batch = stray.slice(i, i + 500)
+  // A hundred names at a time: they go in the request's address, which has a length limit.
+  for (let i = 0; i < stray.length; i += 100) {
+    const batch = stray.slice(i, i + 100)
     const still = await admin.from('shares').select('thumb_path').in('thumb_path', batch)
     if (still.error) throw still.error
     const named = new Set((still.data ?? []).map((r) => (r as { thumb_path: string }).thumb_path))

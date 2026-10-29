@@ -141,7 +141,7 @@ describe('times', () => {
 
 // ---------------- sharing ----------------
 
-const OBJ = '# made by hand\nmtllib crate.mtl\no crate\nv 0 0 0\nv 1 0 0\nv  0 1 0\nvt 0 0\nvt 1 0\nvt 0 1\nvn 0 0 1\nusemtl top\nf 1/1/1 2/2/1 3/3/1\n'
+const OBJ = '# made by hand\nmtllib crate.mtl\no crate\nv 0 0 0\nv 1 0 0\nv  0 1 0\nvt 0 0\nvt 1 0\nvt 0 1\nvn 0 0 1\nusemtl top\nf 1/1/1 2/2/1 3/3/1\nusemtl side\nf 1/1/1 3/3/1 2/2/1\n'
 
 describe('share geometry', () => {
   it('keeps geometry and drops comments and material libraries', () => {

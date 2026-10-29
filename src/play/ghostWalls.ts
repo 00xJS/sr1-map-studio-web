@@ -6,12 +6,19 @@ import { collisionFromProject } from '../lib/analysis/collision'
 import { SOLID } from '../lib/analysis/types'
 import { parseObj, type ObjModel } from '../lib/geometry'
 import type { WallTest } from './ghost'
-import type { ShareDoc } from './share'
+import { MAX_PLACED_TRIANGLES, type ShareDoc } from './share'
 
-/** A wall test for the share's map, or null when it has nothing solid. */
+/**
+ * A wall test for the share's map, or null when it has nothing solid, or places more triangles than a share may
+ * (MAX_PLACED_TRIANGLES: each object copies its model's, so building it would take too long; a link stored today
+ * can't, see validateShareDoc).
+ */
 export function wallsOf(doc: ShareDoc): WallTest | null {
   const models = new Map<string, ObjModel>()
   for (const [k, text] of Object.entries(doc.models)) { try { models.set(k, parseObj(text)) } catch { /* left out, like a missing file */ } }
+  let placed = 0
+  for (const it of doc.project.scene_items) placed += (models.get(it.path)?.faces.length ?? 0) / 3
+  if (placed > MAX_PLACED_TRIANGLES) return null
   const input = collisionFromProject(doc.project, (p) => models.get(p))
   if (!input.flags.length) return null
   const bvh = new Bvh(input.tris, input.flags)
