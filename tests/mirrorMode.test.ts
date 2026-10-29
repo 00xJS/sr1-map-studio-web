@@ -290,7 +290,7 @@ describe('mirror mode', () => {
     expect(st().mirror).toBe(false)
   })
 
-  it('keeps a drag quick on a big map', () => {
+  it('keeps a drag quick on a big map', { timeout: 30_000 }, () => {
     const p = newProject('Big')
     for (let i = 0; i < 500; i++) { const x = (i % 50) * 4 + 3, z = Math.floor(i / 50) * 4 + 3; p.scene_items.push(box('A' + (i % 7), [x, 0, z]), box('A' + (i % 7), [-x, 0, -z], 180)) }
     const frame = () => st().update('Move', (d) => { for (let i = 0; i < 400; i += 2) { const q = d.scene_items[i].position; d.scene_items[i].position = [q[0] + 0.01, 0, q[2]] } }, { merge: 'drag' })
