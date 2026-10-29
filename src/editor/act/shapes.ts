@@ -1,5 +1,5 @@
 // Block-out shapes, prefabs and photo frames.
-import { useEditor, currentProject, thingKey, command, type Edits } from '../store'
+import { useEditor, currentProject, mapRun, stillCurrent, thingKey, command, type Edits, type Run } from '../store'
 import { importImage } from '../../lib/importers'
 import { cacheModel } from '../../lib/assets'
 import { uid, type FileRef, type Project, type SceneItem, type Vec3 } from '../../lib/project'
@@ -30,13 +30,15 @@ async function storeShape(shape: Shape) {
 }
 
 /** Adds a block-out shape at the camera target, resting on the surface below if there is one. */
-export const addShape = command(async (e: Edits, presetKey: string, at: Vec3, groundY: number | null, o: { rot?: number; size?: Vec3 } = {}) => {
+export const addShape = command(async (e: Edits, presetKey: string, at: Vec3, groundY: number | null, o: { rot?: number; size?: Vec3 } = {}, run: Run = mapRun()) => {
   const preset = SHAPE_PRESETS[presetKey]
   if (!preset) return
   const shape = structuredClone(preset.shape)
   if (o.size) shape.size = o.size.map((v) => Math.max(0.1, Math.min(400, +v || 1))) as Vec3
   const stored = await storeShape(shape)
   const tex = await defaultShapeTextures()
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   const item: SceneItem = {
     uid: uid(), name: shapeName(preset.label, shape, currentProject()?.settings.world_scale), path: stored.vpath, source_path: stored.vpath, shape,
     position: [at[0], groundY ?? 0, at[2]], rotation: [0, o.rot ?? 0, 0], scale: 1,
@@ -82,10 +84,10 @@ export async function prefabItem(key: string, params: Record<string, number | st
  * With `wall` (the clicked surface's outward direction), one that can go on a
  * wall (a sign, a photo frame) is stuck flat on it, centred on the click.
  */
-export const addPrefab = command(async (e: Edits, key: string, at: Vec3, groundY: number | null, o: { rot?: number; params?: Record<string, number | string>; wall?: Vec3 } = {}) => {
+export const addPrefab = command(async (e: Edits, key: string, at: Vec3, groundY: number | null, o: { rot?: number; params?: Record<string, number | string>; wall?: Vec3 } = {}, run: Run = mapRun()) => {
   const def = ALL_PREFABS[key]
   if (!def) return
-  if ((def as { physicsSet?: boolean }).physicsSet) { const physics = await import('../physicsActions'); return e.quietly(() => physics.addPhysicsSet(key, at, groundY, o.rot ?? 0)) }
+  if ((def as { physicsSet?: boolean }).physicsSet) { const physics = await import('../physicsActions'); return e.quietly(() => physics.addPhysicsSet(key, at, groundY, o.rot ?? 0, run)) }
   let params = o.params ?? {}, base: Vec3 = [at[0], groundY ?? 0, at[2]], rot = o.rot ?? 0
   const n = o.wall
   if (def.onWall && n && Math.abs(n[1]) < 0.6) {
@@ -97,6 +99,8 @@ export const addPrefab = command(async (e: Edits, key: string, at: Vec3, groundY
     base = [at[0] + (n[0] / len) * 0.03, at[1] - top / 2, at[2] + (n[2] / len) * 0.03]
   }
   const { item, files } = await prefabItem(key, params, base, rot)
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   e.update('Add ' + def.label.toLowerCase(), (d) => {
     Object.assign(d.files, files)
     d.scene_items.push(item)
@@ -106,11 +110,13 @@ export const addPrefab = command(async (e: Edits, key: string, at: Vec3, groundY
 })
 
 /** Rebuilds a placed prefab with new settings, in place; repaints the user made are kept where the same part still exists. */
-export const updatePrefab = command(async (e: Edits, index: number, params: Record<string, number | string>) => {
+export const updatePrefab = command(async (e: Edits, index: number, params: Record<string, number | string>, run: Run = mapRun()) => {
   const it = currentProject()?.scene_items[index]
   const pf = it?.prefab
   if (!it || !pf || !ALL_PREFABS[pf.key]) return
   const { item, files } = await prefabItem(pf.key, params, it.position, it.rotation[1])
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   const repaint = new Map(Object.entries(pf.defaults).filter(([m, v]) => it.textures[m] && it.textures[m] !== v).map(([m, v]) => [v, it.textures[m]]))
   e.update('Change ' + ALL_PREFABS[pf.key].label.toLowerCase(), (d) => {
     Object.assign(d.files, files)

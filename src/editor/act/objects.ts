@@ -1,5 +1,5 @@
 // Objects: importing models, the asset library, glass, per-object edits, breakables, textures and map files.
-import { useEditor, currentProject, thingKey, command, type Edits } from '../store'
+import { useEditor, currentProject, mapRun, stillCurrent, thingKey, command, type Edits, type Run } from '../store'
 import { importModels, importImage, type ImportedModel } from '../../lib/importers'
 import { cacheModel, loadModel } from '../../lib/assets'
 import { groundOffset, meshPivot, withPivot } from '../../lib/geometry'
@@ -182,11 +182,12 @@ export async function convertBreakable(index: number, mode: 'glass' | 'wood') {
   log('Experimental native custom-mesh breakable: ' + item.name + '; fitted Havok collision experiment enabled.')
 }
 
-export const returnStatic = command(async (e: Edits, index: number) => {
+export const returnStatic = command(async (e: Edits, index: number, run: Run = mapRun()) => {
   const p = currentProject()
   const it = p?.scene_items[index]
   if (!p || !it || index <= 0 || !isGlass(it)) return
   const item = await py.sceneOp<SceneItem>('return_static', { item: it })
+  stillCurrent(run)
   e.update('Return to static', (d) => { d.scene_items[index] = { ...item, uid: it.uid } })
   log('Returned selected prop to normal static map geometry; re-export to apply.')
 })
@@ -223,8 +224,9 @@ export async function sceneAudit(): Promise<string> {
 }
 
 /** surface: also set the material's physical surface (texture studio presets know theirs). */
-export const assignTexture = command(async (e: Edits, index: number, mat: string, file: File, surface?: number) => {
+export const assignTexture = command(async (e: Edits, index: number, mat: string, file: File, surface?: number, run: Run = mapRun()) => {
   const s = await importImage(file)
+  stillCurrent(run)
   e.update('Assign texture', (d) => {
     d.files[s.vpath] = s.ref
     const it = d.scene_items[index]

@@ -3,14 +3,19 @@
 // others, the editor is locked while it runs, a fix that never finishes can be stopped (or times out) without writing
 // later, opening a map ends it, and one map's findings never show on another.
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { editJob, useEditor, whenUnlocked } from '../../src/editor/store'
+import { JobTooLong, MapChanged, editJob, startRun, stillCurrent, useEditor, whenUnlocked } from '../../src/editor/store'
+import { storeFile } from '../../src/lib/files'
+import { addShape } from '../../src/editor/act/shapes'
+import { runMapChecks } from '../../src/editor/mapChecks'
+import { gameObjectItem } from '../../src/lib/gameObjects/place'
+import { loadIndex } from '../../src/lib/gameObjects/client'
 import { runAiActions } from '../../src/editor/aiActions'
 import { loadModel } from '../../src/lib/assets'
 import { skyFile } from '../../src/lib/samples'
 import { addDefaultSky } from '../../src/editor/actions'
 import { useHealth } from '../../src/editor/health'
 import { handleKey } from '../../src/editor/shortcuts'
-import { fixAll } from '../../src/editor/checkFixes'
+import { FIX_TIME_LIMIT, fixAll } from '../../src/editor/checkFixes'
 import { applySpawnFix, fixSpawnsAndWeapons } from '../../src/editor/spawnActions'
 import { parseObj } from '../../src/lib/geometry'
 import { newMarker, newProject, type SceneItem } from '../../src/lib/project'
@@ -45,6 +50,26 @@ vi.mock('../../src/lib/assets', async (orig) => ({
 vi.mock('../../src/lib/files', async (orig) => ({
   ...(await orig<typeof import('../../src/lib/files')>()),
   storeFile: vi.fn(async (_b: Blob, name: string) => ({ vpath: 'files/' + name, ref: { hash: 'h-' + name, name, type: 'model/obj', size: 1, origin: 'user' } })),
+  storeFileIf: vi.fn(async (_b: Blob, name: string, keep: () => boolean) => keep() ? { vpath: 'files/' + name, ref: { hash: 'h-' + name, name, type: 'model/obj', size: 1, origin: 'user' } } : null),
+}))
+// The game object library: its index and an object's files, stood in for; placeGameObject is the real one.
+const GAME = [{ id: 'bench', name: 'Bench', size: [2, 1, 1] }, { id: 'bin', name: 'Bin', size: [1, 1, 1] }] as never[]
+vi.mock('../../src/lib/gameObjects/client', async (orig) => ({
+  ...(await orig<typeof import('../../src/lib/gameObjects/client')>()),
+  loadIndex: vi.fn(async () => GAME),
+  entryById: (id: string) => (GAME as { id: string }[]).find((e) => e.id === id),
+}))
+vi.mock('../../src/lib/gameObjects/tags', async (orig) => ({
+  ...(await orig<typeof import('../../src/lib/gameObjects/tags')>()),
+  varietyPick: () => GAME,
+}))
+vi.mock('../../src/lib/gameObjects/place', async (orig) => ({
+  ...(await orig<typeof import('../../src/lib/gameObjects/place')>()),
+  sinkUnits: () => 0,
+  gameObjectItem: vi.fn(async (e: { id: string; name: string }, at: [number, number, number]) => ({
+    item: { uid: 'g-' + Math.random(), name: e.name, path: 'files/' + e.id + '.obj', position: at, rotation: [0, 0, 0], scale: 1, textures: {} },
+    files: {},
+  })),
 }))
 vi.mock('../../src/lib/importers', async (orig) => ({
   ...(await orig<typeof import('../../src/lib/importers')>()),
@@ -215,7 +240,8 @@ describe('Fix all that never finishes', () => {
     await vi.waitFor(() => expect(skyFile).toHaveBeenCalled())
     const b = openMap()
     release()
-    await expect(adding).rejects.toThrow(/map changed/)
+    // A map change, not a failure: the checklist says nothing for it.
+    await expect(adding).rejects.toBeInstanceOf(MapChanged)
     expect(useEditor.getState().project).toBe(b)
     expect(useEditor.getState().past).toEqual([])
   })
@@ -283,6 +309,263 @@ describe('Fix all and the edits running beside it', () => {
     expect(useEditor.getState().project!.markers).toHaveLength(2)
     useEditor.getState().undo()
     expect(useEditor.getState().project!.markers).toHaveLength(1)
+  })
+})
+
+/** An edit job that makes one edit called `label`, then waits until the returned function is called. */
+function stuckJob(label: string) {
+  let release = () => {}
+  const done = editJob(async () => {
+    useEditor.getState().update(label, (d) => { d.name = label })
+    await new Promise<void>((r) => { release = r })
+  })
+  return { done, release: () => release() }
+}
+
+describe('Edit jobs take turns', () => {
+  it("runs AI edits after the job before them, so each keeps its own undo step", { timeout: 30000 }, async () => {
+    openMap()
+    // The map checks' stair ramps (or a checklist job) are still going when an AI reply comes in.
+    const job = editJob(async () => {
+      useEditor.getState().update('Add invisible stair ramps', (d) => { d.markers.push(newMarker('Shared spawn', [5, 0, 5])) })
+      await settle()
+      useEditor.getState().update('Add invisible stair ramps', (d) => { d.markers.push(newMarker('Shared spawn', [9, 0, 9])) })
+    })
+    const ai = runAiActions([{ do: 'rename_map', name: 'Harbor Rumble' }], 'AI extras')
+    await job
+    expect((await ai).done).toBe(1)
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Add invisible stair ramps', 'Add invisible stair ramps', 'AI extras'])
+    // Undoing the AI's step keeps the ramps.
+    useEditor.getState().undo()
+    expect(useEditor.getState().project!.markers).toHaveLength(3)
+  })
+
+  it("doesn't tie a job's work to a Fix all still waiting for it, so Stop leaves it alone", { timeout: 30000 }, async () => {
+    openMap()
+    let step = () => {}, landed = false
+    const job = editJob(async () => {
+      await new Promise<void>((r) => { step = r })
+      // Starts its work while Fix all waits for it.
+      const run = startRun()
+      await new Promise<void>((r) => { step = r })
+      stillCurrent(run)
+      useEditor.getState().update('Job', (d) => { d.name = 'Job' })
+      landed = true
+    })
+    await settle()
+    const running = fixAll([{ kind: 'walls' }])
+    step()
+    await settle()
+    useEditor.getState().stopTransaction()
+    await running
+    step()
+    await job
+    expect(landed).toBe(true)
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Job'])
+  })
+
+  it("gives up after the time limit when a job never ends, fixing nothing", { timeout: 30000 }, async () => {
+    openMap()
+    const job = stuckJob('Stuck job')
+    await settle()
+    const r = await fixAll([{ kind: 'walls' }, { kind: 'spawns' }], FIX_TIME_LIMIT, 100)
+    expect(r.done).toEqual([])
+    expect(r.failed).toEqual([
+      "invisible walls (other changes to the map took over 0 minutes, so Fix all didn't start)",
+      "spawns and weapons (other changes to the map took over 0 minutes, so Fix all didn't start)",
+    ])
+    expect(useEditor.getState().locked).toBeNull()
+    expect(useEditor.getState().project!.settings.remove_invisible_walls).toBe(false)
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Stuck job'])
+    job.release()
+    await job.done
+  })
+
+  it("doesn't make Fix all on one map wait for a job left over from the map before", { timeout: 30000 }, async () => {
+    openMap()
+    const job = stuckJob('Stuck job')
+    await settle()
+    openMap()
+    const r = await fixAll([{ kind: 'walls' }])
+    expect(r.done).toEqual(['invisible walls left out at export'])
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Fix all'])
+    job.release()
+    await job.done
+  })
+
+  it("leaves out the AI edits left when another map opens mid-reply", { timeout: 30000 }, async () => {
+    openMap()
+    let release = () => {}
+    vi.mocked(skyFile).mockImplementationOnce(() => new Promise((r) => { release = () => r({ vpath: 'files/sky.png', ref: { hash: 'h-sky', name: 'sky.png', type: 'image/png', size: 1, origin: 'user' } as never }) }))
+    const ai = runAiActions([{ do: 'set_map', sky_picture: true }, { do: 'rename_map', name: 'Harbor Rumble' }], 'AI extras')
+    await vi.waitFor(() => expect(skyFile).toHaveBeenCalled())
+    const b = openMap()
+    release()
+    const { skipped } = await ai
+    expect(skipped).toContain('another map was opened')
+    const st = useEditor.getState()
+    expect(st.project).toBe(b)
+    expect(st.past).toEqual([])
+  })
+})
+
+describe('Work queued or loading when another map opens', () => {
+  it("drops an AI reply queued behind a job on the map before: none of its edits land on the new map", { timeout: 30000 }, async () => {
+    openMap()
+    const job = stuckJob('Stuck job')
+    await settle()
+    const ai = runAiActions([{ do: 'rename_map', name: 'Harbor Rumble' }], 'AI extras for A')
+    const b = openMap()
+    job.release()
+    await job.done
+    expect(await ai).toEqual({ done: 0, skipped: ['another map was opened'], stopped: 'map' })
+    const st = useEditor.getState()
+    expect(st.project).toBe(b)
+    expect(st.project!.settings.display_name).not.toBe('Harbor Rumble')
+    expect(st.past).toEqual([])
+  })
+
+  it('keeps a shape whose files were still being stored off a map opened meanwhile, in an AI reply too', { timeout: 30000 }, async () => {
+    openMap()
+    let release = () => {}
+    vi.mocked(storeFile).mockImplementationOnce((_b, name) => new Promise((r) => { release = () => r({ vpath: 'files/' + name, ref: { hash: 'h-' + name, name, type: 'model/obj', size: 1, origin: 'user' } }) }))
+    const ai = runAiActions([{ do: 'add_shape', shape: 'wall', x: 0, z: 0 }, { do: 'rename_map', name: 'Harbor Rumble' }], 'AI extras')
+    await vi.waitFor(() => expect(storeFile).toHaveBeenCalled())
+    const b = openMap()
+    release()
+    expect(await ai).toEqual({ done: 0, skipped: ['another map was opened'], stopped: 'map' })
+    expect(useEditor.getState().project).toBe(b)
+    expect(b.scene_items).toHaveLength(1)
+    expect(useEditor.getState().past).toEqual([])
+    // Placed by hand, the same: it is quietly left out.
+    vi.mocked(storeFile).mockImplementationOnce((_b, name) => new Promise((r) => { release = () => r({ vpath: 'files/' + name, ref: { hash: 'h-' + name, name, type: 'model/obj', size: 1, origin: 'user' } }) }))
+    const placing = addShape('wall', [0, 0, 0], 0)
+    await vi.waitFor(() => expect(storeFile).toHaveBeenCalledTimes(2))
+    openMap()
+    release()
+    await expect(placing).rejects.toBeInstanceOf(MapChanged)
+    expect(useEditor.getState().past).toEqual([])
+  })
+
+  it("stops the map checks of a map left while its ramps were made: the new map's tab stays as it is", { timeout: 30000 }, async () => {
+    openMap()
+    const release = hangModelRead()
+    const checks = runMapChecks(['found by the wizard'])
+    await vi.waitFor(() => expect(loadModel).toHaveBeenCalled())
+    openMap()
+    useEditor.setState({ tab: 'build' })
+    release()
+    expect(await checks).toEqual([])
+    expect(useEditor.getState().tab).toBe('build')
+    expect(useEditor.getState().past).toEqual([])
+  })
+})
+
+/** Makes the next game object's files hang until the returned function is called. */
+function hangGameObject() {
+  let release = () => {}
+  vi.mocked(gameObjectItem).mockImplementationOnce((e, at) => new Promise((r) => { release = () => r({ item: { uid: 'late', name: (e as { name: string }).name, path: 'files/late.obj', position: at, rotation: [0, 0, 0], scale: 1, textures: {} } as never, files: {} }) }))
+  return () => release()
+}
+const names = () => useEditor.getState().project!.scene_items.map((it) => it.name)
+
+describe('An AI reply stopped partway', () => {
+  it('places nothing more once its time runs out, even mid-loop, and what it did is one undo step', { timeout: 30000 }, async () => {
+    openMap()
+    // The first object lands, the second (its mirrored twin) waits on its files past the reply's time.
+    const bench = (e: unknown, at: [number, number, number]) => ({ item: { uid: 'g' + Math.random(), name: (e as { name: string }).name, path: 'files/g.obj', position: at, rotation: [0, 0, 0], scale: 1, textures: {} } as never, files: {} })
+    vi.mocked(gameObjectItem)
+      .mockImplementationOnce(async (e, at) => bench(e, at))
+      .mockImplementationOnce(async (e, at) => { await new Promise((r) => setTimeout(r, 300)); return bench(e, at) })
+    const r = await runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: benches', { limit: 100 })
+    expect(r.skipped).toContain('the rest (it took over 0 minutes)')
+    expect(r.done).toBe(1)
+    // The next job runs at once; the stuck placement wakes after it and writes nothing.
+    await editJob(async () => { useEditor.getState().update('Next', (d) => { d.name = 'Next' }) })
+    await new Promise((res) => setTimeout(res, 400))
+    expect(names()).toEqual(['Stairs', 'Bench'])
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['AI: benches', 'Next'])
+  })
+
+  it('stops at Cancel the same way', { timeout: 30000 }, async () => {
+    openMap()
+    const release = hangGameObject()
+    const cancel = new AbortController()
+    const reply = runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: bench', { signal: cancel.signal })
+    await vi.waitFor(() => expect(gameObjectItem).toHaveBeenCalled())
+    cancel.abort()
+    expect(await reply).toEqual({ done: 0, skipped: ['the rest (cancelled)'], stopped: 'cancel' })
+    release()
+    await settle()
+    expect(names()).toEqual(['Stairs'])
+    expect(useEditor.getState().past).toEqual([])
+  })
+
+  it('writes nothing to a map opened while the game object library loaded', { timeout: 30000 }, async () => {
+    openMap()
+    let release = () => {}
+    vi.mocked(loadIndex).mockImplementationOnce(() => new Promise((r) => { release = () => r(GAME as never) }))
+    const reply = runAiActions([{ do: 'fill_game_objects', count: 2 }, { do: 'rename_map', name: 'Harbor Rumble' }], 'AI: benches')
+    await vi.waitFor(() => expect(loadIndex).toHaveBeenCalled())
+    const b = openMap()
+    release()
+    expect(await reply).toEqual({ done: 0, skipped: ['another map was opened'], stopped: 'map' })
+    expect(useEditor.getState().project).toBe(b)
+    expect(names()).toEqual(['Stairs'])
+    expect(useEditor.getState().past).toEqual([])
+  })
+})
+
+describe('An AI reply and the user', () => {
+  afterEach(() => useEditor.getState().set({ mirror: false }))
+
+  it("in mirror mode, places the AI's own twin once, as one undo step, through the real placement", { timeout: 30000 }, async () => {
+    openMap()
+    useEditor.getState().set({ mirror: true })
+    const r = await runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: benches')
+    expect(r).toEqual({ done: 2, skipped: [] })
+    expect(names()).toEqual(['Stairs', 'Bench', 'Bench'])
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['AI: benches'])
+    expect(useEditor.getState().mirror).toBe(true)
+  })
+
+  it("leaves the user's own edits made mid-reply out of the reply's undo step", { timeout: 30000 }, async () => {
+    openMap()
+    const release = hangGameObject()
+    const reply = runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: benches')
+    await vi.waitFor(() => expect(gameObjectItem).toHaveBeenCalled())
+    // The user renames the map while the reply waits on its first bench.
+    useEditor.getState().update('Rename', (d) => { d.name = 'Mine' })
+    release()
+    expect((await reply).done).toBe(2)
+    // The reply's steps stay as they are, so undoing them never takes the rename.
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Rename', 'Add Bench', 'Add Bench'])
+    useEditor.getState().undo()
+    useEditor.getState().undo()
+    expect(names()).toEqual(['Stairs'])
+    expect(useEditor.getState().project!.name).toBe('Mine')
+  })
+})
+
+describe('An edit job past its time', () => {
+  it('lets the queue go on, and what it does after that changes nothing', { timeout: 30000 }, async () => {
+    openMap()
+    let release = () => {}, wrote = false
+    const slow = editJob(async () => {
+      const run = startRun()
+      await new Promise<void>((r) => { release = r })
+      stillCurrent(run)
+      useEditor.getState().update('Late', (d) => { d.name = 'Late' })
+      wrote = true
+    }, { limit: 100 })
+    const next = editJob(async () => { useEditor.getState().update('Next', (d) => { d.name = 'Next' }) })
+    await expect(slow).rejects.toBeInstanceOf(JobTooLong)
+    await next
+    expect(useEditor.getState().past.map((x) => x.label)).toEqual(['Next'])
+    release()
+    await settle()
+    expect(wrote).toBe(false)
+    expect(useEditor.getState().project!.name).toBe('Next')
   })
 })
 

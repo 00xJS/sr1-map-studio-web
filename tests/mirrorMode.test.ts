@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { command, mirrorCentreNow, useEditor, withoutMirror } from '../src/editor/store'
 import { bundleItems, placeBundle } from '../src/editor/act/several'
 import { newLight, newMarker, newProject, uid, type Project, type SceneItem, type Vec3 } from '../src/lib/project'
-import { symmetryOf } from '../src/lib/mirrorEdit'
+import { mirrorEdit, mirrorSession, symmetryOf } from '../src/lib/mirrorEdit'
+import { produce, type Draft } from 'immer'
 import { mirrorCheck } from '../src/lib/analysis'
 import { unmirroredCost } from '../src/lib/analysis/analyze'
 
@@ -293,22 +294,32 @@ describe('mirror mode', () => {
   it('keeps a drag quick on a big map', { timeout: 30_000 }, () => {
     const p = newProject('Big')
     for (let i = 0; i < 500; i++) { const x = (i % 50) * 4 + 3, z = Math.floor(i / 50) * 4 + 3; p.scene_items.push(box('A' + (i % 7), [x, 0, z]), box('A' + (i % 7), [-x, 0, -z], 180)) }
-    const frame = () => st().update('Move', (d) => { for (let i = 0; i < 400; i += 2) { const q = d.scene_items[i].position; d.scene_items[i].position = [q[0] + 0.01, 0, q[2]] } }, { merge: 'drag' })
-    const median = (mirror: boolean) => {
-      st().open(structuredClone(p)); st().set({ mirror })
-      for (let k = 0; k < 15; k++) frame()
-      const times: number[] = []
-      for (let k = 0; k < 25; k++) { const t0 = performance.now(); frame(); times.push(performance.now() - t0) }
-      return times.sort((a, b) => a - b)[12]
+    // Through the store: the twins follow a 200-object drag, as one undo step.
+    st().open(structuredClone(p)); st().set({ mirror: true })
+    const drag = (d: Draft<Project>) => { for (let i = 0; i < 400; i += 2) { const q = d.scene_items[i].position; d.scene_items[i].position = [q[0] + 0.01, 0, q[2]] } }
+    for (let k = 0; k < 10; k++) st().update('Move', drag, { merge: 'drag' })
+    expect(st().project!.scene_items[1].position[0]).toBeCloseTo(-3.1, 4)
+    expect(st().past).toHaveLength(1)
+    // An edit that moves nothing mirrored hands back the edit's own result: no work at all.
+    const before = st().project!, named = produce(before, (d) => { d.settings.display_name = 'x' })
+    expect(mirrorEdit(before, named, uid, mirrorSession(before))).toBe(named)
+    // The mirror pass against the edit itself, frame by frame in the same loop, so a busy machine slows both alike.
+    let cur = produce(p, () => {})
+    const session = mirrorSession(cur)
+    const edit: number[] = [], mirror: number[] = []
+    for (let k = 0; k < 40; k++) {
+      const t0 = performance.now()
+      const next = produce(cur, drag)
+      const t1 = performance.now()
+      cur = mirrorEdit(cur, next, uid, session)
+      const t2 = performance.now()
+      if (k >= 10) { edit.push(t1 - t0); mirror.push(t2 - t1) }
     }
-    // Warm both ways first, then compare the middle frame of each.
-    median(false); median(true)
-    const off = median(false), on = median(true)
-    expect(st().project!.scene_items[1].position[0]).toBeCloseTo(-3.4, 4)
-    console.log(`200-object drag on 1000 objects: ${off.toFixed(2)} ms off, ${on.toFixed(2)} ms on (median frame)`)
-    expect(on).toBeLessThan(Math.max(off + 5, off * 2))
-    const t0 = performance.now()
-    for (let k = 0; k < 20; k++) st().update('Name', (d) => { d.settings.display_name = 'x' + k }, { merge: 'n' })
-    expect((performance.now() - t0) / 20).toBeLessThan(5)
+    const mid = (xs: number[]) => [...xs].sort((a, b) => a - b)[xs.length >> 1]
+    console.log(`200-object drag on 1000 objects: edit ${mid(edit).toFixed(2)} ms, mirror pass ${mid(mirror).toFixed(2)} ms (median frame)`)
+    expect(cur.scene_items[1].position[0]).toBeCloseTo(-3.4, 4)
+    // About half the edit's own time here; under twice it on any machine. A machine so loaded that the edit alone
+    // takes ten times its usual few ms says nothing about mirroring: then only the result above counts.
+    if (mid(edit) < 50) expect(mid(mirror)).toBeLessThan(mid(edit) * 2)
   })
 })
