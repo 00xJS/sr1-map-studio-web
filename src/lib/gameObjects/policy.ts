@@ -18,3 +18,15 @@ export function gameObjectPaths(p: Pick<Project, 'scene_items' | 'files'>): Set<
   }
   return out
 }
+
+/**
+ * Whether the map draws anything from the player's game (an object, its look, a built dummy, an imported game map):
+ * a picture of the editor's view would show game data, so it stays on this device too.
+ */
+export function showsGameData(p: Pick<Project, 'scene_items' | 'files'>): boolean {
+  for (const it of p.scene_items) {
+    const paths = [it.path, ...Object.values(it.textures || {}), it.game_look?.path]
+    if (paths.some((path) => typeof path === 'string' && p.files[path]?.origin === 'game')) return true
+  }
+  return false
+}

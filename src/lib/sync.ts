@@ -7,6 +7,7 @@ import { checkPublishMeta, checkShots, HEAD_BYTES, projectUploadPlan, showcasePl
 import { libraryIds, rebuildFromRecipes } from './showcase'
 import { newProject, normalizeProject, uid, type FileRef, type Project, type SceneItem } from './project'
 import { hasBuiltDummy } from './dummies/standIn'
+import { showsGameData } from './gameObjects/policy'
 
 export type Progress = (p: { phase: string; done: number; total: number }) => void
 
@@ -71,7 +72,8 @@ export async function pushProject(id: string, onProgress?: Progress, opts: { for
   }, onProgress)
 
   onProgress?.({ phase: 'Saving project', done: 0, total: 1 })
-  const res = await b.putCloudProject(rec.project, rec.thumbnail ?? null, { expectedUpdatedAt })
+  // The saved picture is a render of the editor's view: none goes up while the map draws anything from the game.
+  const res = await b.putCloudProject(rec.project, showsGameData(rec.project) ? null : rec.thumbnail ?? null, { expectedUpdatedAt })
   const latest = (await db.getProject(id)) ?? rec
   await db.putProject({ ...latest, cloud: { synced_at: syncedAt, remote_updated_at: res.updated_at } })
   onProgress?.({ phase: 'Saved to cloud', done: 1, total: 1 })

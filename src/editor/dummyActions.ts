@@ -86,7 +86,7 @@ export async function changeDummy(index: number, patch: Partial<DummySpec>) {
 }
 
 /** Dummies that need building here: stand-ins, ones made at another world scale, ones missing their files. */
-export async function dummiesToBuild(p: Project): Promise<SceneItem[]> {
+async function dummiesToBuild(p: Project): Promise<SceneItem[]> {
   const missing = new Set((await missingDummies(p)).map((it) => it.uid))
   return p.scene_items.filter((it) => { const d = dummyRefOf(it); return d && (!d.built || d.ws !== (p.settings.world_scale || 0.5) || missing.has(it.uid)) })
 }
@@ -143,12 +143,13 @@ async function standInMissing() {
       const unknown = p.scene_items.filter((it) => dummyRefOf(it)?.built && !present.has(it.path))
       if (!unknown.length) continue
       const missing = await missingDummies({ scene_items: unknown, files: p.files })
-      const gone = new Set(missing.map((it) => it.uid))
+      // By id and file: one rebuilt while its files were being looked for keeps its new ones.
+      const gone = new Map(missing.map((it) => [it.uid, it.path]))
       for (const it of unknown) if (!gone.has(it.uid)) present.add(it.path)
       if (!gone.size) continue
       const cur = currentProject()
       if (!cur || cur.id !== p.id) continue
-      const next = produce(cur, (d) => { d.scene_items = d.scene_items.map((it) => (gone.has(it.uid) && dummyRefOf(it)?.built ? asStandIn(it as SceneItem) : it)) })
+      const next = produce(cur, (d) => { d.scene_items = d.scene_items.map((it) => (gone.get(it.uid) === it.path && dummyRefOf(it)?.built ? asStandIn(it as SceneItem) : it)) })
       useEditor.setState({ project: next, saveState: 'unsaved' })
       toast(`${gone.size === 1 ? '1 dummy' : `${gone.size} dummies`} in this map ${gone.size === 1 ? 'is' : 'are'} drawn as a stand-in: select one and choose "Build from my game" to see the real characters.`, 'info', 12000)
     } while (again)

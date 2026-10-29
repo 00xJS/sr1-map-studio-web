@@ -15,7 +15,7 @@ const { BODY_MAT, BOX_TRIANGLES, POSE_IDS, STAND_IN_MATS, bodySegments, figureJo
 const { MAX_DUMMIES, PLAYER, dummyName, fullLook, lookKey, specKey } = await import('../src/lib/dummies/models')
 const { asStandIn, hasBuiltDummy, overDummyCap, withStandIns } = await import('../src/lib/dummies/standIn')
 const { cleanRecipe, recipeProblem } = await import('../src/lib/recipes')
-const { gameObjectPaths } = await import('../src/lib/gameObjects/policy')
+const { gameObjectPaths, showsGameData } = await import('../src/lib/gameObjects/policy')
 const { collisionFromProject } = await import('../src/lib/analysis/collision')
 const { mapChecklist } = await import('../src/lib/checklist')
 const { npcDraws } = await import('../src/lib/dummies/bake')
@@ -159,6 +159,12 @@ describe('a dummy where the game\'s files can\'t go', () => {
     expect(p.files[GAME_OBJ]).toBeDefined()
   })
 
+  it('counts as game data in a picture of the view while it is built, not as its stand-in', () => {
+    const p = project()
+    expect(showsGameData(p)).toBe(true)
+    expect(showsGameData(withStandIns(p))).toBe(false)
+  })
+
   it('leaves its character out of backups but keeps the stand-in', () => {
     const paths = gameObjectPaths(project())
     expect(paths.has(GAME_OBJ)).toBe(true)
@@ -240,6 +246,9 @@ describe('the cap', () => {
     expect(useEditor.getState().past.length).toBe(0)
     useEditor.getState().update('Rename', (d) => { d.scene_items[0].name = 'Shop dummy' })
     expect(useEditor.getState().project!.scene_items[0].name).toBe('Shop dummy')
+    // A saved version comes back as it was, over the cap or not (the checklist still blocks the export).
+    useEditor.getState().update('Restore version', (d) => { d.scene_items.push({ ...d.scene_items[0], uid: 'old' }) }, { restore: true })
+    expect(useEditor.getState().project!.scene_items.length).toBe(MAX_DUMMIES + 1)
   })
 })
 
@@ -250,6 +259,13 @@ describe('the map checklist', () => {
     for (let i = 0; i < MAX_DUMMIES; i++) p.scene_items.push({ ...p.scene_items[0], uid: 'x' + i })
     // Past the cap it blocks the export.
     expect(mapChecklist(p, true).find((c) => c.id === 'dummies')?.state).toBe('needed')
+  })
+
+  it('warns about dummies made at another world scale', () => {
+    const p = project()
+    expect(mapChecklist(p, true).some((c) => c.id === 'dummy-scale')).toBe(false)
+    p.settings.world_scale = 0.25
+    expect(mapChecklist(p, true).find((c) => c.id === 'dummy-scale')?.text).toMatch(/^1 decoy dummy was made before the world scale changed/)
   })
 })
 

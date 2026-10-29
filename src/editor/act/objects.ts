@@ -242,12 +242,18 @@ export async function assignTexture(index: number, mat: string, file: File, surf
   log(`${mat} -> ${file.name}`)
 }
 
-export async function setProjectFile(key: 'sky_texture' | 'minimap_texture' | 'bbcity_donor' | 'cts_template' | 'loading_image', file: File | null) {
+/** `fromGame`: the picture shows the player's game (a view of a map with game objects): kept as a game file. */
+export async function setProjectFile(key: 'sky_texture' | 'minimap_texture' | 'bbcity_donor' | 'cts_template' | 'loading_image', file: File | null, fromGame = false) {
   if (!file) { update('Clear ' + key, (d) => { d.settings[key] = '' }); return }
   const s = key === 'bbcity_donor' || key === 'cts_template'
     ? await import('../../lib/files').then((f) => f.storeFile(file, file.name, 'game'))
     : key === 'loading_image'
-      ? await Promise.all([import('../../lib/files'), import('../../lib/mapFeatures')]).then(async ([f, m]) => { const pic = await m.loadingPicture(file); return f.storeFile(pic, pic.name) })
+      ? await Promise.all([import('../../lib/files'), import('../../lib/mapFeatures')]).then(async ([f, m]) => {
+        const pic = await m.loadingPicture(file)
+        const s = await f.storeFile(pic, pic.name, fromGame ? 'game' : 'user')
+        if (fromGame) s.ref.origin = 'game'
+        return s
+      })
       : await importImage(file, key === 'minimap_texture' ? 1024 : 2048)
   const note = (s as { note?: string }).note
   if (note) log(note)

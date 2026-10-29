@@ -123,6 +123,11 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
   const dummies = p.scene_items.filter(isDummy)
   const first = p.scene_items.findIndex(isDummy)
   if (dummies.length > MAX_DUMMIES) add({ id: 'dummies', state: 'needed', text: `${dummies.length} decoy dummies: ${MAX_DUMMIES} at most is about a lobby's worth of extra people for the game to draw. Delete ${dummies.length - MAX_DUMMIES}.`, fix: { kind: 'select', index: first }, action: 'Show' })
+  // Built at another world scale: they export at that size until they are built again.
+  const ws = p.settings.world_scale || 0.5
+  const resized = p.scene_items.findIndex((it) => { const d = dummyRefOf(it); return !!d && d.ws !== ws })
+  const resizedCount = dummies.filter((it) => dummyRefOf(it)!.ws !== ws).length
+  if (resizedCount) add({ id: 'dummy-scale', state: 'suggested', text: `${resizedCount === 1 ? '1 decoy dummy was' : `${resizedCount} decoy dummies were`} made before the world scale changed and will export at the wrong size: select ${resizedCount === 1 ? 'it' : 'one'} and choose "Build again at this scale" (built ones need your game folder).`, fix: { kind: 'select', index: resized }, action: 'Show' })
   const looks = new Set(dummies.map((it) => lookKey(dummyRefOf(it)!))).size
   if (looks > MANY_LOOKS) add({ id: 'dummy-looks', state: 'suggested', text: `${looks} different dummy looks add about ${looks} MB to the map's textures: give some the same look (copies share their pictures).`, fix: { kind: 'select', index: first }, action: 'Show' })
 
