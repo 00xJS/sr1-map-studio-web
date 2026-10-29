@@ -11,7 +11,7 @@ import { isValidThumbnail, supabaseProjectUrl } from '../lib/hubRules'
 import type { RunMode } from './game'
 import { checkTime, cleanName, type GhostSample } from './ghost'
 import { wallsOf } from './ghostWalls'
-import { SHARE_RULES, SHARE_TOKEN, fromBase64, newShareToken, packShare, previewProblem, shareMeta, toBase64, unpackShare, validateShareDoc, type ShareDoc } from './share'
+import { SHARE_RULES, SHARE_TOKEN, fromBase64, mapContent, newShareToken, packShare, previewProblem, shareMeta, toBase64, unpackShare, validateShareDoc, type ShareDoc } from './share'
 
 export const hostedShares = backendMode !== 'none'
 
@@ -210,7 +210,7 @@ async function localCreate(data: string, user: { id: string; name: string } | nu
   const meta = shareMeta(checked)
   // Stored as checked: rebuilt from the fields a share may hold, not the bytes that came in.
   const stored = toBase64(packShare(checked))
-  const data_hash = await sha256(stored)
+  const data_hash = await sha256(mapContent(checked))
   const row = { title: checked.title, data: stored, data_hash, updated_at: now, modes: meta.modes, players: meta.players, ...(thumb && user ? { thumb: new Blob([thumb], { type: 'image/webp' }), thumb_at: now, thumb_approved: false } : {}) }
   const rows = await localAll<LocalRow>('shares')
   if (!user) {
@@ -519,7 +519,9 @@ export async function submitTime(token: string, e: { mode: RunMode; ms: number; 
   if (!live(share)) throw new ShareRejected(GONE)
   const { doc } = validateShareDoc(unpackShare(fromBase64(share.data)))
   if (!doc) throw new ShareRejected('This map can’t take times.')
-  const problems = checkTime(entry, doc.project.markers, wallsOf(doc) ?? undefined)
+  const walls = wallsOf(doc)
+  if (walls === 'too many') throw new ShareRejected('This map can’t take times.')
+  const problems = checkTime(entry, doc.project.markers, walls ?? undefined)
   if (problems.length) throw new ShareRejected('This time can’t go on the board.', problems)
   const all = await localAll<LocalTime>('times')
   if (all.filter((t) => t.ip_hash === LOCAL_IP && ago(t.created_at, 3600_000)).length >= SHARE_RULES.timesPerHour) throw new ShareRejected('That’s a lot of times in an hour. Try again later.')

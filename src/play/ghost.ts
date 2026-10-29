@@ -95,6 +95,11 @@ function toSegment(p: Vec3, a: GhostSample, b: GhostSample): { d: number; k: num
 
 /** True when the straight line a -> b crosses the map's solid collision (ghostWalls.ts builds one from a share). */
 export type WallTest = (a: Vec3, b: Vec3) => boolean
+/**
+ * How long a time's wall check may take: a map can be built so that every ray passes near many triangles, and a
+ * run has thousands of steps. Past this the time is refused, not checked half way.
+ */
+export const WALL_CHECK_MS = 2000
 
 /**
  * Problems with a time for a link's board (empty when it can go on): the run
@@ -139,8 +144,11 @@ export function checkTime(e: TimeEntry, markers: Marker[], walls?: WallTest): st
     walked += d
   }
   // Through a wall: the line between two samples at body height crosses collision, and so do lines either side of it.
-  if (walls) {
+  // Only for a run that passes everything else (the costly part, so not done for one already refused).
+  if (walls && !problems.length) {
+    const stop = performance.now() + WALL_CHECK_MS
     for (let i = 1; i < samples.length; i++) {
+      if (performance.now() > stop) { problems.push('This time can’t be checked on this map: its walls take too long to test.'); break }
       if (back.has(i)) continue
       const a = samples[i - 1], b = samples[i]
       const dx = b[1] - a[1], dz = b[3] - a[3], len = Math.hypot(dx, dz)

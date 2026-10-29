@@ -6,7 +6,7 @@
 // (netlify/edge-functions/og.ts).
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { newMarker, newProject, type Vec3 } from '../src/lib/project'
-import { GhostRecorder, checkTime } from '../src/play/ghost'
+import { GhostRecorder, checkTime, type WallTest } from '../src/play/ghost'
 import { wallsOf } from '../src/play/ghostWalls'
 import { shapeObj, type Shape } from '../src/lib/shapes'
 import { SHARE_RULES, cleanObj, fromBase64, packShare, toBase64, unpackShare, type ShareDoc } from '../src/play/share'
@@ -590,7 +590,14 @@ describe('the share function', () => {
     expect((await call('/time', { token: a.body.token, mode: 'weapons', name: 'Ace', ...around() })).status).toBe(200)
     await call('', { title: 'x', data: same, token: a.body.token }, { jwt: 'alice' })
     expect(db.tables.share_times).toHaveLength(1)
-    await call('', { title: 'x', data: data(doc('Changed')), token: a.body.token }, { jwt: 'alice' })
+    // A new title (and the new id and dates every share gets) is the same map.
+    const base = unpackShare(fromBase64(same)) as ShareDoc
+    const renamed: ShareDoc = { ...base, title: 'Renamed', created_at: '2027-01-01T00:00:00Z', project: { ...base.project, id: 'another', name: 'Renamed', updated_at: '2027-01-01T00:00:00Z' } }
+    await call('', { title: 'x', data: data(renamed), token: a.body.token }, { jwt: 'alice' })
+    expect(db.tables.share_times).toHaveLength(1)
+    const moved = structuredClone(renamed)
+    moved.project.markers[2].position = [22, 0, 0]
+    await call('', { title: 'x', data: data(moved), token: a.body.token }, { jwt: 'alice' })
     expect(db.tables.share_times).toHaveLength(0)
   })
 
@@ -694,9 +701,9 @@ describe('round-5 review: what a share can still be made to do', () => {
     const t = performance.now()
     await call('/time', { token: ok.body.token, mode: 'weapons', name: 'Ace', ...around() })
     expect(performance.now() - t).toBeLessThan(8000)
-    // A link stored before the cap: the wall check is skipped rather than built.
+    // A link stored before the cap: its walls aren't built, and its board takes no times.
     const { wallsOf } = await import('../src/play/ghostWalls')
-    expect(wallsOf(placedTimes(11))).toBeNull()
+    expect(wallsOf(placedTimes(11))).toBe('too many')
   })
 
   it('takes a share whose objects name materials their model doesn’t have, and is the same when checked twice', async () => {
@@ -757,6 +764,43 @@ describe('round-5 review: what a share can still be made to do', () => {
   })
 })
 
+describe('round-6 review: board times on a map made to be costly', { timeout: 120_000 }, () => {
+  it('stops checking a time’s walls after its budget, and refuses the time', async () => {
+    const { validateShareDoc } = await import('../src/play/share')
+    const { WALL_CHECK_MS } = await import('../src/play/ghost')
+    // One big slanted triangle (y = z) 250 times over, on 4,000 objects: a million triangles placed, all of whose
+    // boxes every ray at body height inside the cube passes through, and never meets.
+    const p = newProject('Costly')
+    p.scene_items = Array.from({ length: 4000 }, (_, i) => ({ uid: 'i' + i, name: 'W', path: 'mesh/0', position: [0, 0, 0] as Vec3, rotation: [0, 0, 0] as Vec3, scale: 1, textures: {}, alpha: {} }))
+    p.markers = [newMarker('Shared spawn', [10, 0, 50]), { ...newMarker('Weapon pickup', [10.4, 0, 50]), weapon: 'ak47' }]
+    const tri = 'v 0 0 0\nv 100 0 0\nv 100 100 100\n' + 'f 1 2 3\n'.repeat(250)
+    const v = validateShareDoc({ format: 'sr1-map-studio-share', version: 1, title: 'Costly', created_at: '', project: p, models: { 'mesh/0': tri }, textures: {} })
+    expect(v.problems).toEqual([])
+    const walls = wallsOf(v.doc!) as WallTest
+    // 4,000 samples zig-zagging at walking pace, never touching the triangle.
+    const ghost = Array.from({ length: 4000 }, (_, i) => [i * 100, 10 + (i % 2) * 0.5, 0, 50, 0] as [number, number, number, number, number])
+    const t = performance.now()
+    const problems = checkTime({ mode: 'weapons', name: 'Ace', ms: 3999 * 100, ghost }, v.doc!.project.markers, walls)
+    expect(performance.now() - t).toBeLessThan(WALL_CHECK_MS + 1500)
+    expect(problems.join()).toMatch(/can’t be checked/)
+    // A run already refused for something else isn't wall-checked at all.
+    const t2 = performance.now()
+    expect(checkTime({ mode: 'weapons', name: '', ms: 3999 * 100, ghost }, v.doc!.project.markers, walls).join()).not.toMatch(/can’t be checked/)
+    expect(performance.now() - t2).toBeLessThan(500)
+  })
+
+  it('takes no times on a link stored before the triangle cap', async () => {
+    const a = await call('', { title: 'x', data: data() }, { jwt: 'alice' })
+    const big = doc()
+    big.models['mesh/0'] = 'v 0 0 0\nv 1 0 0\nv 0 1 0\nv 0 0 1\n' + 'f 1 2 3\nf 1 3 4\n'.repeat(50_000)
+    big.project.scene_items = Array.from({ length: 11 }, (_, i) => ({ ...big.project.scene_items[0], uid: 'w' + i }))
+    db.tables.shares[0].data = toBase64(packShare(big))
+    const r = await call('/time', { token: a.body.token, mode: 'weapons', name: 'Ace', ...around() })
+    expect(r.status).toBe(422)
+    expect(r.body.error).toBe('This map can’t take times.')
+  })
+})
+
 describe('the worst a share can be made to cost', { timeout: 60_000 }, () => {
   // The share function must answer well inside Netlify's 10 s however a share is made. Each case is at the size
   // limit (16 MB of model text) and built to be slow: numbers that must be rewritten, the longest face lines, a
@@ -810,7 +854,7 @@ describe('the worst a share can be made to cost', { timeout: 60_000 }, () => {
 
 describe('board times and walls', () => {
   it('sees the wall in the share', () => {
-    const walls = wallsOf(doc())!
+    const walls = wallsOf(doc()) as WallTest
     expect(walls([0, 2.4, 0], [20, 2.4, 0])).toBe(true)
     expect(walls([0, 2.4, 9], [20, 2.4, 9])).toBe(false)
     expect(checkTime({ mode: 'weapons', name: 'x', ...straight() }, doc().project.markers, walls).join()).toMatch(/through a wall/)

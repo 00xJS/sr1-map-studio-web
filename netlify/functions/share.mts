@@ -40,7 +40,7 @@ import { createClient, type PostgrestError, type SupabaseClient } from '@supabas
 import { isValidThumbnail, supabaseProjectUrl } from '../../src/lib/hubRules'
 import { checkTime, cleanName } from '../../src/play/ghost'
 import { wallsOf } from '../../src/play/ghostWalls'
-import { MAX_PREVIEW_BYTES, SHARE_LIMITS, SHARE_RULES, SHARE_TOKEN, fromBase64, newShareToken, packShare, previewProblem, shareMeta, toBase64, unpackShare, validateShareDoc, type ShareDoc } from '../../src/play/share'
+import { MAX_PREVIEW_BYTES, SHARE_LIMITS, SHARE_RULES, SHARE_TOKEN, fromBase64, mapContent, newShareToken, packShare, previewProblem, shareMeta, toBase64, unpackShare, validateShareDoc, type ShareDoc } from '../../src/play/share'
 import { cleanBuilds, galleryProblems } from '../../src/play/shareBuilds'
 
 const env = (k: string) => process.env[k] || ''
@@ -354,7 +354,8 @@ async function create(admin: SupabaseClient, uid: string | null, ip: string | nu
   if (packed.length > SHARE_LIMITS.packedBytes * 1.1) return reject(413, 'This map is too large to share.')
   const data = toBase64(packed)
   const meta = shareMeta(doc)
-  const dataHash = await sha256(data)
+  // Of the map, not the bytes: a new title or date doesn't clear the board.
+  const dataHash = await sha256(mapContent(doc))
   const row = { title: doc.title, data, size_bytes: packed.length, updated_at: new Date().toISOString(), modes: meta.modes, players: meta.players, data_hash: dataHash }
   /** Stores the preview under a new name nobody can guess, waiting for a moderator (the row is written next). */
   const saveThumb = async (token: string): Promise<{ thumb?: string; thumb_path?: string; thumb_approved?: boolean }> => {
@@ -449,7 +450,9 @@ async function addTime(admin: SupabaseClient, uid: string | null, ip: string | n
   try { doc = unpackShare(fromBase64(share.data)) as ShareDoc } catch { /* below */ }
   if (!doc?.project || !Array.isArray(doc.project.markers) || !doc.models || typeof doc.models !== 'object') return reject(422, 'This map can’t take times.')
   const entry = { mode: body.mode, ms: body.ms, name: cleanName(body.name), ghost: body.ghost }
-  const problems = checkTime(entry, doc.project.markers, wallsOf(doc) ?? undefined)
+  const walls = wallsOf(doc)
+  if (walls === 'too many') return reject(422, 'This map can’t take times.')
+  const problems = checkTime(entry, doc.project.markers, walls ?? undefined)
   if (problems.length) return reject(422, 'This time can’t go on the board.', problems)
 
   const ins = await admin.from('share_times').insert({ token: body.token, mode: entry.mode, name: entry.name, ms: entry.ms, ghost: entry.ghost, player: uid, ip_hash: ip })

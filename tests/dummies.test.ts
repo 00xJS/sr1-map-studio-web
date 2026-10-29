@@ -204,6 +204,20 @@ describe('a dummy where the game\'s files can\'t go', () => {
     const odd = structuredClone(plan.doc)
     odd.project.scene_items[0].dummy!.stand_in.path = 'mesh/elsewhere'
     expect(validateShareDoc(odd).doc!.project.scene_items[0].dummy).toBeUndefined()
+
+    // Nor is one whose model isn't exactly its figure: other geometry under the stand-in's material names (a body
+    // box named like the figure's), a model with no materials at all, or the figure in another pose.
+    const { cleanObj } = await import('../src/play/share')
+    const forged = (model: string) => {
+      const d = structuredClone(plan.doc)
+      d.models[d.project.scene_items[0].path] = cleanObj(model)!
+      return validateShareDoc(d).doc!.project.scene_items[0]
+    }
+    expect(forged(`v 0 0 0\nv 1 0 0\nv 0 1 0\nv 0 0 1\nusemtl ${BODY_MAT}\nf 1 2 3\nusemtl body_0\nf 1 3 4\n`).dummy).toBeUndefined()
+    expect(forged('v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n').dummy).toBeUndefined()
+    expect(forged(standInObj('aim', 0.5)).dummy).toBeUndefined()
+    // The real figure stays a dummy, its solid material renamed with the rest.
+    expect(forged(standInObj('standing', 0.5)).dummy).toMatchObject({ source: 'dummy', pose: 'standing' })
   })
 })
 

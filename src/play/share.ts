@@ -7,6 +7,7 @@
 // viewer's browser remakes. So nothing uploaded by a user, and nothing from
 // Saints Row, can ride along: there are no image bytes in a share at all.
 import { gunzipSync, gzipSync, strFromU8, strToU8 } from 'fflate'
+import { isPose, standInObj, validFigureScale } from '../lib/dummies/figure'
 import { gameSignature, MB } from '../lib/hubRules'
 import { isDataPackPath, normalizeProject, type Project, type Vec3 } from '../lib/project'
 import { LIBRARY_ID, cleanRecipe, fromLegacy, textureRecipeProblem, type TextureRecipe } from '../lib/recipes'
@@ -318,12 +319,18 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
     if (it.water_materials) it.water_materials = it.water_materials.filter((m) => r.has(m)).map((m) => r.get(m)!)
     if (it.collision_materials) it.collision_materials = it.collision_materials.filter((m) => r.has(m)).map((m) => r.get(m)!)
   }
-  // A dummy is drawn as its stand-in: its object's own model, with the object's (renamed) pictures. One that names
-  // any other model isn't a dummy here.
+  // A dummy is drawn as its stand-in figure: its object's own model must be exactly the figure its pose and scale
+  // make, with the object's (renamed) pictures. Anything else isn't a dummy here (the setting goes, the object
+  // stays), so no other model can pass as one.
+  // Making a figure takes ~30 ms: a map's dummies share its scale and a few poses, so a share gets this many.
+  const kinds = new Set<string>()
   for (const it of project.scene_items) {
-    const dm = it.dummy as { stand_in?: { path: string; textures: Record<string, string> } } | undefined
+    const dm = it.dummy as { pose?: unknown; ws?: unknown; stand_in?: { path: string; textures: Record<string, string> } } | undefined
     if (!dm) continue
-    if (dm.stand_in?.path !== it.path) delete it.dummy
+    const ok = isPose(dm.pose) && validFigureScale(dm.ws)
+    if (ok) kinds.add(`${dm.pose}:${dm.ws}`)
+    const figure = ok && kinds.size <= MAX_FIGURE_KINDS ? standInText(dm.pose as Parameters<typeof standInObj>[0], dm.ws as number) : null
+    if (!figure || dm.stand_in?.path !== it.path || models.get(it.path) !== figure) delete it.dummy
     else dm.stand_in.textures = { ...it.textures }
   }
   const usedTextures = new Set<string>()
@@ -366,6 +373,27 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
   if (d.builds) doc.builds = JSON.parse(JSON.stringify(d.builds))
   return { problems: uniq, doc }
 }
+
+/** Stand-in figures (pose and scale) a share's dummies may use; others are plain objects in it. */
+const MAX_FIGURE_KINDS = 16
+const figures = new Map<string, string | null>()
+/** A stand-in figure's model as a share stores it (lib/dummies/figure.ts makes it; remembered, it's the same each time). */
+function standInText(pose: Parameters<typeof standInObj>[0], ws: number): string | null {
+  const key = `${pose}:${ws}`
+  if (!figures.has(key)) {
+    if (figures.size > 256) figures.clear()
+    const clean = cleanObj(standInObj(pose, ws))
+    figures.set(key, clean ? canonicalObj(clean)?.obj ?? null : null)
+  }
+  return figures.get(key)!
+}
+
+/**
+ * What a board's times depend on (shares.data_hash): the map itself, not its title, description, ids or dates, so
+ * renaming a link keeps its board.
+ */
+export const mapContent = (doc: ShareDoc): string =>
+  JSON.stringify([doc.models, doc.project.scene_items, doc.project.markers, doc.project.lights, doc.project.settings])
 
 /** What a link shows before the map loads: its timed runs and how many can start at once. */
 export function shareMeta(doc: ShareDoc): { modes: string[]; players: number } {
