@@ -18,7 +18,8 @@ import { CROUCH_COVER_M, MANTLE, STEP, UNITS_PER_M } from './player'
 /** The 3D view's world box for object i, when it has one. */
 export type BoundsFn = (index: number) => [Vec3, Vec3] | null
 
-export interface FactInput { project: Project; bounds?: BoundsFn }
+/** `middle`: where twins pair (mirror mode's middle while it's on; the origin otherwise, as the AI's own edits pair). */
+export interface FactInput { project: Project; bounds?: BoundsFn; middle?: [number, number] }
 
 export type Topic = 'spawns' | 'sightlines' | 'cover' | 'flow' | 'fairness' | 'weapons'
 export const TOPICS: Record<Topic, string> = {
@@ -164,12 +165,13 @@ export function extentOf(p: Project, ss: Solid[]) {
   return { minX: minX - CELL, maxX: maxX + CELL, minZ: minZ - CELL, maxZ: maxZ + CELL }
 }
 
-const sideOf = (z: number, depth: number): 'red' | 'middle' | 'blue' => (Math.abs(z) < depth * 0.08 ? 'middle' : z < 0 ? 'red' : 'blue')
+/** Which end `z` is at, measured from the middle's `midZ` (red at -Z of it, blue at +Z). */
+const sideOf = (z: number, depth: number, midZ = 0): 'red' | 'middle' | 'blue' => (Math.abs(z - midZ) < depth * 0.08 ? 'middle' : z < midZ ? 'red' : 'blue')
 
 /** The simple grid analysis. */
 export const gridFacts: FactSource = {
   name: 'grid',
-  gather({ project: p, bounds }): MapFacts {
+  gather({ project: p, bounds, middle }): MapFacts {
     const scale = p.settings.world_scale || 0.5
     const m = (units: number) => r1(units * scale)
     const u = (metres: number) => metres / scale
@@ -189,11 +191,12 @@ export const gridFacts: FactSource = {
     const markerCounts: Record<string, number> = {}
     for (const mk of p.markers) markerCounts[mk.type] = (markerCounts[mk.type] ?? 0) + 1
 
-    // Symmetry.
+    // Symmetry, about the middle twins pair round.
+    const mid = middle ?? [0, 0]
     const unmatchedItems: number[] = []
-    p.scene_items.forEach((_, i) => { if (findTwin(p, i) === null) unmatchedItems.push(i) })
+    p.scene_items.forEach((_, i) => { if (findTwin(p, i, undefined, mid) === null) unmatchedItems.push(i) })
     const unmatchedMarkers: number[] = []
-    p.markers.forEach((mk, i) => { if (mk.type !== 'Pimp entrance' && findMarkerTwin(p, i) === null) unmatchedMarkers.push(i) })
+    p.markers.forEach((mk, i) => { if (mk.type !== 'Pimp entrance' && findMarkerTwin(p, i, undefined, mid) === null) unmatchedMarkers.push(i) })
     const twinnable = p.markers.filter((mk) => mk.type !== 'Pimp entrance').length
     const symScore = (p.scene_items.length + twinnable) ? 1 - (unmatchedItems.length + unmatchedMarkers.length) / (p.scene_items.length + twinnable) : 1
 
@@ -214,7 +217,7 @@ export const gridFacts: FactSource = {
       const inside = ss.find((s) => s.exact && covers(s, x, z, -0.2) && s.y0 < y + 0.5 && s.y1 > y + 0.5)
       if (inside) f.inside = inside.name
       else if (!(g.at(x, z) > y - u(3))) f.noFloor = true
-      if ((mk.type === 'Red team spawn' && z > 0) || (mk.type === 'Blue team spawn' && z < 0)) f.wrongEnd = true
+      if ((mk.type === 'Red team spawn' && z > mid[1]) || (mk.type === 'Blue team spawn' && z < mid[1])) f.wrongEnd = true
       return f
     })
     const exposed = list.filter((s) => s.type !== 'Shared spawn' ? s.seen.length > 0 : s.seen.length >= 3).map((s) => s.marker)
@@ -248,7 +251,7 @@ export const gridFacts: FactSource = {
       if (s.wrongEnd) issues.push({
         id: 'spawn-end-' + s.marker, topic: 'spawns', severity: 'bad',
         text: `${mk.type} #${s.marker} is at the other team's end (red belongs at -Z, blue at +Z).`,
-        fix: { label: 'Move it to its own end', actions: [{ do: 'move_marker', index: s.marker, x: r1(-mk.position[0]), z: r1(-mk.position[2]) }] },
+        fix: { label: 'Move it to its own end', actions: [{ do: 'move_marker', index: s.marker, x: r1(2 * mid[0] - mk.position[0]), z: r1(2 * mid[1] - mk.position[2]) }] },
       })
     }
     const exposedTeam = list.filter((s) => s.type !== 'Shared spawn' && s.seen.length)
@@ -282,7 +285,7 @@ export const gridFacts: FactSource = {
 
     // Symmetry issues.
     if (unmatchedItems.length || unmatchedMarkers.length) {
-      const redStuff = p.scene_items.filter((it) => it.position[2] < 0).length, blueStuff = p.scene_items.filter((it) => it.position[2] > 0).length
+      const redStuff = p.scene_items.filter((it) => it.position[2] < mid[1]).length, blueStuff = p.scene_items.filter((it) => it.position[2] > mid[1]).length
       const keep = redStuff >= blueStuff ? 'red' : 'blue'
       issues.push({
         id: 'symmetry', topic: 'fairness', severity: symScore < 0.85 ? 'bad' : 'warn',
@@ -327,7 +330,7 @@ export const gridFacts: FactSource = {
       const h = g.top[k * g.nx + i]
       if (!walkable(h)) continue
       const [x, z] = g.centre(i, k)
-      const zn = sideOf(z, depth)
+      const zn = sideOf(z, depth, mid[1])
       let near = false
       for (let a = -reach; a <= reach && !near; a++) for (let b = -reach; b <= reach && !near; b++) {
         const hh = g.top[Math.min(g.nz - 1, Math.max(0, k + a)) * g.nx + Math.min(g.nx - 1, Math.max(0, i + b))]
@@ -405,7 +408,7 @@ export const gridFacts: FactSource = {
     const power: MapFacts['weapons']['power'] = []
     for (const w of weapons) {
       byId[w.weapon || '?'] = (byId[w.weapon || '?'] ?? 0) + 1
-      const sd = sideOf(w.position[2], depth)
+      const sd = sideOf(w.position[2], depth, mid[1])
       sideCount[sd]++
       if (POWER.has(w.weapon)) power.push({ id: w.weapon, at: w.position, side: sd })
     }

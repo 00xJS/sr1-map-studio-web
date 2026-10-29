@@ -1,5 +1,6 @@
 // Corner minimap: a top-down picture of the map taken before the walk began,
-// with the player's arrow, weapons still out (gold) and drop-offs (pink, green once touched).
+// with the player's arrow, weapons still out (gold), drop-offs (pink, green once touched),
+// a ghost being raced (a pale ring) and race bots (dots in their colours).
 import { useEffect, useRef } from 'react'
 import type { MinimapRect } from '../lib/minimap'
 import { visible } from './game'
@@ -29,6 +30,12 @@ export function Minimap({ session, image, rect, size = 168 }: { session: PlaySes
           g.strokeStyle = p.taken ? '#4fd18b' : '#ff42bf'; g.lineWidth = 2
           g.arc(u, v, Math.max(4, (p.radius / (x1 - x0)) * size), 0, Math.PI * 2); g.stroke()
         }
+      }
+      // A ghost is a hollow ring, bots solid dots in their colour.
+      for (const o of session.others()) {
+        const [u, v] = toMap(o.at[0], o.at[2])
+        g.beginPath(); g.arc(u, v, o.kind === 'ghost' ? 4 : 3.5, 0, Math.PI * 2)
+        if (o.kind === 'ghost') { g.strokeStyle = o.color; g.lineWidth = 2; g.stroke() } else { g.fillStyle = o.color; g.fill(); g.strokeStyle = '#000000'; g.lineWidth = 1; g.stroke() }
       }
       const me = session.player()
       if (me) {

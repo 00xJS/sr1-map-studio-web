@@ -10,7 +10,7 @@ import { generatedPng } from './texgen'
 import { storeFile } from './files'
 import { db } from './db'
 import { tagRecipe } from './recipes'
-import { ALL_MODES, GB, LOGO_WALL, PB, box, logoTile, turn, type Part, type Sample, type Tex, type Theme } from './sampleKit'
+import { ALL_MODES, GB, LOGO_WALL, PB, box, logoTile, type Part, type Sample, type Tex, type Theme } from './sampleKit'
 import { PAINTBALL, poster, put } from './samplesPaintball'
 import { CYBER } from './samplesCyber'
 import { URBAN } from './samplesUrban'
@@ -20,6 +20,7 @@ import { DENSE, LIGHT_DRESS, dress, type DressOptions } from './sampleDress'
 import { detailize } from './sampleDetail'
 import { cyberLife } from './prefabsCyberLife'
 import { unflicker } from './zfight'
+import { prefabModel } from './prefabModel'
 
 export type { Sample, Theme }
 
@@ -332,21 +333,11 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
     }
     // Prefab: origin at its placement point (or the first part's base), turned as placed; one material per distinct texture.
     const tag = unit[0].prefab
-    const origin = tag?.at ?? unit[0].at
-    const turnBy = tag?.rot ?? 0
-    const mats = new Map<string, Tex>()
-    const matIds = new Map<string, string>()
-    const matOf = (t: Tex) => { const k = JSON.stringify(t); let m = matIds.get(k); if (!m) { m = 'm' + mats.size; mats.set(k, t); matIds.set(k, m) } return m }
-    // A road network (thousands of pieces) is laid out flicker-free by construction (see roads.ts); checking it takes seconds.
-    const pieces = (tag?.key === 'road' ? unit : unflicker(unit)).map((p) => {
-      const [dx, dz] = turn(p.at[0] - origin[0], p.at[2] - origin[2], -turnBy)
-      return { shape: shapeOf(p), at: [dx, p.at[1] - origin[1], dz] as Vec3, rot: (p.rot ?? 0) - turnBy, top: matOf(p.top), side: matOf(p.side) }
-    })
+    const { pieces, matOf, mats, origin, turnBy } = prefabModel(unit)
     const stored = await storeFile(tagRecipe(new Blob([compoundObj(pieces)], { type: 'model/obj' }), { kind: 'compound', pieces }), 'prefab.obj')
     files[stored.vpath] = stored.ref
     const textures: Record<string, string> = {}, alpha: Record<string, boolean> = {}, surface_ids: Record<string, number> = {}
-    for (const [k, t] of mats) {
-      const name = matIds.get(k)!
+    for (const [name, t] of mats) {
       const tx = await texture(t)
       textures[name] = tx.vpath; alpha[name] = seeThrough(t); surface_ids[name] = tx.surface
     }

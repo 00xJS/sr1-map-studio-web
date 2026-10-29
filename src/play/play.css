@@ -49,3 +49,15 @@
 .share-link { display: flex; gap: 6px; }
 .share-link input { flex: 1; min-width: 0; font-family: var(--mono); font-size: 12px; }
 .share-issues { margin: 0; padding-left: 18px; max-height: 160px; overflow: auto; }
+.share-preview { display: grid; grid-template-columns: 160px minmax(0, 1fr); gap: 10px; align-items: start; }
+.share-preview > img, .share-preview > div:first-child { width: 160px; aspect-ratio: 16 / 9; object-fit: cover; border-radius: 4px; border: 1px solid var(--line); display: grid; place-items: center; }
+@media (max-width: 480px) { .share-preview { grid-template-columns: 1fr; } }
+
+.play-board { display: flex; flex-direction: column; gap: 2px; margin: 0; padding: 0; list-style: none; font-variant-numeric: tabular-nums; }
+.play-board li { display: flex; gap: 8px; }
+.play-board li.me { color: var(--ok); font-weight: 700; }
+.play-board .n { width: 2ch; text-align: right; opacity: 0.7; }
+.play-board .who { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.play-report { position: absolute; right: 12px; bottom: 12px; z-index: 6; }
+.play-scores { display: flex; flex-direction: column; gap: 2px; }
+.play-scores .me { color: var(--ok); font-weight: 700; }

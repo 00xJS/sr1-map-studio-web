@@ -30,7 +30,7 @@ describe('pickups', () => {
     expect(p[4].radius).toBe(6) // 3 m in editor units
   })
   it('offers runs only for what the map has', () => {
-    expect(availableRuns(markers()).map((r) => [r.mode, r.count])).toEqual([['roam', 0], ['weapons', 3], ['dropoffs', 2]])
+    expect(availableRuns(markers()).map((r) => [r.mode, r.count])).toEqual([['roam', 0], ['weapons', 3], ['dropoffs', 2], ['race', 3]])
     expect(availableRuns([at('Shared spawn', [0, 0, 0])]).map((r) => r.mode)).toEqual(['roam'])
   })
   it('names weapons from the catalog, and leaves unknown ids readable', () => {
@@ -141,7 +141,7 @@ describe('times', () => {
 
 // ---------------- sharing ----------------
 
-const OBJ = '# made by hand\nmtllib crate.mtl\no crate\nv 0 0 0\nv 1 0 0\nv  0 1 0\nvt 0 0\nvt 1 0\nvt 0 1\nvn 0 0 1\nusemtl top\nf 1/1/1 2/2/1 3/3/1\n'
+const OBJ = '# made by hand\nmtllib crate.mtl\no crate\nv 0 0 0\nv 1 0 0\nv  0 1 0\nvt 0 0\nvt 1 0\nvt 0 1\nvn 0 0 1\nusemtl top\nf 1/1/1 2/2/1 3/3/1\nusemtl side\nf 1/1/1 3/3/1 2/2/1\n'
 
 describe('share geometry', () => {
   it('keeps geometry and drops comments and material libraries', () => {

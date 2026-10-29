@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useEditor, withoutMirror } from '../src/editor/store'
 import { aiMiddle, quiet, runAiActions } from '../src/editor/aiActions'
 import { describeMap } from '../src/lib/aiChat'
+import { gatherFacts } from '../src/lib/mapFacts'
 import { newMarker, newProject } from '../src/lib/project'
 
 // Only storing files is stood in for: the AI runner and the shape command are the real ones.
@@ -74,6 +75,33 @@ describe('the middle the AI pairs about', () => {
     await runAiActions([{ do: 'mirror', markers: [2] } as never], 'Mirror')
     expect(st().project!.markers.at(-1)!.position).toMatchObject([96, expect.any(Number), 50])
     expect(describeMap(st().project!, undefined, aiMiddle())).toMatch(/about their middle, here \(100, 40\)/)
+  })
+})
+
+describe("the AI critique's symmetry facts", () => {
+  it('pair about the same middle as the AI', () => {
+    const p = newProject('Facts')
+    // Point-symmetric about (100, 40): spawns and a pickup pair.
+    p.markers = [newMarker('Red team spawn', [100, 0, 20]), newMarker('Blue team spawn', [100, 0, 60]),
+      { ...newMarker('Weapon pickup', [104, 0, 30]), weapon: 'ak47' }, { ...newMarker('Weapon pickup', [96, 0, 50]), weapon: 'ak47' }]
+    const ids = (middle?: [number, number]) => gatherFacts({ project: p, middle }).issues.map((i) => i.id)
+    expect(ids([100, 40])).not.toContain('symmetry')
+    expect(ids()).toContain('symmetry')
+    st().open(p)
+    st().set({ mirror: true })
+    expect(ids(aiMiddle())).not.toContain('symmetry')
+  })
+
+  it("judge each team's end from the middle, and move a spawn to its own end across it", () => {
+    const p = newProject('Ends')
+    // Paired about (100, 40): red's end is z < 40, blue's z > 40.
+    p.markers = [newMarker('Red team spawn', [100, 0, 20]), newMarker('Blue team spawn', [100, 0, 60]), newMarker('Red team spawn', [106, 0, 52])]
+    const facts = gatherFacts({ project: p, middle: [100, 40] })
+    const ends = facts.issues.filter((i) => i.id.startsWith('spawn-end-'))
+    expect(ends.map((i) => i.id)).toEqual(['spawn-end-2'])
+    expect(ends[0].fix!.actions[0]).toMatchObject({ do: 'move_marker', index: 2, x: 94, z: 28 })
+    // About the origin (mirror mode off), the old rule: every one of them is at +Z, blue's end.
+    expect(gatherFacts({ project: p }).issues.filter((i) => i.id.startsWith('spawn-end-')).map((i) => i.id)).toEqual(['spawn-end-0', 'spawn-end-2'])
   })
 })
 
