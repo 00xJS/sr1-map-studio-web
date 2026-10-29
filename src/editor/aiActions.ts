@@ -128,6 +128,11 @@ export function useAiRunning(): AiApplying[] {
   const running = useAiApplying((s) => s.running)
   return running.filter((r) => r.projectId === id)
 }
+/** Stops the open map's replies (a reply on a map left meanwhile ends by itself). */
+export const stopMapAiEdits = () => {
+  const id = useEditor.getState().project?.id
+  useAiApplying.getState().running.filter((r) => r.projectId === id).forEach((r) => r.stop())
+}
 /** Stops the replies started under one of `keys` (none: every one). */
 export const stopAiEdits = (...keys: string[]) => useAiApplying.getState().running.filter((r) => !keys.length || keys.includes(r.key)).forEach((r) => r.stop())
 
