@@ -114,7 +114,7 @@ export function AiChat({ onClose }: { onClose: () => void }) {
     const critique = isCritiqueRequest(msg)
     const viewer = getViewer()
     const bounds = viewer ? (i: number) => viewer.itemBounds(i) : undefined
-    const facts = critique ? gatherFacts({ project, bounds }) : null
+    const facts = critique ? gatherFacts({ project, bounds, middle: aiMiddle() }) : null
     try {
       const map = describeMap(project, bounds, aiMiddle())
       // The request and the one before it pick which prefabs the model is told about in full.

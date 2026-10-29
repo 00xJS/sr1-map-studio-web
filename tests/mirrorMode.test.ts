@@ -230,6 +230,44 @@ describe('mirror mode', () => {
     expect(mirrorCentreNow()).toEqual([0, 0])
   })
 
+  it('redo (or a jump) back across where it was turned on brings its middle back', () => {
+    const p = newProject('Redo')
+    p.markers = [newMarker('Red team spawn', [10, 0, -20]), newMarker('Blue team spawn', [-10, 0, 20])]
+    st().open(p)
+    st().update('Move spawns', (d) => { d.markers[0].position = [60, 0, -20]; d.markers[1].position = [40, 0, 20] })
+    st().set({ mirror: true })
+    expect(mirrorCentreNow()).toEqual([50, 0])
+    st().undo()
+    expect(mirrorCentreNow()).toEqual([0, 0])
+    st().redo()
+    expect(mirrorCentreNow()).toEqual([50, 0])
+    st().update('Add', (d) => { d.markers.push({ ...newMarker('Weapon pickup', [55, 0, 5]), weapon: 'ak47' }) })
+    expect(st().project!.markers.at(-1)!.position).toEqual([45, 0, -5])
+    // The same through the history list: back past it, then forward past it.
+    st().jumpTo(-2)
+    expect(mirrorCentreNow()).toEqual([0, 0])
+    st().jumpTo(2)
+    expect(mirrorCentreNow()).toEqual([50, 0])
+  })
+
+  it('the first edit after turning it on is a step of its own, so undo can reach where it was turned on', () => {
+    st().open(mirrored())
+    st().update('Move', (d) => { d.scene_items[0].position = [0, 1, 0] }, { merge: 'drag' })
+    st().set({ mirror: true })
+    st().update('Move', (d) => { d.scene_items[0].position = [0, 2, 0] }, { merge: 'drag' })
+    expect(st().past).toHaveLength(2)
+  })
+
+  it('reading the middle never pins it (it is read while drawing)', () => {
+    open()
+    st().update('Fix moves a spawn', (d) => { d.markers[0].position = [25, 0, -30] }, { noMirror: true })
+    // Pinned when turned on, at the middle then.
+    expect(mirrorCentreNow()).toEqual([0, 0])
+    st().set({ mirror: false })
+    expect(mirrorCentreNow()).toEqual([10, 0])
+    expect(mirrorCentreNow()).toEqual([10, 0])
+  })
+
   it('undoing past where it was turned on finds the middle again', () => {
     const p = mirrored()
     st().open(p)
