@@ -6,6 +6,7 @@ import { db } from '../lib/db'
 import { uid, type Project } from '../lib/project'
 import { centreOf, mirrorEdit, mirrorSession, type Centre, type MirrorSession } from '../lib/mirrorEdit'
 import { overDummyCap } from '../lib/dummies/standIn'
+import { showsGameData } from '../lib/gameObjects/policy'
 import { toast } from '../ui'
 
 export type Selection = { kind: 'item' | 'marker' | 'light'; index: number } | null
@@ -526,13 +527,16 @@ export async function saveNow(withThumb = false) {
     const existing = await db.getProject(project.id)
     const updated = { ...project, updated_at: new Date().toISOString() }
     let thumbnail = existing?.thumbnail
+    let thumbGame = existing?.thumb_game
     if (thumbProvider && (withThumb || !thumbnail || Date.now() - lastThumbAt > 60000)) {
+      // What the view shows is decided as it is drawn: the picture keeps that, whatever the map shows later.
+      thumbGame = showsGameData(project)
       // A failed picture leaves none rather than an old one (it may show what the map no longer has, like a dummy
       // built from the game that has since become its stand-in).
       thumbnail = (await thumbProvider().catch(() => null)) || undefined
       lastThumbAt = Date.now()
     }
-    await db.putProject({ id: project.id, name: project.name, updated_at: updated.updated_at, project: updated, thumbnail, cloud: existing?.cloud })
+    await db.putProject({ id: project.id, name: project.name, updated_at: updated.updated_at, project: updated, thumbnail, ...(thumbnail && thumbGame ? { thumb_game: true } : {}), cloud: existing?.cloud })
     if (useEditor.getState().project === project) useEditor.setState({ saveState: 'saved' })
   } catch (err) {
     useEditor.setState({ saveState: 'error' })

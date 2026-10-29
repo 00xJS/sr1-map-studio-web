@@ -40,7 +40,8 @@ export function CloudSync({ projectId }: { projectId: string }) {
 
   const push = (force = false) => run(async () => {
     try {
-      await saveNow()
+      // A fresh picture of the view as it is now (cloudThumb decides whether it may go up).
+      await saveNow(true)
       await pushProject(projectId, (p) => setProgress(p.total > 1 ? `${p.done}/${p.total}` : ''), { force })
       toast('Saved to the cloud.', 'ok')
     } catch (err) {

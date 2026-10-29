@@ -101,17 +101,20 @@ export class SupabaseBackend implements Backend {
     const r = check(await this.sb.from('cloud_projects').select('project, updated_at').eq('id', id).maybeSingle())
     return r ? { project: r.project as Project, updated_at: r.updated_at as string } : null
   }
-  async putCloudProject(project: Project, thumbnail: Blob | null, opts?: { expectedUpdatedAt?: string }) {
+  async putCloudProject(project: Project, thumbnail: Blob | null, opts?: { expectedUpdatedAt?: string; clearThumb?: boolean }) {
     const uid = await this.uid()
     const size = JSON.stringify(project).length + Object.values(project.files).filter((f) => f.origin === 'user').reduce((a, f) => a + f.size, 0)
     const res = check(await this.sb.rpc('cloud_put', {
       p_id: project.id, p_name: project.name, p_project: project, p_size: size,
-      p_has_thumb: thumbnail ? true : null, p_expected: opts?.expectedUpdatedAt ?? null,
+      p_has_thumb: thumbnail ? true : opts?.clearThumb ? false : null, p_expected: opts?.expectedUpdatedAt ?? null,
     })) as { conflict: boolean; updated_at: string }
     if (res.conflict) throw new ConflictError(res.updated_at)
     if (thumbnail) {
       const { error } = await this.bucket().upload(`u/${uid}/thumbs/${project.id}.webp`, thumbnail, { upsert: true, contentType: /^image\/(webp|png|jpeg)$/.test(thumbnail.type) ? thumbnail.type : 'image/webp' })
       if (error) console.warn('Thumbnail upload failed', error)
+    } else if (opts?.clearThumb) {
+      const { error } = await this.bucket().remove([`u/${uid}/thumbs/${project.id}.webp`])
+      if (error) console.warn('Thumbnail removal failed', error)
     }
     return { updated_at: res.updated_at }
   }

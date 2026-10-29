@@ -115,7 +115,7 @@ export default function Home() {
     const rec = await db.getProject(id)
     if (!rec) return
     const { exportProjectZip } = await import('../lib/projectFiles')
-    downloadBlob(await exportProjectZip(rec.project, rec.thumbnail), `${rec.name.replace(/[^\w -]+/g, '') || 'map'}.sr1map.zip`)
+    downloadBlob(await exportProjectZip(rec.project, rec.thumbnail, rec.thumb_game), `${rec.name.replace(/[^\w -]+/g, '') || 'map'}.sr1map.zip`)
   })
 
   const returning = !!projects?.length

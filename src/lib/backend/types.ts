@@ -120,7 +120,8 @@ export interface Backend {
   listCloudProjects(): Promise<CloudProjectMeta[]>
   getCloudProject(id: string): Promise<{ project: Project; updated_at: string } | null>
   /** Throws ConflictError if expectedUpdatedAt is given and the server copy is newer. */
-  putCloudProject(project: Project, thumbnail: Blob | null, opts?: { expectedUpdatedAt?: string }): Promise<{ updated_at: string }>
+  /** `thumbnail` null keeps the stored one, unless `clearThumb` takes it down. */
+  putCloudProject(project: Project, thumbnail: Blob | null, opts?: { expectedUpdatedAt?: string; clearThumb?: boolean }): Promise<{ updated_at: string }>
   deleteCloudProject(id: string): Promise<void>
   /** Which of these content hashes the signed-in user already stored. */
   hasBlobs(hashes: string[]): Promise<Set<string>>

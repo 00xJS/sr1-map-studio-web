@@ -9,7 +9,14 @@ import { parseObj, type ObjModel } from '../src/lib/geometry'
 
 // An in-memory blob store for the share plan.
 const blobs = new Map<string, Blob>()
-vi.mock('../src/lib/db', async (orig) => ({ ...(await orig<typeof import('../src/lib/db')>()), db: { getBlob: async (h: string) => blobs.get(h), hasBlob: async (h: string) => blobs.has(h), getMeta: async () => undefined, setMeta: async () => {} } }))
+const records = new Map<string, import('../src/lib/db').ProjectRecord>()
+vi.mock('../src/lib/db', async (orig) => ({
+  ...(await orig<typeof import('../src/lib/db')>()),
+  db: {
+    getBlob: async (h: string) => blobs.get(h), hasBlob: async (h: string) => blobs.has(h), getMeta: async () => undefined, setMeta: async () => {},
+    getProject: async (id: string) => records.get(id), putProject: async (r: import('../src/lib/db').ProjectRecord) => { records.set(r.id, r) },
+  },
+}))
 
 const { BODY_MAT, BOX_TRIANGLES, POSE_IDS, STAND_IN_MATS, bodySegments, figureJoints, segmentCorners, standInObj } = await import('../src/lib/dummies/figure')
 const { MAX_DUMMIES, PLAYER, dummyName, fullLook, lookKey, specKey } = await import('../src/lib/dummies/models')
@@ -296,6 +303,57 @@ describe('dummies in a share', () => {
     expect(plan.doc.made![key]).toBe('figure')
     expect(plan.doc.builds![key]).toEqual({ kind: 'figure', pose: 'standing', ws: 0.5 })
     expect(plan.galleryReady).toBe(true)
+  })
+})
+
+describe('pictures of the view', () => {
+  it('never send a thumbnail drawn while a dummy was built to the cloud, even after it is gone', async () => {
+    const { useEditor, saveNow, setThumbnailProvider } = await import('../src/editor/store')
+    const { cloudThumb } = await import('../src/lib/sync')
+    const pic = new Blob(['view'], { type: 'image/webp' })
+    setThumbnailProvider(async () => pic)
+    const p = project()
+    useEditor.setState({ project: p, saveState: 'unsaved' })
+    // Autosave draws the view with the built dummy in it.
+    await saveNow(true)
+    expect(records.get(p.id)!.thumb_game).toBe(true)
+    // The dummy goes, and within the minute the map is saved again without a new picture (as autosave does).
+    const without = { ...p, scene_items: [] }
+    useEditor.setState({ project: without, saveState: 'unsaved' })
+    await saveNow()
+    const rec = records.get(p.id)!
+    expect(rec.thumbnail).toBe(pic)
+    expect(cloudThumb(rec)).toEqual({ thumbnail: null, clear: true })
+    // A fresh picture of the map as it is now may go up.
+    await saveNow(true)
+    expect(records.get(p.id)!.thumb_game).toBeUndefined()
+    expect(cloudThumb(records.get(p.id)!)).toEqual({ thumbnail: pic, clear: false })
+    // And a map that shows game data now sends none, whenever its picture was drawn.
+    expect(cloudThumb({ project: p, thumbnail: pic })).toEqual({ thumbnail: null, clear: true })
+    setThumbnailProvider(null)
+  })
+
+  it('stay out of backups when they show game data', async () => {
+    const { exportProjectZip } = await import('../src/lib/projectFiles')
+    const { unzipSync, strFromU8 } = await import('fflate')
+    const pic = new Blob(['view'], { type: 'image/webp' })
+    const files = async (zip: Blob) => unzipSync(new Uint8Array(await zip.arrayBuffer()))
+    const plain = newProject('Plain')
+    expect(Object.keys(await files(await exportProjectZip(plain, pic)))).toContain('thumbnail.webp')
+    expect(Object.keys(await files(await exportProjectZip(plain, pic, true)))).not.toContain('thumbnail.webp')
+    expect(Object.keys(await files(await exportProjectZip(project(), pic)))).not.toContain('thumbnail.webp')
+    // A "Keep this view" loading picture kept as a game file: left out, and the backup goes back to the automatic one.
+    const kept = newProject('Kept')
+    kept.files['/work/f/shot/loading_screen.png'] = ref('shot', 'game')
+    kept.settings.loading_image = '/work/f/shot/loading_screen.png'
+    kept.settings.loading_mode = 'custom'
+    blobs.set('shot', new Blob(['shot']))
+    const zip = await files(await exportProjectZip(kept))
+    const json = JSON.parse(strFromU8(zip['project.json']))
+    expect(json.settings.loading_image).toBe('')
+    expect(json.settings.loading_mode).toBe('auto')
+    expect(json.files['/work/f/shot/loading_screen.png']).toBeUndefined()
+    expect(Object.keys(zip).some((k) => k.endsWith('/shot'))).toBe(false)
   })
 })
 

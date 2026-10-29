@@ -131,7 +131,7 @@ export class LocalBackend implements Backend {
     const r = await get<CloudRow>('cloud', `${u.id}/${id}`)
     return r ? { project: r.project, updated_at: r.updated_at } : null
   }
-  async putCloudProject(project: Project, thumbnail: Blob | null, opts?: { expectedUpdatedAt?: string }) {
+  async putCloudProject(project: Project, thumbnail: Blob | null, opts?: { expectedUpdatedAt?: string; clearThumb?: boolean }) {
     const u = await this.me()
     const key = `${u.id}/${project.id}`
     const cur = await get<CloudRow>('cloud', key)
@@ -139,7 +139,7 @@ export class LocalBackend implements Backend {
     let updated_at = now()
     if (cur && updated_at <= cur.updated_at) updated_at = new Date(Date.parse(cur.updated_at) + 1).toISOString()
     const size = JSON.stringify(project).length + Object.values(project.files).filter((f) => f.origin === 'user').reduce((a, f) => a + f.size, 0)
-    await put('cloud', key, { uid: u.id, id: project.id, name: project.name, updated_at, project, size_bytes: size, thumb: thumbnail ?? cur?.thumb ?? null } satisfies CloudRow)
+    await put('cloud', key, { uid: u.id, id: project.id, name: project.name, updated_at, project, size_bytes: size, thumb: thumbnail ?? (opts?.clearThumb ? null : cur?.thumb ?? null) } satisfies CloudRow)
     return { updated_at }
   }
   async deleteCloudProject(id: string) { const u = await this.me(); await del('cloud', `${u.id}/${id}`) }
