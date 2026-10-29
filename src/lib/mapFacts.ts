@@ -18,7 +18,8 @@ import { CROUCH_COVER_M, MANTLE, STEP, UNITS_PER_M } from './player'
 /** The 3D view's world box for object i, when it has one. */
 export type BoundsFn = (index: number) => [Vec3, Vec3] | null
 
-export interface FactInput { project: Project; bounds?: BoundsFn }
+/** `middle`: where twins pair (mirror mode's middle while it's on; the origin otherwise, as the AI's own edits pair). */
+export interface FactInput { project: Project; bounds?: BoundsFn; middle?: [number, number] }
 
 export type Topic = 'spawns' | 'sightlines' | 'cover' | 'flow' | 'fairness' | 'weapons'
 export const TOPICS: Record<Topic, string> = {
@@ -169,7 +170,7 @@ const sideOf = (z: number, depth: number): 'red' | 'middle' | 'blue' => (Math.ab
 /** The simple grid analysis. */
 export const gridFacts: FactSource = {
   name: 'grid',
-  gather({ project: p, bounds }): MapFacts {
+  gather({ project: p, bounds, middle }): MapFacts {
     const scale = p.settings.world_scale || 0.5
     const m = (units: number) => r1(units * scale)
     const u = (metres: number) => metres / scale
@@ -189,11 +190,12 @@ export const gridFacts: FactSource = {
     const markerCounts: Record<string, number> = {}
     for (const mk of p.markers) markerCounts[mk.type] = (markerCounts[mk.type] ?? 0) + 1
 
-    // Symmetry.
+    // Symmetry, about the middle twins pair round.
+    const mid = middle ?? [0, 0]
     const unmatchedItems: number[] = []
-    p.scene_items.forEach((_, i) => { if (findTwin(p, i) === null) unmatchedItems.push(i) })
+    p.scene_items.forEach((_, i) => { if (findTwin(p, i, undefined, mid) === null) unmatchedItems.push(i) })
     const unmatchedMarkers: number[] = []
-    p.markers.forEach((mk, i) => { if (mk.type !== 'Pimp entrance' && findMarkerTwin(p, i) === null) unmatchedMarkers.push(i) })
+    p.markers.forEach((mk, i) => { if (mk.type !== 'Pimp entrance' && findMarkerTwin(p, i, undefined, mid) === null) unmatchedMarkers.push(i) })
     const twinnable = p.markers.filter((mk) => mk.type !== 'Pimp entrance').length
     const symScore = (p.scene_items.length + twinnable) ? 1 - (unmatchedItems.length + unmatchedMarkers.length) / (p.scene_items.length + twinnable) : 1
 
@@ -282,7 +284,7 @@ export const gridFacts: FactSource = {
 
     // Symmetry issues.
     if (unmatchedItems.length || unmatchedMarkers.length) {
-      const redStuff = p.scene_items.filter((it) => it.position[2] < 0).length, blueStuff = p.scene_items.filter((it) => it.position[2] > 0).length
+      const redStuff = p.scene_items.filter((it) => it.position[2] < mid[1]).length, blueStuff = p.scene_items.filter((it) => it.position[2] > mid[1]).length
       const keep = redStuff >= blueStuff ? 'red' : 'blue'
       issues.push({
         id: 'symmetry', topic: 'fairness', severity: symScore < 0.85 ? 'bad' : 'warn',

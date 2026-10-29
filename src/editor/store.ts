@@ -228,7 +228,7 @@ function leaveMap() {
   if (t) t.stopped = true
   lastMerge = null
   mirroring = null
-  pinned = null
+  unpin()
   opens++
   // Jobs still running belong to the map left: the next map's don't wait for them.
   jobs = newQueue()
@@ -245,29 +245,42 @@ let mirroring: MirrorSession | null = null
 /** The middle mirror mode turns about, found when it's turned on and kept until it's turned off or another map opens:
  *  edits it doesn't copy (the AI's, a fix moving spawns) mustn't shift it and break the pairs. `at`: the map as it was
  *  then; undoing past it (it's in the redo list) finds the middle again. */
-let pinned: { projectId: string; centre: Centre; at: Project } | null = null
+type Pin = { projectId: string; centre: Centre; at: Project }
+let pinned: Pin | null = null
+/** Pins undone past (newest last): redone back to its map, that pin comes back. */
+let undonePins: Pin[] = []
 
-function pin(): { projectId: string; centre: Centre; at: Project } | null {
+/** `fresh`: the next edit starts an undo step of its own, so the map it pinned on is a step to undo past (merged into
+ *  the edit before, it would never be in the history). Not from inside an edit, whose own merge must hold. */
+function pin(fresh = true): Pin | null {
   const { project } = useEditor.getState()
   pinned = project ? { projectId: project.id, centre: centreOf(project), at: project } : null
+  if (fresh) lastMerge = null
   return pinned
 }
 
+function unpin() { pinned = null; undonePins = [] }
+
 /** The middle on the open map: while mirror mode is on, the one it pinned (the Twins line, the cost line and the
- *  fairness check all use it then); else where it would pin it now. */
+ *  fairness check all use it then); else where it would pin it now. Only reads: it never pins (it runs during render). */
 export function mirrorCentreNow(): Centre | null {
   const { project, mirror } = useEditor.getState()
   if (!project) return null
-  if (!mirror) return centreOf(project)
-  return (pinned?.projectId === project.id ? pinned : pin())!.centre
+  return mirror && pinned?.projectId === project.id ? pinned.centre : centreOf(project)
 }
 
-/** After undo or redo: back past where mirror mode pinned its middle, it finds it again on the map as it is now. By the
- *  map itself, not by counting steps: the history drops its oldest steps and the AI folds its steps into one. */
+/**
+ * After undo, redo or a jump in the history: back past where mirror mode pinned its middle, it finds it again on the
+ * map as it is now; forward to (or past) that map again, the pin it had comes back. By the map itself, not by counting
+ * steps: the history drops its oldest steps and the AI folds its steps into one.
+ */
 function repinAfterHistory() {
-  const { mirror, future } = useEditor.getState()
-  const at = pinned?.at
-  if (mirror && at && future.some((h) => h.project === at)) pin()
+  const { mirror, project, past, future } = useEditor.getState()
+  if (!mirror || !pinned) return
+  const reached = (at: Project) => at === project || past.some((h) => h.project === at)
+  while (undonePins.length && reached(undonePins[undonePins.length - 1].at)) pinned = undonePins.pop()!
+  const at = pinned.at
+  if (future.some((h) => h.project === at)) { undonePins.push(pinned); pin() }
 }
 /** How deep in withoutMirror calls the code running right now is. */
 let unmirrored = 0
@@ -376,7 +389,7 @@ export const useEditor = create<EditorState>((set, get) => ({
     lastMerge = opts?.merge ? { key: opts.merge, at: now } : null
     if (get().mirror && !txn && !unmirrored && !opts?.noMirror && !replaced) {
       // The pairs found at the start of a drag hold for all of it.
-      const at = pinned?.projectId === cur.id ? pinned : pin()!
+      const at = pinned?.projectId === cur.id ? pinned : pin(false)!
       if (!merging || mirroring?.projectId !== cur.id || mirroring.centre !== at.centre) mirroring = mirrorSession(cur, at.centre)
       next = mirrorEdit(cur, next, uid, mirroring)
     }
@@ -575,7 +588,7 @@ export function selectedItems(): number[] {
 
 useEditor.subscribe((s, prev) => {
   // Turned on: it finds the middle on the map as it is now, and keeps it until it's turned off.
-  if (s.mirror !== prev.mirror) { mirroring = null; if (s.mirror) pin(); else pinned = null }
+  if (s.mirror !== prev.mirror) { mirroring = null; undonePins = []; if (s.mirror) pin(); else unpin() }
   if (s.allSettings !== prev.allSettings) writeFlag('sr1-advanced', s.allSettings)
   if (s.freeCam !== prev.freeCam) writeFlag('sr1-freecam', s.freeCam)
   if (s.layeredLook !== prev.layeredLook) writeFlag('sr1-layered', s.layeredLook)
