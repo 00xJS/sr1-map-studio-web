@@ -63,7 +63,7 @@ if pack:
     check(len(got) == 2 and got[0][2] == 0x8 and got[1][2] == 0x3B, 'two regions written into the template and read back')
     before = {s.name: bytes(s.data) for s in rc.read_chunk(original).secs}
     after = {s.name: bytes(s.data) for s in rc.read_chunk(out).secs}
-    check([n for n in before if before[n] != after[n]] == [regions.SECTION], 'only the region section changed')
+    check([n for n in before if before[n] != after[n]] == [regions.OCCLUDERS, regions.OCCLUDER_TREE, regions.SECTION], 'only the region and rain occluder sections changed')
     # The minimap's map-wide region goes in after the ones there, which stay byte for byte.
     wide = regions.with_map_region(out, -80, 80, -70, 90, -20, 60)
     got = regions.read_regions(wide)
@@ -87,6 +87,50 @@ if pack:
         ok = False
         print('     ', exc)
     check(ok, 'map region with edges a 32-bit float rounds (the export failure Slime hit)')
+
+    # Rain occluders (reported 2026-10-28: rain fell inside dry interiors exported without them). Every region that
+    # keeps the rain out has a closed mesh with its box in rec40_360 and a collision tree over all of them, as every
+    # region in the game's own MP maps does; the map-wide region has none.
+    check(regions.occluder_bounds(original) == [], 'the template has no rain occluders')
+    check(regions.occluder_bounds(out) == [(lo, hi) for lo, hi, f in regions.read_regions(out)],
+          'write: a rain occluder with the box of each rain-keeping region, in their order')
+    check(regions.occluder_bounds(wide) == regions.occluder_bounds(out) and regions.without_occluders(wide) == [],
+          'the map-wide region gets no occluder (the whole map would be dry)')
+    ch = rc.read_chunk(wide)
+    rec, tree = bytes(ch.get(regions.OCCLUDERS).data), bytes(ch.get(regions.OCCLUDER_TREE).data)
+    meshes = regions.read_occluders(ch)
+    # Byte layout as retail (mp_crib): count, 40-byte headers (8 corners, 12 triangles, bounds), corners, u32 triangles.
+    check(struct.unpack_from('>I', rec, 0)[0] == 2 and struct.unpack_from('>4I', rec, 4) == (8, 0, 12, 0)
+          and len(rec) == 4 + 2 * 40 + 2 * (8 * 12 + 12 * 12), f'occluder section: retail layout ({len(rec)} B)')
+    corners, tris = meshes[0]
+    lo, hi = regions.occluder_bounds(wide)[0]
+    faces = [(corners[a], corners[b], corners[c]) for a, b, c in tris]
+    centre = [(lo[k] + hi[k]) / 2 for k in range(3)]
+
+    def inward(t):
+        n = [(t[1][(k + 1) % 3] - t[0][(k + 1) % 3]) * (t[2][(k + 2) % 3] - t[0][(k + 2) % 3])
+             - (t[1][(k + 2) % 3] - t[0][(k + 2) % 3]) * (t[2][(k + 1) % 3] - t[0][(k + 1) % 3]) for k in range(3)]
+        return sum(n[k] * (centre[k] - t[0][k]) for k in range(3)) > 0
+    check(all(inward(t) for t in faces), 'occluder faces face into the box, as the game winds its own')
+    check(any(all(p[1] == hi[1] for p in t) for t in faces), 'its top is a face the rain ray can stop at')
+    size = struct.unpack_from('>I', tree, 0)[0]
+    check(tree[4:8] == b'PPOM' and struct.unpack_from('>I', tree, 8)[0] == 300 and size == 0x1c + struct.unpack_from('>I', tree, 4 + 0x18)[0]
+          and len(tree) == 4 + size, 'occluder tree: size word, then a v300 collision tree and nothing after it, as retail')
+    keys = sorted(rc.mopp_keys(tree[4 + 0x1c:]))
+    check(keys == sorted(i << 20 | k for i, (_, t) in enumerate(meshes) for k in range(len(t))),
+          'the tree names every occluder triangle, as mesh << 20 | triangle')
+    # A map exported before occluders were written: regions without them, then the repair the quick upgrade uses.
+    bare = rc.read_chunk(wide)
+    bare.get(regions.OCCLUDERS).data, bare.get(regions.OCCLUDER_TREE).data = bytearray(struct.pack('>I', 0)), bytearray(struct.pack('>I', 0))
+    bare = bytes(rc.write_chunk(bare))
+    check([i for i, _, _ in regions.without_occluders(bare)] == [0, 1], 'an old export: both rain-keeping regions without an occluder')
+    fixed = regions.add_missing_occluders(bare)
+    check(regions.without_occluders(fixed) == [] and regions.occluder_bounds(fixed) == regions.occluder_bounds(wide),
+          'repaired: an occluder over each, the same boxes as a new export')
+    check(regions.add_missing_occluders(fixed) == fixed, 'and repairing again changes nothing')
+    # A box inserted into the list later (the quick upgrade's dry interiors) gets its occluder after the others.
+    more = regions.insert(wide, [(box, regions.FLAG_INDOOR, 0.0)], 0, 'a test box')
+    check(len(regions.occluder_bounds(more)) == 3 and regions.without_occluders(more) == [], 'insert: the new box gets an occluder too')
 else:
     print('skip template round trip (set SR1_DATA_PACK to run it)')
 

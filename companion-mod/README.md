@@ -74,6 +74,7 @@ started), `map`, `pos` (x, y, z in game metres) and `heading`:
 | `stuck` | A move key (WASD or the arrows) held for 2 s without getting half a metre | `seconds`, `keys` |
 | `mark` | You pressed **End** | `n` |
 | `respawn` | You moved more than 15 m in one frame (died, or the match moved you) | `from` |
+| `rain` | The camera went in or out of a rain blocker or indoor room, or the weather changed; then once a second while it rains | `indoor` (the game counts the camera as indoors), `fade` (0 to 1: how far the rain has faded out), `region` (the flags of the region the camera is in, -1 none), `weather` (2-4 rain, 6 thunderstorm), `density` (the console's `Rain_density`, when set), `screen_rain` and `screen_rain2` (the screen-wide rain after the fade), `camera` |
 | `end` | The match ended, the map reloaded or you left | `reason` |
 
 Press **End** wherever something is wrong (a wall you can't see, a gap, a bad

@@ -22,8 +22,16 @@ block, but rooms still change the light.
 
 Each region is an 88-byte record (box, flags, colours, fog, blend time), then
 for each region the planes of its block in the same layout as the water
-volumes' (a plane list and a tiny tree over it). Nothing here has been tried
-in game yet.
+volumes' (a plane list and a tiny tree over it).
+
+The region only fades the screen-wide rain layers (and the weather's fog,
+sounds and lightning). The rain that falls around the camera stops where a ray
+cast down from above the camera hits one of the level's rain occluders: closed
+meshes in their own chunk section with a collision tree over them, not the
+map's collision. Every region in the game's own MP maps has its box there too,
+so every region here that keeps the rain out gets one (see "rain occluders"
+below). In game on 2026-10-28 rain still fell inside the dry interiors of a map
+exported without them; nothing with them has been tried in game yet.
 """
 import math
 import struct
@@ -31,7 +39,7 @@ from pathlib import Path
 
 import sr_reborn_core as rc
 import interiors
-from map_features import volume_box, volume_planes
+from map_features import BOX_TRIANGLES, volume_box, volume_corners, volume_planes
 
 RAIN_BLOCKER = 'Rain blocker'
 INDOOR_ROOM = 'Indoor room'
@@ -160,6 +168,116 @@ MAP_REGION_FLAGS = 0
 COVER_SLACK = 0.01  # metres: the chunk stores 32-bit floats, so 59.52 reads back as 59.5199996
 
 
+# ------------------------------------------------------------ rain occluders --
+#
+# The rain cones around the camera (0x82148EF8) cast a ray down from above it (0x82250FC0, collision type 0x29) and
+# stop the rain where it hits. What it hits is the level's rain occluders: section rec40_360 (level +360/+364), a
+# list of closed meshes (40-byte header: vertex count, triangle count, bounds at +16/+28; then 12-byte vertices and
+# three u32 corners per triangle), made into one fixed body over the collision tree in blob_822500D8 (0x822500D8,
+# collision type 0x10005; keys mesh << 20 | triangle). The map's own collision is a body of another type
+# (0x8224F978, 0x10002). All 26 regions in the 18 retail MP chunks have an occluder with their box, and the maps add
+# more over awnings and doorways; ours had none, so the rain fell through every roof. So every region that sets
+# the indoor latch (flags 0x28) gets its box as an occluder; the map-wide region (flags 0) never does, or the
+# whole map would be dry.
+OCCLUDERS, OCCLUDER_TREE = 'rec40_360', 'blob_822500D8'
+RAIN_FLAGS = FLAG_INDOOR | FLAG_NO_SUN_SHADOWS  # either sets the game's indoor latch
+MAX_OCCLUDERS = 1 << 12  # meshes the tree's keys can name
+
+
+def read_occluders(chunk_bytes_or_ch):
+    """[(vertices, triangles)] of the chunk's rain occluders as stored."""
+    ch = rc.read_chunk(chunk_bytes_or_ch) if isinstance(chunk_bytes_or_ch, (bytes, bytearray)) else chunk_bytes_or_ch
+    d = bytes(ch.get(OCCLUDERS).data)
+    n = struct.unpack_from('>I', d, 0)[0] if len(d) >= 4 else 0
+    out, at = [], 4 + 40 * n
+    for i in range(n):
+        nv, _, nt = struct.unpack_from('>3I', d, 4 + 40 * i)
+        verts = [struct.unpack_from('>3f', d, at + 12 * k) for k in range(nv)]
+        at += 12 * nv
+        tris = [struct.unpack_from('>3I', d, at + 12 * k) for k in range(nt)]
+        at += 12 * nt
+        out.append((verts, tris))
+    return out
+
+
+def occluder_bounds(chunk_bytes):
+    """[(lo, hi)] of the chunk's rain occluders, from their headers."""
+    d = bytes(rc.read_chunk(chunk_bytes).get(OCCLUDERS).data)
+    n = struct.unpack_from('>I', d, 0)[0] if len(d) >= 4 else 0
+    return [(struct.unpack_from('>3f', d, 4 + 40 * i + 16), struct.unpack_from('>3f', d, 4 + 40 * i + 28)) for i in range(n)]
+
+
+def occluder_sections(meshes):
+    """The two sections' bytes for [(vertices, triangles)]: the mesh list and the collision tree over it."""
+    if len(meshes) > MAX_OCCLUDERS:
+        raise RuntimeError('the map has no room for more rain occluders')
+    head, body, items = bytearray(struct.pack('>I', len(meshes))), bytearray(), []
+    for i, (verts, tris) in enumerate(meshes):
+        lo = [min(v[a] for v in verts) for a in range(3)]
+        hi = [max(v[a] for v in verts) for a in range(3)]
+        # The two zero words are pointers the game fills in at load.
+        head += struct.pack('>4I6f', len(verts), 0, len(tris), 0, *lo, *hi)
+        for v in verts:
+            body += struct.pack('>3f', *v)
+        for k, t in enumerate(tris):
+            body += struct.pack('>3I', *t)
+            corners = [verts[c] for c in t]
+            items.append({'key': i << 20 | k, 'mn': [min(p[a] for p in corners) for a in range(3)],
+                          'mx': [max(p[a] for p in corners) for a in range(3)]})
+    tree = bytes(rc.build_mopp_block(items)) if items else b''
+    return bytes(head + body), struct.pack('>I', len(tree)) + tree
+
+
+def box_occluder(vol):
+    """A region's box as a rain occluder mesh, wound as the game's own (each face facing into the box)."""
+    return volume_corners(vol), BOX_TRIANGLES
+
+
+def _add_occluders(ch, vols):
+    """Puts a box occluder for each volume after the chunk's own (parsed chunk, changed in place)."""
+    if vols:
+        rec, tree = occluder_sections(read_occluders(ch) + [box_occluder(v) for v in vols])
+        ch.get(OCCLUDERS).data, ch.get(OCCLUDER_TREE).data = bytearray(rec), bytearray(tree)
+
+
+def _check_occluders(out, before, vols):
+    """The chunk's occluders read back: the ones it had, then a box over each volume."""
+    got = occluder_bounds(out)
+    if len(got) != before + len(vols):
+        raise RuntimeError('the rain occluders did not read back')
+    for (lo, hi), vol in zip(got[before:], vols):
+        want = volume_box(vol)
+        if any(abs(lo[a] - want[0][a]) > COVER_SLACK or abs(hi[a] - want[1][a]) > COVER_SLACK for a in range(3)):
+            raise RuntimeError('the rain occluders did not read back')
+
+
+def without_occluders(chunk_bytes):
+    """The chunk's rain-keeping regions that have no rain occluder with their box: [(index, lo, hi)]."""
+    have = occluder_bounds(chunk_bytes)
+    e = COVER_SLACK
+    return [(i, lo, hi) for i, (lo, hi, f) in enumerate(read_regions(chunk_bytes)) if f & RAIN_FLAGS
+            and not any(all(abs(a[k] - lo[k]) <= e and abs(b[k] - hi[k]) <= e for k in range(3)) for a, b in have)]
+
+
+def add_missing_occluders(chunk_bytes):
+    """Chunk bytes with a rain occluder for every rain-keeping region that has none (maps exported before they
+    were written). Only the two occluder sections change."""
+    missing = without_occluders(chunk_bytes)
+    if not missing:
+        return bytes(chunk_bytes)
+    ch = rc.read_chunk(chunk_bytes)
+    before = {s.name: bytes(s.data) for s in ch.secs}
+    n = len(read_occluders(ch))
+    vols = [([(lo[0], lo[2]), (lo[0], hi[2]), (hi[0], hi[2]), (hi[0], lo[2])], lo[1], hi[1]) for _, lo, hi in missing]
+    _add_occluders(ch, vols)
+    out = rc.write_chunk(ch)
+    for s in rc.read_chunk(out).secs:
+        if s.name not in (OCCLUDERS, OCCLUDER_TREE) and bytes(s.data) != before[s.name]:
+            raise RuntimeError('adding rain occluders changed another part of the map: ' + s.name)
+    _check_occluders(out, n, vols)
+    return bytes(out)
+
+
 def covered(chunk_bytes, x0, x1, z0, z1, y0=None, y1=None):
     """Whether a region of the chunk covers the whole of x0..x1, z0..z1 (game metres, to the centimetre), and of
     y0..y1 when given (a roofed room's box covers its floor plan, not the map's height)."""
@@ -182,11 +300,15 @@ def insert(chunk_bytes, new, at=None, what='the regions'):
     before = {s.name: bytes(s.data) for s in ch.secs}
     ch.get(SECTION).data = bytearray(_join(records[:at] + [_record(v, f, a) for v, f, a in new] + records[at:],
                                            blocks[:at] + [_block(v) for v, _, _ in new] + blocks[at:]))
+    dry = [v for v, f, _ in new if f & RAIN_FLAGS]
+    occluders = len(read_occluders(ch))
+    _add_occluders(ch, dry)
     out = rc.write_chunk(ch)
     check = rc.read_chunk(out)
     for s in check.secs:
-        if s.name != SECTION and bytes(s.data) != before[s.name]:
+        if s.name not in (SECTION, OCCLUDERS, OCCLUDER_TREE) and bytes(s.data) != before[s.name]:
             raise RuntimeError(f'adding {what} changed another part of the map: ' + s.name)
+    _check_occluders(out, occluders, dry)
     got_records, got_blocks = _split(bytes(check.get(SECTION).data))
     n = len(new)
     if got_records[:at] + got_records[at + n:] != records or got_blocks[:at] + got_blocks[at + n:] != blocks \
@@ -228,14 +350,18 @@ def write_regions(chunk_bytes, regions):
         raise RuntimeError('the map template already has regions')
     before = {s.name: bytes(s.data) for s in ch.secs}
     ch.get(SECTION).data = bytearray(section(regions))
+    dry = [v for v, f, _ in regions if f & RAIN_FLAGS]
+    occluders = len(read_occluders(ch))
+    _add_occluders(ch, dry)
     out = rc.write_chunk(ch)
     check = rc.read_chunk(out)
     for s in check.secs:
-        if s.name != SECTION and bytes(s.data) != before[s.name]:
+        if s.name not in (SECTION, OCCLUDERS, OCCLUDER_TREE) and bytes(s.data) != before[s.name]:
             raise RuntimeError('adding regions changed another part of the map: ' + s.name)
     got = read_regions(out)
     if len(got) != len(regions):
         raise RuntimeError('regions did not read back')
+    _check_occluders(out, occluders, dry)
     return bytes(out)
 
 

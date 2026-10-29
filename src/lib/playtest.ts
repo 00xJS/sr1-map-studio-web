@@ -8,7 +8,7 @@ import type { ProjectSettings, Vec3 } from './project'
 /** How the exporter turns editor units into game metres. */
 export interface GameFrame { origin: Vec3; worldScale: number; mirrorX: boolean }
 
-export type PlaytestKind = 'start' | 'pos' | 'push' | 'fall' | 'stuck' | 'mark' | 'respawn' | 'end'
+export type PlaytestKind = 'start' | 'pos' | 'push' | 'fall' | 'stuck' | 'mark' | 'respawn' | 'rain' | 'end'
 
 interface Common {
   /** Seconds since the recording started. */
@@ -32,6 +32,10 @@ export type PlaytestEvent = StartEvent | Common & (
   | { ev: 'stuck'; seconds: number; keys: string }
   | { ev: 'mark'; n: number }
   | { ev: 'respawn'; from?: Vec3 }
+  /** The rain where the camera is: whether the game counts it as indoors (`indoor`, with the rain `fade` 0..1),
+   *  the flags of the region it is in (-1 none), the weather stage, the console's Rain_density when set, and the
+   *  two screen-wide rain layers after the fade. */
+  | { ev: 'rain'; indoor: boolean; fade?: number; region?: number; weather?: number; density?: number; screenRain?: [number, number]; camera?: Vec3 }
   | { ev: 'end'; reason: string })
 
 export interface Playtest {
@@ -71,6 +75,11 @@ function event(o: Record<string, unknown>, line: number): PlaytestEvent | null {
     case 'stuck': return { ...c, ev: 'stuck', seconds: num(o.seconds) ?? 0, keys: text(o.keys) ?? '' }
     case 'mark': return { ...c, ev: 'mark', n: num(o.n) ?? 0 }
     case 'respawn': return { ...c, ev: 'respawn', from: vec(o.from) }
+    case 'rain': {
+      const a = num(o.screen_rain), b = num(o.screen_rain2)
+      return { ...c, ev: 'rain', indoor: o.indoor === true, fade: num(o.fade), region: num(o.region), weather: num(o.weather),
+        density: num(o.density), screenRain: a !== undefined && b !== undefined ? [a, b] : undefined, camera: vec(o.camera) }
+    }
     case 'end': return { ...c, ev: 'end', reason: text(o.reason) ?? '' }
     default: return null
   }
