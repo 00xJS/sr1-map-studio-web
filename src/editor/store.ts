@@ -265,6 +265,9 @@ function pin(fresh = true): Pin | null {
 
 function unpin() { pinned = null; undonePins = [] }
 
+/** How many pins wait in the redo list (tests check they go when the redo list does). */
+export const undonePinCount = () => undonePins.length
+
 /** The middle on the open map: while mirror mode is on, the one it pinned (the Twins line, the cost line and the
  *  fairness check all use it then); else where it would pin it now. Only reads: it never pins (it runs during render). */
 export function mirrorCentreNow(): Centre | null {
