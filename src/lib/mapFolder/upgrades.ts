@@ -68,6 +68,10 @@ export const MAP_UPGRADES: MapUpgrade[] = [
     key: 'dry_interiors', title: 'Keep interiors dry',
     hint: "On a map whose weather changes each match, rain falls inside its buildings and under its roofs. This finds the floor that has a roof or ceiling over it and adds the game's rain blockers there, so the rain stops when you go inside.",
   },
+  {
+    key: 'rain_occluders', title: 'Make rain blockers keep the rain out',
+    hint: 'In maps exported before 29 October 2026, the falling rain goes straight through rain blockers, indoor rooms and dry interiors: the game also needs a rain occluder over each. This adds one over each of them and changes nothing else.',
+  },
 ]
 
 export type UpgradeState = { state: 'available' | 'done' | 'unavailable'; why: string }

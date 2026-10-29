@@ -100,8 +100,8 @@ export const TEST_BATCHES: TestBatch[] = [
     features: ['random_weather', 'dry_interiors', 'rain_blockers'],
     where: {
       random_weather: 'Start a few matches in a row: each rolls the time of day and the weather.',
-      dry_interiors: 'In a rainy match, walk into the roofed room through its doorway and look at the floor and the doorway.',
-      rain_blockers: 'In a rainy match, walk to the shotgun across the yard from the room: the open ground round it, about 8 × 8 m, has a hand-placed rain blocker over it and no roof.',
+      dry_interiors: 'In a rainy match, walk into the roofed room through its doorway and look at the floor and the doorway. Then shoot out through the doorway from inside and in from outside, and swing the camera across it: say whether any shot stops in the doorway or the camera bumps there (the playtest log’s push lines show camera bumps).',
+      rain_blockers: 'In a rainy match, walk to the shotgun across the yard from the room: the open ground round it, about 8 × 8 m, has a hand-placed rain blocker over it and no roof. Walk in and out over each side, shoot through the sides from inside and outside, and swing the camera across them: say whether anything stops a shot, a player or the camera at an edge you can’t see.',
     },
     setup: ['Install it in game.', 'Start Gangsta Brawl; restart until a match rolls rain.'],
     settings: { always_clear_weather: false },

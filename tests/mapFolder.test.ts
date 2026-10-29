@@ -413,7 +413,7 @@ describe('finding the maps in what was picked', () => {
     expect(info.cts.ambience?.records.filter((r) => r.kind === 'Ambient')).toHaveLength(2)
   })
   it('lists the quick upgrades py/map_upgrade.py has, the one that asks for the game folder before the one that draws', () => {
-    expect(MAP_UPGRADES.map((u) => u.key)).toEqual(['invisible_walls', 'retail_materials', 'game_sky', 'minimap', 'dry_interiors'])
+    expect(MAP_UPGRADES.map((u) => u.key)).toEqual(['invisible_walls', 'retail_materials', 'game_sky', 'minimap', 'dry_interiors', 'rain_occluders'])
     const py = readFileSync(resolve(__dirname, '../py/map_upgrade.py'), 'utf8')
     for (const u of MAP_UPGRADES) expect(py).toContain(`key = '${u.key}'`)
   })

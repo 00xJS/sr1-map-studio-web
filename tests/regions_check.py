@@ -128,6 +128,21 @@ if pack:
     check(regions.without_occluders(fixed) == [] and regions.occluder_bounds(fixed) == regions.occluder_bounds(wide),
           'repaired: an occluder over each, the same boxes as a new export')
     check(regions.add_missing_occluders(fixed) == fixed, 'and repairing again changes nothing')
+    # A blocker turned 45 degrees comes back from its planes as the same turned box, not the 11.3 m square round it.
+    s = 4 / math.sqrt(2) * 2  # an 8 m square turned 45 degrees: corners 5.66 m from its middle
+    turned = ([(0.0, -s), (-s, 0.0), (0.0, s), (s, 0.0)], 0.0, 6.0)
+    tch = rc.read_chunk(regions.write_regions(original, [(turned, regions.FLAG_INDOOR, 0.0)]))
+    want = regions.read_occluders(tch)
+    tch.get(regions.OCCLUDERS).data, tch.get(regions.OCCLUDER_TREE).data = bytearray(4), bytearray(4)
+    got = regions.read_occluders(regions.add_missing_occluders(bytes(rc.write_chunk(tch))))
+    close = len(got) == 1 and all(math.dist(a, b) < 1e-3 for a, b in zip(got[0][0], want[0][0])) and got[0][1] == want[0][1]
+    check(close, 'repair: a turned blocker gets the turned box from its planes')
+    planes = regions._split(bytes(tch.get(regions.SECTION).data))[1][0]
+    quad, y0, y1 = regions.block_volume(planes)
+    check(all(math.dist(a, b) < 1e-3 for a, b in zip(quad, turned[0])) and (y0, y1) == (0.0, 6.0), 'block_volume: the quad and heights it was written with')
+    # Weather always clear: no rain to stop, so the regions go in without occluders.
+    clear = regions.write_regions(original, [(box, regions.FLAG_INDOOR, 0.35)], occluders=False)
+    check(len(regions.read_regions(clear)) == 1 and regions.occluder_bounds(clear) == [], 'always clear: the region without an occluder')
     # A box inserted into the list later (the quick upgrade's dry interiors) gets its occluder after the others.
     more = regions.insert(wide, [(box, regions.FLAG_INDOOR, 0.0)], 0, 'a test box')
     check(len(regions.occluder_bounds(more)) == 3 and regions.without_occluders(more) == [], 'insert: the new box gets an occluder too')
