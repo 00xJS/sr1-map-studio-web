@@ -24,14 +24,11 @@ Each region is an 88-byte record (box, flags, colours, fog, blend time), then
 for each region the planes of its block in the same layout as the water
 volumes' (a plane list and a tiny tree over it).
 
-The region only fades the screen-wide rain layers (and the weather's fog,
-sounds and lightning). The rain that falls around the camera stops where a ray
-cast down from above the camera hits one of the level's rain occluders: closed
-meshes in their own chunk section with a collision tree over them, not the
-map's collision. Every region in the game's own MP maps has its box there too,
-so every region here that keeps the rain out gets one (see "rain occluders"
-below). In game on 2026-10-28 rain still fell inside the dry interiors of a map
-exported without them; nothing with them has been tried in game yet.
+A region fades the screen-wide rain, but the rain falling round the camera
+only stops at a rain occluder (see "rain occluders" below), so each region
+that keeps the rain out gets one too. In game on 2026-10-28 rain still fell
+inside the dry interiors of a map exported without them; nothing with them has
+been tried in game yet.
 """
 import math
 import struct
@@ -170,15 +167,13 @@ COVER_SLACK = 0.01  # metres: the chunk stores 32-bit floats, so 59.52 reads bac
 
 # ------------------------------------------------------------ rain occluders --
 #
-# The rain cones around the camera (0x82148EF8) cast a ray down from above it (0x82250FC0, collision type 0x29) and
-# stop the rain where it hits. What it hits is the level's rain occluders: section rec40_360 (level +360/+364), a
-# list of closed meshes (40-byte header: vertex count, triangle count, bounds at +16/+28; then 12-byte vertices and
-# three u32 corners per triangle), made into one fixed body over the collision tree in blob_822500D8 (0x822500D8,
-# collision type 0x10005; keys mesh << 20 | triangle). The map's own collision is a body of another type
-# (0x8224F978, 0x10002). All 26 regions in the 18 retail MP chunks have an occluder with their box, and the maps add
-# more over awnings and doorways; ours had none, so the rain fell through every roof. So every region that sets
-# the indoor latch (flags 0x28) gets its box as an occluder; the map-wide region (flags 0) never does, or the
-# whole map would be dry.
+# The falling rain stops where it meets a rain occluder: a closed mesh in section rec40_360 (40-byte header: vertex
+# count, a pointer filled in at load, triangle count, another pointer, bounds min and max; then 12-byte vertices and
+# three u32 corners per triangle), with a collision tree over all of them in blob_822500D8 (a size word, then a
+# tree in the map collision's format, keys mesh << 20 | triangle). The game's own MP regions each come with an
+# occluder of their box. A region with flags 0x28 (the ones that keep the rain out) gets its box as an occluder
+# here; the map-wide region (flags 0) never does, or the whole map would be dry. On a map whose weather is always
+# clear there is no rain to stop, so none are written.
 OCCLUDERS, OCCLUDER_TREE = 'rec40_360', 'blob_822500D8'
 RAIN_FLAGS = FLAG_INDOOR | FLAG_NO_SUN_SHADOWS  # either sets the game's indoor latch
 MAX_OCCLUDERS = 1 << 12  # meshes the tree's keys can name
@@ -259,16 +254,37 @@ def without_occluders(chunk_bytes):
             and not any(all(abs(a[k] - lo[k]) <= e and abs(b[k] - hi[k]) <= e for k in range(3)) for a, b in have)]
 
 
+def block_volume(block):
+    """The upright box a region's plane block holds, as written here (four upright sides in order round it, then
+    its floor and top: volume_planes), turned as it was placed; None for any other shape."""
+    n = struct.unpack_from('>I', block, 0)[0]
+    planes = [struct.unpack_from('>4f', block, 16 + 16 * i) for i in range(n)]
+    if n != 6 or any(abs(p[1]) > 1e-4 for p in planes[:4]) or planes[4][:3] != (0.0, 1.0, 0.0) or planes[5][:3] != (0.0, -1.0, 0.0):
+        return None
+    quad = []
+    for k in range(4):
+        # Corner k is where side k-1 meets side k.
+        (ax, _, az, ad), (bx, _, bz, bd) = planes[(k - 1) % 4], planes[k]
+        det = ax * bz - az * bx
+        if abs(det) < 1e-6:
+            return None
+        quad.append(((-ad * bz + bd * az) / det, (-ax * bd + bx * ad) / det))
+    return quad, -planes[4][3], planes[5][3]
+
+
 def add_missing_occluders(chunk_bytes):
     """Chunk bytes with a rain occluder for every rain-keeping region that has none (maps exported before they
-    were written). Only the two occluder sections change."""
+    were written). A region's box is rebuilt from its planes, turned as it was placed (its bounds for a shape this
+    file never writes). Only the two occluder sections change."""
     missing = without_occluders(chunk_bytes)
     if not missing:
         return bytes(chunk_bytes)
     ch = rc.read_chunk(chunk_bytes)
     before = {s.name: bytes(s.data) for s in ch.secs}
     n = len(read_occluders(ch))
-    vols = [([(lo[0], lo[2]), (lo[0], hi[2]), (hi[0], hi[2]), (hi[0], lo[2])], lo[1], hi[1]) for _, lo, hi in missing]
+    _, blocks = _split(bytes(ch.get(SECTION).data))
+    vols = [block_volume(blocks[i]) or ([(lo[0], lo[2]), (lo[0], hi[2]), (hi[0], hi[2]), (hi[0], lo[2])], lo[1], hi[1])
+            for i, lo, hi in missing]
     _add_occluders(ch, vols)
     out = rc.write_chunk(ch)
     for s in rc.read_chunk(out).secs:
@@ -289,9 +305,10 @@ def covered(chunk_bytes, x0, x1, z0, z1, y0=None, y1=None):
     return False
 
 
-def insert(chunk_bytes, new, at=None, what='the regions'):
+def insert(chunk_bytes, new, at=None, what='the regions', occluders=True):
     """Chunk bytes with regions [(volume, flags, ambient)] put into the list before index `at` (at the end when
-    None); the ones there stay byte for byte. Checks that nothing else changed and that every region reads back."""
+    None); the ones there stay byte for byte, and with `occluders` each new one that keeps the rain out gets its
+    rain occluder. Checks that nothing else changed and that every region reads back."""
     ch = rc.read_chunk(chunk_bytes)
     records, blocks = _split(bytes(ch.get(SECTION).data))
     if len(records) + len(new) > MAX_REGIONS + 1:
@@ -300,15 +317,15 @@ def insert(chunk_bytes, new, at=None, what='the regions'):
     before = {s.name: bytes(s.data) for s in ch.secs}
     ch.get(SECTION).data = bytearray(_join(records[:at] + [_record(v, f, a) for v, f, a in new] + records[at:],
                                            blocks[:at] + [_block(v) for v, _, _ in new] + blocks[at:]))
-    dry = [v for v, f, _ in new if f & RAIN_FLAGS]
-    occluders = len(read_occluders(ch))
+    dry = [v for v, f, _ in new if f & RAIN_FLAGS] if occluders else []
+    had = len(read_occluders(ch))
     _add_occluders(ch, dry)
     out = rc.write_chunk(ch)
     check = rc.read_chunk(out)
     for s in check.secs:
         if s.name not in (SECTION, OCCLUDERS, OCCLUDER_TREE) and bytes(s.data) != before[s.name]:
             raise RuntimeError(f'adding {what} changed another part of the map: ' + s.name)
-    _check_occluders(out, occluders, dry)
+    _check_occluders(out, had, dry)
     got_records, got_blocks = _split(bytes(check.get(SECTION).data))
     n = len(new)
     if got_records[:at] + got_records[at + n:] != records or got_blocks[:at] + got_blocks[at + n:] != blocks \
@@ -342,16 +359,17 @@ def read_regions(chunk_bytes):
     return out
 
 
-def write_regions(chunk_bytes, regions):
-    """Chunk bytes with the regions written in; checks nothing else changed and that they read back."""
+def write_regions(chunk_bytes, regions, occluders=True):
+    """Chunk bytes with the regions written in, and with `occluders` a rain occluder for each that keeps the rain
+    out; checks nothing else changed and that they read back."""
     ch = rc.read_chunk(chunk_bytes)
     old = bytes(ch.get(SECTION).data)
     if len(old) >= 4 and struct.unpack_from('>I', old, 0)[0]:
         raise RuntimeError('the map template already has regions')
     before = {s.name: bytes(s.data) for s in ch.secs}
     ch.get(SECTION).data = bytearray(section(regions))
-    dry = [v for v, f, _ in regions if f & RAIN_FLAGS]
-    occluders = len(read_occluders(ch))
+    dry = [v for v, f, _ in regions if f & RAIN_FLAGS] if occluders else []
+    had = len(read_occluders(ch))
     _add_occluders(ch, dry)
     out = rc.write_chunk(ch)
     check = rc.read_chunk(out)
@@ -361,7 +379,7 @@ def write_regions(chunk_bytes, regions):
     got = read_regions(out)
     if len(got) != len(regions):
         raise RuntimeError('regions did not read back')
-    _check_occluders(out, occluders, dry)
+    _check_occluders(out, had, dry)
     return bytes(out)
 
 
@@ -391,7 +409,7 @@ def add_regions(chunk_path, markers, world_scale, convert, always_clear, log, dr
     # The first box the camera is in wins: smaller ones first, so a room inside a bigger blocker keeps its own look.
     usable.sort(key=lambda r: (lambda lo, hi: (hi[0] - lo[0]) * (hi[1] - lo[1]) * (hi[2] - lo[2]))(*volume_box(r[0])))
     path = Path(chunk_path)
-    path.write_bytes(write_regions(path.read_bytes(), usable))
+    path.write_bytes(write_regions(path.read_bytes(), usable, occluders=not always_clear))
     blockers = sum(1 for r in usable if r[1] == FLAGS[RAIN_BLOCKER]) - len(dry)
     if placed:
         log(f'Regions: {blockers} rain blocker(s), {placed - blockers} indoor room(s) (new, not yet tried in game).')

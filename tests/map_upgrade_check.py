@@ -133,6 +133,7 @@ def installed_maps(game, maps, tmp):
             mm = before['upgrades']['minimap']['state']
             walls = before['upgrades']['invisible_walls']['state']
             dry = before['upgrades']['dry_interiors']['state']
+            occ = before['upgrades']['rain_occluders']['state']
             slivers = collision_fix.count_slivers(rc.read_chunk(chunk.read_bytes()))
             # A fresh copy of mp_bac_01's chunk each time: the sky is read from it, then it is deleted.
             spare = w / 'mp_bac_01.bbchunk_xbox2'
@@ -142,14 +143,14 @@ def installed_maps(game, maps, tmp):
             # The picture the editor draws from above (src/lib/mapFolder/minimap.ts), over a 60 m square.
             picture = w / 'minimap.png'
             Image.new('RGBA', (1024, 1024), (40, 120, 200, 255)).save(picture)
-            spec = {'chunk': str(chunk), 'peg': str(texfile), 'upgrades': ['game_sky', 'minimap', 'retail_materials', 'invisible_walls', 'dry_interiors'],
+            spec = {'chunk': str(chunk), 'peg': str(texfile), 'upgrades': ['game_sky', 'minimap', 'retail_materials', 'invisible_walls', 'dry_interiors', 'rain_occluders'],
                     'game_sky': {'dir': str(source / 'native_sky'), 'chunk': str(spare)},
                     'minimap_png': str(picture), 'minimap_box': [-30.0, -20.0, 30.0, 40.0]}
             old = (chunk.read_bytes(), texfile.read_bytes())
             r = map_upgrade.upgrade(spec, logs.append)
             ch = rc.read_chunk(chunk.read_bytes())
             after = map_upgrade.inspect({'chunk': str(chunk)}, logs.append)
-            want = [k for k, st in (('invisible_walls', walls), ('retail_materials', retail), ('minimap', mm), ('dry_interiors', dry), ('game_sky', state))
+            want = [k for k, st in (('invisible_walls', walls), ('retail_materials', retail), ('minimap', mm), ('dry_interiors', dry), ('rain_occluders', occ), ('game_sky', state))
                     if st == 'available']
             check(r['applied'] == want, f'{d.name}: applied {r["applied"]}, in order (materials first, the sky last)')
             # Invisible walls: every sliver out of the collision, the drawing untouched (collision_fix.py).
@@ -173,12 +174,15 @@ def installed_maps(game, maps, tmp):
                     och = rc.read_chunk(keep)
                     och.get(regions.OCCLUDERS).data, och.get(regions.OCCLUDER_TREE).data = bytearray(4), bytearray(4)
                     chunk.write_bytes(rc.write_chunk(och))
-                    st = map_upgrade.inspect({'chunk': str(chunk)}, logs.append)['upgrades']['dry_interiors']
-                    fix = map_upgrade.upgrade({'chunk': str(chunk), 'peg': str(texfile), 'upgrades': ['dry_interiors']}, logs.append)
+                    ups = map_upgrade.inspect({'chunk': str(chunk)}, logs.append)['upgrades']
+                    st = ups['rain_occluders']
+                    fix = map_upgrade.upgrade({'chunk': str(chunk), 'peg': str(texfile), 'upgrades': ['rain_occluders']}, logs.append)
                     fixed = chunk.read_bytes()
-                    check(st['state'] == 'available' and 'falls through' in st['why'] and fix['applied'] == ['dry_interiors']
-                          and regions.without_occluders(fixed) == [] and regions.read_regions(fixed) == regions.read_regions(keep),
-                          f'{d.name}: an old export\'s rain blockers get their occluders, the regions as they were ({st["why"]})')
+                    check(st['state'] == 'available' and 'falls through' in st['why'] and ups['dry_interiors']['state'] == 'done'
+                          and fix['applied'] == ['rain_occluders'] and regions.without_occluders(fixed) == []
+                          and regions.read_regions(fixed) == regions.read_regions(keep),
+                          f'{d.name}: an old export\'s rain blockers get their occluders on their own, the regions as they were ({st["why"]})')
+                    check(regions.occluder_bounds(fixed) == regions.occluder_bounds(keep), f'{d.name}: the same occluder boxes as a new export')
                     chunk.write_bytes(keep)
             if mm == 'available':
                 d2 = chunk.read_bytes()

@@ -256,8 +256,7 @@ class DryInteriors:
     """Rain stops under roofs and ceilings: rain blockers over the map's roofed floor (interiors.py), as the export
     adds them. They go in before the map's other regions bar its rain blockers and rooms (the game takes the first
     region the camera is in), so the map-wide region the minimap needs stays last. Roofed floor already inside one
-    of the map's indoor regions is left as it is. A map exported before rain occluders were written (regions.py)
-    has its rain blockers without them, and the rain falls through: those get theirs too."""
+    of the map's indoor regions is left as it is."""
     key = 'dry_interiors'
     order = 70
     INDOOR = regions.FLAG_INDOOR | regions.FLAG_NO_SUN_SHADOWS  # either makes the game fade the rain out
@@ -277,41 +276,62 @@ class DryInteriors:
             todo = [b for b in found if not any(all(lo[a] <= b[0][a] + e and hi[a] >= b[1][a] - e for a in range(3)) for lo, hi in indoor)]
             todo = todo[:room]  # biggest first
             at = next((i for i, (_, _, f) in enumerate(have) if not f & self.INDOOR), len(have))
-            self._seen = (chunk_bytes, (todo, at, len(found), room, len(regions.without_occluders(chunk_bytes))))
+            self._seen = (chunk_bytes, (todo, at, len(found), room))
         return self._seen[1]
 
     def status(self, ch, g, ctx):
         if ctx.get('always_clear'):
             return 'unavailable', "This map's weather is always clear, so it never rains in it."
-        todo, _, found, room, leaky = self._todo(Path(ctx['chunk']).read_bytes())
-        if leaky and not todo:
-            return 'available', f'{leaky} rain blocker(s) the rain still falls through.'
+        todo, _, found, room = self._todo(Path(ctx['chunk']).read_bytes())
         if not room:
             return 'unavailable', 'The map has no room for more regions.'
         if not found:
             return 'unavailable', 'No floor under a roof or ceiling was found in this map.'
         if not todo:
             return 'done', "The map's floor under roofs and ceilings is already kept dry."
-        if leaky:
-            return 'available', f'{len(todo)} box(es) over the floor under roofs and ceilings, and {leaky} rain blocker(s) the rain still falls through.'
         return 'available', f'{len(todo)} box(es) over the floor under roofs and ceilings.'
 
     def apply(self, chunk, peg, ctx, log):
         chunk = Path(chunk)
-        todo, at, _, _, leaky = self._todo(chunk.read_bytes())
-        if not todo and not leaky:
+        todo, at, _, _ = self._todo(chunk.read_bytes())
+        if not todo:
             raise ValueError('No roofed floor left to keep dry.')
-        if leaky:
-            chunk.write_bytes(regions.add_missing_occluders(chunk.read_bytes()))
-            log(f'Dry interiors: {leaky} rain blocker(s) given the rain occluder the falling rain stops at (new, not yet tried in game).')
-        if todo:
-            chunk.write_bytes(regions.insert(chunk.read_bytes(), [(interiors.volume(b), regions.FLAG_INDOOR, 0.0) for b in todo], at,
-                                             'the dry interiors'))
-            log(f'Dry interiors: {len(todo)} box(es) over the floor under roofs and ceilings, where rain now stops (new, not yet tried in game).')
+        chunk.write_bytes(regions.insert(chunk.read_bytes(), [(interiors.volume(b), regions.FLAG_INDOOR, 0.0) for b in todo], at,
+                                         'the dry interiors'))
+        log(f'Dry interiors: {len(todo)} box(es) over the floor under roofs and ceilings, where rain now stops (new, not yet tried in game).')
         return True
 
 
-UPGRADES = [InvisibleWalls(), RetailMaterials(), Minimap(), DryInteriors(), GameSky()]
+class RainOccluders:
+    """The falling rain goes through a region that keeps the rain out unless a rain occluder has its box
+    (regions.py). Maps exported before occluders were written have none: this adds one over each of the map's rain
+    blockers, indoor rooms and dry-interior boxes, and changes nothing else."""
+    key = 'rain_occluders'
+    order = 75
+
+    def status(self, ch, g, ctx):
+        if ctx.get('always_clear'):
+            return 'unavailable', "This map's weather is always clear, so it never rains in it."
+        chunk_bytes = Path(ctx['chunk']).read_bytes()
+        if not any(f & regions.RAIN_FLAGS for _, _, f in regions.read_regions(chunk_bytes)):
+            return 'unavailable', 'The map has no rain blockers or indoor rooms.'
+        n = len(regions.without_occluders(chunk_bytes))
+        if not n:
+            return 'done', "The map's rain blockers and indoor rooms already keep the falling rain out."
+        return 'available', f'The rain still falls through {n} of the rain blockers and indoor rooms.'
+
+    def apply(self, chunk, peg, ctx, log):
+        chunk = Path(chunk)
+        data = chunk.read_bytes()
+        n = len(regions.without_occluders(data))
+        if not n:
+            raise ValueError('The rain blockers and indoor rooms already keep the falling rain out.')
+        chunk.write_bytes(regions.add_missing_occluders(data))
+        log(f'Rain blockers: a rain occluder over {n} rain blocker(s) and indoor room(s), where the falling rain now stops (new, not yet tried in game).')
+        return True
+
+
+UPGRADES = [InvisibleWalls(), RetailMaterials(), Minimap(), DryInteriors(), RainOccluders(), GameSky()]
 ORDER = sorted(UPGRADES, key=lambda u: u.order)
 
 
