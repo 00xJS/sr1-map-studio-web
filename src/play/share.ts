@@ -316,6 +316,15 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
     if (it.glow) it.glow = keys(it.glow)
     if (it.surface_ids) it.surface_ids = keys(it.surface_ids)
     if (it.water_materials) it.water_materials = it.water_materials.filter((m) => r.has(m)).map((m) => r.get(m)!)
+    if (it.collision_materials) it.collision_materials = it.collision_materials.filter((m) => r.has(m)).map((m) => r.get(m)!)
+  }
+  // A dummy is drawn as its stand-in: its object's own model, with the object's (renamed) pictures. One that names
+  // any other model isn't a dummy here.
+  for (const it of project.scene_items) {
+    const dm = it.dummy as { stand_in?: { path: string; textures: Record<string, string> } } | undefined
+    if (!dm) continue
+    if (dm.stand_in?.path !== it.path) delete it.dummy
+    else dm.stand_in.textures = { ...it.textures }
   }
   const usedTextures = new Set<string>()
   for (const it of project.scene_items) {

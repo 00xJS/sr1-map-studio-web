@@ -43,6 +43,19 @@ function pick<T>(v: unknown, fields: Record<string, Clean>): Partial<T> {
   return out as Partial<T>
 }
 
+/** A decoy dummy's settings (lib/dummies/standIn.ts DummyRef): in a share always drawn as its stand-in figure. */
+function dummy(v: unknown): unknown {
+  if (!v || typeof v !== 'object') return undefined
+  const d = v as Record<string, unknown>
+  const stand = pick<{ path: string; textures: Record<string, string> }>(d.stand_in, { path: str(), textures: record(str()) })
+  if (d.source !== 'dummy' || typeof stand.path !== 'string') return undefined
+  return {
+    source: 'dummy', ...pick(d, { model: str(64), pose: str(32), ws: num }),
+    look: pick(d.look, { top: str(16), skin: str(16), hair: str(16), outfit: num }),
+    built: false, stand_in: { path: stand.path, textures: stand.textures ?? {} },
+  }
+}
+
 const SHAPE: Record<keyof Shape, Clean> = {
   kind: str(16), size: vec3, tile: num, segments: num, taper: num, bevel: num, lie: bool, fit: bool, open: bool,
   outline: (v) => (Array.isArray(v) && v.length <= 1024 && v.every((p) => nums(2)(p)) ? v.map((p) => [...p]) : undefined),
@@ -59,7 +72,8 @@ const ITEM: { [K in keyof SceneItem]?: Clean } & Record<string, Clean> = {
   native_breakable_kind: str(16), native_opacity: num, native_use_alpha: bool, native_prop_behavior: str(16),
   native_original_name: str(), native_prop_original_name: str(), native_profile: str(64),
   physics_preset: str(64), physics_shape: str(16), physics_bottom_heavy: bool,
-  swimmable_water: bool, water_materials: strs, triangles: num, shape, group: str(), layer: str(),
+  swimmable_water: bool, water_materials: strs, collision_materials: strs, triangles: num, shape, group: str(), layer: str(),
+  dummy: (v) => dummy(v),
 }
 
 const MARKER: Record<keyof Marker, Clean> = {

@@ -5,6 +5,7 @@ import { storeFile } from './files'
 import { generate } from './procedural'
 import { pixelsToPng } from './images'
 import { compoundObj, shapeObj } from './shapes'
+import { standInObj } from './dummies/figure'
 import { libraryIds, recognizeTexture } from './recognize'
 import type { FileRecipe } from './recipes'
 import type { FileRef, Project } from './project'
@@ -21,6 +22,7 @@ async function make(r: FileRecipe, name: string): Promise<Blob> {
     case 'generated': return pixelsToPng(generate(r.params), r.params.size, name)
     case 'shape': return new Blob([shapeObj(r.shape)], { type: 'model/obj' })
     case 'compound': return new Blob([compoundObj(r.pieces)], { type: 'model/obj' })
+    case 'figure': return new Blob([standInObj(r.pose, r.ws)], { type: 'model/obj' })
   }
 }
 

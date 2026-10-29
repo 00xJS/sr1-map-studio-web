@@ -51,6 +51,9 @@ export async function remixShare(token: string, onProgress?: (text: string) => v
   }
   for (const it of p.scene_items) {
     it.path = models.get(it.path) ?? it.path
+    // A dummy's stand-in is its object's model (validateShareDoc), now stored here.
+    const dm = it.dummy as { stand_in?: { path: string; textures: Record<string, string> } } | undefined
+    if (dm?.stand_in) dm.stand_in = { path: it.path, textures: { ...it.textures } }
     if (it.native_mesh_obj) it.native_mesh_obj = models.get(it.native_mesh_obj) ?? it.native_mesh_obj
   }
   p.files = files
@@ -73,4 +76,5 @@ function renameMaterials(it: SceneItem, r: Record<string, string>) {
   if (it.glow) it.glow = keys(it.glow)
   if (it.surface_ids) it.surface_ids = keys(it.surface_ids)
   if (it.water_materials) it.water_materials = it.water_materials.map(name)
+  if (it.collision_materials) it.collision_materials = it.collision_materials.map(name)
 }
