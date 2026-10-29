@@ -302,15 +302,21 @@ function compareTeams(g: FloorGraph, markers: AnalysisMarker[], nodeOf: number[]
   return { territory, fairness: { score: Math.max(0, round(100 - penalty)), basis, red: R.s, blue: B.s, unmirrored, reasons } }
 }
 
+/** The map's centre on the ground: the middle of the spawns (or of all markers with fewer than two spawns). */
+function centre(markers: AnalysisMarker[]): [number, number] {
+  const spawns = markers.filter((mk) => SPAWN_TYPES.includes(mk.type))
+  const list = spawns.length >= 2 ? spawns : markers
+  if (!list.length) return [0, 0]
+  return [list.reduce((a, mk) => a + mk.position[0], 0) / list.length, list.reduce((a, mk) => a + mk.position[2], 0) / list.length]
+}
+
 const MIRRORED = [...SPAWN_TYPES, 'Weapon pickup', 'Chains drop-off']
 
-/** The middle the map is mirrored about: the middle of the spawns, or the origin with fewer than two (one spawn, or a
- *  few weapons, says nothing about where the middle is; maps are built round the origin, and opened ones are centred
- *  on their bounds). Mirror mode turns edits about the same point (lib/mirrorEdit.ts). */
+/** The middle the map checks pair twins about: the middle of the spawns (of the spawns, weapons and drop-offs with
+ *  fewer than two spawns). Mirror mode turns edits about the same point, but with fewer than two spawns it takes the
+ *  origin instead (lib/mirrorEdit.ts centreOf), and hands it in as AnalysisOptions.centre while it's on. */
 export function mirrorCentre(markers: Pick<AnalysisMarker, 'type' | 'position'>[]): [number, number] {
-  const spawns = markers.filter((mk) => SPAWN_TYPES.includes(mk.type))
-  if (spawns.length < 2) return [0, 0]
-  return [spawns.reduce((a, mk) => a + mk.position[0], 0) / spawns.length, spawns.reduce((a, mk) => a + mk.position[2], 0) / spawns.length]
+  return centre(markers.filter((mk) => MIRRORED.includes(mk.type)) as AnalysisMarker[])
 }
 
 /** What the fairness score takes off for `count` spawns, weapons and drop-offs without a twin: 3 each, 20 at most when

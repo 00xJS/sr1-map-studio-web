@@ -129,7 +129,7 @@ export const addPhysicsSet = command(async (e: Edits, key: string, at: Vec3, gro
     list.push(first + k)
     byPreset.set(part.physics!.preset, list)
   })
-  for (const [preset, list] of byPreset) await makePhysicsProps(list, preset)
+  for (const [preset, list] of byPreset) await e.quietly(() => makePhysicsProps(list, preset))
   e.update('Physics shapes', (d) => {
     props.forEach((part, k) => {
       const it = d.scene_items[first + k]

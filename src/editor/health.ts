@@ -7,6 +7,7 @@ import type { Viewer } from './Viewer'
 import { analysisKey } from '../lib/analysis/collision'
 import { analyzeProject, cancelAnalysis } from '../lib/analysis/client'
 import type { HealthReport } from '../lib/analysis/types'
+import type { Project } from '../lib/project'
 import { buildOverlay, type Overlay, type OverlayKind } from './healthOverlay'
 import { textureBudget } from '../lib/textureBudget'
 import { findStairs, scaleRuns } from '../lib/stairRamps'
@@ -18,7 +19,7 @@ export type { OverlayKind }
 
 interface HealthState {
   report: HealthReport | null
-  /** analysisKey of the map the report is about. */
+  /** healthKey of the map the report is about. */
   key: string
   projectId: string
   running: boolean
@@ -57,12 +58,19 @@ export function useFindings(): Pick<HealthState, 'report' | 'stairs' | 'slivers'
   return mine ? { report, stairs, slivers } : { report: null, stairs: 0, slivers: null }
 }
 
-/** True when the map changed since the report was made. */
+/** The middle the fairness check pairs markers about: mirror mode's while it's on, else its own (mirrorCentre). */
+const checkCentre = () => (useEditor.getState().mirror ? mirrorCentreNow() ?? undefined : undefined)
+
+/** What a report is about: the map as the checks see it, and the middle its fairness pairs markers about. */
+export const healthKey = (project: Project, centre = checkCentre()) => analysisKey(project) + '|' + (centre?.join(',') ?? '')
+
+/** True when the map changed since the report was made (or mirror mode, or its middle, did). */
 export function useHealthStale(): boolean {
   const project = useEditor((s) => s.project)
+  useEditor((s) => s.mirror)
   const key = useHealth((s) => s.key)
   const has = useHealth((s) => !!s.report)
-  return has && !!project && analysisKey(project) !== key
+  return has && !!project && healthKey(project) !== key
 }
 
 export async function runHealthCheck(overlay?: OverlayKind) {
@@ -72,7 +80,7 @@ export async function runHealthCheck(overlay?: OverlayKind) {
   useHealth.setState({ running: true, error: null, progress: { text: 'Reading the map', done: 0 } })
   try {
     // In mirror mode, the fairness check pairs markers about the middle mirror mode pinned, as the Build tab counts them.
-    const centre = useEditor.getState().mirror ? mirrorCentreNow() ?? undefined : undefined
+    const centre = checkCentre()
     const report = await analyzeProject(project, { centre, onProgress: (text, done) => useHealth.setState({ progress: { text, done } }) })
     // Its textures as the exporter will store them: a map whose textures don't fit the game's memory loads black.
     // Steps too tall to walk up (a flight, a doorstep, a terrace) that have no invisible ramp yet: players stop at each.
@@ -90,7 +98,7 @@ export async function runHealthCheck(overlay?: OverlayKind) {
       }
     }
     useHealth.setState((s) => ({
-      report, key: analysisKey(project), projectId: project.id, running: false, progress: null, ms: Math.round(performance.now() - started), stairs, slivers,
+      report, key: healthKey(project, centre), projectId: project.id, running: false, progress: null, ms: Math.round(performance.now() - started), stairs, slivers,
       overlay: overlay ?? (s.overlay === 'off' ? 'sight' : s.overlay), focus: null,
     }))
   } catch (err) {

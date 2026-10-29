@@ -166,13 +166,13 @@ export const breakMerge = () => { lastMerge = null }
 /** Mirror mode's pairs for the edit going on (kept through a merged edit such as a gizmo drag). */
 let mirroring: MirrorSession | null = null
 /** The middle mirror mode turns about, found when it's turned on and kept until it's turned off or another map opens:
- *  edits it doesn't copy (the AI's, a fix moving spawns) mustn't shift it and break the pairs. `depth`: the undo steps
- *  there were then; undoing past that finds the middle again. */
-let pinned: { projectId: string; centre: Centre; depth: number } | null = null
+ *  edits it doesn't copy (the AI's, a fix moving spawns) mustn't shift it and break the pairs. `at`: the map as it was
+ *  then; undoing past it (it's in the redo list) finds the middle again. */
+let pinned: { projectId: string; centre: Centre; at: Project } | null = null
 
-function pin(): { projectId: string; centre: Centre; depth: number } | null {
-  const { project, past } = useEditor.getState()
-  pinned = project ? { projectId: project.id, centre: centreOf(project), depth: past.length } : null
+function pin(): { projectId: string; centre: Centre; at: Project } | null {
+  const { project } = useEditor.getState()
+  pinned = project ? { projectId: project.id, centre: centreOf(project), at: project } : null
   return pinned
 }
 
@@ -185,10 +185,12 @@ export function mirrorCentreNow(): Centre | null {
   return (pinned?.projectId === project.id ? pinned : pin())!.centre
 }
 
-/** After undo or redo: back past where mirror mode pinned its middle, it finds it again on the map as it is now. */
+/** After undo or redo: back past where mirror mode pinned its middle, it finds it again on the map as it is now. By the
+ *  map itself, not by counting steps: the history drops its oldest steps and the AI folds its steps into one. */
 function repinAfterHistory() {
-  const { mirror, past } = useEditor.getState()
-  if (mirror && pinned && past.length < pinned.depth) pin()
+  const { mirror, future } = useEditor.getState()
+  const at = pinned?.at
+  if (mirror && at && future.some((h) => h.project === at)) pin()
 }
 /** How deep in withoutMirror calls the code running right now is. */
 let unmirrored = 0
@@ -218,7 +220,7 @@ export interface Edits {
  * runs another command the same way. The AI runs only async commands made with this (aiActions.ts checks).
  */
 export function command<A extends unknown[], R>(fn: (e: Edits, ...a: A) => Promise<R>): (...a: A) => Promise<R> {
-  const run = (...a: A) => {
+  const started = (...a: A) => {
     const quiet = unmirrored > 0
     const e: Edits = {
       update: (label, recipe, opts) => useEditor.getState().update(label, recipe, quiet ? { ...opts, noMirror: true } : opts),
@@ -226,7 +228,7 @@ export function command<A extends unknown[], R>(fn: (e: Edits, ...a: A) => Promi
     }
     return fn(e, ...a)
   }
-  return Object.assign(run, { [COMMAND]: true as const })
+  return Object.assign(started, { [COMMAND]: true as const })
 }
 
 /** Was `f` made with command()? */

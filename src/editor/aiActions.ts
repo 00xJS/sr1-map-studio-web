@@ -22,11 +22,21 @@ import type { Swatch } from './store'
 // calls runs inside withoutMirror, and its own updates say noMirror. The user's edits meanwhile are mirrored as usual.
 // An async command edits after an await, outside withoutMirror: only ones made with command() carry it there, so
 // any other is refused here rather than quietly mirrored.
-export const quiet = <F extends (...a: never[]) => unknown>(f: F, name = f.name): F => ((...a: Parameters<F>) => withoutMirror(() => {
-  const out = f(...a)
-  if (out instanceof Promise && !isCommand(f)) throw new Error(`${name} is async but not made with command(): its edits would be mirrored`)
-  return out
-})) as F
+export const quiet = <F extends (...a: never[]) => unknown>(f: F, name = f.name): F => ((...a: Parameters<F>) => {
+  // Refused before it starts: once running, its edits would already be on their way, mirrored.
+  const refuse = () => new Error(`${name} is async but not made with command(): its edits would be mirrored`)
+  if (f.constructor.name === 'AsyncFunction' && !isCommand(f)) throw refuse()
+  return withoutMirror(() => {
+    const out = f(...a)
+    // A plain function that hands back a promise can only be caught after the call: its own failure isn't left unheard.
+    if (out instanceof Promise && !isCommand(f)) { out.catch(() => {}); throw refuse() }
+    return out
+  })
+}) as F
+/** The middle the AI's twins pair about: mirror mode's while it's on (the one the Build tab counts with), else the
+ *  origin, as the AI's own map description says (aiChat.ts describeMap). */
+export const aiMiddle = (): [number, number] => (useEditor.getState().mirror ? mirrorCentreNow() ?? [0, 0] : [0, 0])
+
 let quietActs: typeof actions | null = null
 /** The editor's commands, each run as the AI's (built once, on first use). */
 const acts = () => (quietActs ??= Object.fromEntries(Object.entries(actions).map(([k, v]) => [k, typeof v === 'function' ? quiet(v as () => unknown, k) : v])) as unknown as typeof actions)
@@ -91,10 +101,11 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
   let done = 0
   const count = () => currentProject()!.scene_items.length
   const item = (i: unknown) => (Number.isInteger(i) && (i as number) >= 0 && (i as number) < count() ? (i as number) : null)
-  // Each placement, plus its twin across the middle when asked: the middle mirror mode and the fairness check use.
-  const [cx, cz] = mirrorCentreNow() ?? [0, 0]
-  const spots = (x: number, z: number, turn: number, mirror?: boolean): [number, number, number, boolean][] =>
-    mirror && (Math.abs(x - cx) > 0.5 || Math.abs(z - cz) > 0.5) ? [[x, z, turn, false], [2 * cx - x, 2 * cz - z, (turn + 180) % 360, true]] : [[x, z, turn, false]]
+  // Each placement, plus its twin across the middle when asked.
+  const spots = (x: number, z: number, turn: number, mirror?: boolean): [number, number, number, boolean][] => {
+    const [cx, cz] = aiMiddle()
+    return mirror && (Math.abs(x - cx) > 0.5 || Math.abs(z - cz) > 0.5) ? [[x, z, turn, false], [2 * cx - x, 2 * cz - z, (turn + 180) % 360, true]] : [[x, z, turn, false]]
+  }
 
   // Lines and rings expand into more edits in place.
   const queue = [...actions]
@@ -226,7 +237,7 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           if (at.length < want.length) skipped.push(`room for ${at.length} of ${want.length} weapons`)
           at.forEach((p, i) => {
             act.addMarker('Weapon pickup', [p[0], p[1] + 0.1, p[2]], { weapon: want[i] }); done++
-            if (a.mirror !== false) { act.addMarker('Weapon pickup', [2 * cx - p[0], p[1] + 0.1, 2 * cz - p[2]], { weapon: want[i] }); done++ }
+            if (a.mirror !== false) { const [cx, cz] = aiMiddle(); act.addMarker('Weapon pickup', [2 * cx - p[0], p[1] + 0.1, 2 * cz - p[2]], { weapon: want[i] }); done++ }
           })
           break
         }
@@ -365,29 +376,29 @@ async function applyAiActions(actions: AiAction[], label: string): Promise<{ don
           break
         }
         case 'mirror': {
-          const p = currentProject()!
-          const ids = resolveTarget(p, a).filter((i) => findTwin(p, i) === null)
-          const marks = (Array.isArray(a.markers) ? a.markers : []).filter((i) => p.markers[i] && findMarkerTwin(p, i) === null)
+          const p = currentProject()!, mid = aiMiddle()
+          const ids = resolveTarget(p, a).filter((i) => findTwin(p, i, undefined, mid) === null)
+          const marks = (Array.isArray(a.markers) ? a.markers : []).filter((i) => p.markers[i] && findMarkerTwin(p, i, undefined, mid) === null)
           if (!ids.length && !marks.length) { skipped.push('those already have twins'); break }
           const groups = new Map<string, string>()
           st.update('Mirror', (d) => {
-            for (const i of ids) d.scene_items.push(twinItem(p.scene_items[i], uid, groups))
-            for (const i of marks) d.markers.push(twinMarker(p.markers[i], uid))
+            for (const i of ids) d.scene_items.push(twinItem(p.scene_items[i], uid, groups, mid))
+            for (const i of marks) d.markers.push(twinMarker(p.markers[i], uid, mid))
           })
           done += ids.length + marks.length
           break
         }
         case 'make_symmetric': {
-          const p = currentProject()!
-          const plan = symmetricPlan(p, a.keep === 'blue' ? 'blue' : 'red', a.only === 'objects' || a.only === 'markers' ? a.only : undefined)
+          const p = currentProject()!, mid = aiMiddle()
+          const plan = symmetricPlan(p, a.keep === 'blue' ? 'blue' : 'red', a.only === 'objects' || a.only === 'markers' ? a.only : undefined, mid)
           const groups = new Map<string, string>()
           const dropI = new Set(plan.items.drop), dropM = new Set(plan.markers.drop), dropL = new Set(plan.lights.drop)
           st.update('Make symmetric', (d) => {
-            d.scene_items = [...d.scene_items.filter((_, i) => !dropI.has(i)), ...plan.items.copy.map((i) => twinItem(p.scene_items[i], uid, groups))]
-            d.markers = [...d.markers.filter((_, i) => !dropM.has(i)), ...plan.markers.copy.map((i) => twinMarker(p.markers[i], uid))]
+            d.scene_items = [...d.scene_items.filter((_, i) => !dropI.has(i)), ...plan.items.copy.map((i) => twinItem(p.scene_items[i], uid, groups, mid))]
+            d.markers = [...d.markers.filter((_, i) => !dropM.has(i)), ...plan.markers.copy.map((i) => twinMarker(p.markers[i], uid, mid))]
             d.lights = [...d.lights.filter((_, i) => !dropL.has(i)), ...plan.lights.copy.map((i) => {
               const l = p.lights[i]
-              return { ...structuredClone(l), uid: uid(), position: [-l.position[0], l.position[1], -l.position[2]] as Vec3 }
+              return { ...structuredClone(l), uid: uid(), position: [2 * mid[0] - l.position[0] + 0, l.position[1], 2 * mid[1] - l.position[2] + 0] as Vec3 }
             })]
           }, { noMirror: true })
           useEditor.getState().select(null)

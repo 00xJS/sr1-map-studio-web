@@ -3,7 +3,7 @@
 // and blue spawns swapped). The middle is the one the map checks use (analysis/analyze.ts mirrorCentre), so what
 // mirror mode makes is what the fairness check counts as mirrored.
 import { freeze } from 'immer'
-import { referencedPaths, type Light, type Marker, type Project, type SceneItem, type Vec3 } from './project'
+import { SPAWN_TYPES, referencedPaths, type Light, type Marker, type Project, type SceneItem, type Vec3 } from './project'
 import { kindOf, turnedAsTwin, twinType } from './aiEdits'
 import { mirrorCentre } from './analysis/analyze'
 
@@ -126,8 +126,11 @@ export interface MirrorSession {
   parked: Record<Kind, Map<string, { twin: Thing; index: number }>>
 }
 
-/** The middle mirror mode turns about on this map now: the fairness check's (the middle of the spawns). */
+/** The middle mirror mode turns about on this map now: the fairness check's (the middle of the spawns), or the origin
+ *  with fewer than two spawns (one spawn, or a few weapons, says nothing about where the middle is; maps are built round
+ *  the origin, and opened ones are centred on their bounds). */
 export function centreOf(p: Project): Centre {
+  if (p.markers.filter((m) => SPAWN_TYPES.includes(m.type)).length < 2) return [0, 0]
   const [x, z] = mirrorCentre(p.markers)
   const r3 = (v: number) => Math.round(v * 1000) / 1000 + 0
   return [r3(x), r3(z)]

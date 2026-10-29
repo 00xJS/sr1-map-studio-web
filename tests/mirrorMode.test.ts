@@ -239,6 +239,22 @@ describe('mirror mode', () => {
     expect(mirrorCentreNow()).toEqual([0, 0])
   })
 
+  it('keeps its middle at the history limit: only undoing past where it was turned on finds it again', () => {
+    st().open(mirrored())
+    for (let k = 0; k < 160; k++) st().update('Rename', (d) => { d.name = 'n' + k })
+    expect(st().past).toHaveLength(150)
+    st().set({ mirror: true })
+    expect(mirrorCentreNow()).toEqual([0, 0])
+    // A fix moves a spawn (not mirrored), then the user moves a crate (mirrored); undoing the crate keeps the middle.
+    st().update('Fix moves a spawn', (d) => { d.markers[0].position = [25, 0, -30] }, { noMirror: true })
+    st().update('Move', (d) => { d.scene_items[1].position = [12, 0, -20] })
+    st().undo()
+    expect(mirrorCentreNow()).toEqual([0, 0])
+    st().undo(); st().undo()
+    expect(st().project!.name).toBe('n158')
+    expect(mirrorCentreNow()).toEqual([0, 0])
+  })
+
   it('a drag that crosses the middle keeps the twin it had (its uid and its own paint)', () => {
     open()
     st().update('Paint the twin', (d) => { d.scene_items[2].textures = { m0: '/work/f/b/brick.png' } }, { noMirror: true })

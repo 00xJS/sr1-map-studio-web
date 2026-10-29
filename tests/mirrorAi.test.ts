@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useEditor, withoutMirror } from '../src/editor/store'
-import { quiet, runAiActions } from '../src/editor/aiActions'
+import { aiMiddle, quiet, runAiActions } from '../src/editor/aiActions'
+import { describeMap } from '../src/lib/aiChat'
 import { newMarker, newProject } from '../src/lib/project'
 
 // Only storing files is stood in for: the AI runner and the shape command are the real ones.
@@ -49,5 +50,58 @@ describe('mirror mode and the AI', () => {
     expect(() => quiet(loose, 'loose')()).toThrow(/not made with command\(\)/)
     // Inside withoutMirror or not, the refusal is the same.
     expect(() => withoutMirror(() => quiet(loose, 'loose')())).toThrow(/command\(\)/)
+  })
+})
+
+describe('the middle the AI pairs about', () => {
+  const offCentre = () => {
+    const p = newProject('Off centre')
+    p.markers = [newMarker('Red team spawn', [100, 0, 20]), newMarker('Blue team spawn', [100, 0, 60])]
+    return p
+  }
+
+  it('is the origin with mirror mode off, as before and as its map description says', async () => {
+    st().open(offCentre())
+    await runAiActions([{ do: 'add_marker', type: 'Weapon pickup', weapon: 'ak47', x: 104, z: 30, mirror: true } as never], 'Add')
+    expect(st().project!.markers.slice(2).map((m) => [m.position[0], m.position[2]])).toEqual([[104, 30], [-104, -30]])
+    expect(describeMap(st().project!)).toMatch(/twin at \(-x, -z\)/)
+  })
+
+  it("is mirror mode's while it's on, for its mirror action and its map description too", async () => {
+    st().open(offCentre())
+    st().set({ mirror: true })
+    withoutMirror(() => st().update('Add', (d) => { d.markers.push({ ...newMarker('Weapon pickup', [104, 0, 30]), weapon: 'ak47' }) }))
+    await runAiActions([{ do: 'mirror', markers: [2] } as never], 'Mirror')
+    expect(st().project!.markers.at(-1)!.position).toMatchObject([96, expect.any(Number), 50])
+    expect(describeMap(st().project!, undefined, aiMiddle())).toMatch(/about their middle, here \(100, 40\)/)
+  })
+})
+
+describe('command() bodies', () => {
+  it('start any other command through e.quietly, so it stays unmirrored under the AI too', async () => {
+    const { readdirSync, readFileSync, statSync } = await import('node:fs')
+    const { join } = await import('node:path')
+    const files: string[] = []
+    const walk = (dir: string) => { for (const f of readdirSync(dir)) { const p = join(dir, f); if (statSync(p).isDirectory()) walk(p); else if (/\.tsx?$/.test(f)) files.push(p) } }
+    walk('src/editor')
+    const sources = new Map(files.map((f) => [f, readFileSync(f, 'utf8')]))
+    const names = [...sources.values()].flatMap((s) => [...s.matchAll(/export const (\w+) = command\(/g)].map((m) => m[1]))
+    expect(names.length).toBeGreaterThanOrEqual(10)
+    const bad: string[] = []
+    for (const [file, s] of sources) {
+      for (const m of s.matchAll(/export const (\w+) = command\(async \([^)]*\)[^{]*\{/g)) {
+        // The command's body, up to its matching brace.
+        let i = m.index! + m[0].length, depth = 1
+        while (depth && i < s.length) { if (s[i] === '{') depth++; else if (s[i] === '}') depth--; i++ }
+        const body = s.slice(m.index! + m[0].length, i)
+        for (const line of body.split('\n')) {
+          for (const n of names) {
+            if (n === m[1] || !new RegExp(`(^|[^\\w])${n}\\(`).test(line)) continue
+            if (!new RegExp(`quietly\\(\\(\\) => (\\w+\\.)?${n}\\(`).test(line)) bad.push(`${file}: ${m[1]} calls ${n} without e.quietly: ${line.trim()}`)
+          }
+        }
+      }
+    }
+    expect(bad).toEqual([])
   })
 })

@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useEditor, saveNow } from './store'
 import { getViewer } from './Viewport'
-import { runAiActions } from './aiActions'
+import { aiMiddle, runAiActions } from './aiActions'
 import { useChat, type Turn } from './aiSession'
 import { KeySetup, readKey, readModel } from './AiKey'
 import { loadLibrary } from './paint'
@@ -112,7 +112,7 @@ export function AiChat({ onClose }: { onClose: () => void }) {
     const bounds = viewer ? (i: number) => viewer.itemBounds(i) : undefined
     const facts = critique ? gatherFacts({ project, bounds }) : null
     try {
-      const map = describeMap(project, bounds)
+      const map = describeMap(project, bounds, aiMiddle())
       // The request and the one before it pick which prefabs the model is told about in full.
       const asked = [...useChat.getState().history.filter((h) => h.role === 'user').slice(-1).map((h) => h.content), msg].join(' ')
       const game = relevantGameObjects((useGameObjects.getState().entries ?? []).map((e) => ({ ...e, tags: tagsOf(e) })), asked)
