@@ -31,7 +31,8 @@ import { modalOpen, toast, toastError } from '../ui'
 import { useNarrow } from '../lib/touch'
 import { openMapFiles } from '../lib/mapFolder/store'
 import { onQueued, queueEdits, takeEdits, type PendingEdits } from '../lib/pendingEdits'
-import { runAiActions, stopAiEdits, useAiApplying } from './aiActions'
+import { runAiActions } from './aiActions'
+import { AiApplyingNote } from './AiApplyingNote'
 import { runMapChecks } from './mapChecks'
 import { useChat } from './aiSession'
 
@@ -268,18 +269,6 @@ export function BusyLock({ editor }: { editor: RefObject<HTMLDivElement> }) {
       </div>
     </div>,
     document.body,
-  )
-}
-
-/** While the chat is closed: the AI's changes still being made (a new map's extras, a reply), with their Cancel. */
-export function AiApplyingNote() {
-  const applying = useAiApplying((s) => s.running.length > 0)
-  if (!applying) return null
-  return (
-    <div className="ai-applying" role="status">
-      <span className="small">Making the AI's changes…</span>
-      <button className="sm" onClick={() => stopAiEdits()} title="Stop making the AI's changes: the ones made so far stay">Cancel</button>
-    </div>
   )
 }
 
