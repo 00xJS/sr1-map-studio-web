@@ -170,6 +170,18 @@ describe('a dummy where the game\'s files can\'t go', () => {
     const p = project()
     expect(showsGameData(p)).toBe(true)
     expect(showsGameData(withStandIns(p))).toBe(false)
+    // An object from the data pack, or a sky from the game or the data pack, counts too; a site-made sky doesn't.
+    const glass = newProject('Glass')
+    glass.scene_items.push({ uid: 'g', name: 'Glass', path: '/studio/native_glass/pane.obj', position: [0, 0, 0], rotation: [0, 0, 0], scale: 1, textures: {}, alpha: {} })
+    expect(showsGameData(glass)).toBe(true)
+    const sky = newProject('Sky')
+    sky.files['/work/f/sky/sky.png'] = ref('sky', 'game')
+    sky.settings.sky_texture = '/work/f/sky/sky.png'
+    expect(showsGameData(sky)).toBe(true)
+    sky.files['/work/f/sky/sky.png'] = ref('sky', 'user')
+    expect(showsGameData(sky)).toBe(false)
+    sky.settings.sky_texture = '/studio/skies/day.png'
+    expect(showsGameData(sky)).toBe(true)
   })
 
   it('leaves its character out of backups but keeps the stand-in', () => {
