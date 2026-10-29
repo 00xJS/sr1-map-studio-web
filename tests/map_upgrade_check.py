@@ -114,7 +114,7 @@ def donor(game, tmp):
 
 
 def installed_maps(game, maps, tmp):
-    later_done = []
+    later_done, leaky_done = [], []
     source = donor(game, tmp)
     for d in sorted(p for p in Path(maps).iterdir() if p.is_dir()):
         for c in (d / 'levels').glob('*.bbchunk_xbox2'):
@@ -164,6 +164,22 @@ def installed_maps(game, maps, tmp):
                 added = len(rs) - len(old_rs) - (mm == 'available')
                 check(added >= 1 and kept and (mm != 'available' or rs[-1][2] == regions.MAP_REGION_FLAGS),
                       f'{d.name}: {added} dry-interior box(es) added, the regions it had kept, the map-wide one last')
+                # Each with the rain occluder the falling rain stops at (it rained inside without them, 2026-10-28).
+                check(regions.without_occluders(chunk.read_bytes()) == [], f'{d.name}: every rain blocker has its rain occluder')
+                if not leaky_done:
+                    # A map exported before occluders were written: its blockers let the rain through until the upgrade.
+                    leaky_done.append(d.name)
+                    keep = chunk.read_bytes()
+                    och = rc.read_chunk(keep)
+                    och.get(regions.OCCLUDERS).data, och.get(regions.OCCLUDER_TREE).data = bytearray(4), bytearray(4)
+                    chunk.write_bytes(rc.write_chunk(och))
+                    st = map_upgrade.inspect({'chunk': str(chunk)}, logs.append)['upgrades']['dry_interiors']
+                    fix = map_upgrade.upgrade({'chunk': str(chunk), 'peg': str(texfile), 'upgrades': ['dry_interiors']}, logs.append)
+                    fixed = chunk.read_bytes()
+                    check(st['state'] == 'available' and 'falls through' in st['why'] and fix['applied'] == ['dry_interiors']
+                          and regions.without_occluders(fixed) == [] and regions.read_regions(fixed) == regions.read_regions(keep),
+                          f'{d.name}: an old export\'s rain blockers get their occluders, the regions as they were ({st["why"]})')
+                    chunk.write_bytes(keep)
             if mm == 'available':
                 d2 = chunk.read_bytes()
                 at = minimap_region.find(d2, name)

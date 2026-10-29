@@ -91,6 +91,11 @@ section on the Account page, and can hide or unhide any hub map.
 
 Leave `VITE_BACKEND` unset in production.
 
+Give `SUPABASE_SERVICE_ROLE_KEY` (and `SHARE_IP_SALT`, see "Play links") the **Production** deploy context only,
+not "All deploy contexts". Netlify keeps serving every deploy preview of an open pull request, and every old deploy
+at its own permalink, with the functions and variables it was built with: a preview of a branch with a bug, or a
+deploy from before a fix, would otherwise still write to the live database with full access.
+
 ## 6. Deploy
 
 `netlify.toml` already builds with `npm run build`, publishes `dist/` and deploys functions from
@@ -243,7 +248,7 @@ gallery, preview pictures, reports, ratings and time-trial boards) needs:
    `openssl rand -hex 32`. Links without an account, reports and board times are limited per
    salted hash of the maker's address (IPv6 by its /64 network); the address itself is never
    stored. Without a salt nothing anonymous is allowed: links need an account. Changing it resets
-   the counts.
+   the counts. Scope it to the Production deploy context, like the service role key (see "5. Netlify environment variables").
 5. The link preview, the edge function `netlify/edge-functions/og.ts` (on `/play/s/*`). It puts
    the map's title and picture in the page's head, so a link posted in a chat unfurls as the
    map. It needs `VITE_SUPABASE_URL` and `VITE_SUPABASE_ANON_KEY` at run time too: give both

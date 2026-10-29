@@ -9,11 +9,11 @@ import { GB, PB, box, ground, perimeter, ramp, type MarkerSpec, type Part, type 
 import { PHYSICS_PREFABS, ballObj, oneMaterial, type PhysicsPart, type PhysicsTag } from './prefabsPhysics'
 import { PRESET_BY_KEY } from './physicsProps'
 import { CRATE_PROFILE, loadingMode } from './mapFeatures'
-import { BOR, BOR_CAR_BLUE, BOR_CAR_RED, BOR_CASH, BOR_CHOP, BOR_DOOR, BOR_ENTRANCE, BOR_GARAGE_BLUE, BOR_GARAGE_RED, BOR_VICTORY, SOUND_ZONE, borMissing } from './retailModes'
+import { BOR, BOR_CAR_BLUE, BOR_CAR_RED, BOR_CASH, BOR_CHOP, BOR_DOOR, BOR_ENTRANCE, BOR_GARAGE_BLUE, BOR_GARAGE_RED, BOR_VICTORY, INDOOR_ROOM, RAIN_BLOCKER, SOUND_ZONE, borMissing } from './retailModes'
 import { ITEM_PROP } from './gameObjects/items'
 import type { DummySpec } from './dummies/models'
 import { isDummy } from './dummies/standIn'
-import type { Vpp } from './sr1char/vpp'
+import type { GameSource } from './dummies/packs'
 import { dryInteriors, gameSkyWanted, isGlass, isProp, type FileRef, type Project, type ProjectSettings, type SceneItem, type Vec3 } from './project'
 import { shapeObj } from './shapes'
 import { storeFile } from './files'
@@ -96,11 +96,12 @@ export const TEST_BATCHES: TestBatch[] = [
   {
     id: 2,
     title: 'Batch 2: dry interiors',
-    blurb: 'A yard with one roofed room and the weather changing each match, so it rains outside and should not inside.',
-    features: ['random_weather', 'dry_interiors'],
+    blurb: 'A yard with one roofed room, a hand-placed rain blocker over open ground and the weather changing each match, so it rains in the open yard and should not in the room or the blocker.',
+    features: ['random_weather', 'dry_interiors', 'rain_blockers'],
     where: {
       random_weather: 'Start a few matches in a row: each rolls the time of day and the weather.',
       dry_interiors: 'In a rainy match, walk into the roofed room through its doorway and look at the floor and the doorway.',
+      rain_blockers: 'In a rainy match, walk to the shotgun across the yard from the room: the open ground round it, about 8 × 8 m, has a hand-placed rain blocker over it and no roof.',
     },
     setup: ['Install it in game.', 'Start Gangsta Brawl; restart until a match rolls rain.'],
     settings: { always_clear_weather: false },
@@ -123,6 +124,8 @@ export const TEST_BATCHES: TestBatch[] = [
         // Round the yard, none behind the room.
         ...([[0, -32], [24, -24], [32, 0], [24, 24], [0, 32], [-24, 28], [-30, -26]] as const).map(([x, z]) => facing('Shared spawn', x, z)),
         weapon('ak47', [-25, 1, 7]), weapon('pump_action_shotgun', [20, 1, 0]), weapon('tec9', [0, 1, -14]),
+        // Open ground with no roof: only the marker keeps the rain off (8 × 6 × 8 m, the shotgun in the middle).
+        [RAIN_BLOCKER, [20, 1, 0], { size: [8, 6, 8], label: 'Rain blocker test' }],
       ],
       lights: [[[-18, 8, 0]], [[18, 12, 0]]],
     }),
@@ -227,6 +230,7 @@ export function carries(p: Project, id: FeatureId): boolean {
     case 'logo_walls': return items.some((it) => Object.values(it.textures).some((t) => t.endsWith('/saints_reborn_wall.jpg')))
     case 'random_weather': return !s.always_clear_weather
     case 'dry_interiors': return dryInteriors(s) && items.some((it) => it.name.startsWith('Roof'))
+    case 'rain_blockers': return !s.always_clear_weather && p.markers.some((m) => m.type === RAIN_BLOCKER || m.type === INDOOR_ROOM)
     case 'water': return items.some((it) => it.swimmable_water)
     case 'physics_props': return items.some((it) => !!it.physics_preset)
     case 'breakable_glass': return breakables.some((it) => it.native_breakable_kind === 'glass')
@@ -254,7 +258,7 @@ export interface BuildOptions {
   /** The data pack's status (default: this browser's). */
   dataPack?: () => Promise<DataPackStatus | null>
   /** The packfiles the dummies are built from (default: the game folder, without asking again); null: stand-ins. */
-  dummyPacks?: () => Promise<Vpp[] | null>
+  dummySource?: () => Promise<GameSource | null>
 }
 
 /** The test map, and what it had to leave out (for the tester to see before installing). */
@@ -310,13 +314,13 @@ export async function buildTestMap(id: BatchId, opts: BuildOptions = {}): Promis
   if (batch.dummies?.length) {
     opts.onProgress?.('Building the decoy dummies…')
     const [{ dummyItem }, { uid }] = await Promise.all([import('./dummies/place'), import('./project')])
-    const packs = await (opts.dummyPacks ?? (async () => (await import('./dummies/packs')).dummyPacks(false)))().catch(() => null)
+    const source = await (opts.dummySource ?? (async () => (await import('./dummies/packs')).dummySource(false)))().catch(() => null)
     for (const d of batch.dummies) {
-      const r = await dummyItem(d.spec, d.at, d.rot, p.settings.world_scale || 0.5, packs, uid())
+      const r = await dummyItem(d.spec, d.at, d.rot, p.settings.world_scale || 0.5, source, uid())
       Object.assign(p.files, r.files)
       p.scene_items.push(r.item)
     }
-    if (!packs) leftOut.push(NO_DUMMY_GAME)
+    if (!source) leftOut.push(NO_DUMMY_GAME)
   }
 
   for (const m of p.markers) {

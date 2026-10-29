@@ -450,9 +450,13 @@ async function addTime(admin: SupabaseClient, uid: string | null, ip: string | n
   try { doc = unpackShare(fromBase64(share.data)) as ShareDoc } catch { /* below */ }
   if (!doc?.project || !Array.isArray(doc.project.markers) || !doc.models || typeof doc.models !== 'object') return reject(422, 'This map can’t take times.')
   const entry = { mode: body.mode, ms: body.ms, name: cleanName(body.name), ghost: body.ghost }
+  // The quick checks first (the run, its recording, its speed, its targets); the walls, the costly part, are built
+  // only for a run that passes them.
+  const quick = checkTime(entry, doc.project.markers)
+  if (quick.length) return reject(422, 'This time can’t go on the board.', quick)
   const walls = wallsOf(doc)
   if (walls === 'too many') return reject(422, 'This map can’t take times.')
-  const problems = checkTime(entry, doc.project.markers, walls ?? undefined)
+  const problems = walls ? checkTime(entry, doc.project.markers, walls) : []
   if (problems.length) return reject(422, 'This time can’t go on the board.', problems)
 
   const ins = await admin.from('share_times').insert({ token: body.token, mode: entry.mode, name: entry.name, ms: entry.ms, ghost: entry.ghost, player: uid, ip_hash: ip })

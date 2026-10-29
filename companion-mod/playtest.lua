@@ -11,6 +11,8 @@
 --   stuck   hardly moving for 2 s while a move key is held
 --   mark    you pressed End (a spot worth a look)
 --   respawn you moved more than 15 m in one frame (died, or the match moved you)
+--   rain    the camera went in or out of a rain blocker or room, or the
+--           weather changed; then once a second while it rains
 --   end     the recording stopped (the match ended or the map reloaded)
 -- Every line has t (seconds since the start), map, pos (x, y, z in game
 -- metres) and heading. Each load of the map starts a new file; the newest
@@ -31,6 +33,18 @@ local PLAYER  = 0x8309ABEC
 local HEADING = 0x8370E438
 local CAM     = 0x827D9778
 local STATE_PAUSE = 6
+-- The rain where the camera is. The game tests the camera against the map's
+-- regions each frame and keeps the answer at REGION_STATE: +140 the indoor
+-- fade (0 outside, 1 inside), +144 the indoor latch (a byte), +148 the region
+-- the camera is in (its flags at +32). The two screen-wide rain layers after
+-- that fade are at SCREEN_RAIN and +4. WEATHER is the match's weather stage
+-- (2 light, 3 medium, 4 heavy rain, 6 thunderstorm); the console's
+-- Rain_density sets RAIN_DENSITY while the low byte at RAIN_OVERRIDE is set.
+local REGION_STATE = 0x83710560
+local SCREEN_RAIN  = 0x8370D198
+local WEATHER      = 0x8370F70C
+local RAIN_OVERRIDE, RAIN_DENSITY = 0x8370D168, 0x8370D17C
+local RAINY = { [2] = true, [3] = true, [4] = true, [6] = true }
 
 local FALL_METRES     = 8     -- a fall is a drop of more than this ...
 local FALL_SPEED      = 8     -- ... that reached this speed (m/s; stairs and ramps don't)
@@ -215,7 +229,8 @@ local function open(map, pos)
   local note = export_note(map)
   rec = { file = file, map = map, started = t, note = note, last = pos, next_pos = t, prev_t = t,
     top = pos[2], low = pos[2], low_at = t, v_at = t, v_y = pos[2], v_held = held, fall_speed = 0, below = false,
-    anchor = pos, anchor_at = t, stuck = false, usual = 0, frames = 0, last_push = -100, push_at = -100, marks = 0 }
+    anchor = pos, anchor_at = t, stuck = false, usual = 0, frames = 0, last_push = -100, push_at = -100, marks = 0,
+    rain_key = "false false -1 0", rain_at = t }  -- a clear match outside any region logs no rain
   write("start", pos, { "date", os.date("!%Y-%m-%dT%H:%M:%SZ"), "project", note.project, "exported", note.exported,
     "origin", note.origin, "world_scale", note.world_scale, "mirror_x", note.mirror_x, "floor_y", note.floor_y })
   wml.log("Playtest: recording " .. map .. " to " .. dir .. SEP .. name)
@@ -307,6 +322,23 @@ local function camera_push(t, pos)
     "wanted", { hx + (fx - hx) * k, hy + (fy - hy) * k, hz + (fz - hz) * k }, "camera", { fx, fy, fz } })
 end
 
+-- A line when the camera goes in or out of a region that keeps the rain out, or the weather or Rain_density
+-- changes; then one a second while it rains, so a log shows whether the rain stopped where it should.
+local function rain(t, pos)
+  local region = read_u32(REGION_STATE + 148)
+  local flags = pointer(region) and read_u32(region + 32) or -1
+  local indoor = (read_u32(REGION_STATE + 144) >> 24) & 0xFF ~= 0
+  local weather = read_u32(WEATHER)
+  local override = read_u32(RAIN_OVERRIDE) & 0xFF ~= 0
+  local raining = RAINY[weather] or override
+  local key = table.concat({ tostring(raining), tostring(indoor), flags, weather }, " ")
+  if key == rec.rain_key and (not raining or t < rec.rain_at + 1) then return end
+  rec.rain_key, rec.rain_at = key, t
+  write("rain", pos, { "indoor", indoor, "fade", read_f32(REGION_STATE + 140), "region", flags, "weather", weather,
+    "density", override and read_f32(RAIN_DENSITY) or nil, "screen_rain", read_f32(SCREEN_RAIN),
+    "screen_rain2", read_f32(SCREEN_RAIN + 4), "camera", { read_f32(CAM + 44), read_f32(CAM + 48), read_f32(CAM + 52) } })
+end
+
 local function record(t, pos)
   -- Back from the pause menu, or a long hitch: time went on without the player.
   if paused or t - rec.prev_t > 1.5 then rec.anchor_at, rec.low_at, rec.v_at, rec.v_y, rec.v_held = t, t, t, pos[2], held end
@@ -320,6 +352,7 @@ local function record(t, pos)
     stuck(t, pos)
     camera_push(t, pos)
   end
+  rain(t, pos)
   rec.last = pos
   if wml.key_pressed("END") then
     rec.marks = rec.marks + 1

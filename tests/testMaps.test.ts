@@ -107,6 +107,11 @@ describe('test maps', () => {
     expect(p.settings.always_clear_weather).toBe(false)
     expect(p.settings.dry_interiors).toBeUndefined()
     expect(p.scene_items.filter((it) => it.name.startsWith('Roof'))).toHaveLength(1)
+    // And one hand-placed rain blocker over open ground (no roof over it), the shotgun in the middle.
+    const blockers = p.markers.filter((m) => m.type === 'Rain blocker')
+    expect(blockers.map((m) => [m.position, m.size])).toEqual([[expect.any(Array), [8, 6, 8]]])
+    const shotgun = p.markers.find((m) => m.type === 'Weapon pickup' && m.weapon === 'pump_action_shotgun')!
+    expect([blockers[0].position[0], blockers[0].position[2]]).toEqual([shotgun.position[0], shotgun.position[2]])
   })
 
   it('batch 3 holds water, props, breakables, the crate and its game names', async () => {

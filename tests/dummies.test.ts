@@ -13,9 +13,9 @@ vi.mock('../src/lib/db', async (orig) => ({ ...(await orig<typeof import('../src
 
 const { BODY_MAT, BOX_TRIANGLES, POSE_IDS, STAND_IN_MATS, bodySegments, figureJoints, segmentCorners, standInObj } = await import('../src/lib/dummies/figure')
 const { MAX_DUMMIES, PLAYER, dummyName, fullLook, lookKey, specKey } = await import('../src/lib/dummies/models')
-const { asStandIn, withStandIns } = await import('../src/lib/dummies/standIn')
+const { asStandIn, hasBuiltDummy, overDummyCap, withStandIns } = await import('../src/lib/dummies/standIn')
 const { cleanRecipe, recipeProblem } = await import('../src/lib/recipes')
-const { gameObjectPaths } = await import('../src/lib/gameObjects/policy')
+const { gameObjectPaths, showsGameData } = await import('../src/lib/gameObjects/policy')
 const { collisionFromProject } = await import('../src/lib/analysis/collision')
 const { mapChecklist } = await import('../src/lib/checklist')
 const { npcDraws } = await import('../src/lib/dummies/bake')
@@ -151,9 +151,18 @@ describe('a dummy where the game\'s files can\'t go', () => {
     expect(s.game_look).toBeUndefined()
     expect(s.rotation).toEqual([0, 90, 0])
     expect(s.dummy).toMatchObject({ model: PLAYER, pose: 'standing', built: false })
+    expect(s.triangles).toBe(26 * BOX_TRIANGLES)
+    expect(hasBuiltDummy(p.scene_items)).toBe(true)
+    expect(hasBuiltDummy([s])).toBe(false)
     const w = withStandIns(p)
     expect(Object.values(w.files).some((f) => f.origin === 'game')).toBe(false)
     expect(p.files[GAME_OBJ]).toBeDefined()
+  })
+
+  it('counts as game data in a picture of the view while it is built, not as its stand-in', () => {
+    const p = project()
+    expect(showsGameData(p)).toBe(true)
+    expect(showsGameData(withStandIns(p))).toBe(false)
   })
 
   it('leaves its character out of backups but keeps the stand-in', () => {
@@ -218,6 +227,75 @@ describe('a dummy where the game\'s files can\'t go', () => {
     expect(forged(standInObj('aim', 0.5)).dummy).toBeUndefined()
     // The real figure stays a dummy, its solid material renamed with the rest.
     expect(forged(standInObj('standing', 0.5)).dummy).toMatchObject({ source: 'dummy', pose: 'standing' })
+    // Materials are renamed before the comparison, so another material name on the figure's own geometry is still
+    // just the figure; moving any of its points is not.
+    const swapped = structuredClone(plan.doc)
+    swapped.models[it.path] = swapped.models[it.path].replace(/usemtl dummy_skin/g, 'usemtl body_0')
+    expect(validateShareDoc(swapped).doc!.project.scene_items[0].dummy).toMatchObject({ source: 'dummy', pose: 'standing' })
+    const moved = structuredClone(plan.doc)
+    moved.models[it.path] = moved.models[it.path].replace(/^v (\S+)/m, (_: string, x: string) => `v ${+x + 0.5}`).replace(/usemtl dummy_skin/g, 'usemtl body_0')
+    expect(validateShareDoc(moved).doc!.project.scene_items[0].dummy).toBeUndefined()
+  })
+
+  it('is refused by the Showcase when it isn’t its stand-in figure', () => {
+    const p = project()
+    p.markers = []
+    const show = showcasePlan(p, new Set())
+    const forged = JSON.parse(JSON.stringify(show.snapshot)) as Project
+    forged.files[forged.scene_items[0].path].recipe = { kind: 'shape', shape: { kind: 'box', size: [1, 1, 1], tile: 1 } }
+    expect(showcasePlan(forged, new Set()).blockers.join(' ')).toMatch(/isn't its stand-in figure/)
+  })
+})
+
+describe('dummies in a share', () => {
+  /** A share of dummies, one per [pose, scale], each its own stand-in figure. */
+  const shareOf = (kinds: [Parameters<typeof standInObj>[0], number][]) => {
+    const p = newProject('Many')
+    const models: Record<string, string> = {}
+    kinds.forEach(([pose, ws], i) => {
+      const path = 'mesh/' + i
+      models[path] = cleanObjOf(standInObj(pose, ws))
+      p.scene_items.push({ uid: 'd' + i, name: 'Dummy', path, position: [i, 0, 0], rotation: [0, 0, 0], scale: 1, textures: {}, alpha: {},
+        dummy: { source: 'dummy', model: PLAYER, pose, look: {}, ws, built: false, stand_in: { path, textures: {} } } } as SceneItem)
+    })
+    return { format: 'sr1-map-studio-share', version: 1, title: 'Many', created_at: '', project: p, models, textures: {} }
+  }
+  let cleanObjOf: (t: string) => string
+
+  it('keeps more dummies of kinds already seen once a share has its 16 kinds, and turns away only a new one', async () => {
+    const { cleanObj, validateShareDoc } = await import('../src/play/share')
+    cleanObjOf = (t) => cleanObj(t)!
+    const kinds: [Parameters<typeof standInObj>[0], number][] = Array.from({ length: 16 }, (_, i) => ['standing', 0.5 + i / 100])
+    const d = shareOf([...kinds, ['standing', 0.9], ...kinds.slice(0, 2)])
+    const kept = validateShareDoc(d).doc!.project.scene_items.map((it) => (it.dummy ? 1 : 0)).join('')
+    expect(kept).toBe('1'.repeat(16) + '0' + '11')
+  })
+
+  it('can go in the gallery: a stand-in figure is rebuilt from its pose and scale', async () => {
+    const { cleanObj, validateShareDoc } = await import('../src/play/share')
+    const { cleanBuilds, galleryProblems } = await import('../src/play/shareBuilds')
+    cleanObjOf = (t) => cleanObj(t)!
+    const d: any = shareOf([['standing', 0.5]])
+    d.made = { 'mesh/0': 'figure' }
+    d.builds = { 'mesh/0': { kind: 'figure', pose: 'standing', ws: 0.5 } }
+    const ok = cleanBuilds(validateShareDoc(d).doc!)
+    expect(ok.problems).toEqual([])
+    expect(galleryProblems(ok.doc)).toEqual([])
+    // A figure's settings that don't make the model, or aren't a figure's, keep it out.
+    d.builds['mesh/0'] = { kind: 'figure', pose: 'aim', ws: 0.5 }
+    expect(galleryProblems(cleanBuilds(validateShareDoc(d).doc!).doc).join()).toMatch(/doesn’t match/)
+    d.builds['mesh/0'] = { kind: 'figure', pose: 'flying', ws: 0.5 }
+    expect(cleanBuilds(validateShareDoc(d).doc!).problems).not.toEqual([])
+  })
+
+  it('is listed from the editor: the planned share says how the stand-in was made', async () => {
+    const p = project()
+    blobs.set('stand', new Blob([standInObj('standing', 0.5)], { type: 'model/obj' }))
+    const plan = await planShare(p, { title: 'Decoys' })
+    const key = plan.doc.project.scene_items[0].path
+    expect(plan.doc.made![key]).toBe('figure')
+    expect(plan.doc.builds![key]).toEqual({ kind: 'figure', pose: 'standing', ws: 0.5 })
+    expect(plan.galleryReady).toBe(true)
   })
 })
 
@@ -233,12 +311,47 @@ describe('collision', () => {
   })
 })
 
+describe('the cap', () => {
+  it('refuses edits that add dummies past it, wherever they come from', () => {
+    const one = project().scene_items[0]
+    const n = (k: number) => Array.from({ length: k }, (_, i) => ({ ...one, uid: 'u' + i }))
+    expect(overDummyCap(n(11), n(12))).toBeNull()
+    expect(overDummyCap(n(12), n(13))).toMatch(/at most 12 dummies/)
+    expect(overDummyCap(n(14), n(13))).toBeNull()
+    expect(overDummyCap(n(14), n(14))).toBeNull()
+    expect(overDummyCap([], [{}, {}])).toBeNull()
+  })
+
+  it('is kept by every edit in the editor (a copy, a paste, mirror mode)', async () => {
+    const { useEditor } = await import('../src/editor/store')
+    const p = project()
+    for (let i = 1; i < MAX_DUMMIES; i++) p.scene_items.push({ ...p.scene_items[0], uid: 'c' + i })
+    useEditor.setState({ project: p, past: [], future: [] })
+    useEditor.getState().update('Duplicate', (d) => { d.scene_items.push({ ...d.scene_items[0], uid: 'thirteen' }) })
+    expect(useEditor.getState().project!.scene_items.length).toBe(MAX_DUMMIES)
+    expect(useEditor.getState().past.length).toBe(0)
+    useEditor.getState().update('Rename', (d) => { d.scene_items[0].name = 'Shop dummy' })
+    expect(useEditor.getState().project!.scene_items[0].name).toBe('Shop dummy')
+    // A saved version comes back as it was, over the cap or not (the checklist still blocks the export).
+    useEditor.getState().update('Restore version', (d) => { d.scene_items.push({ ...d.scene_items[0], uid: 'old' }) }, { restore: true })
+    expect(useEditor.getState().project!.scene_items.length).toBe(MAX_DUMMIES + 1)
+  })
+})
+
 describe('the map checklist', () => {
   it('suggests deleting dummies past the cap', () => {
     const p = project()
     expect(mapChecklist(p, true).some((c) => c.id === 'dummies')).toBe(false)
     for (let i = 0; i < MAX_DUMMIES; i++) p.scene_items.push({ ...p.scene_items[0], uid: 'x' + i })
-    expect(mapChecklist(p, true).find((c) => c.id === 'dummies')?.state).toBe('suggested')
+    // Past the cap it blocks the export.
+    expect(mapChecklist(p, true).find((c) => c.id === 'dummies')?.state).toBe('needed')
+  })
+
+  it('warns about dummies made at another world scale', () => {
+    const p = project()
+    expect(mapChecklist(p, true).some((c) => c.id === 'dummy-scale')).toBe(false)
+    p.settings.world_scale = 0.25
+    expect(mapChecklist(p, true).find((c) => c.id === 'dummy-scale')?.text).toMatch(/^1 decoy dummy was made before the world scale changed/)
   })
 })
 
@@ -279,6 +392,13 @@ describe.skipIf(!GAME_TESTS || !haveGame)('dummies baked from a local game insta
     for (const n of PACKFILES) if (existsSync(GAME + '/' + n)) out.push(await openVpp(await openAsBlob(GAME + '/' + n), n))
     return out
   }
+  /** The top of the solid body boxes, metres. */
+  const boxTop = (b: Awaited<ReturnType<typeof bakeDummy>>) => {
+    const m = parseObj(dummyObjText(b, 0.5, 'dummy'))
+    let top = -Infinity
+    for (let f = 0; f < m.faces.length / 3; f++) if (matOf(m, f) === BODY_MAT) for (let k = 0; k < 3; k++) top = Math.max(top, m.positions[3 * m.faces[3 * f + k] + 1] * 0.5)
+    return top
+  }
   const facingOut = (b: Awaited<ReturnType<typeof bakeDummy>>) => {
     let n = 0
     const p = (i: number): V => [b.positions[3 * i], b.positions[3 * i + 1], b.positions[3 * i + 2]]
@@ -304,6 +424,8 @@ describe.skipIf(!GAME_TESTS || !haveGame)('dummies baked from a local game insta
       expect(b.triangles.length / 3).toBeGreaterThan(4000)
       expect(b.materials.length).toBeLessThanOrEqual(16)
       for (const m of b.materials) expect(Math.max(m.picture.width, m.picture.height)).toBeLessThanOrEqual(512)
+      // The body boxes reach the top of the head (the hair).
+      expect(boxTop(b), pose).toBeGreaterThanOrEqual(b.height - 0.03)
       if (pose === 'aim') {
         expect(b.joints.rShoulder[2] - b.joints.rWrist[2]).toBeGreaterThan(0.4)
         expect(Math.abs(b.joints.rWrist[1] - b.joints.rShoulder[1])).toBeLessThan(0.15)
@@ -330,6 +452,7 @@ describe.skipIf(!GAME_TESTS || !haveGame)('dummies baked from a local game insta
       expect(b.triangles.length / 3, model).toBeGreaterThan(1500)
       const m = parseObj(dummyObjText(b, 0.5, model))
       expect(boxes(m, BODY_MAT).faces).toBe(13 * BOX_TRIANGLES)
+      expect(boxTop(b), model).toBeGreaterThanOrEqual(b.height - 0.03)
       expect(m.faces.length / 3).toBe(b.triangles.length / 3 + 13 * BOX_TRIANGLES)
     }
   }, 180_000)

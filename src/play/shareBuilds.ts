@@ -14,6 +14,7 @@
 // share's model holds can't match, so it isn't built; and the counting itself
 // is charged to one budget for the whole share (MAX_LINES), so the check takes
 // a couple of seconds at most however the share was made.
+import { isPose, standInObj, validFigureScale } from '../lib/dummies/figure'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
 import { prefabParams, tagPrefab } from '../lib/prefabs'
 import { prefabModel } from '../lib/prefabModel'
@@ -33,6 +34,8 @@ const MAX_PIECES = 20000
 export const MAX_LINES = 300_000
 /** What a prefab's own code is charged before it runs (one at its largest settings takes ~3 ms, about 500 lines' worth). */
 const PREFAB_CHARGE = 1000
+/** What making a dummy's stand-in figure is charged (~30 ms: about 5,000 lines' worth). */
+const FIGURE_CHARGE = 5000
 /** What a compound's piece is charged for having its settings checked: about 20 lines' worth. */
 const PIECE_CHARGE = 20
 /**
@@ -91,6 +94,7 @@ export function buildProblem(b: ModelBuild): string | null {
       }
       return null
     }
+    case 'figure': return isPose(x.pose) && validFigureScale(x.ws) ? null : 'are out of range'
     default: return 'aren’t a shape, compound or prefab'
   }
 }
@@ -144,6 +148,7 @@ type Rebuilt = { obj: string } | { mismatch: true } | { over: true }
 /** The model a build makes, as share OBJ; or that it can't make a model of `lines` lines; or that the budget ran out. */
 function rebuild(b: ModelBuild, lines: number, budget: Budget): Rebuilt {
   let shapes: Shape[], pieces = null as Parameters<typeof compoundObj>[0] | null
+  if (b.kind === 'figure') return budget.charge(FIGURE_CHARGE) ? built(standInObj(b.pose, b.ws)) : { over: true }
   if (b.kind === 'shape') shapes = [b.shape]
   else if (b.kind === 'compound') { pieces = b.pieces; shapes = b.pieces.map((pc) => pc.shape) }
   else {
@@ -227,6 +232,7 @@ const shapeCopy = (sh: Shape): Shape => {
 export function cleanBuild(b: ModelBuild): ModelBuild {
   if (b.kind === 'shape') return { kind: 'shape', shape: shapeCopy(b.shape) }
   if (b.kind === 'compound') return { kind: 'compound', pieces: b.pieces.map((pc) => ({ shape: shapeCopy(pc.shape), at: [pc.at[0], pc.at[1], pc.at[2]], rot: pc.rot, top: pc.top, side: pc.side })) }
+  if (b.kind === 'figure') return { kind: 'figure', pose: b.pose, ws: +b.ws }
   return { kind: 'prefab', key: b.key, params: { ...b.params }, at: [b.at[0], b.at[1], b.at[2]], rot: b.rot }
 }
 

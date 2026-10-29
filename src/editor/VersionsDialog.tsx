@@ -26,7 +26,7 @@ export function restoreVersion(v: MapVersion) {
     d.files = p.files
     if (p.remix_of) d.remix_of = p.remix_of
     else delete d.remix_of
-  })
+  }, { restore: true })
   st.select(null)
 }
 

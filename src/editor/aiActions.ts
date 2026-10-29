@@ -96,7 +96,7 @@ export async function runAiActions(actions: AiAction[], label: string, opts: { l
   const cancel = new AbortController()
   opts.signal?.addEventListener('abort', () => cancel.abort(), { once: true })
   if (opts.signal?.aborted) cancel.abort()
-  const me: AiApplying = { key: opts.key ?? 'other', label, stop: () => cancel.abort() }
+  const me: AiApplying = { key: opts.key ?? 'other', label, projectId: currentProject()?.id, stop: () => cancel.abort() }
   useAiApplying.setState((s) => ({ running: [...s.running, me] }))
   try {
     // Stopped by its time or its Cancel: what it did by then is one undo step at once, before the next job begins.
@@ -118,10 +118,21 @@ export async function runAiActions(actions: AiAction[], label: string, opts: { l
 export interface AiOutcome { done: number; skipped: string[]; stopped?: 'time' | 'cancel' | 'map' }
 const MAP_OPENED = 'another map was opened'
 
-/** An AI reply's edits being made or waiting their turn: who started it (`key`) and how to stop it. */
-export interface AiApplying { key: string; label: string; stop: () => void }
+/** An AI reply's edits being made or waiting their turn: who started it (`key`), on which map, and how to stop it. */
+export interface AiApplying { key: string; label: string; projectId?: string; stop: () => void }
 /** The AI replies being applied now. It outlives the chat, so a reply applying while the chat is closed can be stopped. */
 export const useAiApplying = create<{ running: AiApplying[] }>(() => ({ running: [] }))
+/** The AI replies being applied to the open map (one still settling on a map left meanwhile ends by itself). */
+export function useAiRunning(): AiApplying[] {
+  const id = useEditor((s) => s.project?.id)
+  const running = useAiApplying((s) => s.running)
+  return running.filter((r) => r.projectId === id)
+}
+/** Stops the open map's replies (a reply on a map left meanwhile ends by itself). */
+export const stopMapAiEdits = () => {
+  const id = useEditor.getState().project?.id
+  useAiApplying.getState().running.filter((r) => r.projectId === id).forEach((r) => r.stop())
+}
 /** Stops the replies started under one of `keys` (none: every one). */
 export const stopAiEdits = (...keys: string[]) => useAiApplying.getState().running.filter((r) => !keys.length || keys.includes(r.key)).forEach((r) => r.stop())
 

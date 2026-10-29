@@ -16,7 +16,7 @@ import { galleryProblems, shapeLines } from '../src/play/shareBuilds'
 import { buildKeysOk } from '../src/play/shareSchema'
 import { availableRuns, newRun, raceScores, stepBot, stepRun, targets } from '../src/play/game'
 import { GHOST_MAX, GhostRecorder, checkTime, cleanName, ghostAt, loadGhost, saveGhost, type GhostSample } from '../src/play/ghost'
-import { canonicalObj, cleanObj, galleryReady, previewProblem, shareMeta, validateShareDoc, type ModelBuild, type ShareDoc } from '../src/play/share'
+import { canonicalObj, cleanObj, galleryReady, previewProblem, shareMeta, validateShareDoc, type MadeKind, type ModelBuild, type ShareDoc } from '../src/play/share'
 import { fakeWebp } from './fakeWebp'
 
 const OBJ = 'v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n'
@@ -138,7 +138,7 @@ describe('the gallery rebuilds every model from its settings', () => {
   it('refuses a share that is costly to check before doing the work, and stops at its deadline', () => {
     const tiny = cleanObj('v 0 0 0\nf 1 1 1\n')!
     const many = (n: number, build: (i: number) => ModelBuild, obj: (b: ModelBuild) => string = () => tiny) => {
-      const d = { models: {} as Record<string, string>, made: {} as Record<string, 'shape' | 'compound' | 'prefab'>, builds: {} as Record<string, ModelBuild> }
+      const d = { models: {} as Record<string, string>, made: {} as Record<string, MadeKind>, builds: {} as Record<string, ModelBuild> }
       for (let i = 0; i < n; i++) { const b = build(i); d.models['m' + i] = obj(b); d.made['m' + i] = b.kind; d.builds['m' + i] = b }
       return d
     }

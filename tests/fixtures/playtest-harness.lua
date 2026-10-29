@@ -122,6 +122,26 @@ elseif SCENARIO == "reenter" then
   end
   playing, state = false, 2
   frame()
+elseif SCENARIO == "rain" then
+  -- Heavy rain: 3 s in the open, 3 s walking into a rain blocker (the game's region test sets the latch and the
+  -- fade climbs to 1 over a second, the screen rain fading with it), out again, match over.
+  local REGION_STATE, SCREEN_RAIN, WEATHER, BLOCKER = 0x83710560, 0x8370D198, 0x8370F70C, 0x44002000
+  U32[WEATHER], U32[BLOCKER + 32] = 4, 0x8
+  local fade = 0
+  for f = 0, 60 * 9 do
+    T = f * dt
+    down, pressed = { W = true }, {}
+    local inside = T >= 3 and T < 6
+    U32[REGION_STATE + 148] = inside and BLOCKER or 0
+    if inside then U32[REGION_STATE + 144] = 0x01000000 end
+    fade = math.max(0, math.min(1, fade + (inside and dt or -dt)))
+    if fade == 0 then U32[REGION_STATE + 144] = 0 end
+    F32[REGION_STATE + 140], F32[SCREEN_RAIN], F32[SCREEN_RAIN + 4] = fade, 0.8 * (1 - fade), 0.5 * (1 - fade)
+    x = x + 2 * dt
+    frame()
+  end
+  playing, state = false, 2
+  frame()
 elseif SCENARIO == "ramp" then
   -- Down a long ramp at 3 m/s (far slower than a fall), then off its end, 16 m to the street. The frame rate
   -- climbs from 40 to 60 at the ramp's top, and again during the drop.

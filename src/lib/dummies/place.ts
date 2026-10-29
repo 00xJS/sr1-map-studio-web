@@ -12,7 +12,7 @@ import { BODY_MAT, BOX_TRIANGLES, STAND_IN_MATS, bodyObj, bodySegments, standInO
 import { dummyName, lookOf, specKey, standInColours, type DummySpec } from './models'
 import { MATERIAL_ALPHA, SURFACES, asStandIn, dummyRefOf, type DummyRef } from './standIn'
 import type { BakedDummy } from './bake'
-import type { Vpp } from '../sr1char/vpp'
+import type { GameSource } from './packs'
 
 export { asStandIn, dummyRefOf, isDummy, withStandIns, type DummyRef } from './standIn'
 
@@ -65,7 +65,7 @@ export function dummyObjText(b: BakedDummy, ws: number, title: string): string {
       lines.push(`f ${a}/${a}/${a} ${c}/${c}/${c} ${d}/${d}/${d}`)
     }
   }
-  return lines.join('\n') + '\n' + bodyObj(b.joints, ws, { v: n + 1, vt: n + 1, vn: n + 1 }).text
+  return lines.join('\n') + '\n' + bodyObj(b.joints, ws, { v: n + 1, vt: n + 1, vn: n + 1 }, b.height).text
 }
 
 async function pngOf(p: BakedDummy['materials'][number]['picture'], name: string): Promise<File> {
@@ -73,22 +73,23 @@ async function pngOf(p: BakedDummy['materials'][number]['picture'], name: string
   return rgbaPng({ width: p.width, height: p.height, rgba: p.rgba.slice().buffer }, name)
 }
 
-/** Bakes the character from the packfiles and stores it as game files (with the body boxes' site texture). */
-export async function gameFiles(packs: Vpp[], spec: DummySpec, ws: number, tag = ''): Promise<StoredDummy & { summary: string }> {
-  const { bakeDummy } = await import('./bake')
-  const b = await bakeDummy(packs, spec)
+/** Bakes the character from the player's packfiles and stores it as game files (with the body boxes' site texture). */
+export async function gameFiles(source: GameSource, spec: DummySpec, ws: number): Promise<StoredDummy & { summary: string }> {
+  const { bake } = await import('./packs')
+  const b = await bake(source, spec)
   const files: Record<string, FileRef> = {}
   const textures: Record<string, string> = {}, alpha: Record<string, boolean> = {}
   for (const m of b.materials) {
-    const name = m.name + tag + '.png'
-    const s = await storeFile(await pngOf(m.picture, name), name, 'game')
+    const name = m.name + '.png'
+    const png = m.png ? new File([m.png], name, { type: 'image/png' }) : await pngOf(m.picture, name)
+    const s = await storeFile(png, name, 'game')
     s.ref.origin = 'game'
     files[s.vpath] = s.ref
     textures[m.name] = s.vpath
     alpha[m.name] = m.picture.alpha
   }
   const text = dummyObjText(b, ws, dummyName(spec))
-  const obj = await storeFile(new Blob([text], { type: 'model/obj' }), `dummy_${spec.model.replace(/[^A-Za-z0-9]+/g, '_')}_${spec.pose}${tag}.obj`, 'game')
+  const obj = await storeFile(new Blob([text], { type: 'model/obj' }), `dummy_${spec.model.replace(/[^A-Za-z0-9]+/g, '_')}_${spec.pose}.obj`, 'game')
   obj.ref.origin = 'game'
   files[obj.vpath] = obj.ref
   const body = await generatedTexture('#000000', 'invisible.png', true)
@@ -98,10 +99,10 @@ export async function gameFiles(packs: Vpp[], spec: DummySpec, ws: number, tag =
   const { cacheModel } = await import('../assets')
   const { parseObj } = await import('../geometry')
   cacheModel(obj.vpath, parseObj(text))
-  return { path: obj.vpath, textures, alpha, triangles: b.triangles.length / 3 + BOX_TRIANGLES * bodySegments(b.joints).length, files, summary: b.summary }
+  return { path: obj.vpath, textures, alpha, triangles: b.triangles.length / 3 + BOX_TRIANGLES * bodySegments(b.joints, b.height).length, files, summary: b.summary }
 }
 
-// Files made this tab, by look, pose and world scale (copies of one dummy share them).
+// Files made this tab, by look, pose, world scale and game folder (copies of one dummy share them).
 const made = new Map<string, Promise<StoredDummy & { summary?: string }>>()
 const once = (key: string, make: () => Promise<StoredDummy & { summary?: string }>) => {
   let p = made.get(key)
@@ -110,10 +111,10 @@ const once = (key: string, make: () => Promise<StoredDummy & { summary?: string 
 }
 
 /**
- * A dummy's object, standing at `at` turned `rot` degrees: the character from `packs` (the player's packfiles), or
+ * A dummy's object, standing at `at` turned `rot` degrees: the character from `source` (the player's packfiles), or
  * the stand-in when there are none.
  */
-export async function dummyItem(spec: DummySpec, at: Vec3, rot: number, ws: number, packs: Vpp[] | null, uid: string): Promise<{ item: SceneItem; files: Record<string, FileRef>; summary?: string }> {
+export async function dummyItem(spec: DummySpec, at: Vec3, rot: number, ws: number, source: GameSource | null, uid: string): Promise<{ item: SceneItem; files: Record<string, FileRef>; summary?: string }> {
   const s = { ...spec, look: lookOf(spec.model, spec.look) }
   const key = specKey(s) + '@' + ws
   const stand = await once('s' + key, () => standInFiles(s, ws))
@@ -122,8 +123,8 @@ export async function dummyItem(spec: DummySpec, at: Vec3, rot: number, ws: numb
     uid, name: dummyName(s), path: stand.path, source_path: stand.path, position: at, rotation: [0, rot, 0], scale: 1,
     textures: {}, alpha: {}, physics_intent: 'Static', triangles: stand.triangles, dummy: ref,
   }
-  if (!packs) return { item: asStandIn(base), files: { ...stand.files } }
-  const g = await once('g' + key, () => gameFiles(packs, s, ws))
+  if (!source) return { item: asStandIn(base), files: { ...stand.files } }
+  const g = await once('g' + key + '|' + source.key, () => gameFiles(source, s, ws))
   const item: SceneItem = {
     ...base, path: g.path, source_path: g.path, textures: g.textures, alpha: g.alpha, surface_ids: SURFACES(Object.keys(g.textures)),
     collision_materials: [BODY_MAT], triangles: g.triangles, dummy: { ...ref, built: true },
@@ -132,8 +133,8 @@ export async function dummyItem(spec: DummySpec, at: Vec3, rot: number, ws: numb
 }
 
 /** A placed dummy made again (another look, pose or world scale, or its game files missing here), keeping its place. */
-export async function rebuildDummy(it: SceneItem, spec: DummySpec, ws: number, packs: Vpp[] | null) {
-  const r = await dummyItem(spec, it.position, it.rotation[1], ws, packs, it.uid)
+export async function rebuildDummy(it: SceneItem, spec: DummySpec, ws: number, source: GameSource | null) {
+  const r = await dummyItem(spec, it.position, it.rotation[1], ws, source, it.uid)
   const keep: Partial<SceneItem> = { position: it.position, rotation: it.rotation, scale: it.scale, ...(it.layer ? { layer: it.layer } : {}), ...(it.group ? { group: it.group } : {}) }
   return { item: { ...r.item, ...keep, name: it.name === dummyName(dummyRefOf(it) ?? spec) ? r.item.name : it.name }, files: r.files, summary: r.summary }
 }

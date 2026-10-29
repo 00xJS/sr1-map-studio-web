@@ -107,21 +107,35 @@ export function DummyPicker({ onClose }: { onClose: () => void }) {
 /** A placed dummy's settings. */
 export function DummyFields({ it, index }: { it: SceneItem; index: number }) {
   const d = dummyRefOf(it)
+  const scale = useEditor((s) => s.project?.settings.world_scale || 0.5)
   const [run, busy] = useBusy()
+  const [progress, setProgress] = useState('')
   if (!d) return null
+  const resized = d.ws !== scale
+  const build = () => run(async () => {
+    try {
+      const n = await buildDummies(true, (done, total) => setProgress(total > 1 ? `Building ${Math.min(done + 1, total)} of ${total}…` : 'Building…'))
+      toast(n ? `Built ${n === 1 ? '1 dummy' : `${n} dummies`} from your game.` : 'Nothing to build.', 'ok')
+    } finally { setProgress('') }
+  })
   return (
     <div className="section">
       <span className="section-title">Decoy dummy <Status id="decoy_dummies" /></span>
       <SpecFields spec={d} disabled={busy} onChange={(patch) => run(() => changeDummy(index, patch))} />
-      {busy && <span className="faint small">Building…</span>}
-      {d.built
-        ? <span className="small muted">From your own game files: in your own exports only. Share links, the Showcase and the hub show a plain stand-in figure.</span>
-        : (
-          <div className="stack">
-            <span className="small muted">Drawn as the stand-in figure (it exports like this too).</span>
-            <div><button className="sm" disabled={busy} onClick={() => run(async () => { const n = await buildDummies(true); toast(n ? `Built ${n === 1 ? '1 dummy' : `${n} dummies`} from your game.` : 'Nothing to build.', 'ok') })}>Build from my game</button></div>
-          </div>
-        )}
+      {busy && <span className="faint small">{progress || 'Building…'}</span>}
+      {d.built && !resized && <span className="small muted">From your own game files: in your own exports only. Share links, the Showcase and the hub show a plain stand-in figure.</span>}
+      {d.built && resized && (
+        <div className="stack">
+          <span className="small muted">Made before the map's world scale changed, so it is the wrong size.</span>
+          <div><button className="sm" disabled={busy} onClick={build}>Build again at this scale</button></div>
+        </div>
+      )}
+      {!d.built && (
+        <div className="stack">
+          <span className="small muted">Drawn as the stand-in figure (it exports like this too).</span>
+          <div><button className="sm" disabled={busy} onClick={build}>Build from my game</button></div>
+        </div>
+      )}
       <span className="faint small">Only its body boxes are solid; the rest is look only.{statusSentence('decoy_dummies')}</span>
     </div>
   )

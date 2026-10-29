@@ -115,7 +115,7 @@ export function cleanProject(p: Project): Project {
 
 // ---------------- model settings ----------------
 
-const BUILD_KEYS: Record<string, string[]> = { shape: ['kind', 'shape'], compound: ['kind', 'pieces'], prefab: ['kind', 'key', 'params', 'at', 'rot'] }
+const BUILD_KEYS: Record<string, string[]> = { shape: ['kind', 'shape'], compound: ['kind', 'pieces'], prefab: ['kind', 'key', 'params', 'at', 'rot'], figure: ['kind', 'pose', 'ws'] }
 const PIECE_KEYS = ['shape', 'at', 'rot', 'top', 'side']
 const SHAPE_KEYS = Object.keys(SHAPE)
 
@@ -131,6 +131,7 @@ export function buildKeysOk(b: unknown): boolean {
   const shapeOk = (s: unknown) => onlyKeys(s, SHAPE_KEYS)
   if (x.kind === 'shape') return shapeOk(x.shape)
   if (x.kind === 'compound') return Array.isArray(x.pieces) && x.pieces.every((pc: unknown) => onlyKeys(pc, PIECE_KEYS) && shapeOk((pc as any).shape))
+  if (x.kind === 'figure') return typeof x.pose === 'string' && x.pose.length <= 32 && typeof x.ws === 'number'
   return typeof x.key === 'string' && x.key.length <= 64 && !!x.params && typeof x.params === 'object' && !Array.isArray(x.params)
     && Object.entries(x.params).every(([k, v]) => k.length <= 64 && (typeof v === 'number' || (typeof v === 'string' && v.length <= 40000)))
 }

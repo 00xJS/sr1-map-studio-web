@@ -5,6 +5,8 @@ import { produce, type Draft } from 'immer'
 import { db } from '../lib/db'
 import { uid, type Project } from '../lib/project'
 import { centreOf, mirrorEdit, mirrorSession, type Centre, type MirrorSession } from '../lib/mirrorEdit'
+import { overDummyCap } from '../lib/dummies/standIn'
+import { toast } from '../ui'
 
 export type Selection = { kind: 'item' | 'marker' | 'light'; index: number } | null
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
@@ -70,7 +72,8 @@ interface EditorState {
   /** One undo step. In mirror mode the edit is copied across the middle too, unless `noMirror` (an edit that already
    *  makes both halves, such as make_symmetric), inside a transaction (Fix all's fixes place what they mean to) or
    *  inside withoutMirror (the AI's edits, a single fix). */
-  update(label: string, recipe: (d: Draft<Project>) => void, opts?: { merge?: string; noMirror?: boolean }): void
+  /** `restore`: a saved version put back as it was (it may hold more dummies than the cap; the checklist still blocks the export). */
+  update(label: string, recipe: (d: Draft<Project>) => void, opts?: { merge?: string; noMirror?: boolean; restore?: boolean }): void
   undo(): void
   redo(): void
   /** Several undo (negative) or redo (positive) steps at once, as one history move. */
@@ -396,6 +399,10 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (!merging || mirroring?.projectId !== cur.id || mirroring.centre !== at.centre) mirroring = mirrorSession(cur, at.centre)
       next = mirrorEdit(cur, next, uid, mirroring)
     }
+    // Every way of adding objects comes through here (placing, copies, paste, prefabs, mirror mode, the AI, a recipe
+    // that hands back a whole project): none may take the map past the dummy cap. Only a restored version may.
+    const over = opts?.restore ? null : overDummyCap(cur.scene_items, next.scene_items)
+    if (over) { toast(over, 'bad', 8000); get().log(over); return }
     // Inside a transaction its edits add no steps of their own: it adds one when it ends.
     const past = merging || txn?.started ? get().past : [...get().past, { project: cur, label }].slice(-LIMIT)
     // The redo list goes, and with it any pin undone past: its map can't come back.
@@ -523,7 +530,9 @@ export async function saveNow(withThumb = false) {
     const updated = { ...project, updated_at: new Date().toISOString() }
     let thumbnail = existing?.thumbnail
     if (thumbProvider && (withThumb || !thumbnail || Date.now() - lastThumbAt > 60000)) {
-      thumbnail = (await thumbProvider().catch(() => null)) || thumbnail
+      // A failed picture leaves none rather than an old one (it may show what the map no longer has, like a dummy
+      // built from the game that has since become its stand-in).
+      thumbnail = (await thumbProvider().catch(() => null)) || undefined
       lastThumbAt = Date.now()
     }
     await db.putProject({ id: project.id, name: project.name, updated_at: updated.updated_at, project: updated, thumbnail, cloud: existing?.cloud })
