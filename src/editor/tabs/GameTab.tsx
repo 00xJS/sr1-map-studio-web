@@ -270,11 +270,13 @@ export function LoadingSetting() {
     if (!v) return
     setBusy(true)
     try {
+      // A view of game objects or built dummies is game data: it stays on this device (never uploaded or shared).
+      // Asked before the picture is drawn and again after, so a model swapped in or out meanwhile still counts.
+      const shows = () => { const p = useEditor.getState().project; return (!!p && showsGameData(p)) || v.drawsGameData() }
+      const before = shows()
       const blob = await v.capture(LOADING_SIZE[0], LOADING_SIZE[1])
       if (!blob) return
-      // A view of game objects or built dummies is game data: it stays on this device (never uploaded or shared).
-      const p = useEditor.getState().project
-      await act.setProjectFile('loading_image', new File([blob], 'loading_screen.png', { type: 'image/png' }), (!!p && showsGameData(p)) || v.drawsGameData())
+      await act.setProjectFile('loading_image', new File([blob], 'loading_screen.png', { type: 'image/png' }), before || shows())
       pick('custom')
     } catch (e) { toastError(e) } finally { setBusy(false) }
   }

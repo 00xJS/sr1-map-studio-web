@@ -534,11 +534,13 @@ export async function saveNow(withThumb = false) {
     let thumbnail = existing?.thumbnail
     let thumbGame = existing?.thumb_game
     if (thumbProvider && (withThumb || !thumbnail || Date.now() - lastThumbAt > 60000)) {
-      // What the view shows is decided as it is drawn: the picture keeps that, whatever the map shows later.
+      // What the view shows is decided as it is drawn (asked before and after, in case a model is swapped
+      // meanwhile): the picture keeps that, whatever the map shows later.
       thumbGame = showsGameData(project) || !!drawsGame?.()
       // A failed picture leaves none rather than an old one (it may show what the map no longer has, like a dummy
       // built from the game that has since become its stand-in).
       thumbnail = (await thumbProvider().catch(() => null)) || undefined
+      thumbGame ||= !!drawsGame?.()
       lastThumbAt = Date.now()
     }
     await db.putProject({ id: project.id, name: project.name, updated_at: updated.updated_at, project: updated, thumbnail, ...(thumbnail && thumbGame ? { thumb_game: true } : {}), cloud: existing?.cloud })

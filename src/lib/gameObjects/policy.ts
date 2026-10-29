@@ -31,6 +31,7 @@ export function showsGameData(p: Pick<Project, 'scene_items' | 'files'> & { sett
 
 const fileFromGame = (files: Project['files'], path: unknown) => typeof path === 'string' && !!path && (isDataPackPath(path) || files[path]?.origin === 'game')
 
-/** Whether an object is drawn from the player's game or the data pack (its model, a picture, its look). */
-export const itemFromGame = (it: Pick<SceneItem, 'path' | 'textures' | 'game_look'>, files: Project['files']) =>
-  [it.path, ...Object.values(it.textures || {}), it.game_look?.path].some((path) => fileFromGame(files, path))
+/** Whether an object is drawn from the player's game or the data pack (its model, a picture, a glass picture, its look). */
+export const itemFromGame = (it: Pick<SceneItem, 'path' | 'textures' | 'game_look' | 'glass_custom_texture' | 'native_mesh_obj'>, files: Project['files']) =>
+  [it.path, it.native_mesh_obj, it.glass_custom_texture, ...Object.values(it.textures || {}), it.game_look?.path, ...(it.game_look?.layers || [])]
+    .some((path) => fileFromGame(files, path))
