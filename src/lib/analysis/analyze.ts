@@ -66,7 +66,7 @@ export function prepareMap(input: AnalysisInput, opts: AnalysisOptions = {}): Pr
   // Markers on the floor graph.
   const markers = input.markers
   // The middle mirror pairs turn about (mirrorCentre), as mirrorCheck and mirror mode use.
-  const [cx, cz] = mirrorCentre(markers)
+  const [cx, cz] = opts.centre ?? mirrorCentre(markers)
   const nodeOf = markers.map((mk) => (g.grid.count ? nodeNear(g, mk.position[0], mk.position[1], mk.position[2], cx, cz) : -1))
   const spawnNodes = markers.flatMap((mk, i) => (SPAWN_TYPES.includes(mk.type) && nodeOf[i] >= 0 ? [nodeOf[i]] : []))
 
@@ -163,7 +163,7 @@ export function finishMap(p: Prepared, counts: SightCounts): HealthReport {
   lap('spawns')
 
   progress(opts, 'Comparing red and blue', 0.85, 0.9)(0)
-  const { fairness, territory } = compareTeams(g, markers, nodeOf, spawns, weaponIdx, dropIdx, reachList, toWeapon)
+  const { fairness, territory } = compareTeams(g, markers, nodeOf, spawns, weaponIdx, dropIdx, reachList, toWeapon, opts.centre)
   lap('fairness')
 
   progress(opts, 'Bots playing the map', 0.9, 1)(0)
@@ -213,12 +213,12 @@ function judgeSpawn(team: Team, bySpawns: number, byPickups: number, exp: number
 }
 
 function compareTeams(g: FloorGraph, markers: AnalysisMarker[], nodeOf: number[], spawns: SpawnReport[],
-  weaponIdx: number[], dropIdx: number[], reachList: Int32Array, toWeapon: Float32Array | null): { fairness: FairnessReport; territory: Int8Array } {
+  weaponIdx: number[], dropIdx: number[], reachList: Int32Array, toWeapon: Float32Array | null, mid?: [number, number]): { fairness: FairnessReport; territory: Int8Array } {
   const territory = new Int8Array(g.grid.count)
   const reds = spawns.filter((s) => s.team === 'red'), blues = spawns.filter((s) => s.team === 'blue')
   const shared = spawns.filter((s) => s.team === 'shared')
   const basis: FairnessReport['basis'] = reds.length && blues.length ? 'teams' : shared.length >= 2 ? 'halves' : 'none'
-  const unmirrored = mirrorCheck(markers)
+  const unmirrored = mirrorCheck(markers, mid)
   if (basis === 'none') {
     return { territory, fairness: { score: 100 - unmirroredPoints(unmirrored.length, basis), basis, red: null, blue: null, unmirrored, reasons: ['Add red and blue team spawns (or a few shared ones) to compare the two sides.'] } }
   }
@@ -312,8 +312,9 @@ function centre(markers: AnalysisMarker[]): [number, number] {
 
 const MIRRORED = [...SPAWN_TYPES, 'Weapon pickup', 'Chains drop-off']
 
-/** The middle the map is mirrored about: the middle of the spawns (of the spawns, weapons and drop-offs with fewer
- *  than two spawns). Mirror mode turns edits about the same point (lib/mirrorEdit.ts). */
+/** The middle the map checks pair twins about: the middle of the spawns (of the spawns, weapons and drop-offs with
+ *  fewer than two spawns). Mirror mode turns edits about the same point, but with fewer than two spawns it takes the
+ *  origin instead (lib/mirrorEdit.ts centreOf), and hands it in as AnalysisOptions.centre while it's on. */
 export function mirrorCentre(markers: Pick<AnalysisMarker, 'type' | 'position'>[]): [number, number] {
   return centre(markers.filter((mk) => MIRRORED.includes(mk.type)) as AnalysisMarker[])
 }
@@ -326,8 +327,8 @@ export function unmirroredPoints(count: number, basis: FairnessReport['basis']):
 
 /** As the fairness score will count them: how many spawns, weapons and drop-offs have no twin, and the points that
  *  costs (0 when the spawns are all on one line, which leaves no sides to compare). */
-export function unmirroredCost(markers: AnalysisMarker[]): { count: number; points: number } {
-  const count = mirrorCheck(markers).length
+export function unmirroredCost(markers: AnalysisMarker[], mid?: [number, number]): { count: number; points: number } {
+  const count = mirrorCheck(markers, mid).length
   const type = (t: string) => markers.filter((mk) => mk.type === t)
   const shared = type('Shared spawn')
   const basis: FairnessReport['basis'] = type('Red team spawn').length && type('Blue team spawn').length ? 'teams' : shared.length >= 2 ? 'halves' : 'none'
@@ -338,11 +339,12 @@ export function unmirroredCost(markers: AnalysisMarker[]): { count: number; poin
   return { count, points: unmirroredPoints(count, basis) }
 }
 
-/** Spawns, weapons and drop-offs whose twin (turned 180° about the map's centre, red and blue swapped) is missing. */
-export function mirrorCheck(markers: AnalysisMarker[]): { type: string; position: Vec3 }[] {
+/** Spawns, weapons and drop-offs whose twin (turned 180° about `mid`, by default mirrorCentre; red and blue swapped)
+ *  is missing. */
+export function mirrorCheck(markers: AnalysisMarker[], mid?: [number, number]): { type: string; position: Vec3 }[] {
   const list = markers.filter((mk) => MIRRORED.includes(mk.type))
   if (list.length < 2) return []
-  const [cx, cz] = centre(list)
+  const [cx, cz] = mid ?? mirrorCentre(list)
   const twin = (t: string) => (t === 'Red team spawn' ? 'Blue team spawn' : t === 'Blue team spawn' ? 'Red team spawn' : t)
   return list.filter((mk) => {
     const x = 2 * cx - mk.position[0], z = 2 * cz - mk.position[2]

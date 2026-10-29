@@ -40,6 +40,8 @@ export interface AnalysisOptions {
   bots?: number
   trips?: number
   seed?: number
+  /** The middle mirrored pairs turn about (x, z); by default mirrorCentre's. Mirror mode passes the one it pinned. */
+  centre?: [number, number]
   /** Called now and then with a short description and 0..1. */
   onProgress?: (text: string, done: number) => void
 }

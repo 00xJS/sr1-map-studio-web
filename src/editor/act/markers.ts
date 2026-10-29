@@ -1,5 +1,5 @@
 // Spawns, markers and lights.
-import { useEditor, currentProject, startRun, stillCurrent } from '../store'
+import { useEditor, currentProject, startRun, stillCurrent, command, type Edits } from '../store'
 import { catalogs } from '../../lib/catalogs'
 import { newLight, newMarker, type Marker, type Vec3 } from '../../lib/project'
 import { log, update, UserError } from './core'
@@ -21,15 +21,15 @@ export function removeSelected() {
 }
 
 /** Gives the map the default sky picture (as new maps get), so the game doesn't draw a black sky. */
-export async function addDefaultSky() {
+export const addDefaultSky = command(async (e: Edits) => {
   const run = startRun()
   const { skyFile } = await import('../../lib/samples')
   const sky = await skyFile()
   // A map opened while the picture loaded keeps its own sky.
   stillCurrent(run)
-  update('Add a sky', (d) => { d.files[sky.vpath] = sky.ref; d.settings.sky_texture = sky.vpath }, { noMirror: true })
+  e.update('Add a sky', (d) => { d.files[sky.vpath] = sky.ref; d.settings.sky_texture = sky.vpath }, { noMirror: true })
   log('Added a sky: the game shows it overhead (change it in the Game tab, under Sky).')
-}
+})
 
 /** Deletes every marker of the given types, as one undo step (unused game-mode markers). */
 export function removeMarkersOfType(types: string[]) {

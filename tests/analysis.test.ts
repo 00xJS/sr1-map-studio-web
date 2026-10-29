@@ -254,6 +254,16 @@ describe('fairness', () => {
     expect(there.score).toBe(here.score)
   })
 
+  it('a map with fewer than two spawns pairs about the middle of its weapons, as before (mirror mode off)', () => {
+    // Two weapons off the origin and no spawns: each is the other's twin about their own middle.
+    const r = check([ground()], [['Weapon pickup', [12, 0, 8], { weapon: 'ak47' }], ['Weapon pickup', [20, 0, 16], { weapon: 'ak47' }]])
+    expect(r.fairness.unmirrored).toEqual([])
+    expect(r.fairness.score).toBe(100)
+    // Mirror mode hands in its own middle (the origin here): then they have no twins.
+    const m = analyzeMap(sampleInput({ parts: [ground()], markers: [['Weapon pickup', [12, 0, 8], { weapon: 'ak47' }], ['Weapon pickup', [20, 0, 16], { weapon: 'ak47' }]] }), { cell: 2, rayBudget: 400_000, trips: 60, centre: [0, 0] })
+    expect(m.fairness.unmirrored).toHaveLength(2)
+  })
+
   it('mirror check pairs red with blue and weapons by kind', () => {
     const m = (type: string, at: Vec3, weapon?: string) => ({ type, position: at, weapon })
     expect(mirrorCheck([m('Red team spawn', [5, 0, -5]), m('Blue team spawn', [-5, 0, 5])])).toEqual([])
