@@ -211,6 +211,8 @@ describe('Review fixes and the chat, more', () => {
     showTwins()
     fireEvent.click(screen.getAllByRole('button', { name: /Add cover/ })[1])
     await screen.findByRole('button', { name: 'Cancel Add cover' })
+    // The card's re-render subscription goes before the card does.
+    subs.splice(0).forEach((u) => u())
     cleanup()
     render(<MemoryRouter><AiChat onClose={() => {}} /></MemoryRouter>)
     const box = screen.getByRole('textbox', { name: 'Message' })

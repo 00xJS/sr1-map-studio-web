@@ -16,9 +16,10 @@ export interface Turn {
   /** What a thinking model has thought so far (shown while it works). */
   thinking?: string
   review?: Review
-  /** Labels of the review fixes already applied. */
+  /** The review fixes already applied, by place ("section:fix"); a turn saved before kept their names. */
   applied?: string[]
-  /** Labels of the review fixes stopped partway, after some of their changes: not run again (it would add them twice). */
+  /** The review fixes stopped partway, after some of their changes, by place ("section:fix"): not run again (it would
+   *  add them twice). */
   partly?: string[]
 }
 
