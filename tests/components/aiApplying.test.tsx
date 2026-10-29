@@ -116,7 +116,7 @@ describe('A review fix', () => {
     const { turn } = showCard([{ do: 'rename_map', name: 'Covered' } as AiAction])
     await act(async () => { fireEvent.click(screen.getByRole('button', { name: /Add cover/ })) })
     await screen.findByRole('button', { name: /✓ Add cover/ })
-    expect(turn().applied).toEqual(['Add cover'])
+    expect(turn().applied).toEqual(['0:0'])
   })
 })
 
@@ -181,5 +181,58 @@ describe('Two review fixes with the same name', () => {
     await screen.findByRole('button', { name: /◐ Add cover/ })
     expect(screen.getAllByRole('button', { name: /◐/ })).toHaveLength(1)
     expect(turn().partly).toEqual(['0:0'])
+  })
+})
+
+describe('Review fixes and the chat, more', () => {
+  const twins = (): Review => ({ score: 6, summary: '', byModel: true, sections: [{ topic: 'flow' as never, title: 'Flow', verdict: 'ok', notes: [], fixes: [{ label: 'Add cover', actions: [{ do: 'rename_map', name: 'One' }] }, { label: 'Add cover', actions: [{ do: 'rename_map', name: 'Two' }, ...shapes(1)] }] as never }] })
+  function showTwins() {
+    const id = useChat.getState().add({ role: 'assistant', text: 'Review', review: twins() })
+    const turn = () => useChat.getState().turns.find((t) => t.id === id)!
+    const view = render(<ReviewCard turn={turn()} />)
+    subs.push(useChat.subscribe(() => view.rerender(<ReviewCard turn={turn()} />)))
+    return turn
+  }
+
+  it('marks only the fix done in full as applied, not its same-named twin', async () => {
+    openMap()
+    const turn = showTwins()
+    fireEvent.click(screen.getAllByRole('button', { name: /Add cover/ })[0])
+    await screen.findByRole('button', { name: /✓ Add cover/ })
+    expect(turn().applied).toEqual(['0:0'])
+    const twin = screen.getAllByRole('button', { name: /Add cover/ })[1]
+    expect(twin.textContent).toBe('🔧 Add cover')
+    await waitFor(() => expect((twin as HTMLButtonElement).disabled).toBe(false))
+  })
+
+  it("keeps the chat from sending while a review card's fix runs, and its Cancel stops the fix", async () => {
+    openMap()
+    localStorage.setItem(KEY_STORE, 'test-key')
+    showTwins()
+    fireEvent.click(screen.getAllByRole('button', { name: /Add cover/ })[1])
+    await screen.findByRole('button', { name: 'Cancel Add cover' })
+    cleanup()
+    render(<MemoryRouter><AiChat onClose={() => {}} /></MemoryRouter>)
+    const box = screen.getByRole('textbox', { name: 'Message' })
+    fireEvent.change(box, { target: { value: 'Add more cover' } })
+    fireEvent.keyDown(box, { key: 'Enter' })
+    expect(useChat.getState().turns.filter((t) => t.role === 'user')).toEqual([])
+    expect((screen.getByRole('button', { name: 'New chat' }) as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+    await waitFor(() => expect(useAiApplying.getState().running).toEqual([]))
+  })
+
+  it("stops the open map's replies at the note's Cancel, not one settling on a map left meanwhile", async () => {
+    openMap()
+    const left = runAiActions(shapes(1), 'AI on A', { key: 'extras' })
+    await waitFor(() => expect(useAiApplying.getState().running).toHaveLength(1))
+    act(() => openMap())
+    const mine = runAiActions(shapes(1), 'AI on B', { key: 'extras' })
+    render(<AiApplyingNote />)
+    const stopA = vi.spyOn(useAiApplying.getState().running[0], 'stop')
+    fireEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+    expect((await mine).stopped).toBe('cancel')
+    expect(stopA).not.toHaveBeenCalled()
+    expect((await finish(left)).stopped).toBe('map')
   })
 })
