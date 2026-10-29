@@ -31,6 +31,8 @@ export interface SceneItem {
   double_sided?: boolean
   collision_disabled?: boolean
   collision_excluded_faces?: number[]
+  /** Only these materials are solid; the rest are drawn but players and shots pass through (a decoy dummy's body boxes). */
+  collision_materials?: string[]
   native_prefab?: string
   glass_style?: string
   glass_custom_texture?: string
@@ -60,6 +62,8 @@ export interface SceneItem {
   game_object?: import('./gameObjects/place').GameObjectRef
   /** How the game draws an object from the game (its look file and layer pictures, origin 'game'); the editor's view only. */
   game_look?: import('./gameObjects/lookFile').GameLookRef
+  /** A decoy dummy: the character, pose and look it was made from, and its shareable stand-in (dummies/place.ts). */
+  dummy?: import('./dummies/standIn').DummyRef
   /** Items with the same group id are selected, moved and copied together. */
   group?: string
   /** The layer it is in (layers.ts); unset: none. */
@@ -305,6 +309,9 @@ export function referencedPaths(p: Project): string[] {
     Object.values(it.textures || {}).forEach(add)
     const look = (it as SceneItem).game_look
     if (look) { add(look.path); look.layers?.forEach(add) }
+    // A dummy keeps its stand-in's files for share links and the Showcase.
+    const stand = (it as SceneItem).dummy?.stand_in
+    if (stand) { add(stand.path); Object.values(stand.textures || {}).forEach(add) }
   }
   // A photo frame keeps its stand-in picture: share links and the Showcase show it in place of the photo.
   for (const it of p.scene_items) { const pic = pictureSlot(it, p.files || {}); if (pic) add(it.prefab!.defaults[pic]) }

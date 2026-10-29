@@ -14,7 +14,7 @@ vi.mock('../src/lib/files', async (orig) => ({
 vi.mock('../src/lib/texgen', () => ({ generatedPng: async (_: unknown, name: string) => new File(['png'], name, { type: 'image/png' }) }))
 globalThis.fetch = (async () => new Response(new Blob(['jpg'], { type: 'image/jpeg' }))) as typeof fetch
 
-const { NO_GAME_NAMES, NO_SURFACE_PACK, TEST_BATCHES, UNBATCHED, buildTestMap, carries, testChecklist } = await import('../src/lib/testMaps')
+const { NO_DUMMY_GAME, NO_GAME_NAMES, NO_SURFACE_PACK, TEST_BATCHES, UNBATCHED, buildTestMap, carries, testChecklist } = await import('../src/lib/testMaps')
 const { mapChecklist } = await import('../src/lib/checklist')
 const { checkModes } = await import('../src/lib/levels')
 const { catalogs } = await import('../src/lib/catalogs')
@@ -58,7 +58,8 @@ describe('test maps', () => {
   for (const batch of TEST_BATCHES) {
     it(`batch ${batch.id} builds and carries every feature it tests`, async () => {
       const { project: p, leftOut } = await result(batch.id)
-      expect(leftOut).toEqual([])
+      // No game folder here: the dummies are their stand-ins, and the map says so.
+      expect(leftOut).toEqual(batch.dummies ? [NO_DUMMY_GAME] : [])
       expect(p.scene_items.length).toBeGreaterThan(4)
       for (const id of batch.features) if (!batch.absent?.[id]) expect(carries(p, id), id).toBe(true)
     })
@@ -120,6 +121,15 @@ describe('test maps', () => {
     expect(p.markers.find((m) => m.type === 'Item prop')?.item).toBe('Chair_Office')
     expect(p.markers.find((m) => m.type === 'Sound zone')?.sound).toBe('AMB_BIRDS')
     expect(p.markers.some((m) => m.type === 'Pimp exit (experimental)')).toBe(false)
+    // Three dummies by the first spawn, as stand-ins without the game: solid only in their body boxes.
+    const dummies = p.scene_items.filter((it) => it.dummy)
+    expect(dummies.map((it) => [it.dummy!.model, it.dummy!.pose])).toEqual([['player', 'standing'], ['player', 'aim'], ['vk_x_m_thug1-01', 'crouch']])
+    for (const d of dummies) {
+      expect(d.dummy!.built).toBe(false)
+      expect(d.collision_materials).toEqual(['dummy_body'])
+      expect(d.path).toBe(d.dummy!.stand_in.path)
+      expect(p.files[d.path]?.origin).toBe('user')
+    }
     expect(asked.some((a) => a.batch !== 3)).toBe(false)
     // Only batch 3 asks for the game folder.
     await Promise.all([built(1), built(2)])
@@ -128,25 +138,25 @@ describe('test maps', () => {
 
   it('batch 3 without names from the game: says so, and does not count the item prop or the sound zone', async () => {
     const { project: p, leftOut } = await buildTestMap(3, { convert: fakeNatives(0), gameNames: async () => ({}), dataPack: pack() })
-    expect(leftOut).toEqual([NO_GAME_NAMES])
+    expect(leftOut).toEqual([NO_DUMMY_GAME, NO_GAME_NAMES])
     expect(carries(p, 'item_props')).toBe(false)
     expect(carries(p, 'sound_zones')).toBe(false)
     expect(carries(p, 'water')).toBe(true)
     // A folder that can't be read counts as no names, not as a failed build.
     const failed = await buildTestMap(3, { convert: fakeNatives(0), gameNames: async () => { throw new Error('denied') }, dataPack: pack() })
-    expect(failed.leftOut).toEqual([NO_GAME_NAMES])
+    expect(failed.leftOut).toEqual([NO_DUMMY_GAME, NO_GAME_NAMES])
   })
 
   it('batch 3 leaves early surface registration out when the data pack lacks its groups', async () => {
     for (const missing of ['surface', 'sky']) {
       const { project: p, leftOut } = await buildTestMap(3, { convert: fakeNatives(0), gameNames: named, dataPack: pack(missing) })
-      expect(leftOut).toEqual([NO_SURFACE_PACK])
+      expect(leftOut).toEqual([NO_SURFACE_PACK, NO_DUMMY_GAME])
       expect(p.settings.surface_preload).toBeUndefined()
       expect(carries(p, 'surface_registration')).toBe(false)
       expect(p.settings.base_name.length).toBeLessThanOrEqual(10)
     }
     const none = await buildTestMap(3, { convert: fakeNatives(0), gameNames: named, dataPack: async () => null })
-    expect(none.leftOut).toEqual([NO_SURFACE_PACK])
+    expect(none.leftOut).toEqual([NO_SURFACE_PACK, NO_DUMMY_GAME])
   })
 
   it('counts a physics prop as a prop, not as breakable wood', async () => {

@@ -7,10 +7,12 @@ import type { Project } from '../project'
 export function gameObjectPaths(p: Pick<Project, 'scene_items' | 'files'>): Set<string> {
   const out = new Set<string>()
   for (const it of p.scene_items) {
-    if (!it.game_object && !it.game_look) continue
+    if (!it.game_object && !it.game_look && !it.dummy) continue
     // An object's look (from the game, or a city cut-out's) is game data too.
     const look = it.game_look ? [it.game_look.path, ...(it.game_look.layers || [])] : []
-    for (const path of [...(it.game_object ? [it.path, it.source_path, ...Object.values(it.textures || {})] : []), ...look]) {
+    // A decoy dummy's character too (its stand-in, a site recipe, stays).
+    const own = it.game_object || it.dummy ? [it.path, it.source_path, ...Object.values(it.textures || {})] : []
+    for (const path of [...own, ...look]) {
       if (typeof path === 'string' && p.files[path]?.origin === 'game') out.add(path)
     }
   }

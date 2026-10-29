@@ -11,6 +11,9 @@ import { PRESET_BY_KEY } from './physicsProps'
 import { CRATE_PROFILE, loadingMode } from './mapFeatures'
 import { BOR, BOR_CAR_BLUE, BOR_CAR_RED, BOR_CASH, BOR_CHOP, BOR_DOOR, BOR_ENTRANCE, BOR_GARAGE_BLUE, BOR_GARAGE_RED, BOR_VICTORY, SOUND_ZONE, borMissing } from './retailModes'
 import { ITEM_PROP } from './gameObjects/items'
+import type { DummySpec } from './dummies/models'
+import { isDummy } from './dummies/standIn'
+import type { Vpp } from './sr1char/vpp'
 import { dryInteriors, gameSkyWanted, isGlass, isProp, type FileRef, type Project, type ProjectSettings, type SceneItem, type Vec3 } from './project'
 import { shapeObj } from './shapes'
 import { storeFile } from './files'
@@ -37,6 +40,8 @@ export interface TestBatch {
   setup: string[]
   sample: () => Omit<Sample, 'parts'> & { parts: TestPart[] }
   settings: Partial<ProjectSettings>
+  /** Decoy dummies placed in the map: what, where, turned how far (degrees). */
+  dummies?: { spec: DummySpec; at: Vec3; rot: number }[]
 }
 
 const T = {
@@ -126,7 +131,7 @@ export const TEST_BATCHES: TestBatch[] = [
     id: 3,
     title: 'Batch 3: features you turn on',
     blurb: 'One bigger yard holding every opt-in feature: a pool, physics props, breakables, Blinged Out Ride and more.',
-    features: ['water', 'physics_props', 'breakable_glass', 'breakable_wood', 'crate_debris', 'blinged_out_ride', 'item_props', 'sound_zones', 'surface_registration', 'pimp_exit'],
+    features: ['water', 'physics_props', 'breakable_glass', 'breakable_wood', 'crate_debris', 'blinged_out_ride', 'item_props', 'sound_zones', 'surface_registration', 'decoy_dummies', 'pimp_exit'],
     where: {
       water: 'The walled pool in the south-east corner: walk up the ramp and jump in.',
       physics_props: 'The crate tower (south-west), the tire ramp (south) and the propane tanks (west): shoot, kick and blast them.',
@@ -137,6 +142,7 @@ export const TEST_BATCHES: TestBatch[] = [
       item_props: 'The item prop marker just south-east of the middle (it shows only if an item is chosen on it).',
       sound_zones: 'Stand by the pool: the sound zone is round it (it plays only if a sound is chosen on it).',
       surface_registration: "Walk and shoot on the concrete floor, the wooden ramp and the metal pool walls: footsteps and impacts should match each. It turns the game's own sky off, so this map shows the painted sky.",
+      decoy_dummies: 'Three dummies by the first Player spawn (north-north-east): a player standing, a player aiming, a Vice Kings thug crouching. Shoot them, walk into them, and look at one beside a real player (with a teammate in Team Gangsta Brawl too).',
     },
     absent: {
       pimp_exit: 'Not in this map: the export refuses a pimp exit marker, because the game has no pimp exit action. Nothing to try in game.',
@@ -144,9 +150,14 @@ export const TEST_BATCHES: TestBatch[] = [
     setup: [
       'Make it with your game folder connected: the item prop and the sound zone take their names from your game files.',
       "Install it in game with the folder still connected: the smashing crate's boards and dust come from your game files too.",
-      'Start Gangsta Brawl for the props, the pool and the sounds, then Blinged Out Ride.',
+      'Start Gangsta Brawl for the props, the pool, the sounds and the dummies, then Blinged Out Ride.',
     ],
     settings: { surface_preload: true },
+    dummies: [
+      { spec: { model: 'player', pose: 'standing', look: { top: 'purple' } }, at: [13, 1, -36], rot: 200 },
+      { spec: { model: 'player', pose: 'aim', look: { top: 'yellow', skin: 'dark' } }, at: [19, 1, -35], rot: 215 },
+      { spec: { model: 'vk_x_m_thug1-01', pose: 'crouch', look: {} }, at: [16, 1, -31], rot: 205 },
+    ],
     sample: () => ({
       id: 'testoptin', name: 'Test 3 Opt-ins', icon: '🧪', theme: 'Starter', modes: [...GB, BOR],
       description: 'In-game test map: water, physics props, breakables, Blinged Out Ride, item props, sound zones and surface registration.',
@@ -226,6 +237,7 @@ export function carries(p: Project, id: FeatureId): boolean {
     case 'item_props': return p.markers.some((m) => m.type === ITEM_PROP && !!m.item?.trim())
     case 'sound_zones': return p.markers.some((m) => m.type === SOUND_ZONE && !!m.sound?.trim())
     case 'surface_registration': return !!s.surface_preload
+    case 'decoy_dummies': return items.some(isDummy)
     default: return false
   }
 }
@@ -241,6 +253,8 @@ export interface BuildOptions {
   gameNames?: () => Promise<{ item?: string; sound?: string }>
   /** The data pack's status (default: this browser's). */
   dataPack?: () => Promise<DataPackStatus | null>
+  /** The packfiles the dummies are built from (default: the game folder, without asking again); null: stand-ins. */
+  dummyPacks?: () => Promise<Vpp[] | null>
 }
 
 /** The test map, and what it had to leave out (for the tester to see before installing). */
@@ -248,6 +262,7 @@ export interface BuiltTestMap { project: Project; leftOut: string[] }
 
 export const NO_GAME_NAMES = 'Choose your game folder to include item props and sound zones: without their names from your game, the export leaves them out.'
 export const NO_SURFACE_PACK = 'Early surface registration is left out: it needs the surface template and the native sky presets from your data pack.'
+export const NO_DUMMY_GAME = 'The decoy dummies are plain stand-in figures: choose your game folder to build the real characters (select one and choose "Build from my game").'
 
 /** Early surface registration can go in: the export refuses it without these data pack groups. */
 export const surfacePackReady = (pack: DataPackStatus | null) => hasGroup(pack, 'surface') && hasGroup(pack, 'sky')
@@ -290,6 +305,18 @@ export async function buildTestMap(id: BatchId, opts: BuildOptions = {}): Promis
   if (jobs.length) {
     opts.onProgress?.('Turning them into props and breakables…')
     await (opts.convert ?? pythonNatives)(p, jobs)
+  }
+
+  if (batch.dummies?.length) {
+    opts.onProgress?.('Building the decoy dummies…')
+    const [{ dummyItem }, { uid }] = await Promise.all([import('./dummies/place'), import('./project')])
+    const packs = await (opts.dummyPacks ?? (async () => (await import('./dummies/packs')).dummyPacks(false)))().catch(() => null)
+    for (const d of batch.dummies) {
+      const r = await dummyItem(d.spec, d.at, d.rot, p.settings.world_scale || 0.5, packs, uid())
+      Object.assign(p.files, r.files)
+      p.scene_items.push(r.item)
+    }
+    if (!packs) leftOut.push(NO_DUMMY_GAME)
   }
 
   for (const m of p.markers) {

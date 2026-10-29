@@ -79,7 +79,7 @@ export async function spotOf(it: SceneItem, p: Project): Promise<SwapSpot> {
 /** What a swap leaves of the old object: everything that isn't about its model or where it stands. */
 const MODEL_KEYS = ['name', 'path', 'source_path', 'original_import_path', 'position', 'rotation', 'scale', 'pivot', 'textures', 'alpha',
   'surface_ids', 'triangles', 'shape', 'prefab', 'game_object', 'game_look', 'asset_ref', 'double_sided', 'collision_excluded_faces',
-  'swimmable_water', 'water_materials', 'native_prefab', 'glass_style', 'glass_custom_texture', 'native_mesh_obj', 'native_breakable_kind',
+  'swimmable_water', 'water_materials', 'collision_materials', 'dummy', 'native_prefab', 'glass_style', 'glass_custom_texture', 'native_mesh_obj', 'native_breakable_kind',
   'native_opacity', 'native_use_alpha', 'native_prop_behavior', 'native_original_name', 'native_prop_original_name', 'native_profile',
   'physics_intent', 'physics_preset', 'physics_shape', 'physics_bottom_heavy']
 

@@ -6,12 +6,15 @@
 import { KINDS, type GenParams } from './procedural'
 import { SIGN_STYLES, signTextProblem } from './signFont'
 import type { CompoundPiece, Shape, ShapeKind } from './shapes'
+import { isPose, validFigureScale, type PoseId } from './dummies/figure'
 
 export type FileRecipe =
   | { kind: 'library'; id: string }
   | { kind: 'generated'; params: GenParams }
   | { kind: 'shape'; shape: Shape }
   | { kind: 'compound'; pieces: CompoundPiece[] }
+  /** A decoy dummy's stand-in figure in a pose, with its body boxes (dummies/figure.ts standInObj). */
+  | { kind: 'figure'; pose: PoseId; ws: number }
 
 /** The recipes that make a texture. */
 export type TextureRecipe = Extract<FileRecipe, { kind: 'library' | 'generated' }>
@@ -127,6 +130,7 @@ export function recipeProblem(r: unknown, libraryIds?: ReadonlySet<string>): str
       if (extra(['kind', 'pieces']) || !Array.isArray(x.pieces) || !x.pieces.length || x.pieces.length > MAX_PIECES) return 'is a prefab with too many or no pieces'
       return x.pieces.every((pc: any) => pc && validShape(pc.shape) && vec3(pc.at, -5000, 5000) && num(pc.rot, -3600, 3600) && MAT.test(pc.top) && MAT.test(pc.side))
         ? null : 'has a prefab piece out of range'
+    case 'figure': return !extra(['kind', 'pose', 'ws']) && isPose(x.pose) && validFigureScale(x.ws) ? null : 'is a dummy figure with an unknown pose'
     default: return 'is not a recipe'
   }
 }
@@ -157,5 +161,6 @@ export function cleanRecipe(r: FileRecipe): FileRecipe {
     }
     case 'shape': return { kind: 'shape', shape: shape(r.shape) }
     case 'compound': return { kind: 'compound', pieces: r.pieces.map((pc) => ({ shape: shape(pc.shape), at: [...pc.at] as CompoundPiece['at'], rot: pc.rot, top: pc.top, side: pc.side })) }
+    case 'figure': return { kind: 'figure', pose: r.pose, ws: r.ws }
   }
 }
