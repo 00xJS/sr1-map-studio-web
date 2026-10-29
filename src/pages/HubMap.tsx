@@ -18,7 +18,7 @@ const REASONS: { id: ReportReason; label: string }[] = [
 const plural = (n: number, one: string, many = one + 's') => `${n} ${n === 1 ? one : many}`
 
 /** Click a star to rate; click your current rating again to take it back. */
-function RateStars({ value, disabled, onRate }: { value: number; disabled?: boolean; onRate: (n: number) => void }) {
+export function RateStars({ value, disabled, onRate }: { value: number; disabled?: boolean; onRate: (n: number) => void }) {
   const [hover, setHover] = useState(0)
   const shown = hover || value
   return (
@@ -48,20 +48,21 @@ function Gallery({ shots, fallback }: { shots: string[]; fallback?: string }) {
   )
 }
 
-function ReportDialog({ mapId, onClose }: { mapId: string; onClose: () => void }) {
+/** Reports a Showcase map, or with `send` something else (play links use it too). */
+export function ReportDialog({ mapId, onClose, send: sendTo }: { mapId: string; onClose: () => void; send?: (reason: ReportReason, details: string) => Promise<void> }) {
   const b = useBackend()
   const [reason, setReason] = useState<ReportReason>('game-data')
   const [details, setDetails] = useState('')
   const [run, busy] = useBusy()
   const send = () => run(async () => {
-    await b!.report(mapId, reason, details.trim())
+    await (sendTo ? sendTo(reason, details.trim()) : b!.report(mapId, reason, details.trim()))
     toast('Thanks. A moderator will review this map.', 'ok')
     onClose()
   })
   return (
     <Modal title="Report this map" onClose={onClose} footer={<>
       <button className="quiet" onClick={onClose}>Cancel</button>
-      <button className="primary" disabled={busy || !b} onClick={send}>Send report</button>
+      <button className="primary" disabled={busy || (!b && !sendTo)} onClick={send}>Send report</button>
     </>}>
       <Field label="Reason">
         <select value={reason} onChange={(e) => setReason(e.target.value as ReportReason)}>

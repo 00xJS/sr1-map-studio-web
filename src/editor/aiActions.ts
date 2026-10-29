@@ -1,6 +1,7 @@
 // Carries out the edits an AI chat reply asks for, as one undo step.
 import { useEditor, currentProject, editJob, isCommand, isCurrent, manualEdits, mirrorCentreNow, onSameMap, startRun, stillCurrent, withoutMirror, JobCancelled, JobTooLong, JOB_TIME_LIMIT, MapChanged, type HistoryEntry, type Run } from './store'
 import type { Project } from '../lib/project'
+import { create } from 'zustand'
 import { getViewer } from './Viewport'
 import * as actions from './actions'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
@@ -87,19 +88,27 @@ async function swatchFor(name: string, tint: { color?: unknown; accent?: unknown
  * it waits for Fix all to end, and Fix all waits for it, as it rewrites the undo list from where it started. Mirror
  * mode's copying is off: the AI places both halves itself when asked (mirror: true).
  */
-export async function runAiActions(actions: AiAction[], label: string, opts: { limit?: number; signal?: AbortSignal } = {}): Promise<AiOutcome> {
+export async function runAiActions(actions: AiAction[], label: string, opts: { limit?: number; signal?: AbortSignal; key?: string } = {}): Promise<AiOutcome> {
   const out: AiResult = { done: 0, skipped: [] }
   let stopped: AiOutcome['stopped']
+  // Listed while it runs (or waits its turn) under `key`, so its Cancel is found wherever it is shown: the chat, a
+  // review card, or the editor's note while the chat is closed.
+  const cancel = new AbortController()
+  opts.signal?.addEventListener('abort', () => cancel.abort(), { once: true })
+  if (opts.signal?.aborted) cancel.abort()
+  const me: AiApplying = { key: opts.key ?? 'other', label, stop: () => cancel.abort() }
+  useAiApplying.setState((s) => ({ running: [...s.running, me] }))
   try {
-    // Stopped by its time or its Cancel (`signal`): what it did by then is one undo step at once, before the next
-    // job begins.
-    await editJob(() => applyAiActions(actions, label, out), { limit: opts.limit ?? JOB_TIME_LIMIT, signal: opts.signal, onStop: () => oneStep(out, label) })
+    // Stopped by its time or its Cancel: what it did by then is one undo step at once, before the next job begins.
+    await editJob(() => applyAiActions(actions, label, out), { limit: opts.limit ?? JOB_TIME_LIMIT, signal: cancel.signal, onStop: () => oneStep(out, label) })
   } catch (err) {
     // Queued on a map since left, past the job's time, or cancelled: what it did so far stays, the rest is left out.
     if (err instanceof MapChanged) { stopped = 'map'; out.skipped.push('another map was opened') }
     else if (err instanceof JobTooLong) { stopped = 'time'; out.skipped.push(`the rest (it took over ${Math.round(err.limit / 60_000)} minutes)`) }
     else if (err instanceof JobCancelled) { stopped = 'cancel'; out.skipped.push('the rest (cancelled)') }
     else throw err
+  } finally {
+    useAiApplying.setState((s) => ({ running: s.running.filter((x) => x !== me) }))
   }
   if (!stopped && out.skipped.includes(MAP_OPENED)) stopped = 'map'
   return { done: out.done, skipped: [...out.skipped], ...(stopped ? { stopped } : {}) }
@@ -108,6 +117,13 @@ export async function runAiActions(actions: AiAction[], label: string, opts: { l
 /** What a reply did; `stopped` when it ended before all of it (its time, its Cancel, another map opened). */
 export interface AiOutcome { done: number; skipped: string[]; stopped?: 'time' | 'cancel' | 'map' }
 const MAP_OPENED = 'another map was opened'
+
+/** An AI reply's edits being made or waiting their turn: who started it (`key`) and how to stop it. */
+export interface AiApplying { key: string; label: string; stop: () => void }
+/** The AI replies being applied now. It outlives the chat, so a reply applying while the chat is closed can be stopped. */
+export const useAiApplying = create<{ running: AiApplying[] }>(() => ({ running: [] }))
+/** Stops the replies started under one of `keys` (none: every one). */
+export const stopAiEdits = (...keys: string[]) => useAiApplying.getState().running.filter((r) => !keys.length || keys.includes(r.key)).forEach((r) => r.stop())
 
 interface AiResult {
   done: number
