@@ -100,17 +100,22 @@ export function turnedAsTwin(it: SceneItem, o: SceneItem): boolean {
 /** Near the middle, where an object is its own twin. */
 export const atCentre = (x: number, z: number, tol = 1) => Math.abs(x) <= tol && Math.abs(z) <= tol
 
-/** Index of the object across the middle from `i` (at -x, -z, turned 180°), or null. `i` itself when it sits on the centre. */
-export function findTwin(p: Project, i: number, tol = 1.5): number | null {
+/** The middle twins pair about (x, z): the origin unless mirror mode has its own (aiActions.ts). */
+export type Middle = [number, number]
+const ORIGIN: Middle = [0, 0]
+
+/** Index of the object across the middle `c` from `i` (at 2c - x, 2c - z, turned 180°), or null. `i` itself when it sits
+ *  on the centre. */
+export function findTwin(p: Project, i: number, tol = 1.5, c: Middle = ORIGIN): number | null {
   const it = p.scene_items[i]
   if (!it) return null
   const [x, y, z] = it.position
-  if (atCentre(x, z, tol)) return i
+  if (atCentre(x - c[0], z - c[1], tol)) return i
   const k = kindOf(it)
   let best: number | null = null, bestD = Infinity
   p.scene_items.forEach((o, j) => {
     if (j === i || kindOf(o) !== k) return
-    const d = Math.hypot(o.position[0] + x, o.position[2] + z)
+    const d = Math.hypot(o.position[0] - (2 * c[0] - x), o.position[2] - (2 * c[1] - z))
     if (d > tol || Math.abs(o.position[1] - y) > tol) return
     if (turnedAsTwin(it, o) && d < bestD) { best = j; bestD = d }
   })
@@ -121,16 +126,16 @@ const TWIN_TYPE: Record<string, string> = { 'Red team spawn': 'Blue team spawn',
 export const twinType = (type: string) => TWIN_TYPE[type] ?? type
 
 /** Index of the marker across the middle from marker `i` (red spawns pair with blue ones), or null. */
-export function findMarkerTwin(p: Project, i: number, tol = 2): number | null {
+export function findMarkerTwin(p: Project, i: number, tol = 2, c: Middle = ORIGIN): number | null {
   const m = p.markers[i]
   if (!m) return null
   const [x, , z] = m.position
-  if (atCentre(x, z, tol) && !TWIN_TYPE[m.type]) return i
+  if (atCentre(x - c[0], z - c[1], tol) && !TWIN_TYPE[m.type]) return i
   const type = twinType(m.type)
   let best: number | null = null, bestD = Infinity
   p.markers.forEach((o, j) => {
     if (j === i || o.type !== type || (m.type === 'Weapon pickup' && o.weapon !== m.weapon)) return
-    const d = Math.hypot(o.position[0] + x, o.position[2] + z)
+    const d = Math.hypot(o.position[0] - (2 * c[0] - x), o.position[2] - (2 * c[1] - z))
     if (d <= tol && d < bestD) { best = j; bestD = d }
   })
   return best
@@ -143,11 +148,12 @@ export function onHalf(keep: 'red' | 'blue', x: number, z: number, tol = 0.5): b
   return Math.abs(x) > tol ? Math.sign(x) === s : true
 }
 
-/** The twin of an object: same thing at (-x, -z), turned 180°, in its own group when it had one. */
-export function twinItem(it: SceneItem, newUid: () => string, groups: Map<string, string>): SceneItem {
+/** The twin of an object: same thing across the middle `mid` (at 2·mid - x, 2·mid - z), turned 180°, in its own group
+ *  when it had one. */
+export function twinItem(it: SceneItem, newUid: () => string, groups: Map<string, string>, mid: Middle = ORIGIN): SceneItem {
   const c = structuredClone(it)
   c.uid = newUid()
-  c.position = [-it.position[0], it.position[1], -it.position[2]]
+  c.position = [2 * mid[0] - it.position[0] + 0, it.position[1], 2 * mid[1] - it.position[2] + 0]
   c.rotation = [it.rotation[0], wrap(it.rotation[1] + 180), it.rotation[2]]
   if (it.group) {
     if (!groups.has(it.group)) groups.set(it.group, newUid())
@@ -156,16 +162,17 @@ export function twinItem(it: SceneItem, newUid: () => string, groups: Map<string
   return c
 }
 
-/** The twin of a marker: same thing at (-x, -z), facing the other way; red and blue spawns swap. */
-export function twinMarker(m: Marker, newUid: () => string): Marker {
-  return { ...structuredClone(m), uid: newUid(), type: twinType(m.type), position: [-m.position[0], m.position[1], -m.position[2]], yaw: wrap((m.yaw ?? 0) + 180) }
+/** The twin of a marker: same thing across the middle `mid`, facing the other way; red and blue spawns swap. */
+export function twinMarker(m: Marker, newUid: () => string, mid: Middle = ORIGIN): Marker {
+  return { ...structuredClone(m), uid: newUid(), type: twinType(m.type), position: [2 * mid[0] - m.position[0] + 0, m.position[1], 2 * mid[1] - m.position[2] + 0], yaw: wrap((m.yaw ?? 0) + 180) }
 }
 
-/** Plan for make_symmetric: what to drop from the other half and what to copy from the kept one. */
-export function symmetricPlan(p: Project, keep: 'red' | 'blue', only?: 'objects' | 'markers') {
-  const items = only === 'markers' ? { drop: [] as number[], copy: [] as number[] } : split(p.scene_items.map((it) => it.position), keep)
-  const markers = only === 'objects' ? { drop: [] as number[], copy: [] as number[] } : split(p.markers.map((m) => m.position), keep, p.markers.map((m) => m.type))
-  const lights = only ? { drop: [] as number[], copy: [] as number[] } : split(p.lights.map((l) => l.position), keep)
+/** Plan for make_symmetric about the middle `mid`: what to drop from the other half and what to copy from the kept one. */
+export function symmetricPlan(p: Project, keep: 'red' | 'blue', only?: 'objects' | 'markers', mid: Middle = ORIGIN) {
+  const rel = (v: Vec3): Vec3 => [v[0] - mid[0], v[1], v[2] - mid[1]]
+  const items = only === 'markers' ? { drop: [] as number[], copy: [] as number[] } : split(p.scene_items.map((it) => rel(it.position)), keep)
+  const markers = only === 'objects' ? { drop: [] as number[], copy: [] as number[] } : split(p.markers.map((m) => rel(m.position)), keep, p.markers.map((m) => m.type))
+  const lights = only ? { drop: [] as number[], copy: [] as number[] } : split(p.lights.map((l) => rel(l.position)), keep)
   return { items, markers, lights }
 }
 

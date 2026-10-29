@@ -3,7 +3,7 @@
 // and blue spawns swapped). The middle is the one the map checks use (analysis/analyze.ts mirrorCentre), so what
 // mirror mode makes is what the fairness check counts as mirrored.
 import { freeze } from 'immer'
-import { referencedPaths, type Light, type Marker, type Project, type SceneItem, type Vec3 } from './project'
+import { SPAWN_TYPES, referencedPaths, type Light, type Marker, type Project, type SceneItem, type Vec3 } from './project'
 import { kindOf, turnedAsTwin, twinType } from './aiEdits'
 import { mirrorCentre } from './analysis/analyze'
 
@@ -121,10 +121,16 @@ export interface MirrorSession {
   pairs: Record<Kind, Map<string, string>>
   /** Twins this session made for things moved off the middle (taken away again if they go back). */
   made: Set<string>
+  /** Twins taken away when the thing they mirror reached the middle, by that thing's uid, with where they were in the
+   *  list: if it leaves the middle in the same drag, its own twin comes back (its uid and paint), not a fresh copy. */
+  parked: Record<Kind, Map<string, { twin: Thing; index: number }>>
 }
 
-/** The middle mirror mode turns about on this map now: the fairness check's (the middle of the spawns). */
+/** The middle mirror mode turns about on this map now: the fairness check's (the middle of the spawns), or the origin
+ *  with fewer than two spawns (one spawn, or a few weapons, says nothing about where the middle is; maps are built round
+ *  the origin, and opened ones are centred on their bounds). */
 export function centreOf(p: Project): Centre {
+  if (p.markers.filter((m) => SPAWN_TYPES.includes(m.type)).length < 2) return [0, 0]
   const [x, z] = mirrorCentre(p.markers)
   const r3 = (v: number) => Math.round(v * 1000) / 1000 + 0
   return [r3(x), r3(z)]
@@ -132,7 +138,7 @@ export function centreOf(p: Project): Centre {
 
 /** A new session about `centre` (by default the map's middle now). */
 export function mirrorSession(p: Project, centre: Centre = centreOf(p)): MirrorSession {
-  return { projectId: p.id, centre, pairs: { scene_items: new Map(), markers: new Map(), lights: new Map() }, made: new Set() }
+  return { projectId: p.id, centre, pairs: { scene_items: new Map(), markers: new Map(), lights: new Map() }, made: new Set(), parked: { scene_items: new Map(), markers: new Map(), lights: new Map() } }
 }
 
 /** Has `a` changed in more than where it is and how it's turned (its size, paint or settings)? */
@@ -143,8 +149,11 @@ function changedMore(a: object, b: object): boolean {
   return false
 }
 
-/** `set`: twin uid → the edited thing it copies, and that thing before the edit. */
-interface ListPlan { set: Map<string, { from: Thing; prev: Thing }>; drop: Set<string>; add: Thing[]; at: Map<string, number> }
+/** `set`: twin uid → the edited thing it copies, and that thing before the edit. `back`: parked twins returning. */
+interface ListPlan {
+  set: Map<string, { from: Thing; prev: Thing }>; drop: Set<string>; add: Thing[]; at: Map<string, number>
+  back: { from: Thing; twin: Thing; index: number }[]
+}
 
 /** What one list needs across the middle, comparing the edit's result with `before` by reference: what the edit left
  *  alone is the same object, so only what it touched is looked at. */
@@ -171,7 +180,8 @@ function plan(kind: Kind, before: Thing[], after: Thing[], s: MirrorSession): Li
     }
     return t
   }
-  const out: ListPlan = { set: new Map(), drop: new Set(), add: [], at: now }
+  const out: ListPlan = { set: new Map(), drop: new Set(), add: [], at: now, back: [] }
+  const parked = s.parked[kind]
   before.forEach((b, i) => {
     const j = now.get(b.uid)
     if (j === undefined) {
@@ -183,12 +193,19 @@ function plan(kind: Kind, before: Thing[], after: Thing[], s: MirrorSession): Li
     if (a === b) return
     const t = twinOf(i)
     if (t === b.uid) {
-      // It was on the middle, its own twin: moved off it, it gets one.
-      if (!(spec.selfAtCentre(a) && atCentre(a, c, spec.tol))) out.add.push(a)
+      // It was on the middle, its own twin: moved off it, it gets its twin back (from earlier in this drag) or a new one.
+      if (!(spec.selfAtCentre(a) && atCentre(a, c, spec.tol))) {
+        const p = parked.get(b.uid)
+        if (p) { out.back.push({ from: a, ...p }); parked.delete(b.uid) } else out.add.push(a)
+      }
     } else if (t && !touched(t)) {
-      // Onto the middle, where a thing is its own twin: its twin would sit on top of it, so the two become one.
-      if (spec.selfAtCentre(a) && atCentre(a, c, spec.tol)) { out.drop.add(t); pairs.set(b.uid, b.uid); pairs.delete(t) }
-      else out.set.set(t, { from: a, prev: b })
+      // Onto the middle, where a thing is its own twin: its twin would sit on top of it, so the two become one (until
+      // it leaves the middle again in the same drag).
+      if (spec.selfAtCentre(a) && atCentre(a, c, spec.tol)) {
+        const k = was.get(t)
+        if (k !== undefined) parked.set(b.uid, { twin: before[k], index: k })
+        out.drop.add(t); pairs.set(b.uid, b.uid); pairs.delete(t)
+      } else out.set.set(t, { from: a, prev: b })
     }
   })
   // New things without a twin among what stays (a twin about to go doesn't count: a rebuild under a new uid replaces
@@ -198,7 +215,7 @@ function plan(kind: Kind, before: Thing[], after: Thing[], s: MirrorSession): Li
     const keptIndex = new TwinIndex(kept, spec, c)
     kept.forEach((a, k) => { if (!was.has(a.uid) && keptIndex.find(k) === null) out.add.push(a) })
   }
-  return out.set.size || out.drop.size || out.add.length ? out : null
+  return out.set.size || out.drop.size || out.add.length || out.back.length ? out : null
 }
 
 /**
@@ -228,6 +245,11 @@ export function mirrorEdit(before: Project, after: Project, newUid: () => string
       list[k] = freeze(spec.copy(from, onto, s.centre, newUid, groups), true)
     }
     if (p.drop.size) list = list.filter((t) => !p.drop.has(t.uid))
+    for (const { from, twin, index } of p.back) {
+      list.splice(Math.min(index, list.length), 0, freeze(spec.moved(from, twin, s.centre), true))
+      pairs.set(from.uid, twin.uid)
+      pairs.set(twin.uid, from.uid)
+    }
     for (const a of p.add) {
       const t = freeze(spec.copy(a, null, s.centre, newUid, groups), true)
       list.push(t)
