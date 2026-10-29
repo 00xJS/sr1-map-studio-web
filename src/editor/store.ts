@@ -5,6 +5,8 @@ import { produce, type Draft } from 'immer'
 import { db } from '../lib/db'
 import { uid, type Project } from '../lib/project'
 import { centreOf, mirrorEdit, mirrorSession, type Centre, type MirrorSession } from '../lib/mirrorEdit'
+import { overDummyCap } from '../lib/dummies/standIn'
+import { toast } from '../ui'
 
 export type Selection = { kind: 'item' | 'marker' | 'light'; index: number } | null
 export type GizmoMode = 'translate' | 'rotate' | 'scale'
@@ -258,6 +260,10 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (!merging || mirroring?.projectId !== cur.id) mirroring = mirrorSession(cur, pinned.centre)
       next = mirrorEdit(cur, next, uid, mirroring)
     }
+    // Every way of adding objects comes through here (placing, copies, paste, prefabs, mirror mode, the AI): none may
+    // take the map past the dummy cap.
+    const over = replaced ? null : overDummyCap(cur.scene_items, next.scene_items)
+    if (over) { toast(over, 'bad', 8000); get().log(over); return }
     // Inside a transaction its edits add no steps of their own: it adds one when it ends.
     const past = merging || txn?.started ? get().past : [...get().past, { project: cur, label }].slice(-LIMIT)
     set({ project: next, ...reanchor(get(), cur, next), past, future: [], saveState: 'unsaved' })

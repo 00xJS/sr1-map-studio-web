@@ -370,6 +370,8 @@ export function showcasePlan(raw: Project, libraryIds: ReadonlySet<string>): Sho
     const owner = `Object "${it.name || 'unnamed'}"`
     for (const k of ITEM_FILE_KEYS) check(it[k], owner)
     for (const t of Object.values(it.textures || {})) check(t, owner)
+    // A decoy dummy goes only as its stand-in figure (the client swaps it in; checked again on the server).
+    if (it.dummy && p.files?.[it.path]?.recipe?.kind !== 'figure') broken.push(`${owner} is a decoy dummy that isn't its stand-in figure.`)
   }
   const s = p.settings
   const kept = settingsFiles(p)

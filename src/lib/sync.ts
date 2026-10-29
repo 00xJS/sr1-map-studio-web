@@ -6,6 +6,7 @@ import { db, sha256, type ProjectRecord } from './db'
 import { checkPublishMeta, checkShots, HEAD_BYTES, projectUploadPlan, showcasePlan, type PublishMeta, type UploadPlan } from './hubRules'
 import { libraryIds, rebuildFromRecipes } from './showcase'
 import { newProject, normalizeProject, uid, type FileRef, type Project, type SceneItem } from './project'
+import { hasBuiltDummy } from './dummies/standIn'
 
 export type Progress = (p: { phase: string; done: number; total: number }) => void
 
@@ -140,12 +141,14 @@ export async function publishShowcase(id: string, meta: PublishMeta & { mapId?: 
   const plan = showcasePlan(rec.project, await libraryIds())
   const problems = [...checkPublishMeta(meta), ...plan.blockers, ...checkShots(await Promise.all(shots.map(async (s) => ({ size: s.size, head: new Uint8Array(await s.slice(0, HEAD_BYTES).arrayBuffer()) }))))]
   if (problems.length) throw new PublishRejected("This map can't go in the Showcase yet.", problems)
-  const total = shots.length + (rec.thumbnail ? 1 : 0)
+  // The saved picture is a render of the editor's view: with a dummy built from the game it shows the real character.
+  const thumbnail = hasBuiltDummy(rec.project.scene_items) ? undefined : rec.thumbnail
+  const total = shots.length + (thumbnail ? 1 : 0)
   let done = 0
   onProgress?.({ phase: 'Uploading screenshots', done, total })
   const hashes: string[] = []
   for (const s of shots) { hashes.push(await uploadImage(b, s)); onProgress?.({ phase: 'Uploading screenshots', done: ++done, total }) }
-  const thumb = rec.thumbnail ? await uploadImage(b, rec.thumbnail) : undefined
+  const thumb = thumbnail ? await uploadImage(b, thumbnail) : undefined
   onProgress?.({ phase: 'Checking and publishing', done: 0, total: 1 })
   const res = await b.publish({ projectId: id, snapshot: plan.snapshot, title: meta.title, description: meta.description, tags: meta.tags, mapId: meta.mapId, thumb, shots: hashes })
   onProgress?.({ phase: 'Published', done: 1, total: 1 })

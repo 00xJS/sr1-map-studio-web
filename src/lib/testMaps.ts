@@ -13,7 +13,7 @@ import { BOR, BOR_CAR_BLUE, BOR_CAR_RED, BOR_CASH, BOR_CHOP, BOR_DOOR, BOR_ENTRA
 import { ITEM_PROP } from './gameObjects/items'
 import type { DummySpec } from './dummies/models'
 import { isDummy } from './dummies/standIn'
-import type { Vpp } from './sr1char/vpp'
+import type { GameSource } from './dummies/packs'
 import { dryInteriors, gameSkyWanted, isGlass, isProp, type FileRef, type Project, type ProjectSettings, type SceneItem, type Vec3 } from './project'
 import { shapeObj } from './shapes'
 import { storeFile } from './files'
@@ -254,7 +254,7 @@ export interface BuildOptions {
   /** The data pack's status (default: this browser's). */
   dataPack?: () => Promise<DataPackStatus | null>
   /** The packfiles the dummies are built from (default: the game folder, without asking again); null: stand-ins. */
-  dummyPacks?: () => Promise<Vpp[] | null>
+  dummySource?: () => Promise<GameSource | null>
 }
 
 /** The test map, and what it had to leave out (for the tester to see before installing). */
@@ -310,13 +310,13 @@ export async function buildTestMap(id: BatchId, opts: BuildOptions = {}): Promis
   if (batch.dummies?.length) {
     opts.onProgress?.('Building the decoy dummies…')
     const [{ dummyItem }, { uid }] = await Promise.all([import('./dummies/place'), import('./project')])
-    const packs = await (opts.dummyPacks ?? (async () => (await import('./dummies/packs')).dummyPacks(false)))().catch(() => null)
+    const source = await (opts.dummySource ?? (async () => (await import('./dummies/packs')).dummySource(false)))().catch(() => null)
     for (const d of batch.dummies) {
-      const r = await dummyItem(d.spec, d.at, d.rot, p.settings.world_scale || 0.5, packs, uid())
+      const r = await dummyItem(d.spec, d.at, d.rot, p.settings.world_scale || 0.5, source, uid())
       Object.assign(p.files, r.files)
       p.scene_items.push(r.item)
     }
-    if (!packs) leftOut.push(NO_DUMMY_GAME)
+    if (!source) leftOut.push(NO_DUMMY_GAME)
   }
 
   for (const m of p.markers) {

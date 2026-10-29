@@ -122,7 +122,7 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
   // Decoy dummies: a lobby's worth at most, and each different look costs texture memory.
   const dummies = p.scene_items.filter(isDummy)
   const first = p.scene_items.findIndex(isDummy)
-  if (dummies.length > MAX_DUMMIES) add({ id: 'dummies', state: 'suggested', text: `${dummies.length} decoy dummies: ${MAX_DUMMIES} at most is about a lobby's worth of extra people for the game to draw. Delete ${dummies.length - MAX_DUMMIES}.`, fix: { kind: 'select', index: first }, action: 'Show' })
+  if (dummies.length > MAX_DUMMIES) add({ id: 'dummies', state: 'needed', text: `${dummies.length} decoy dummies: ${MAX_DUMMIES} at most is about a lobby's worth of extra people for the game to draw. Delete ${dummies.length - MAX_DUMMIES}.`, fix: { kind: 'select', index: first }, action: 'Show' })
   const looks = new Set(dummies.map((it) => lookKey(dummyRefOf(it)!))).size
   if (looks > MANY_LOOKS) add({ id: 'dummy-looks', state: 'suggested', text: `${looks} different dummy looks add about ${looks} MB to the map's textures: give some the same look (copies share their pictures).`, fix: { kind: 'select', index: first }, action: 'Show' })
 

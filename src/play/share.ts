@@ -10,6 +10,7 @@ import { gunzipSync, gzipSync, strFromU8, strToU8 } from 'fflate'
 import { gameSignature, MB } from '../lib/hubRules'
 import { isDataPackPath, normalizeProject, type Project } from '../lib/project'
 import { LIBRARY_ID, cleanRecipe, fromLegacy, textureRecipeProblem, type TextureRecipe } from '../lib/recipes'
+import { isStandInObj } from '../lib/dummies/standIn'
 
 export interface ShareDoc {
   format: 'sr1-map-studio-share'
@@ -118,6 +119,8 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
   const usedModels = new Set<string>(), usedTextures = new Set<string>()
   for (const it of project.scene_items) {
     const { models, textures } = itemPaths(it)
+    // A decoy dummy goes only as its stand-in figure (planShare swaps it in).
+    if (it.dummy && !(typeof d.models[it.path] === 'string' && isStandInObj(d.models[it.path]))) problems.push(`Object "${String(it.name).slice(0, 60)}" is a decoy dummy that isn't its stand-in figure.`)
     for (const m of models) {
       if (isDataPackPath(m)) continue
       if (!Object.hasOwn(d.models, m)) { problems.push(`Object "${String(it.name).slice(0, 60)}" uses a model the share doesn't hold.`); continue }

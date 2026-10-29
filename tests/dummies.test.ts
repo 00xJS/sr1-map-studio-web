@@ -13,7 +13,7 @@ vi.mock('../src/lib/db', async (orig) => ({ ...(await orig<typeof import('../src
 
 const { BODY_MAT, BOX_TRIANGLES, POSE_IDS, STAND_IN_MATS, bodySegments, figureJoints, segmentCorners, standInObj } = await import('../src/lib/dummies/figure')
 const { MAX_DUMMIES, PLAYER, dummyName, fullLook, lookKey, specKey } = await import('../src/lib/dummies/models')
-const { asStandIn, withStandIns } = await import('../src/lib/dummies/standIn')
+const { asStandIn, hasBuiltDummy, overDummyCap, withStandIns } = await import('../src/lib/dummies/standIn')
 const { cleanRecipe, recipeProblem } = await import('../src/lib/recipes')
 const { gameObjectPaths } = await import('../src/lib/gameObjects/policy')
 const { collisionFromProject } = await import('../src/lib/analysis/collision')
@@ -151,6 +151,9 @@ describe('a dummy where the game\'s files can\'t go', () => {
     expect(s.game_look).toBeUndefined()
     expect(s.rotation).toEqual([0, 90, 0])
     expect(s.dummy).toMatchObject({ model: PLAYER, pose: 'standing', built: false })
+    expect(s.triangles).toBe(26 * BOX_TRIANGLES)
+    expect(hasBuiltDummy(p.scene_items)).toBe(true)
+    expect(hasBuiltDummy([s])).toBe(false)
     const w = withStandIns(p)
     expect(Object.values(w.files).some((f) => f.origin === 'game')).toBe(false)
     expect(p.files[GAME_OBJ]).toBeDefined()
@@ -186,6 +189,21 @@ describe('a dummy where the game\'s files can\'t go', () => {
     expect(it.dummy!.stand_in.path).toBe(it.path)
     expect(JSON.stringify(plan.doc)).not.toContain('/work/')
     expect(plan.doc.models[it.path]).toContain('usemtl ' + BODY_MAT)
+    // The server's check takes it, and refuses a dummy drawn as anything else.
+    const { validateShareDoc } = await import('../src/play/share')
+    expect(validateShareDoc(JSON.parse(JSON.stringify(plan.doc))).problems).toEqual([])
+    const forged = JSON.parse(JSON.stringify(plan.doc))
+    forged.models[it.path] = forged.models[it.path].replace(/usemtl dummy_skin/g, 'usemtl body_0')
+    expect(validateShareDoc(forged).problems.join(' ')).toMatch(/isn't its stand-in figure/)
+  })
+
+  it('is refused by the Showcase when it isn’t its stand-in figure', () => {
+    const p = project()
+    p.markers = []
+    const show = showcasePlan(p, new Set())
+    const forged = JSON.parse(JSON.stringify(show.snapshot)) as Project
+    forged.files[forged.scene_items[0].path].recipe = { kind: 'shape', shape: { kind: 'box', size: [1, 1, 1], tile: 1 } }
+    expect(showcasePlan(forged, new Set()).blockers.join(' ')).toMatch(/isn't its stand-in figure/)
   })
 })
 
@@ -201,12 +219,37 @@ describe('collision', () => {
   })
 })
 
+describe('the cap', () => {
+  it('refuses edits that add dummies past it, wherever they come from', () => {
+    const one = project().scene_items[0]
+    const n = (k: number) => Array.from({ length: k }, (_, i) => ({ ...one, uid: 'u' + i }))
+    expect(overDummyCap(n(11), n(12))).toBeNull()
+    expect(overDummyCap(n(12), n(13))).toMatch(/at most 12 dummies/)
+    expect(overDummyCap(n(14), n(13))).toBeNull()
+    expect(overDummyCap(n(14), n(14))).toBeNull()
+    expect(overDummyCap([], [{}, {}])).toBeNull()
+  })
+
+  it('is kept by every edit in the editor (a copy, a paste, mirror mode)', async () => {
+    const { useEditor } = await import('../src/editor/store')
+    const p = project()
+    for (let i = 1; i < MAX_DUMMIES; i++) p.scene_items.push({ ...p.scene_items[0], uid: 'c' + i })
+    useEditor.setState({ project: p, past: [], future: [] })
+    useEditor.getState().update('Duplicate', (d) => { d.scene_items.push({ ...d.scene_items[0], uid: 'thirteen' }) })
+    expect(useEditor.getState().project!.scene_items.length).toBe(MAX_DUMMIES)
+    expect(useEditor.getState().past.length).toBe(0)
+    useEditor.getState().update('Rename', (d) => { d.scene_items[0].name = 'Shop dummy' })
+    expect(useEditor.getState().project!.scene_items[0].name).toBe('Shop dummy')
+  })
+})
+
 describe('the map checklist', () => {
   it('suggests deleting dummies past the cap', () => {
     const p = project()
     expect(mapChecklist(p, true).some((c) => c.id === 'dummies')).toBe(false)
     for (let i = 0; i < MAX_DUMMIES; i++) p.scene_items.push({ ...p.scene_items[0], uid: 'x' + i })
-    expect(mapChecklist(p, true).find((c) => c.id === 'dummies')?.state).toBe('suggested')
+    // Past the cap it blocks the export.
+    expect(mapChecklist(p, true).find((c) => c.id === 'dummies')?.state).toBe('needed')
   })
 })
 
@@ -247,6 +290,13 @@ describe.skipIf(!GAME_TESTS || !haveGame)('dummies baked from a local game insta
     for (const n of PACKFILES) if (existsSync(GAME + '/' + n)) out.push(await openVpp(await openAsBlob(GAME + '/' + n), n))
     return out
   }
+  /** The top of the solid body boxes, metres. */
+  const boxTop = (b: Awaited<ReturnType<typeof bakeDummy>>) => {
+    const m = parseObj(dummyObjText(b, 0.5, 'dummy'))
+    let top = -Infinity
+    for (let f = 0; f < m.faces.length / 3; f++) if (matOf(m, f) === BODY_MAT) for (let k = 0; k < 3; k++) top = Math.max(top, m.positions[3 * m.faces[3 * f + k] + 1] * 0.5)
+    return top
+  }
   const facingOut = (b: Awaited<ReturnType<typeof bakeDummy>>) => {
     let n = 0
     const p = (i: number): V => [b.positions[3 * i], b.positions[3 * i + 1], b.positions[3 * i + 2]]
@@ -272,6 +322,8 @@ describe.skipIf(!GAME_TESTS || !haveGame)('dummies baked from a local game insta
       expect(b.triangles.length / 3).toBeGreaterThan(4000)
       expect(b.materials.length).toBeLessThanOrEqual(16)
       for (const m of b.materials) expect(Math.max(m.picture.width, m.picture.height)).toBeLessThanOrEqual(512)
+      // The body boxes reach the top of the head (the hair).
+      expect(boxTop(b), pose).toBeGreaterThanOrEqual(b.height - 0.03)
       if (pose === 'aim') {
         expect(b.joints.rShoulder[2] - b.joints.rWrist[2]).toBeGreaterThan(0.4)
         expect(Math.abs(b.joints.rWrist[1] - b.joints.rShoulder[1])).toBeLessThan(0.15)
@@ -298,6 +350,7 @@ describe.skipIf(!GAME_TESTS || !haveGame)('dummies baked from a local game insta
       expect(b.triangles.length / 3, model).toBeGreaterThan(1500)
       const m = parseObj(dummyObjText(b, 0.5, model))
       expect(boxes(m, BODY_MAT).faces).toBe(13 * BOX_TRIANGLES)
+      expect(boxTop(b), model).toBeGreaterThanOrEqual(b.height - 0.03)
       expect(m.faces.length / 3).toBe(b.triangles.length / 3 + 13 * BOX_TRIANGLES)
     }
   }, 180_000)
