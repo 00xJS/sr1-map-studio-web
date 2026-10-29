@@ -13,14 +13,15 @@ import {
 
 /**
  * The project with its loading picture left out when that is a view of game data ("Keep this view" over objects
- * from the game, kept as a game file): it goes back to the automatic picture, rendered by whoever exports it.
+ * from the game, kept as a game file): it goes back to the automatic picture, rendered by whoever exports it (a map
+ * set to have none keeps none).
  */
 export function withoutGamePictures(p: Project): Project {
   const pic = p.settings.loading_image
   if (!pic || p.files[pic]?.origin !== 'game') return p
   const files = { ...p.files }
   delete files[pic]
-  return { ...p, files, settings: { ...p.settings, loading_image: '', loading_mode: 'auto' } }
+  return { ...p, files, settings: { ...p.settings, loading_image: '', loading_mode: p.settings.loading_mode === 'none' ? 'none' : 'auto' } }
 }
 
 /**

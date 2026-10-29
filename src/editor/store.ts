@@ -519,8 +519,10 @@ export const useEditor = create<EditorState>((set, get) => ({
 
 let timer: ReturnType<typeof setTimeout> | null = null
 let thumbProvider: (() => Promise<Blob | null>) | null = null
+let drawsGame: (() => boolean) | null = null
 let lastThumbAt = 0
-export const setThumbnailProvider = (fn: (() => Promise<Blob | null>) | null) => { thumbProvider = fn }
+/** `game`: whether the view draws anything from the player's game right now (Viewer.drawsGameData). */
+export const setThumbnailProvider = (fn: (() => Promise<Blob | null>) | null, game: (() => boolean) | null = null) => { thumbProvider = fn; drawsGame = fn ? game : null }
 
 export async function saveNow(withThumb = false) {
   const { project } = useEditor.getState()
@@ -533,7 +535,7 @@ export async function saveNow(withThumb = false) {
     let thumbGame = existing?.thumb_game
     if (thumbProvider && (withThumb || !thumbnail || Date.now() - lastThumbAt > 60000)) {
       // What the view shows is decided as it is drawn: the picture keeps that, whatever the map shows later.
-      thumbGame = showsGameData(project)
+      thumbGame = showsGameData(project) || !!drawsGame?.()
       // A failed picture leaves none rather than an old one (it may show what the map no longer has, like a dummy
       // built from the game that has since become its stand-in).
       thumbnail = (await thumbProvider().catch(() => null)) || undefined

@@ -382,7 +382,10 @@ export function showcasePlan(raw: Project, libraryIds: ReadonlySet<string>): Sho
     blockers.push(`${owner} uses ${list.length === 1 ? 'a file' : `${list.length} files`} you added yourself (${shown}). The Showcase only takes maps made from the site's own textures, shapes and prefabs: repaint it from the paint bucket or texture studio, or remove it.`)
   }
   for (const owner of fromGame.keys()) {
-    blockers.push(`${owner} comes from your Saints Row game files. Objects and pictures from the game can only be used in your own maps: remove it before sending the map to the Showcase.`)
+    // A setting's picture of the view ("Keep this view") is a game file when it shows the game or the data pack.
+    blockers.push(owner.includes('(map settings)')
+      ? `${owner} is kept as a game file: it is a picture of your game files or the data pack, or of a map that shows them. Those can only be used in your own maps: choose another picture before sending the map to the Showcase.`
+      : `${owner} comes from your Saints Row game files. Objects and pictures from the game can only be used in your own maps: remove it before sending the map to the Showcase.`)
   }
   blockers.push(...new Set(broken))
   if (!p.scene_items.length) blockers.push('The map is empty.')

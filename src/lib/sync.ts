@@ -6,7 +6,6 @@ import { db, sha256, type ProjectRecord } from './db'
 import { checkPublishMeta, checkShots, HEAD_BYTES, projectUploadPlan, showcasePlan, type PublishMeta, type UploadPlan } from './hubRules'
 import { libraryIds, rebuildFromRecipes } from './showcase'
 import { newProject, normalizeProject, uid, type FileRef, type Project, type SceneItem } from './project'
-import { hasBuiltDummy } from './dummies/standIn'
 import { showsGameData } from './gameObjects/policy'
 
 export type Progress = (p: { phase: string; done: number; total: number }) => void
@@ -46,10 +45,6 @@ async function uploadMissing(b: Backend, plan: UploadPlan, blobOf: (hash: string
 export const hasUnsyncedChanges = (rec: Pick<ProjectRecord, 'updated_at' | 'cloud'>) => !rec.cloud || rec.updated_at > rec.cloud.synced_at
 
 /**
- * Upload the project's user files, thumbnail and data to the cloud.
- * Throws ConflictError when the cloud copy changed elsewhere (pass force to overwrite).
- */
-/**
  * The thumbnail a cloud save sends: the saved picture is a render of the editor's view, so none goes up if it was
  * drawn while the map showed anything from the player's game, or if the map shows some now. `clear`: take down
  * one sent before (it may show the same).
@@ -59,6 +54,10 @@ export function cloudThumb(rec: Pick<ProjectRecord, 'project' | 'thumbnail' | 't
   return { thumbnail: rec.thumbnail ?? null, clear: false }
 }
 
+/**
+ * Upload the project's user files, thumbnail and data to the cloud.
+ * Throws ConflictError when the cloud copy changed elsewhere (pass force to overwrite).
+ */
 export async function pushProject(id: string, onProgress?: Progress, opts: { force?: boolean } = {}): Promise<{ updated_at: string }> {
   const { b } = await signedIn()
   // Anything saved locally after this moment counts as unsynced.
@@ -115,6 +114,8 @@ export async function pullProject(cloudId: string, onProgress?: Progress): Promi
   await db.putProject({
     id: project.id, name: project.name, updated_at: project.updated_at, project,
     thumbnail: thumbnail ?? existing?.thumbnail,
+    // The picture kept from this device keeps what it showed.
+    ...(!thumbnail && existing?.thumbnail && existing.thumb_game ? { thumb_game: true } : {}),
     cloud: { synced_at: new Date().toISOString(), remote_updated_at: remote.updated_at },
   })
   return { id: project.id, missingGameFiles }
@@ -153,8 +154,8 @@ export async function publishShowcase(id: string, meta: PublishMeta & { mapId?: 
   const plan = showcasePlan(rec.project, await libraryIds())
   const problems = [...checkPublishMeta(meta), ...plan.blockers, ...checkShots(await Promise.all(shots.map(async (s) => ({ size: s.size, head: new Uint8Array(await s.slice(0, HEAD_BYTES).arrayBuffer()) }))))]
   if (problems.length) throw new PublishRejected("This map can't go in the Showcase yet.", problems)
-  // The saved picture is a render of the editor's view: with a dummy built from the game it shows the real character.
-  const thumbnail = hasBuiltDummy(rec.project.scene_items) ? undefined : rec.thumbnail
+  // The saved picture is a render of the editor's view: none goes up that shows (or was drawn showing) game data.
+  const thumbnail = cloudThumb(rec).thumbnail ?? undefined
   const total = shots.length + (thumbnail ? 1 : 0)
   let done = 0
   onProgress?.({ phase: 'Uploading screenshots', done, total })

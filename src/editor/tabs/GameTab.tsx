@@ -274,7 +274,7 @@ export function LoadingSetting() {
       if (!blob) return
       // A view of game objects or built dummies is game data: it stays on this device (never uploaded or shared).
       const p = useEditor.getState().project
-      await act.setProjectFile('loading_image', new File([blob], 'loading_screen.png', { type: 'image/png' }), !!p && showsGameData(p))
+      await act.setProjectFile('loading_image', new File([blob], 'loading_screen.png', { type: 'image/png' }), (!!p && showsGameData(p)) || v.drawsGameData())
       pick('custom')
     } catch (e) { toastError(e) } finally { setBusy(false) }
   }
