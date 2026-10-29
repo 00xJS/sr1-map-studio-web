@@ -8,6 +8,7 @@
 import { db } from '../lib/db'
 import { storeFile } from '../lib/files'
 import { uid, type FileRef, type Project, type SceneItem } from '../lib/project'
+import { standInObj } from '../lib/dummies/figure'
 import { compoundObj, shapeObj } from '../lib/shapes'
 import type { FileRecipe } from '../lib/recipes'
 import { canonicalObj, cleanObj } from './share'
@@ -29,7 +30,7 @@ export async function remixShare(token: string, onProgress?: (text: string) => v
     const b = doc.made?.[k] !== 'import' ? doc.builds?.[k] : undefined
     let obj = text, recipe: FileRecipe | null = null
     if (b && b.kind !== 'prefab' && !buildProblem(b)) {
-      const raw = cleanObj(b.kind === 'shape' ? shapeObj(b.shape) : compoundObj(b.pieces))
+      const raw = cleanObj(b.kind === 'shape' ? shapeObj(b.shape) : b.kind === 'figure' ? standInObj(b.pose, b.ws) : compoundObj(b.pieces))
       const c = raw ? canonicalObj(raw) : null
       if (raw && c && sameObj(c.obj, text)) {
         obj = raw

@@ -789,6 +789,20 @@ describe('round-6 review: board times on a map made to be costly', { timeout: 12
     expect(performance.now() - t2).toBeLessThan(500)
   })
 
+  it('turns away a time that fails a quick check without building the map’s walls', async () => {
+    const a = await call('', { title: 'x', data: data() }, { jwt: 'alice' })
+    // A link whose walls take seconds to build: a million triangles placed.
+    const costly = doc()
+    costly.models['mesh/0'] = 'v 0 0 0\nv 100 0 0\nv 100 100 100\n' + 'f 1 2 3\n'.repeat(250)
+    costly.project.scene_items = Array.from({ length: 4000 }, (_, i) => ({ ...costly.project.scene_items[0], uid: 'w' + i }))
+    db.tables.shares[0].data = toBase64(packShare(costly))
+    const t = performance.now()
+    const r = await call('/time', { token: a.body.token, mode: 'weapons', name: '', ...around() })
+    expect(r.status).toBe(422)
+    expect(r.body.problems.join()).toMatch(/name/)
+    expect(performance.now() - t).toBeLessThan(1500)
+  })
+
   it('takes no times on a link stored before the triangle cap', async () => {
     const a = await call('', { title: 'x', data: data() }, { jwt: 'alice' })
     const big = doc()

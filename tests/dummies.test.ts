@@ -221,6 +221,58 @@ describe('a dummy where the game\'s files can\'t go', () => {
   })
 })
 
+describe('dummies in a share', () => {
+  /** A share of dummies, one per [pose, scale], each its own stand-in figure. */
+  const shareOf = (kinds: [Parameters<typeof standInObj>[0], number][]) => {
+    const p = newProject('Many')
+    const models: Record<string, string> = {}
+    kinds.forEach(([pose, ws], i) => {
+      const path = 'mesh/' + i
+      models[path] = cleanObjOf(standInObj(pose, ws))
+      p.scene_items.push({ uid: 'd' + i, name: 'Dummy', path, position: [i, 0, 0], rotation: [0, 0, 0], scale: 1, textures: {}, alpha: {},
+        dummy: { source: 'dummy', model: PLAYER, pose, look: {}, ws, built: false, stand_in: { path, textures: {} } } } as SceneItem)
+    })
+    return { format: 'sr1-map-studio-share', version: 1, title: 'Many', created_at: '', project: p, models, textures: {} }
+  }
+  let cleanObjOf: (t: string) => string
+
+  it('keeps more dummies of kinds already seen once a share has its 16 kinds, and turns away only a new one', async () => {
+    const { cleanObj, validateShareDoc } = await import('../src/play/share')
+    cleanObjOf = (t) => cleanObj(t)!
+    const kinds: [Parameters<typeof standInObj>[0], number][] = Array.from({ length: 16 }, (_, i) => ['standing', 0.5 + i / 100])
+    const d = shareOf([...kinds, ['standing', 0.9], ...kinds.slice(0, 2)])
+    const kept = validateShareDoc(d).doc!.project.scene_items.map((it) => (it.dummy ? 1 : 0)).join('')
+    expect(kept).toBe('1'.repeat(16) + '0' + '11')
+  })
+
+  it('can go in the gallery: a stand-in figure is rebuilt from its pose and scale', async () => {
+    const { cleanObj, validateShareDoc } = await import('../src/play/share')
+    const { cleanBuilds, galleryProblems } = await import('../src/play/shareBuilds')
+    cleanObjOf = (t) => cleanObj(t)!
+    const d: any = shareOf([['standing', 0.5]])
+    d.made = { 'mesh/0': 'figure' }
+    d.builds = { 'mesh/0': { kind: 'figure', pose: 'standing', ws: 0.5 } }
+    const ok = cleanBuilds(validateShareDoc(d).doc!)
+    expect(ok.problems).toEqual([])
+    expect(galleryProblems(ok.doc)).toEqual([])
+    // A figure's settings that don't make the model, or aren't a figure's, keep it out.
+    d.builds['mesh/0'] = { kind: 'figure', pose: 'aim', ws: 0.5 }
+    expect(galleryProblems(cleanBuilds(validateShareDoc(d).doc!).doc).join()).toMatch(/doesn’t match/)
+    d.builds['mesh/0'] = { kind: 'figure', pose: 'flying', ws: 0.5 }
+    expect(cleanBuilds(validateShareDoc(d).doc!).problems).not.toEqual([])
+  })
+
+  it('is listed from the editor: the planned share says how the stand-in was made', async () => {
+    const p = project()
+    blobs.set('stand', new Blob([standInObj('standing', 0.5)], { type: 'model/obj' }))
+    const plan = await planShare(p, { title: 'Decoys' })
+    const key = plan.doc.project.scene_items[0].path
+    expect(plan.doc.made![key]).toBe('figure')
+    expect(plan.doc.builds![key]).toEqual({ kind: 'figure', pose: 'standing', ws: 0.5 })
+    expect(plan.galleryReady).toBe(true)
+  })
+})
+
 describe('collision', () => {
   it('is only the body boxes', () => {
     const p = project()
