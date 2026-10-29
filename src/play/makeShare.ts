@@ -8,7 +8,8 @@ import { defaultParams } from '../lib/procedural'
 import { baseName, isDataPackPath, uid, type FileRef, type Project, type SceneItem } from '../lib/project'
 import { isTextureRecipe, withoutPhoto, type TextureRecipe } from '../lib/recipes'
 import { recognizeTexture } from '../lib/recognize'
-import { FILE_SETTINGS, cleanObj, itemPaths, type ShareDoc } from './share'
+import { FILE_SETTINGS, cleanObj, galleryReady, itemPaths, type MadeKind, type ModelBuild, type ShareDoc } from './share'
+import { buildMakes } from './shareBuilds'
 import { withStandIns } from '../lib/dummies/standIn'
 
 export type IssueKind = 'texture' | 'game' | 'missing' | 'model'
@@ -31,6 +32,8 @@ export interface SharePlan {
   swapped: number
   /** Objects drawn from the data pack: viewers see them only if they have one. */
   dataPack: number
+  /** Every model was made on the site (shapes and prefabs), so the map may go in the gallery. */
+  galleryReady: boolean
 }
 
 /** What a swapped-out texture becomes: plain concrete, made from scratch. */
@@ -55,6 +58,29 @@ export async function recipeFor(ref: FileRef): Promise<TextureRecipe | null> {
 }
 
 // ---------------- the share ----------------
+
+/** How the site made a model: from its file's recipe, or the prefab that placed it; anything else was imported. */
+export function madeKind(ref: FileRef | undefined, prefab: boolean): MadeKind {
+  if (ref?.recipe?.kind === 'shape') return 'shape'
+  if (ref?.recipe?.kind === 'compound') return 'compound'
+  return prefab ? 'prefab' : 'import'
+}
+
+/**
+ * The settings a model was built from, for the gallery's check (shareBuilds.ts), or null when none of
+ * them makes the model as it is now. A shape's own settings on the object come first: a terrain's
+ * recipe on its file leaves out the heights.
+ */
+export function modelBuild(obj: string, ref: FileRef | undefined, users: SceneItem[]): ModelBuild | null {
+  const tries: ModelBuild[] = []
+  const r = ref?.recipe
+  if (r?.kind === 'shape') {
+    for (const it of users) if (it.shape?.kind === r.shape.kind) tries.push({ kind: 'shape', shape: it.shape })
+    tries.push({ kind: 'shape', shape: r.shape })
+  } else if (r?.kind === 'compound') tries.push({ kind: 'compound', pieces: r.pieces })
+  else for (const it of users) if (it.prefab) tries.push({ kind: 'prefab', key: it.prefab.key, params: it.prefab.params, at: [...it.position], rot: it.rotation[1] })
+  return tries.find((b) => buildMakes(b, obj)) ?? null
+}
 
 /** Item fields that hold file paths and have no use in a play link. */
 const DROP_FIELDS = ['source_path', 'original_import_path', 'asset_ref', 'prefab'] as const
@@ -101,6 +127,18 @@ export async function planShare(source: Project, opts: { title: string; onProgre
     else flag(path, 'texture')
   }
 
+  // How each model was made, noted before the prefab field is stripped below, and the settings that make it
+  // again. A model none of its settings make as it is now counts as imported.
+  const prefabModels = new Set(items.filter((it) => it.prefab).flatMap((it) => itemPaths(it).models))
+  const made = new Map<string, MadeKind>(), builds = new Map<string, ModelBuild>()
+  for (const [i, p] of [...models.keys()].entries()) {
+    if (i % 25 === 0) opts.onProgress?.(`Checking how models were made (${i + 1}/${models.size})…`)
+    const kind = madeKind(project.files[p], prefabModels.has(p))
+    const b = kind === 'import' ? null : modelBuild(models.get(p)!, project.files[p], items.filter((it) => itemPaths(it).models.includes(p)))
+    made.set(p, b ? kind : 'import')
+    if (b) builds.set(p, b)
+  }
+
   // Neutral keys: the share never shows the user's file names or hashes.
   const modelKey = new Map([...models.keys()].map((p, i) => [p, `mesh/${i}`]))
   const texKey = new Map([...recipes.keys()].map((p, i) => [p, `tex/${i}`]))
@@ -138,11 +176,13 @@ export async function planShare(source: Project, opts: { title: string; onProgre
     project: shared,
     models: Object.fromEntries([...modelKey].map(([p, k]) => [k, models.get(p)!])),
     textures: Object.fromEntries([...texKey].map(([p, k]) => [k, recipes.get(p)!])),
+    made: Object.fromEntries([...modelKey].map(([p, k]) => [k, made.get(p)!])),
+    builds: Object.fromEntries([...modelKey].filter(([p]) => builds.has(p)).map(([p, k]) => [k, builds.get(p)!])),
   }
   if (swapped.size) doc.textures[STAND_IN_KEY] = STAND_IN
   // Only what the kept objects still use.
   const live = new Set(outItems.flatMap((it) => { const x = itemPaths(it); return [...x.models, ...x.textures] }))
-  for (const k of Object.keys(doc.models)) if (!live.has(k)) delete doc.models[k]
+  for (const k of Object.keys(doc.models)) if (!live.has(k)) { delete doc.models[k]; delete doc.made![k]; delete doc.builds![k] }
   for (const k of Object.keys(doc.textures)) if (!live.has(k)) delete doc.textures[k]
-  return { doc, issues: [...issues.values()], dropped, swapped: swapped.size, dataPack }
+  return { doc, issues: [...issues.values()], dropped, swapped: swapped.size, dataPack, galleryReady: galleryReady(doc) }
 }

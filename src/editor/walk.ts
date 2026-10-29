@@ -56,7 +56,7 @@ const clampPitch = (p: number) => Math.max(PITCH_MIN, Math.min(PITCH_MAX, p))
 const rayHeights = (h: number) => [STEP + 0.15, Math.min(1.9, h - 0.6), h - 0.3]
 
 /** A plain stand-in player (body, head, arms and legs) as tall as the real one, which can walk and crouch. */
-function mannequin(): WalkBody {
+export function mannequin(): WalkBody {
   const g = new THREE.Group()
   const skin = new THREE.MeshStandardMaterial({ color: 0xc89b7b, roughness: 0.8 })
   const shirt = new THREE.MeshStandardMaterial({ color: 0x6a2a8a, roughness: 0.7 })

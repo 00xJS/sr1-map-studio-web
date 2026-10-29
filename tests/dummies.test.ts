@@ -195,12 +195,46 @@ describe('a dummy where the game\'s files can\'t go', () => {
     expect(it.dummy!.stand_in.path).toBe(it.path)
     expect(JSON.stringify(plan.doc)).not.toContain('/work/')
     expect(plan.doc.models[it.path]).toContain('usemtl ' + BODY_MAT)
-    // The server's check takes it, and refuses a dummy drawn as anything else.
+
+    // As the share function checks and stores it: materials renamed m0, m1…, and the dummy's solid material and
+    // stand-in pictures renamed with them, so only the body boxes still collide.
     const { validateShareDoc } = await import('../src/play/share')
-    expect(validateShareDoc(JSON.parse(JSON.stringify(plan.doc))).problems).toEqual([])
-    const forged = JSON.parse(JSON.stringify(plan.doc))
-    forged.models[it.path] = forged.models[it.path].replace(/usemtl dummy_skin/g, 'usemtl body_0')
-    expect(validateShareDoc(forged).problems.join(' ')).toMatch(/isn't its stand-in figure/)
+    const { problems, doc } = validateShareDoc(plan.doc)
+    expect(problems).toEqual([])
+    const kept = doc!.project.scene_items[0]
+    expect(doc!.models[kept.path]).not.toContain(BODY_MAT)
+    expect(kept.collision_materials).toHaveLength(1)
+    expect(doc!.models[kept.path]).toContain('usemtl ' + kept.collision_materials![0])
+    expect(kept.dummy).toMatchObject({ source: 'dummy', built: false, stand_in: { path: kept.path, textures: kept.textures } })
+    const m = parseObj(doc!.models[kept.path])
+    expect(collisionFromProject(doc!.project, () => m).tris.length / 9).toBe(13 * BOX_TRIANGLES)
+
+    // A dummy whose stand-in is another model isn't a dummy in a share.
+    const odd = structuredClone(plan.doc)
+    odd.project.scene_items[0].dummy!.stand_in.path = 'mesh/elsewhere'
+    expect(validateShareDoc(odd).doc!.project.scene_items[0].dummy).toBeUndefined()
+
+    // Nor is one whose model isn't exactly its figure: other geometry under the stand-in's material names (a body
+    // box named like the figure's), a model with no materials at all, or the figure in another pose.
+    const { cleanObj } = await import('../src/play/share')
+    const forged = (model: string) => {
+      const d = structuredClone(plan.doc)
+      d.models[d.project.scene_items[0].path] = cleanObj(model)!
+      return validateShareDoc(d).doc!.project.scene_items[0]
+    }
+    expect(forged(`v 0 0 0\nv 1 0 0\nv 0 1 0\nv 0 0 1\nusemtl ${BODY_MAT}\nf 1 2 3\nusemtl body_0\nf 1 3 4\n`).dummy).toBeUndefined()
+    expect(forged('v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n').dummy).toBeUndefined()
+    expect(forged(standInObj('aim', 0.5)).dummy).toBeUndefined()
+    // The real figure stays a dummy, its solid material renamed with the rest.
+    expect(forged(standInObj('standing', 0.5)).dummy).toMatchObject({ source: 'dummy', pose: 'standing' })
+    // Materials are renamed before the comparison, so another material name on the figure's own geometry is still
+    // just the figure; moving any of its points is not.
+    const swapped = structuredClone(plan.doc)
+    swapped.models[it.path] = swapped.models[it.path].replace(/usemtl dummy_skin/g, 'usemtl body_0')
+    expect(validateShareDoc(swapped).doc!.project.scene_items[0].dummy).toMatchObject({ source: 'dummy', pose: 'standing' })
+    const moved = structuredClone(plan.doc)
+    moved.models[it.path] = moved.models[it.path].replace(/^v (\S+)/m, (_: string, x: string) => `v ${+x + 0.5}`).replace(/usemtl dummy_skin/g, 'usemtl body_0')
+    expect(validateShareDoc(moved).doc!.project.scene_items[0].dummy).toBeUndefined()
   })
 
   it('is refused by the Showcase when it isn’t its stand-in figure', () => {

@@ -1,7 +1,7 @@
 // How a decoy dummy goes where the game's files can't (share links, the Showcase, the hub): its stand-in figure.
 // Pure module (the share and publish functions use it).
 import type { Project, SceneItem } from '../project'
-import { BODY_MAT, BOX_TRIANGLES, FLESH_SURFACE, STAND_IN_MATS, isPose } from './figure'
+import { BODY_MAT, BOX_TRIANGLES, FLESH_SURFACE, isPose } from './figure'
 import { MAX_DUMMIES, validModel, type DummySpec } from './models'
 
 export interface DummyRef extends DummySpec {
@@ -27,10 +27,6 @@ export function overDummyCap(before: { dummy?: unknown }[], after: { dummy?: unk
   if (n <= MAX_DUMMIES || n <= countDummies(before)) return null
   return `A map can have at most ${MAX_DUMMIES} dummies (about one lobby's worth of extra people to draw): this would make ${n}.`
 }
-
-const STAND_IN_MATERIALS = new Set<string>([...Object.values(STAND_IN_MATS), BODY_MAT])
-/** Whether OBJ text uses only the stand-in figure's materials (what a dummy may be in a share link). */
-export const isStandInObj = (text: string) => [...text.matchAll(/^usemtl\s+(\S+)/gm)].every((m) => STAND_IN_MATERIALS.has(m[1]))
 
 /** Whether any dummy is drawn from the player's game: a picture of the editor's view would show the real character. */
 export const hasBuiltDummy = (items: { dummy?: unknown }[]) => items.some((it) => !!dummyRefOf(it)?.built)

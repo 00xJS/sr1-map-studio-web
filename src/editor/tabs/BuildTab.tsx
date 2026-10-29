@@ -91,7 +91,7 @@ function MirrorMode() {
   const project = useDeferredValue(useEditor((s) => s.project)!)
   const sym = useMemo(() => (on ? symmetryOf(project, mirrorCentreNow() ?? undefined) : null), [on, project])
   // As the fairness score counts them (analyze.ts).
-  const cost = useMemo(() => (on ? unmirroredCost(project.markers) : null), [on, project])
+  const cost = useMemo(() => (on ? unmirroredCost(project.markers, mirrorCentreNow() ?? undefined) : null), [on, project])
   return (
     <div className="section">
       <span className="section-title">Mirror mode</span>
@@ -99,7 +99,7 @@ function MirrorMode() {
         <button className={'sm' + (on ? ' on' : '')} aria-pressed={on} onClick={() => useEditor.getState().set({ mirror: !on })}
           title="Shift+M">{on ? '⇄ Mirror mode is on' : '⇄ Mirror mode'}</button>
       </div>
-      <span className="faint small">What you change on one half happens on the other too: moves, turns, size, paint and settings, new objects, markers and lights, and deletes. Turned 180° about the middle of the spawns as they are when you turn it on, red and blue spawns swapped. One Undo takes back both. Something moved onto the middle and its twin become one. Not copied: the AI's edits, the Check tab's fixes, and spawns, weapons and stair ramps placed automatically.</span>
+      <span className="faint small">What you change on one half happens on the other too: moves, turns, size, paint and settings, new objects, markers and lights, and deletes. Turned 180° about the middle of the spawns as they are when you turn it on (the map's centre while there are fewer than two), red and blue spawns swapped. One Undo takes back both. Something moved onto the middle and its twin become one. Not copied: the AI's edits, the Check tab's fixes, and spawns, weapons and stair ramps placed automatically.</span>
       {sym && cost && <span className="small" data-testid="mirror-numbers">
         Twins: {sym.objects} of {sym.totalObjects} objects, {sym.markers} of {sym.totalMarkers} markers{sym.totalLights ? `, ${sym.lights} of ${sym.totalLights} lights` : ''}.{' '}
         {!cost.count ? 'Every spawn, weapon and drop-off has its twin.'

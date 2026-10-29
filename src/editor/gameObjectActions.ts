@@ -1,6 +1,6 @@
 // Editor commands for the "From my game" library: placing an object (the Shape tool's "game:<id>"), its
 // placement ghost, its thumbnails, and rebuilding placed objects whose files are not in this browser.
-import { useEditor, currentProject, mirrorPaused } from './store'
+import { useEditor, currentProject, mapRun, stillCurrent, command, type Edits, type Run } from './store'
 import { toast } from '../ui'
 import { db } from '../lib/db'
 import { registerThumbSource, resetThumbs } from '../lib/prefabThumbs'
@@ -21,20 +21,20 @@ async function entry(id: string) {
 const ws = () => currentProject()?.settings.world_scale || 0.5
 
 /** Places a library object standing on the clicked surface. */
-export async function placeGameObject(id: string, at: Vec3, groundY: number | null, rot: number) {
-  // Called inside withoutMirror (the AI), its edit isn't mirrored either.
-  const noMirror = mirrorPaused()
+export const placeGameObject = command(async (edits: Edits, id: string, at: Vec3, groundY: number | null, rot: number, run: Run = mapRun()) => {
   const e = await entry(id)
   // On a floor: sunk into it as the city has it (place.ts sinkUnits).
   const { item, files } = await gameObjectItem(e, [at[0], groundY !== null ? groundY - sinkUnits(e, ws()) : at[1], at[2]], rot, ws())
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   const st = useEditor.getState()
-  st.update('Add ' + e.name, (d) => {
+  edits.update('Add ' + e.name, (d) => {
     Object.assign(d.files, files)
     d.scene_items.push(item)
-  }, { noMirror })
+  })
   st.select({ kind: 'item', index: currentProject()!.scene_items.length - 1 })
   st.log(`Added ${e.name} from your game files (${e.size.join(' × ')} m). It is yours to use in your own maps; it can't be shared or published.`)
-}
+})
 
 /** The placement ghost: the object itself, small textures. */
 export async function gameGhost(id: string) {

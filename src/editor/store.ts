@@ -24,7 +24,7 @@ export interface Swatch {
 export type SaveState = 'saved' | 'saving' | 'unsaved' | 'error'
 export type SideTab = 'build' | 'check' | 'game' | 'ship'
 
-interface HistoryEntry { project: Project; label: string; merge?: string }
+export interface HistoryEntry { project: Project; label: string; merge?: string }
 
 interface EditorState {
   project: Project | null
@@ -78,8 +78,12 @@ interface EditorState {
   redo(): void
   /** Several undo (negative) or redo (positive) steps at once, as one history move. */
   jumpTo(steps: number): void
-  /** Runs `fn` with editing locked (`locked`), and makes every edit it made one undo step called `label` (Fix all). */
-  transaction(label: string, fn: () => Promise<void>): Promise<void>
+  /**
+   * Runs `fn` with editing locked (`locked`), and makes every edit it made one undo step called `label` (Fix all).
+   * It first waits for the edit job running now; with `wait`, for that many ms at most. Says how it ended: 'ran' (fn
+   * ran, maybe stopped partway), 'stopped' (Stop or a map opened before it began) or 'busy' (the wait ran out).
+   */
+  transaction(label: string, fn: () => Promise<void>, opts?: { wait?: number }): Promise<'ran' | 'stopped' | 'busy'>
   /** Ends the running transaction now, keeping what it did so far as its undo step (the cover's Stop). */
   stopTransaction(): void
   /** What a running transaction is doing: undo, redo and the editor's keys are off, and the editor is covered. */
@@ -108,14 +112,41 @@ interface Txn {
 let txn: Txn | null = null
 /** Maps opened (or closed) so far, the same one again included. */
 let opens = 0
-/** Async work that edits the map: the map it started on, and the transaction it started in (Fix all's fixes). */
-export interface Run { opens: number; txn: Txn | null }
+/** An edit job running (see editJob); stopped when it ran out of time. */
+interface Job { stopped: boolean }
+/** The edit job running now, if any (one at a time). */
+let job: Job | null = null
+/**
+ * Async work that edits the map: the map it started on, and the transaction (Fix all's fixes) or edit job it is
+ * part of. Only that work calls startRun (fixes, the sky, AI edits), so the job running then is its own.
+ */
+export interface Run { opens: number; txn: Txn | null; job: Job | null }
 /** Where async work starts: check `stillCurrent(run)` after each await before editing. */
-export const startRun = (): Run => ({ opens, txn })
-/** False once a map was opened (the same one again too) since `run`, or the transaction it ran in was stopped. */
-export const isCurrent = (run: Run) => run.opens === opens && !run.txn?.stopped
+export const startRun = (): Run => ({ opens, txn: txn?.started ? txn : null, job })
+/** The map alone: for an edit anyone may start (placing a prefab), which must not land on a map opened meanwhile. */
+export const mapRun = (): Run => ({ opens, txn: null, job: null })
+/** Whether the map `run` started on is still the open one (its job or transaction may have stopped). */
+export const onSameMap = (run: Run) => run.opens === opens
+/** False once a map was opened (the same one again too) since `run`, or its transaction or job was stopped. */
+export const isCurrent = (run: Run) => run.opens === opens && !run.txn?.stopped && !run.job?.stopped
 /** Throws unless `isCurrent(run)`. */
-export function stillCurrent(run: Run) { if (!isCurrent(run)) throw new Error('the map changed meanwhile') }
+export function stillCurrent(run: Run) { if (!isCurrent(run)) throw new MapChanged() }
+/** What `stillCurrent` throws: the work was for a map no longer open, or a stopped Fix all, so nothing is wrong (quiet). */
+export class MapChanged extends Error {
+  readonly quiet = true
+  constructor() { super('the map changed meanwhile') }
+}
+/** How long an edit job may run before the ones after it go ahead without it. */
+export const JOB_TIME_LIMIT = 120_000
+/** What an edit job that ran out of time rejects with; what it does after that changes nothing. */
+export class JobTooLong extends Error {
+  constructor(readonly limit: number) { super(`Stopped after ${Math.round(limit / 60_000)} minutes: it was taking too long.`) }
+}
+/** What a cancelled edit job rejects with (its own Cancel was pressed): nothing to report. */
+export class JobCancelled extends Error {
+  readonly quiet = true
+  constructor() { super('cancelled') }
+}
 /** Resolves once no transaction holds the editor. */
 export function whenUnlocked(): Promise<void> {
   if (!useEditor.getState().locked) return Promise.resolve()
@@ -124,21 +155,65 @@ export function whenUnlocked(): Promise<void> {
   })
 }
 
-/** Edit jobs running now (AI edits, the stair ramps a game-pieces map gets) and who waits for them to end. */
-let jobs = 0
-let jobsDone: (() => void)[] = []
+/** The open map's edit jobs: `last` ends when the last one queued ends, `running` when the one running now does. */
+interface JobQueue { last: Promise<void>; running: Promise<void> | null }
+const newQueue = (): JobQueue => ({ last: Promise.resolve(), running: null })
+let jobs = newQueue()
 /**
- * Runs `fn`, an edit job that runs alongside the user (AI edits), never at the same time as a transaction: each
- * waits for the other, so neither's edits land in the other's undo step.
+ * Runs `fn`, an edit job that runs alongside the user (AI edits, the stair ramps a game-pieces map gets), in turn:
+ * one job at a time, never at the same time as a transaction. Jobs wait for the one before them and for a
+ * transaction to end; a transaction waits for the job running when it begins (queued ones wait for it). So no job's
+ * edits land in another's undo step, nor in Fix all's. Each map has its own queue.
  */
-export async function editJob<T>(fn: () => Promise<T>): Promise<T> {
-  while (useEditor.getState().locked) await whenUnlocked()
-  jobs++
-  try { return await fn() } finally {
-    if (!--jobs) { const w = jobsDone; jobsDone = []; w.forEach((done) => done()) }
+export async function editJob<T>(fn: () => Promise<T>, opts: EditJobOptions = {}): Promise<T> {
+  const { limit = JOB_TIME_LIMIT, signal, onStop } = opts
+  const q = jobs, before = q.last
+  let end = () => {}
+  const mine = new Promise<void>((r) => { end = r })
+  q.last = mine
+  // Past its time, or cancelled, the queue moves on; a running job's runs are stopped first (and `onStop` runs then),
+  // so a late edit of its changes nothing.
+  let me: Job | null = null, fail: (err: Error) => void = () => {}
+  const stopped = new Promise<never>((_, no) => { fail = no })
+  stopped.catch(() => undefined)
+  const stop = (err: Error) => {
+    if (me) { if (me.stopped) return; me.stopped = true; onStop?.() }
+    fail(err)
+  }
+  const cancel = () => stop(new JobCancelled())
+  signal?.addEventListener('abort', cancel, { once: true })
+  let timer: ReturnType<typeof setTimeout> | undefined
+  try {
+    if (signal?.aborted) throw new JobCancelled()
+    await Promise.race([before, stopped])
+    while (useEditor.getState().locked) await Promise.race([whenUnlocked(), stopped])
+    // Queued on a map that was left meanwhile: its edits were for that map.
+    if (q !== jobs) throw new MapChanged()
+    me = { stopped: false }
+    q.running = mine
+    job = me
+    timer = setTimeout(() => stop(new JobTooLong(limit)), limit)
+    try { return await Promise.race([fn(), stopped]) } finally {
+      if (job === me) job = null
+      if (q.running === mine) q.running = null
+    }
+  } finally {
+    clearTimeout(timer)
+    signal?.removeEventListener('abort', cancel)
+    // Cancelled while still queued: the ones after it still wait for the ones before it.
+    if (me) end()
+    else void before.then(end)
   }
 }
-const whenNoJobs = () => (jobs ? new Promise<void>((done) => jobsDone.push(done)) : Promise.resolve())
+
+export interface EditJobOptions {
+  /** How long it may run (JOB_TIME_LIMIT). */
+  limit?: number
+  /** Cancels it, queued or running. */
+  signal?: AbortSignal
+  /** Runs the moment a running job is stopped (time or cancel), before the next job begins. */
+  onStop?: () => void
+}
 
 /** One step back to where `t` started, unless nothing changed or a map was opened since; then the editor is free. */
 function endTransaction(t: Txn) {
@@ -156,8 +231,10 @@ function leaveMap() {
   if (t) t.stopped = true
   lastMerge = null
   mirroring = null
-  pinned = null
+  unpin()
   opens++
+  // Jobs still running belong to the map left: the next map's don't wait for them.
+  jobs = newQueue()
   return t
 }
 
@@ -168,35 +245,92 @@ let lastMerge: { key: string; at: number } | null = null
 export const breakMerge = () => { lastMerge = null }
 /** Mirror mode's pairs for the edit going on (kept through a merged edit such as a gizmo drag). */
 let mirroring: MirrorSession | null = null
-/** The middle mirror mode turns about, found when it's turned on (at its first edit) and kept until it's turned off
- *  or another map opens: edits it doesn't copy (the AI's, a fix moving spawns) mustn't shift it and break the pairs. */
-let pinned: { projectId: string; centre: Centre } | null = null
+/** The middle mirror mode turns about, found when it's turned on and kept until it's turned off or another map opens:
+ *  edits it doesn't copy (the AI's, a fix moving spawns) mustn't shift it and break the pairs. `at`: the map as it was
+ *  then; undoing past it (it's in the redo list) finds the middle again. */
+type Pin = { projectId: string; centre: Centre; at: Project }
+let pinned: Pin | null = null
+/** Pins undone past (newest last): redone back to its map, that pin comes back. */
+let undonePins: Pin[] = []
 
-/** The middle mirror mode turns about on the open map (the one it pinned, else where it would pin it now). */
+/** `fresh`: the next edit starts an undo step of its own, so the map it pinned on is a step to undo past (merged into
+ *  the edit before, it would never be in the history). Not from inside an edit, whose own merge must hold. */
+function pin(fresh = true): Pin | null {
+  const { project } = useEditor.getState()
+  pinned = project ? { projectId: project.id, centre: centreOf(project), at: project } : null
+  if (fresh) lastMerge = null
+  return pinned
+}
+
+function unpin() { pinned = null; undonePins = [] }
+
+/** The middle on the open map: while mirror mode is on, the one it pinned (the Twins line, the cost line and the
+ *  fairness check all use it then); else where it would pin it now. Only reads: it never pins (it runs during render). */
 export function mirrorCentreNow(): Centre | null {
-  const p = useEditor.getState().project
-  if (!p) return null
-  return pinned?.projectId === p.id ? pinned.centre : centreOf(p)
+  const { project, mirror } = useEditor.getState()
+  if (!project) return null
+  return mirror && pinned?.projectId === project.id ? pinned.centre : centreOf(project)
+}
+
+/**
+ * After undo, redo or a jump in the history: back past where mirror mode pinned its middle, it finds it again on the
+ * map as it is now; forward to (or past) that map again, the pin it had comes back. By the map itself, not by counting
+ * steps: the history drops its oldest steps and the AI folds its steps into one.
+ */
+function repinAfterHistory() {
+  const { mirror, project, past, future } = useEditor.getState()
+  if (!mirror || !pinned) return
+  const reached = (at: Project) => at === project || past.some((h) => h.project === at)
+  while (undonePins.length && reached(undonePins[undonePins.length - 1].at)) pinned = undonePins.pop()!
+  const at = pinned.at
+  if (future.some((h) => h.project === at)) { undonePins.push(pinned); pin() }
 }
 /** How deep in withoutMirror calls the code running right now is. */
 let unmirrored = 0
 
 /**
  * Runs `fn` with mirror mode's copying off for the edits it makes itself: the ones it makes before it returns, and
- * those of the async edit commands it starts (they note mirrorPaused() as they begin and pass it on, see keepQuiet).
- * Only the call itself: the user's own edits meanwhile, while a job awaits, are mirrored as usual. For edits that make
- * both halves themselves (the AI's "and its twin" placements).
+ * those of the async edit commands it starts (made with command(), they carry it past their awaits). Only the call
+ * itself: the user's own edits meanwhile, while a job awaits, are mirrored as usual. For edits that make both halves
+ * themselves (the AI's "and its twin" placements).
  */
 export function withoutMirror<T>(fn: () => T): T {
   unmirrored++
   try { return fn() } finally { unmirrored-- }
 }
 
-/** Was this edit command called inside withoutMirror? Async commands ask as they begin, before their first await. */
-export const mirrorPaused = () => unmirrored > 0
+const COMMAND = Symbol('edit command')
 
-/** Runs `fn` inside withoutMirror when `quiet` (what an async command noted with mirrorPaused() as it began). */
-export const keepQuiet = <T,>(quiet: boolean, fn: () => T): T => (quiet ? withoutMirror(fn) : fn())
+/** What a command() edits through: update with its caller's mirror setting, and another command run the same way. */
+export interface Edits {
+  update: EditorState['update']
+  quietly<T>(fn: () => T): T
+}
+
+/**
+ * An edit command that awaits before it edits (a model to build, a file to store). Started inside withoutMirror (the
+ * AI's edits), its edits aren't mirrored though they land after the await: `e.update` carries that, and `e.quietly`
+ * runs another command the same way. The AI runs only async commands made with this (aiActions.ts checks).
+ */
+export function command<A extends unknown[], R>(fn: (e: Edits, ...a: A) => Promise<R>): (...a: A) => Promise<R> {
+  const started = (...a: A) => {
+    const quiet = unmirrored > 0
+    const e: Edits = {
+      update: (label, recipe, opts) => useEditor.getState().update(label, recipe, quiet ? { ...opts, noMirror: true } : opts),
+      quietly: (f) => (quiet ? withoutMirror(f) : f()),
+    }
+    return fn(e, ...a)
+  }
+  return Object.assign(started, { [COMMAND]: true as const })
+}
+
+/** Was `f` made with command()? */
+export const isCommand = (f: unknown): boolean => typeof f === 'function' && COMMAND in f
+
+/** The user's own edits, undos and redos so far (not an AI reply's or a fix's, which say noMirror or run unmirrored). */
+let manual = 0
+/** Compared before and after an AI reply: unchanged, every step since is the reply's own. */
+export const manualEdits = () => manual
 
 export const useEditor = create<EditorState>((set, get) => ({
   project: null,
@@ -250,6 +384,7 @@ export const useEditor = create<EditorState>((set, get) => ({
       if (r !== undefined) { replaced = true; return r as Project }
     })
     if (next === cur) return
+    if (!unmirrored && !opts?.noMirror) manual++
     const now = performance.now()
     // Consecutive edits with the same merge key (a gizmo drag, typing in a
     // field) become one undo step.
@@ -257,8 +392,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     lastMerge = opts?.merge ? { key: opts.merge, at: now } : null
     if (get().mirror && !txn && !unmirrored && !opts?.noMirror && !replaced) {
       // The pairs found at the start of a drag hold for all of it.
-      if (pinned?.projectId !== cur.id) pinned = { projectId: cur.id, centre: centreOf(cur) }
-      if (!merging || mirroring?.projectId !== cur.id) mirroring = mirrorSession(cur, pinned.centre)
+      const at = pinned?.projectId === cur.id ? pinned : pin(false)!
+      if (!merging || mirroring?.projectId !== cur.id || mirroring.centre !== at.centre) mirroring = mirrorSession(cur, at.centre)
       next = mirrorEdit(cur, next, uid, mirroring)
     }
     // Every way of adding objects comes through here (placing, copies, paste, prefabs, mirror mode, the AI, a recipe
@@ -275,8 +410,10 @@ export const useEditor = create<EditorState>((set, get) => ({
     const prev = past[past.length - 1]
     if (!prev || !project) return
     lastMerge = null
+    manual++
     set({ project: prev.project, ...reanchor(get(), project, prev.project), past: past.slice(0, -1), future: [{ project, label: prev.label }, ...future], saveState: 'unsaved' })
     get().log('Undo: ' + prev.label)
+    repinAfterHistory()
   },
   redo() {
     if (get().locked) return
@@ -284,14 +421,17 @@ export const useEditor = create<EditorState>((set, get) => ({
     const next = future[0]
     if (!next || !project) return
     lastMerge = null
+    manual++
     set({ project: next.project, ...reanchor(get(), project, next.project), future: future.slice(1), past: [...past, { project, label: next.label }], saveState: 'unsaved' })
     get().log('Redo: ' + next.label)
+    repinAfterHistory()
   },
   jumpTo(steps) {
     let { past, project, future } = get()
     if (!project || !steps || get().locked) return
     const from = project
     lastMerge = null
+    manual++
     for (; steps < 0 && past.length; steps++) {
       const prev = past[past.length - 1]
       future = [{ project, label: prev.label }, ...future]
@@ -305,9 +445,10 @@ export const useEditor = create<EditorState>((set, get) => ({
       future = future.slice(1)
     }
     set({ project, ...reanchor(get(), from, project), past, future, saveState: 'unsaved' })
+    repinAfterHistory()
   },
-  async transaction(label, fn) {
-    if (txn) { await fn(); return }
+  async transaction(label, fn, opts) {
+    if (txn) { await fn(); return 'ran' }
     let stop = () => {}
     const stopped = new Promise<void>((r) => { stop = r })
     const mine: Txn = { label, start: null, started: false, stopped: false, opens, stop }
@@ -317,12 +458,20 @@ export const useEditor = create<EditorState>((set, get) => ({
     set({ locked: label })
     // Stop (or opening a map) ends it without waiting for `fn`, which may never finish.
     try {
-      if (jobs) await Promise.race([whenNoJobs(), stopped])
-      if (txn !== mine) return
+      if (jobs.running) {
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const late = opts?.wait === undefined ? null : new Promise<'busy'>((r) => { timer = setTimeout(() => r('busy'), opts.wait) })
+        const job = jobs.running
+        const how = await Promise.race([job.then(() => 'free' as const), stopped.then(() => 'stopped' as const), ...(late ? [late] : [])])
+        clearTimeout(timer)
+        if (how === 'busy' && txn === mine) { mine.stopped = true; return 'busy' }
+      }
+      if (txn !== mine) return 'stopped'
       mine.start = get().project
       mine.started = true
       lastMerge = null
       await Promise.race([fn(), stopped])
+      return 'ran'
     } finally { if (txn === mine) endTransaction(mine) }
   },
   stopTransaction() {
@@ -447,8 +596,8 @@ export function selectedItems(): number[] {
 }
 
 useEditor.subscribe((s, prev) => {
-  // Turned off (or on again): the next time it's on, it finds the middle afresh.
-  if (s.mirror !== prev.mirror) { pinned = null; mirroring = null }
+  // Turned on: it finds the middle on the map as it is now, and keeps it until it's turned off.
+  if (s.mirror !== prev.mirror) { mirroring = null; undonePins = []; if (s.mirror) pin(); else unpin() }
   if (s.allSettings !== prev.allSettings) writeFlag('sr1-advanced', s.allSettings)
   if (s.freeCam !== prev.freeCam) writeFlag('sr1-freecam', s.freeCam)
   if (s.layeredLook !== prev.layeredLook) writeFlag('sr1-layered', s.layeredLook)

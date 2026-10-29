@@ -105,11 +105,15 @@ function markerDetail(m: Marker): string {
   return shown.length ? ' ' + shown.join(' ') : ''
 }
 
-export function describeMap(p: Project, bounds?: (index: number) => [Vec3, Vec3] | null): string {
+/** `middle`: where twins pair when it isn't the origin (mirror mode's middle). */
+export function describeMap(p: Project, bounds?: (index: number) => [Vec3, Vec3] | null, middle?: [number, number]): string {
   const lines: string[] = []
   const s = p.settings
   lines.push(`Map "${s.display_name || 'Untitled'}". Units: 1 unit = ${s.world_scale || 0.5} m in game; y is up; the main ground top is usually y 1.`)
-  lines.push(`Red team's end is -Z, blue's is +Z. Fair maps are point-symmetric: whatever is at (x, z) has a twin at (-x, -z) turned 180°.`)
+  if (middle && (middle[0] || middle[1])) {
+    const [cx, cz] = middle
+    lines.push(`Red team's end is -Z, blue's is +Z. Fair maps are point-symmetric about their middle, here (${cx}, ${cz}): whatever is at (x, z) has a twin at (${2 * cx} - x, ${2 * cz} - z) turned 180°. "mirror": true places twins about this middle.`)
+  } else lines.push(`Red team's end is -Z, blue's is +Z. Fair maps are point-symmetric: whatever is at (x, z) has a twin at (-x, -z) turned 180°.`)
   lines.push(`Game modes on: ${s.modes.join(', ') || 'none'}. Weather: ${s.always_clear_weather ? 'always clear' : 'changes each match (rain, night)'}.`)
   let lo: Vec3 = [Infinity, Infinity, Infinity], hi: Vec3 = [-Infinity, -Infinity, -Infinity]
   const objs = p.scene_items.map((it, i) => {

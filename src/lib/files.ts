@@ -7,13 +7,33 @@ import { recipeOf } from './recipes'
 
 export interface StoredFile { vpath: string; ref: FileRef }
 
+/** How many times each file has been stored in this tab: storeFileIf deletes only what nothing else stored meanwhile. */
+const stores = new Map<string, number>()
+
 export async function storeFile(data: Blob, name: string, origin: FileRef['origin'] = 'user'): Promise<StoredFile> {
   const hash = await sha256(data)
+  stores.set(hash, (stores.get(hash) ?? 0) + 1)
   if (!(await db.hasBlob(hash))) await db.putBlob(hash, data)
   const type = data.type || guessType(name)
   const gameData = await looksLikeGameFile(data, name)
   const recipe = gameData ? undefined : recipeOf(data)
   return { vpath: fileVPath(hash, name), ref: { hash, size: data.size, name, type, origin: gameData ? 'game' : origin, ...(recipe ? { recipe } : {}) } }
+}
+
+/**
+ * storeFile for work that may be called off while it stores: when `keep()` says no afterwards, the file is taken out
+ * again if this call added it and no other store of the same file began meanwhile (files are shared by content: the
+ * same map reopened may be storing the same ramps). Null then.
+ */
+export async function storeFileIf(data: Blob, name: string, keep: () => boolean): Promise<StoredFile | null> {
+  const hash = await sha256(data)
+  const seen = stores.get(hash) ?? 0
+  const had = await db.hasBlob(hash)
+  const out = await storeFile(data, name)
+  if (keep()) return out
+  // Only the first store of it in this tab, and no other since: one that began earlier may still be using it.
+  if (!had && seen === 0 && stores.get(hash) === 1) await db.deleteBlob(hash).catch(() => undefined)
+  return null
 }
 
 export function guessType(name: string): string {

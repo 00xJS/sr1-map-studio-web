@@ -3,24 +3,33 @@
 // viewer and walk-through, with weapon pickups, drop-offs, timed runs, a
 // minimap and touch controls. No game files are needed or read, except your
 // own Saints Row character if you choose to load it from your game folder.
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react'
+// Timed runs keep a ghost of your best run to race; on a play link, best
+// times go on the link's board with their ghosts. "Race the bots" sends
+// bots after the same pickups.
+import { lazy, Suspense, useCallback, useEffect, useReducer, useRef, useState } from 'react'
 import { attachLook } from '../editor/look'
 import { Link, useParams } from 'react-router-dom'
 import { Viewer, type ViewOptions } from '../editor/Viewer'
 import { MyCharacter } from '../editor/Viewport'
 import { STAND_EYE, STAND_HEIGHT, type WalkState } from '../editor/walk'
 import { textureUrl } from '../lib/assets'
+import type { RaceGraph } from '../lib/analysis/analysis.worker'
+import { useUser } from '../lib/backend'
 import type { MinimapRect } from '../lib/minimap'
 import { isDataPackPath, type Project } from '../lib/project'
-import { FileButton } from '../ui'
-import { RUN_LABELS, availableRuns, bestTime, elapsed, formatTime, progress, recordTime, weaponName, type GameEvent, type RunMode } from './game'
+import { FileButton, toastError } from '../ui'
+import { BOT_NAMES, RaceBots, raceGraph } from './bots'
+import { RUN_LABELS, availableRuns, bestTime, elapsed, formatTime, newRun, progress, raceScores, recordTime, targets, weaponName, type GameEvent, type RunMode } from './game'
+import { NAME_MAX, cleanName, loadGhost, saveGhost, type GhostSample } from './ghost'
 import { Minimap } from './Minimap'
 import { openLocal, openShare } from './openShare'
 import { PlaySession, spawnsOf } from './session'
 import { itemPaths, type ShareDoc } from './share'
-import { fetchShare, readShare } from './shareApi'
+import { ShareRejected, fetchShare, getBoard, getGhost, readShare, recordPlay, reportShare, submitTime, type BoardRow } from './shareApi'
 import { TouchControls, touchFirst } from './TouchControls'
 import './play.css'
+
+const ReportDialog = lazy(() => import('../pages/HubMap').then((m) => ({ default: m.ReportDialog })))
 
 const OPTS: ViewOptions = { selection: null, gizmo: 'translate', wireframe: false, collisionView: 'off', soloMaterial: null, faceRange: [0, 0], readOnly: true, showGizmo: false }
 const NO_EVENTS = { onPick() {}, onSurface() {}, onTransform() {}, onErase() {} }
@@ -28,8 +37,13 @@ const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 /** Waits for `p`, but never longer than `ms` (a slow image or a background tab must not hold up the menu). */
 const atMost = <T,>(p: Promise<T>, ms: number): Promise<T | null> => Promise.race([p, sleep(ms).then(() => null)])
 const store = (() => { try { return window.localStorage } catch { return null } })()
+const NAME_KEY = 'sr1-play-name'
+const GHOST_ON_KEY = 'sr1-play-ghost-on'
+/** How many bots race you. */
+const BOTS = 3
+const timed = (m: RunMode): m is 'weapons' | 'dropoffs' => m === 'weapons' || m === 'dropoffs'
 
-interface Source { project: Project; mapKey: string; shared: boolean; back: { to: string; label: string } }
+interface Source { project: Project; mapKey: string; shared: boolean; back: { to: string; label: string }; token?: string }
 
 export default function PlayPage() {
   const { id, token } = useParams()
@@ -37,10 +51,10 @@ export default function PlayPage() {
   const [error, setError] = useState('')
   const [status, setStatus] = useState('Loading the map…')
 
-  const fromDoc = useCallback(async (doc: ShareDoc, key: string) => {
+  const fromDoc = useCallback(async (doc: ShareDoc, key: string, token?: string) => {
     setStatus('Building the map…')
     const project = await openShare(doc, setStatus)
-    setSrc({ project, mapKey: key, shared: true, back: { to: '/', label: 'SR1 Map Studio' } })
+    setSrc({ project, mapKey: key, shared: true, back: { to: '/', label: 'SR1 Map Studio' }, ...(token ? { token } : {}) })
   }, [])
 
   useEffect(() => {
@@ -48,7 +62,7 @@ export default function PlayPage() {
     if (id) {
       openLocal(id).then((p) => p ? setSrc({ project: p, mapKey: 'local:' + id, shared: false, back: { to: `/editor/${id}`, label: 'Back to the editor' } }) : setError('This map isn’t saved in this browser.'), (e) => setError(String(e?.message || e)))
     } else if (token) {
-      fetchShare(token).then((doc) => fromDoc(doc, 's:' + token)).catch((e) => setError(String(e?.message || e)))
+      fetchShare(token).then((doc) => fromDoc(doc, 's:' + token, token)).catch((e) => setError(String(e?.message || e)))
     }
   }, [id, token, fromDoc])
 
@@ -94,22 +108,41 @@ function OpenShareFile({ onDoc }: { onDoc: (d: ShareDoc) => void }) {
 
 type Phase = 'loading' | 'menu' | 'playing' | 'paused'
 interface Feed { id: number; text: string; tone: 'gold' | 'pink' | 'ok' }
+interface Finish {
+  mode: RunMode; time: number; record: boolean; best: number | null
+  /** A race: pickups each racer took, the player first. */
+  scores?: number[]
+  /** The run's ghost (timed runs). */
+  ghost?: GhostSample[]
+  /** Place on the link's board once posted, or why it wasn't. */
+  rank?: number; postError?: string[]; posting?: boolean
+}
 
-function PlayView({ project, mapKey, shared, back }: Source) {
+function PlayView({ project, mapKey, shared, back, token }: Source) {
   const host = useRef<HTMLDivElement>(null)
   const viewer = useRef<Viewer | null>(null)
   const session = useRef<PlaySession | null>(null)
+  const user = useUser()
   const [phase, setPhase] = useState<Phase>('loading')
   const [loadText, setLoadText] = useState('Loading models…')
   const [mini, setMini] = useState<{ image: HTMLImageElement | null; rect: MinimapRect } | null>(null)
   const [walk, setWalk] = useState<WalkState>({ locked: false, third: false, running: false, height: 0, crouched: false, eye: STAND_EYE, head: STAND_HEIGHT })
   const [feed, setFeed] = useState<Feed[]>([])
-  const [finish, setFinish] = useState<{ time: number; record: boolean; best: number | null } | null>(null)
+  const [finish, setFinish] = useState<Finish | null>(null)
+  const [boards, setBoards] = useState<Partial<Record<RunMode, BoardRow[]>>>({})
+  const [reporting, setReporting] = useState(false)
+  const [preparing, setPreparing] = useState('')
+  const [ghostOn, setGhostOn] = useState(() => store?.getItem(GHOST_ON_KEY) !== 'off')
+  const [name, setName] = useState(() => store?.getItem(NAME_KEY) || '')
   const [, redraw] = useReducer((x: number) => x + 1, 0)
   const touch = useRef(touchFirst()).current
   const runs = availableRuns(project.markers)
   const feedId = useRef(0)
+  const graph = useRef<Promise<RaceGraph> | null>(null)
   const spawnCount = spawnsOf(project.markers).length
+  // The finish handler runs from the session's frame loop: it reads these through a ref.
+  const latest = useRef({ name, user, token })
+  latest.current = { name, user, token }
 
   useEffect(() => {
     const v = new Viewer(host.current!, NO_EVENTS)
@@ -154,6 +187,17 @@ function PlayView({ project, mapKey, shared, back }: Source) {
     }
   }, [project])
 
+  // One play counted per opening of a link.
+  useEffect(() => { if (token) void recordPlay(token) }, [token])
+
+  const loadBoards = useCallback(() => {
+    if (!token) return
+    for (const r of availableRuns(project.markers)) {
+      if (timed(r.mode)) getBoard(token, r.mode).then((rows) => setBoards((b) => ({ ...b, [r.mode]: rows })), () => {})
+    }
+  }, [token, project])
+  useEffect(() => { if (phase === 'menu') loadBoards() }, [phase, loadBoards])
+
   // The clock on screen.
   useEffect(() => {
     if (phase !== 'playing') return
@@ -167,17 +211,46 @@ function PlayView({ project, mapKey, shared, back }: Source) {
     setTimeout(() => setFeed((f) => f.filter((x) => x.id !== id)), 2600)
   }
 
+  const post = async (f: Finish, who: string) => {
+    const tok = latest.current.token
+    if (!tok || !f.ghost || !timed(f.mode)) return
+    const clean = cleanName(who)
+    if (!clean) return
+    store?.setItem(NAME_KEY, clean)
+    setFinish((x) => x && { ...x, posting: true, postError: undefined })
+    try {
+      const rank = await submitTime(tok, { mode: f.mode, ms: f.time, name: clean, ghost: f.ghost })
+      setFinish((x) => x && { ...x, posting: false, rank })
+      getBoard(tok, f.mode).then((rows) => setBoards((b) => ({ ...b, [f.mode]: rows })), () => {})
+    } catch (e) {
+      const problems = e instanceof ShareRejected ? [e.message, ...e.problems] : [String((e as Error)?.message || e)]
+      setFinish((x) => x && { ...x, posting: false, postError: problems })
+    }
+  }
+
   const onEvents = (events: GameEvent[]) => {
     const s = session.current
     if (!s) return
     for (const e of events) {
       if (e.type === 'weapon') say(`Picked up ${e.pickup.label}${e.first ? '' : ' (more ammo)'}`, 'gold')
       else if (e.type === 'dropoff') say(e.left ? `Drop-off! ${e.left} to go` : 'Drop-off!', 'pink')
+      else if (e.type === 'bot') say(`${BOT_NAMES[(e.bot - 1) % BOT_NAMES.length]} took ${e.pickup.label}${e.left ? ` · ${e.left} left` : ''}`, 'pink')
       else if (e.type === 'start') say('Go!', 'ok')
       else if (e.type === 'finish') {
-        const best = bestTime(store, mapKey, s.run.mode)
-        const record = recordTime(store, mapKey, s.run.mode, e.time)
-        setFinish({ time: e.time, record, best })
+        const mode = s.run.mode
+        if (mode === 'race') {
+          setFinish({ mode, time: e.time, record: false, best: null, scores: raceScores(s.run, BOTS) })
+        } else {
+          const best = bestTime(store, mapKey, mode)
+          const record = recordTime(store, mapKey, mode, e.time)
+          const ghost = s.recorder.samples.slice()
+          if (record) saveGhost(store, mapKey, mode, ghost)
+          const f: Finish = { mode, time: Math.round(e.time), record, best, ghost }
+          setFinish(f)
+          // A personal best goes on the link's board, under the name used last time (or the account's).
+          const { name: n, user: u, token: tok } = latest.current
+          if (record && tok && (n || u?.name)) void post(f, n || u!.name)
+        }
         document.exitPointerLock?.()
       }
     }
@@ -186,16 +259,55 @@ function PlayView({ project, mapKey, shared, back }: Source) {
 
   const lock = () => { if (!touch) void viewer.current?.renderer.domElement.requestPointerLock?.()?.catch?.(() => {}) }
 
-  const start = (mode: RunMode) => {
+  /** The ghost to race: your own best here, or the board's best when that is faster. */
+  const pickGhost = async (mode: RunMode): Promise<GhostSample[] | null> => {
+    if (!timed(mode)) return null
+    const mine = loadGhost(store, mapKey, mode)
+    const top = token ? (boards[mode] ?? await getBoard(token, mode, 1).catch(() => []))[0] : undefined
+    const mineMs = mine ? mine[mine.length - 1][0] : Infinity
+    if (top && top.ms < mineMs) return (await getGhost(token!, top.id).catch(() => null)) ?? mine
+    return mine
+  }
+
+  const start = async (mode: RunMode) => {
     const v = viewer.current
     if (!v) return
     setFinish(null)
+    let race: { g: RaceGraph; ids: string[] } | null = null
+    if (mode === 'race') {
+      setPreparing('Working out the bots’ routes…')
+      try {
+        const run = newRun(project.markers, 'race', [0, 0, 0])
+        const goals = targets(run)
+        graph.current ??= raceGraph(project, goals.map((p) => p.at), spawnsOf(project.markers).map((m) => m.position))
+        race = { g: await graph.current, ids: goals.map((p) => p.id) }
+      } catch (e) {
+        graph.current = null
+        setPreparing('')
+        toastError(e)
+        return
+      }
+      setPreparing('')
+    }
     const spawn = Math.floor(Math.random() * Math.max(1, spawnCount))
-    if (session.current) session.current.restart(mode, spawn)
+    let s = session.current
+    if (s) s.restart(mode, spawn)
     else {
-      const s = new PlaySession(v, project, mode, () => setPhase('paused'), setWalk, spawn)
+      s = new PlaySession(v, project, mode, () => setPhase('paused'), setWalk, spawn)
       s.onEvents = onEvents
       session.current = s
+    }
+    if (race) {
+      const { g, ids } = race
+      // Bots start at the other spawns when there are any, else beside you.
+      const mine = spawnCount ? spawn % spawnCount : -1
+      const others = Array.from(g.starts).filter((_, i) => i !== mine)
+      s.setBots(new RaceBots(g, ids, BOTS, others.some((n) => n >= 0) ? others : Array.from(g.starts)))
+    }
+    s.setGhost(null)
+    if (ghostOn && timed(mode)) {
+      const run = s.run
+      pickGhost(mode).then((g) => { if (session.current === s && s.run === run) s.setGhost(g) }, () => {})
     }
     setPhase('playing')
     redraw()
@@ -203,8 +315,10 @@ function PlayView({ project, mapKey, shared, back }: Source) {
   }
 
   const resume = () => { setPhase('playing'); lock() }
+  const toggleGhost = (on: boolean) => { setGhostOn(on); store?.setItem(GHOST_ON_KEY, on ? 'on' : 'off') }
   const s = session.current
   const playing = phase === 'playing' && s
+  const hasTimed = runs.some((r) => timed(r.mode))
 
   return (
     <div className="play-page">
@@ -227,11 +341,27 @@ function PlayView({ project, mapKey, shared, back }: Source) {
         {finish && s && (
           <div className="play-screen overlay">
             <div className="card play-card">
-              <h2>{s.run.mode === 'weapons' ? 'Every weapon collected!' : 'Every drop-off touched!'}</h2>
-              <div className="play-big-time">{formatTime(finish.time)}</div>
-              <p className={finish.record ? 'ok' : 'muted'}>{finish.record ? (finish.best ? `New best! (was ${formatTime(finish.best)})` : 'Your first time on this map.') : `Your best: ${formatTime(finish.best!)}`}</p>
+              {finish.scores ? <RaceResult scores={finish.scores} /> : <>
+                <h2>{finish.mode === 'weapons' ? 'Every weapon collected!' : 'Every drop-off touched!'}</h2>
+                <div className="play-big-time">{formatTime(finish.time)}</div>
+                <p className={finish.record ? 'ok' : 'muted'}>{finish.record ? (finish.best ? `New best! (was ${formatTime(finish.best)})` : 'Your first time on this map.') : `Your best: ${formatTime(finish.best!)}`}</p>
+              </>}
+              {finish.scores && <div className="play-big-time">{formatTime(finish.time)}</div>}
+              {token && timed(finish.mode) && (
+                <div className="col" style={{ gap: 6 }}>
+                  {finish.record && finish.rank === undefined && (
+                    <div className="row">
+                      <input className="grow" value={name} maxLength={NAME_MAX} placeholder="Your name on the board" aria-label="Your name on the board" onChange={(e) => setName(e.target.value)} />
+                      <button className="primary" disabled={finish.posting || !cleanName(name || user?.name)} onClick={() => post(finish, name || user?.name || '')}>{finish.posting ? 'Posting…' : 'Post my time'}</button>
+                    </div>
+                  )}
+                  {finish.rank !== undefined && <p className="ok small" style={{ margin: 0 }}>On the board at #{finish.rank}.</p>}
+                  {finish.postError && <ul className="share-issues small bad">{finish.postError.map((p, i) => <li key={i}>{p}</li>)}</ul>}
+                  <Board rows={boards[finish.mode]} highlight={finish.rank} />
+                </div>
+              )}
               <div className="row wrap">
-                <button className="primary" onClick={() => start(s.run.mode)}>Run again</button>
+                <button className="primary" onClick={() => start(finish.mode)}>{finish.scores ? 'Race again' : 'Run again'}</button>
                 <button onClick={() => start('roam')}>Free roam</button>
                 <button onClick={() => { setFinish(null); setPhase('paused') }}>Menu</button>
               </div>
@@ -250,40 +380,81 @@ function PlayView({ project, mapKey, shared, back }: Source) {
             {phase === 'paused' && s && <button className="primary" onClick={resume}>Resume{s.run.mode !== 'roam' ? ` (${RUN_LABELS[s.run.mode].toLowerCase()})` : ''}</button>}
             <div className="col">
               {runs.map((r) => {
-                const best = r.mode === 'roam' ? null : bestTime(store, mapKey, r.mode)
+                const best = timed(r.mode) ? bestTime(store, mapKey, r.mode) : null
+                const top = boards[r.mode]?.[0]
+                const note = r.mode === 'roam' ? 'Walk around, pick up weapons'
+                  : r.mode === 'race' ? `${BOTS} bots go for the same ${run(r.count)}`
+                  : [best ? `Best ${formatTime(best)}` : 'Timed', top && `top ${formatTime(top.ms)} by ${top.name}`].filter(Boolean).join(' · ')
                 return (
-                  <button key={r.mode} className={phase === 'menu' && r.mode === 'roam' ? 'primary play-run' : 'play-run'} onClick={() => start(r.mode)}>
+                  <button key={r.mode} className={phase === 'menu' && r.mode === 'roam' ? 'primary play-run' : 'play-run'} disabled={!!preparing} onClick={() => void start(r.mode)}>
                     <span>{r.label}{r.count ? ` (${r.count})` : ''}</span>
-                    <span className="small">{r.mode === 'roam' ? 'Walk around, pick up weapons' : best ? `Best ${formatTime(best)}` : 'Timed'}</span>
+                    <span className="small">{note}</span>
                   </button>
                 )
               })}
             </div>
+            {preparing && <p className="faint small">{preparing}</p>}
+            {hasTimed && <label className="row small"><input type="checkbox" checked={ghostOn} onChange={(e) => toggleGhost(e.target.checked)} /> Race a ghost of the best run{token ? ' (yours or the board’s)' : ''}</label>}
             {runs.length === 1 && <p className="faint small">This map has no weapon pickups or Chains drop-offs, so there are no timed runs. Add some in the editor.</p>}
             {!touch && <MyCharacter viewer={() => viewer.current} />}
             <p className="faint small">{touch
               ? 'Left thumb moves (push all the way to run), drag on the right to look, buttons to sprint, jump and crouch.'
               : 'WASD to run, the mouse to look, Shift to sprint (for 3 s, then it refills), Space to jump, C to crouch, V for third person.'}{' '}
               Plays in your browser: no game needed.</p>
-            <Link to={back.to} className="small">{back.label}</Link>
+            <div className="row between small">
+              <Link to={back.to}>{back.label}</Link>
+              {token && <button className="sm quiet" onClick={() => setReporting(true)}>Report this map</button>}
+            </div>
           </div>
         </div>
       )}
+      {reporting && token && (
+        <Suspense fallback={null}>
+          <ReportDialog mapId={token} onClose={() => setReporting(false)} send={(reason, details) => reportShare(token, reason, details)} />
+        </Suspense>
+      )}
     </div>
+  )
+}
+
+const run = (n: number) => `${n} pickup${n === 1 ? '' : 's'}`
+
+function RaceResult({ scores }: { scores: number[] }) {
+  const top = Math.max(...scores)
+  const winners = scores.flatMap((n, i) => (n === top ? [i] : []))
+  const label = (i: number) => (i === 0 ? 'You' : BOT_NAMES[(i - 1) % BOT_NAMES.length])
+  return <>
+    <h2>{winners.length > 1 ? (winners.includes(0) ? 'A tie at the top!' : 'The bots tied for the win') : winners[0] === 0 ? 'You won the race!' : `${label(winners[0])} won the race`}</h2>
+    <div className="play-scores">
+      {scores.map((n, i) => ({ n, i })).sort((a, b) => b.n - a.n).map(({ n, i }) => <span key={i} className={i === 0 ? 'me' : ''}>{label(i)}: {n}</span>)}
+    </div>
+  </>
+}
+
+function Board({ rows, highlight }: { rows?: BoardRow[]; highlight?: number }) {
+  if (!rows) return <p className="faint small" style={{ margin: 0 }}>Loading the board…</p>
+  if (!rows.length) return <p className="faint small" style={{ margin: 0 }}>No times on this link’s board yet.</p>
+  return (
+    <ol className="play-board small">
+      {rows.map((r, i) => <li key={r.id} className={highlight === i + 1 ? 'me' : ''}><span className="n">{i + 1}</span><span className="who">{r.name}</span><span>{formatTime(r.ms)}</span></li>)}
+    </ol>
   )
 }
 
 function PlayHud({ session: s, mapKey }: { session: PlaySession; mapKey: string }) {
   const run = s.run
   const { done, total } = progress(run)
-  const best = run.mode === 'roam' ? null : bestTime(store, mapKey, run.mode)
+  const best = timed(run.mode) ? bestTime(store, mapKey, run.mode) : null
+  const scores = run.mode === 'race' ? raceScores(run, BOTS) : null
+  const noun = run.mode === 'weapons' || run.race === 'weapon' ? 'weapons' : 'drop-offs'
   return (
     <div className="play-hud">
       <b>{RUN_LABELS[run.mode]}</b>
       {run.mode !== 'roam' && <>
         <div className="play-time">{formatTime(elapsed(run, performance.now()))}</div>
-        <div className="small">{done} / {total} {run.mode === 'weapons' ? 'weapons' : 'drop-offs'}{best ? ` · best ${formatTime(best)}` : ''}{run.started === null ? ' · the clock starts when you move' : ''}</div>
+        <div className="small">{done} / {total} {noun}{best ? ` · best ${formatTime(best)}` : ''}{run.started === null ? ' · the clock starts when you move' : ''}</div>
       </>}
+      {scores && <div className="small">You {scores[0]} · bots {scores.slice(1).join(' / ')}</div>}
       {run.current && <div className="small">In hand: <b>{weaponName(run.current)}</b></div>}
       {run.inventory.length > 1 && <div className="play-inv">{run.inventory.map((w) => <span key={w} className={'chip' + (w === run.current ? ' accent' : '')}>{weaponName(w)}</span>)}</div>}
     </div>
