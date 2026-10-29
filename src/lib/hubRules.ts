@@ -3,6 +3,7 @@
 // for good UX; the server runs them again on the stored bytes.
 import { baseName, isDataPackPath, normalizeProject, referencedPaths, type FileRef, type Project } from './project'
 import { cleanRecipe, recipeProblem, withoutPhoto } from './recipes'
+import { withStandIns } from './dummies/standIn'
 
 // ---------------- Saints Row game data ----------------
 
@@ -208,7 +209,9 @@ export function describeReferences(p: Project): Map<string, string[]> {
 
 const listLabels = (labels: string[]) => labels.length > 3 ? `${labels.slice(0, 3).join('; ')} and ${labels.length - 3} more` : labels.join('; ')
 
-export function projectUploadPlan(p: Project): UploadPlan {
+export function projectUploadPlan(source: Project): UploadPlan {
+  // Decoy dummies go as their stand-in figures (the characters are built from the player's own game).
+  const p = withStandIns(source)
   const upload: PlannedFile[] = []
   const local: PlannedFile[] = []
   for (const [path, ref] of Object.entries(p.files || {})) {
@@ -243,7 +246,7 @@ export function projectUploadPlan(p: Project): UploadPlan {
 
 /** The project as it is stored on the hub: user files only, nothing from the game. */
 export function hubSnapshot(p: Project): Project {
-  const copy: Project = JSON.parse(JSON.stringify(p))
+  const copy: Project = JSON.parse(JSON.stringify(withStandIns(p)))
   const files: Project['files'] = {}
   for (const [path, ref] of Object.entries(copy.files || {})) {
     if (ref?.origin === 'user' && !isDataPackPath(path)) files[path] = { hash: ref.hash, size: ref.size, name: ref.name, type: ref.type, origin: 'user' }
@@ -346,7 +349,7 @@ export interface ShowcasePlan {
 }
 
 export function showcasePlan(raw: Project, libraryIds: ReadonlySet<string>): ShowcasePlan {
-  const p: Project = JSON.parse(JSON.stringify(raw))
+  const p: Project = JSON.parse(JSON.stringify(withStandIns(raw)))
   p.scene_items = p.scene_items.map((it) => withoutPhoto(it, p.files ?? {}))
   const blockers: string[] = []
   const own = new Map<string, Set<string>>()

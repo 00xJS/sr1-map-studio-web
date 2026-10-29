@@ -48,6 +48,9 @@ export function waterAreas(project: Project, model: (path: string) => ObjModel |
   return out
 }
 
+/** Whether a material of the object is drawn only (SceneItem.collision_materials names the solid ones). */
+export const solidMaterial = (it: Pick<SceneItem, 'collision_materials'>, mat: string) => !it.collision_materials || it.collision_materials.includes(exportMatName(mat))
+
 function addItem(it: SceneItem, mdl: ObjModel, tris: number[], flags: number[]) {
   const excluded = new Set(it.collision_excluded_faces ?? [])
   const water = new Set(it.swimmable_water ? it.water_materials ?? [] : [])
@@ -59,7 +62,7 @@ function addItem(it: SceneItem, mdl: ObjModel, tris: number[], flags: number[]) 
   for (let f = 0; f < faces; f++) {
     if (excluded.has(f)) continue
     const mat = exportMatName(mdl.mats[mdl.faceMat[f]])
-    if (water.has(mat)) continue
+    if (water.has(mat) || !solidMaterial(it, mat)) continue
     for (let k = 0; k < 3; k++) {
       const v = mdl.faces[f * 3 + k] * 3
       tris.push(world[v], world[v + 1], world[v + 2])
@@ -70,7 +73,7 @@ function addItem(it: SceneItem, mdl: ObjModel, tris: number[], flags: number[]) 
 
 /** A short key that changes whenever something the checks look at changes (to tell when a report is out of date). */
 export function analysisKey(project: Project): string {
-  const items = project.scene_items.map((it) => [it.path, it.position, it.rotation, it.scale, it.pivot, it.collision_disabled, it.collision_excluded_faces?.length, it.swimmable_water, it.water_materials, it.alpha, it.native_prefab])
+  const items = project.scene_items.map((it) => [it.path, it.position, it.rotation, it.scale, it.pivot, it.collision_disabled, it.collision_excluded_faces?.length, it.collision_materials, it.swimmable_water, it.water_materials, it.alpha, it.native_prefab])
   const markers = project.markers.filter((mk) => KINDS.includes(mk.type)).map((mk) => [mk.type, mk.position, mk.type === 'Weapon pickup' ? mk.weapon : /spawn/i.test(mk.type) ? mk.yaw : ''])
   const text = JSON.stringify([items, markers])
   // FNV-1a, enough to notice a change.

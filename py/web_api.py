@@ -376,6 +376,10 @@ def _export(s, log):
     native.validate_placements(glass_items, ws)
     # Swimmable water: no collision, see-through, water surface suffix.
     water = features.prepare_water(items, _parse, WORK / 'derived', log)
+    # Objects solid only in some materials (a decoy dummy: its body boxes).
+    look_only = features.prepare_solid_materials(items, _parse)
+    if look_only:
+        log(f'Look-only triangles (not solid): {look_only:,}')
     mesh = native.export_scene_mesh(items, _parse)
     if not mesh['faces']:
         raise ValueError('Load ordinary map geometry before exporting glass.')

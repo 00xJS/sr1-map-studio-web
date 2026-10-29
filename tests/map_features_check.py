@@ -139,6 +139,18 @@ def includes():
     check(mf.add_include('#Groups\n', 'amb_mp_arena').startswith('// -------\n#Includes'), 'cts: #Includes block made when missing')
 
 
+def solid_materials():
+    """collision_materials: only the named materials stay solid (a decoy dummy's body boxes)."""
+    model = {'faces': [(0, 1, 2, 'look'), (0, 2, 3, 'look'), (4, 5, 6, 'dummy_body'), (4, 6, 7, None)]}
+    items = [{'path': 'a', 'collision_materials': ['dummy_body']}, {'path': 'a'}, {'path': 'a', 'collision_materials': ['dummy_body'], 'collision_excluded_faces': [2]},
+             {'path': 'a', 'collision_materials': ['dummy_body'], 'collision_disabled': True}]
+    left = mf.prepare_solid_materials(items, lambda p: model)
+    check(items[0]['collision_excluded_faces'] == [0, 1, 3], 'solid materials: the other materials are left out ' + str(items[0].get('collision_excluded_faces')))
+    check('collision_excluded_faces' not in items[1], 'solid materials: objects without the list keep all their collision')
+    check(items[2]['collision_excluded_faces'] == [0, 1, 2, 3], 'solid materials: adds to faces already left out')
+    check('collision_excluded_faces' not in items[3] and left == 6, 'solid materials: an object with no collision is skipped')
+
+
 def brawl_spawns():
     nav = lambda n: f'$Navpoint:\t"{n}"\n$Type:\t\t"ground"\n$Pos:\t\t\t<0 0 0>\n$Orient:\t\t[0]\n+Chunk:\t\t"m"\n\n'
     spawn = lambda n, team=0: (f'$Respawn:\t\t"{n}"\n$Start nav:\t\t"{n}"\n$Box size:\t\t-2 0 -2 2 2 2\n'
@@ -184,6 +196,12 @@ def full_export(pack, tmp):
     pool = obj_box('pool.obj', 12, 3, 8, ['wall', 'wall', 'wall', 'water', 'wall', 'wall'])
     water = obj_box('water.obj', 6, 2, 6, ['w'] * 6)
     crate = obj_box('crate.obj', 2, 2, 2, ['c'] * 6)
+    # A decoy dummy as the editor writes one: a look-only part and its solid body box in one OBJ.
+    look = Path(obj_box('dummy_look.obj', 1, 3, 1, ['dummy_skin'] * 6)).read_text()
+    body = Path(obj_box('dummy_body.obj', 1.2, 3.4, 1.2, ['dummy_body'] * 6)).read_text()
+    nv = sum(1 for l in look.splitlines() if l.startswith('v '))
+    body = '\n'.join(l if not l.startswith('f ') else 'f ' + ' '.join(f'{int(c.split("/")[0]) + nv}/{c.split("/")[1]}' for c in l.split()[1:]) for l in body.splitlines() if not l.startswith('vt '))
+    dummy = work / 'dummy.obj'; dummy.write_text(look + body + '\n')
     shot = tex('shot.png', (200, 80, 40))
     base = dict(rotation=[0, 0, 0], scale=1, alpha={}, physics_intent='Static')
     items = [
@@ -193,6 +211,8 @@ def full_export(pack, tmp):
         dict(base, name='Water', path=water, position=[-20, 0, 0], textures={'w': tex('w.png', (30, 90, 160))}, swimmable_water=True),
         dict(base, name='Turned water', path=water, position=[0, 0, -20], rotation=[0, 45, 0], textures={'w': tex('w.png', (30, 90, 160))}, swimmable_water=True),
     ]
+    items.append(dict(base, name='Dummy', path=str(dummy), position=[-10, 0, 10], textures={'dummy_skin': tex('skin.png', (200, 150, 120)), 'dummy_body': tex('body.png', (0, 0, 0))},
+                      alpha={'dummy_body': True}, collision_materials=['dummy_body']))
     # A breakable-wood crate the way the editor's "convert_breakable" makes it.
     crate_item = dict(base, name='Crate', path=crate, position=[0, 0, 10], textures={'c': tex('c.png', (150, 100, 50))})
     wood = json.loads(web_api.scene_op('convert_breakable', json.dumps({'item': crate_item, 'render_mode': 'wood', 'world_scale': 0.5, 'others': []})))
@@ -220,8 +240,9 @@ def full_export(pack, tmp):
     check(tops == [2.0, 2.5], 'export: water surfaces at the top of each water part ' + str(tops))
     depth = sorted(round(hi[1] - lo[1], 3) for lo, hi in boxes)
     check(depth == [2.0, 2.0], 'export: water at least 2 m deep ' + str(depth))
-    # Ground 12 + pool walls 10 (its 2 water triangles excluded); the water box has none.
-    check(r['value']['summary']['collision_triangles'] == 22, 'export: water has no collision, walls keep theirs')
+    # Ground 12 + pool walls 10 (its 2 water triangles excluded); the water box has none; the dummy's body box 12.
+    check(r['value']['summary']['collision_triangles'] == 34, 'export: water has no collision, walls keep theirs, a dummy only its body box '
+          + str(r['value']['summary']['collision_triangles']))
     recs, db = ch.get('static_records').data, ch.get('rec_blob308').data
     names = [bytes(db[4 + rc.U32(recs, i * 80 + 64):db.index(0, 4 + rc.U32(recs, i * 80 + 64))]) for i in range(rc.U32(ch.header, 868))
              if rc.U32(recs, i * 80 + 32) & 0x20000]
@@ -243,6 +264,7 @@ with tempfile.TemporaryDirectory() as t:
     loading_screen(tmp)
     includes()
     brawl_spawns()
+    solid_materials()
     pack = os.environ.get('SR1_DATA_PACK')
     if pack:
         full_export(Path(pack), tmp)

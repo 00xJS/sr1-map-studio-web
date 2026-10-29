@@ -9,6 +9,7 @@ import { baseName, isDataPackPath, uid, type FileRef, type Project, type SceneIt
 import { isTextureRecipe, withoutPhoto, type TextureRecipe } from '../lib/recipes'
 import { recognizeTexture } from '../lib/recognize'
 import { FILE_SETTINGS, cleanObj, itemPaths, type ShareDoc } from './share'
+import { withStandIns } from '../lib/dummies/standIn'
 
 export type IssueKind = 'texture' | 'game' | 'missing' | 'model'
 
@@ -58,7 +59,9 @@ export async function recipeFor(ref: FileRef): Promise<TextureRecipe | null> {
 /** Item fields that hold file paths and have no use in a play link. */
 const DROP_FIELDS = ['source_path', 'original_import_path', 'asset_ref', 'prefab'] as const
 
-export async function planShare(project: Project, opts: { title: string; onProgress?: (t: string) => void }): Promise<SharePlan> {
+export async function planShare(source: Project, opts: { title: string; onProgress?: (t: string) => void }): Promise<SharePlan> {
+  // Decoy dummies go as their stand-in figures (the characters are built from the player's own game).
+  const project = withStandIns(source)
   const issues = new Map<string, ShareIssue>()
   const users = new Map<string, string[]>()
   const items = project.scene_items.map((it) => withoutPhoto(it, project.files))
@@ -117,6 +120,8 @@ export async function planShare(project: Project, opts: { title: string; onProgr
     if (it.glass_custom_texture) copy.glass_custom_texture = tex(it.glass_custom_texture)
     // Anything else that still points at a stored file goes.
     for (const [k, v] of Object.entries(copy)) if (typeof v === 'string' && v.startsWith('/work/')) delete copy[k]
+    // A dummy's stand-in is what the share draws: its own keys.
+    if (copy.dummy) copy.dummy = { ...copy.dummy, built: false, stand_in: { path: copy.path, textures: { ...copy.textures } } }
     outItems.push(copy)
   }
 

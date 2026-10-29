@@ -144,7 +144,7 @@ export class PhysicsPreview {
       const preset = presetOf(it)
       if (preset) { this.addProp(it, preset, group, mesh); continue }
       if (it.collision_disabled || (it.swimmable_water && !it.water_materials?.length)) continue
-      const { verts, index } = meshData(mesh, mesh.matrixWorld)
+      const { verts, index } = meshData(mesh, mesh.matrixWorld, it.collision_materials)
       if (index.length < 3) continue
       world.createCollider(R.ColliderDesc.trimesh(verts, index).setCollisionGroups(groups(G_STATIC, 0xffff)), ground)
     }
@@ -355,7 +355,8 @@ export class PhysicsPreview {
 }
 
 /** Vertex positions (moved by `m`) and triangle indices of a mesh. */
-function meshData(mesh: THREE.Mesh, m: THREE.Matrix4) {
+/** World vertices and triangles; with `solid`, only the triangles of those materials (SceneItem.collision_materials). */
+function meshData(mesh: THREE.Mesh, m: THREE.Matrix4, solid?: string[]) {
   const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute
   const verts = new Float32Array(pos.count * 3)
   const v = new THREE.Vector3()
@@ -364,6 +365,15 @@ function meshData(mesh: THREE.Mesh, m: THREE.Matrix4) {
     verts[i * 3] = v.x; verts[i * 3 + 1] = v.y; verts[i * 3 + 2] = v.z
   }
   const idx = mesh.geometry.getIndex()
-  const index = idx ? new Uint32Array(idx.array) : Uint32Array.from({ length: pos.count }, (_, i) => i)
+  let index = idx ? new Uint32Array(idx.array) : Uint32Array.from({ length: pos.count }, (_, i) => i)
+  const mats = Array.isArray(mesh.material) ? mesh.material : [mesh.material]
+  if (solid && mesh.geometry.groups.length) {
+    const keep: number[] = []
+    for (const g of mesh.geometry.groups) {
+      if (!solid.includes(mats[g.materialIndex ?? 0]?.userData.mat)) continue
+      for (let i = g.start; i < Math.min(index.length, g.start + g.count); i++) keep.push(index[i])
+    }
+    index = Uint32Array.from(keep)
+  }
   return { verts, index }
 }

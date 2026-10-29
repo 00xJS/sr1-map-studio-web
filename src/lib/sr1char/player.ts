@@ -16,7 +16,7 @@ import { CREATOR_OFFSET, parseRig, skinMatrices, skinPositions, standingPose, ty
 import { clothingMaterial, eyeMaterial, hairMaterial, setEyeColor, setHairColor, setSkinTone, skinMaterial, textureFrom, type HairColor } from './materials'
 
 /** Morph weights of the creator's first preset (Caucasian, "white1") with its body and hair length sliders. */
-const PRESET_WEIGHTS: Record<string, number> = {
+export const PRESET_WEIGHTS: Record<string, number> = {
   'brow height low': 0.25, 'eyelid look squint': 0.27, 'eye depth deep': 0.125, 'eyelid shape western': 0.5, 'eyelid slant up': 0.188,
   'nose height low': 0.063, 'nose width narrow': 0.292, 'nose length long': 0.375, 'bridge curve concave': 0.021, 'nose depth protruded': 0.021,
   'nose tip large': 0.083, 'nose pitch up': 0.208, 'nostril size small': 0.188, 'nostril height high': 0.125, 'mouth height low': 0.021,
@@ -25,16 +25,16 @@ const PRESET_WEIGHTS: Record<string, number> = {
   'chin width wide': 0.416, 'chin height long': 0.146, 'chin length long': 0.18, 'chin shape butt': 0.063, 'cheekbone size small': 0.125,
   'cheekbone height high': 0.042, muscle: 0.25, fat: 0.25, length: 0.5,
 }
-const SKIN = { saturation: 0.4, luminosity: 0.55 }
-const EYES = 'eyes_blue'
-const HAIR_COLOR: HairColor = { rgb: [155, 110, 56], lum: 1, specular: [236, 206, 170], spec_alpha: 1, spec_power: 20, spec_map: 100 } // Light Brown
-const HAIR = [
+export const SKIN = { saturation: 0.4, luminosity: 0.55 }
+export const EYES = 'eyes_blue'
+export const HAIR_COLOR: HairColor = { rgb: [155, 110, 56], lum: 1, specular: [236, 206, 170], spec_alpha: 1, spec_power: 20, spec_map: 100 } // Light Brown
+export const HAIR = [
   { mesh: 'htop_forward', head: true }, // combed forward
   { mesh: 'hsbur_b', head: false }, // sideburns 3
   { mesh: 'heyeb_e', head: false }, // eyebrows 1
 ]
 // The creator outfit; hides = Obscured_VIDs from player_cust.xtbl (body regions, and the boxers and socks under the jeans).
-const OUTFIT = [
+export const OUTFIT = [
   { mesh: 'cunds_tshirt_th', variant: 'tshirt_black', hides: [2, 3, 6, 7, 8, 9, 17] },
   { mesh: 'cbotm_casbagypant_nh', variant: 'jeans_darkblue', hides: [10, 11, 12, 13, 14, 15, 16, 19, 45, 46, 47] },
   { mesh: 'cshoe_sneakers', variant: 'sneakers_white', hides: [] as number[] },
@@ -42,7 +42,7 @@ const OUTFIT = [
 
 const MORPH_NAMES: Record<number, string> = {}
 for (const n of Object.keys(PRESET_WEIGHTS)) MORPH_NAMES[volitionHash(n)] = n
-const morphName = (h: number) => MORPH_NAMES[h] || hex8(h)
+export const morphName = (h: number) => MORPH_NAMES[h] || hex8(h)
 
 /** Editor units per game metre. */
 export const UNITS_PER_METRE = 2
@@ -62,7 +62,7 @@ export interface PlayerModel {
 interface Part { name: string; cmesh: Cmesh; geo: THREE.BufferGeometry; mesh: THREE.Mesh; pos: Float32Array }
 
 /** Triangles per material for the draws the mesh makes (skipping hidden body regions, keeping one colour variant). */
-function trianglesByMat(cmesh: Cmesh, skipVids?: Set<number>, keepMat?: (m: number) => boolean) {
+export function trianglesByMat(cmesh: Cmesh, skipVids?: Set<number>, keepMat?: (m: number) => boolean) {
   const vids = cmesh.vids.filter((v) => !skipVids?.has(v.vid))
   let draws = cmesh.vids.length ? vids.flatMap((v) => v.draws) : cmesh.records[0].subs
   if (keepMat) draws = draws.filter((d) => keepMat(d.mat))
@@ -76,7 +76,7 @@ function trianglesByMat(cmesh: Cmesh, skipVids?: Set<number>, keepMat?: (m: numb
   return byMat
 }
 
-function uvToThree(uv: Float32Array, n: number) {
+export function uvToThree(uv: Float32Array, n: number) {
   const a = new Float32Array(n * 2)
   for (let i = 0; i < n; i++) { a[2 * i] = uv[2 * i]; a[2 * i + 1] = -uv[2 * i + 1] } // game v is negative; image top at v = -1
   return a
@@ -120,7 +120,7 @@ function makePart(name: string, cmesh: Cmesh, morph: Morph | null, materialFor: 
 }
 
 /** Finds entries across the user's packfiles, in the order given. */
-function library(packs: Vpp[]) {
+export function library(packs: Vpp[]) {
   const find = (name: string) => packs.find((p) => p.has(name)) ?? null
   return {
     has: (name: string) => !!find(name),
