@@ -395,6 +395,8 @@ export const useEditor = create<EditorState>((set, get) => ({
     }
     // Inside a transaction its edits add no steps of their own: it adds one when it ends.
     const past = merging || txn?.started ? get().past : [...get().past, { project: cur, label }].slice(-LIMIT)
+    // The redo list goes, and with it any pin undone past: its map can't come back.
+    undonePins = []
     set({ project: next, ...reanchor(get(), cur, next), past, future: [], saveState: 'unsaved' })
   },
   undo() {

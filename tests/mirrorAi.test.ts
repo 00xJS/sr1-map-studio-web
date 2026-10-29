@@ -91,6 +91,18 @@ describe("the AI critique's symmetry facts", () => {
     st().set({ mirror: true })
     expect(ids(aiMiddle())).not.toContain('symmetry')
   })
+
+  it("judge each team's end from the middle, and move a spawn to its own end across it", () => {
+    const p = newProject('Ends')
+    // Paired about (100, 40): red's end is z < 40, blue's z > 40.
+    p.markers = [newMarker('Red team spawn', [100, 0, 20]), newMarker('Blue team spawn', [100, 0, 60]), newMarker('Red team spawn', [106, 0, 52])]
+    const facts = gatherFacts({ project: p, middle: [100, 40] })
+    const ends = facts.issues.filter((i) => i.id.startsWith('spawn-end-'))
+    expect(ends.map((i) => i.id)).toEqual(['spawn-end-2'])
+    expect(ends[0].fix!.actions[0]).toMatchObject({ do: 'move_marker', index: 2, x: 94, z: 28 })
+    // About the origin (mirror mode off), the old rule: every one of them is at +Z, blue's end.
+    expect(gatherFacts({ project: p }).issues.filter((i) => i.id.startsWith('spawn-end-')).map((i) => i.id)).toEqual(['spawn-end-0', 'spawn-end-2'])
+  })
 })
 
 describe('command() bodies', () => {
