@@ -34,7 +34,11 @@ export function toast(text: string, tone: Toast['tone'] = 'info', ms = 4500) {
   useToasts.setState((s) => ({ items: [...s.items, { id, text, tone }] }))
   setTimeout(() => useToasts.setState((s) => ({ items: s.items.filter((t) => t.id !== id) })), ms)
 }
-export const toastError = (err: unknown) => toast(err instanceof Error ? err.message : String(err), 'bad', 8000)
+/** Shows an error, unless it says it is nothing to report (`quiet`: work for a map no longer open). */
+export const toastError = (err: unknown) => {
+  if ((err as { quiet?: boolean } | null)?.quiet) return
+  toast(err instanceof Error ? err.message : String(err), 'bad', 8000)
+}
 
 export function Toasts() {
   const items = useToasts((s) => s.items)

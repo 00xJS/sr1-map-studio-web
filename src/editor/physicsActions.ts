@@ -1,7 +1,7 @@
 // Editor commands for physics props (see lib/physicsProps.ts). Turning an
 // object into a native prop goes through the same Python rules as the
 // "Movable and explosive props", under the inspector's More settings.
-import { useEditor, currentProject, mirrorPaused } from './store'
+import { useEditor, currentProject, keepQuiet, mapRun, mirrorPaused, stillCurrent } from './store'
 import { py } from '../lib/py'
 import { isGlass, isProp, type FileRef, type SceneItem, type Vec3 } from '../lib/project'
 import { OBJECT_BUDGET, PRESET_BY_KEY, type PhysicsShape } from '../lib/physicsProps'
@@ -35,7 +35,7 @@ async function oneMaterialShape(it: SceneItem) {
 }
 
 /** Makes the objects physics props with a behaviour preset (or switches the preset of ones that are). */
-export async function makePhysicsProps(indices: number[], key: string) {
+export async function makePhysicsProps(indices: number[], key: string, run = mapRun()) {
   // Called inside withoutMirror (the AI), its edit isn't mirrored either.
   const noMirror = mirrorPaused()
   const preset = PRESET_BY_KEY[key]
@@ -73,6 +73,7 @@ export async function makePhysicsProps(indices: number[], key: string) {
   }
   const done = indices.filter((i) => converted.has(i) || isProp(p.scene_items[i]))
   if (done.length) {
+    stillCurrent(run)
     update('Physics prop: ' + preset.label, (d) => {
       Object.assign(d.files, files)
       for (const i of done) {
@@ -95,7 +96,7 @@ export function setBottomHeavy(index: number, on: boolean) {
 }
 
 /** Places a physics showcase set (lib/prefabsPhysics.ts): its static parts as one object, each prop as its own physics prop. */
-export async function addPhysicsSet(key: string, at: Vec3, groundY: number | null, rot = 0) {
+export async function addPhysicsSet(key: string, at: Vec3, groundY: number | null, rot = 0, run = mapRun()) {
   // Called inside withoutMirror (the AI), its edit isn't mirrored either.
   const noMirror = mirrorPaused()
   const def = ALL_PREFABS[key]
@@ -122,6 +123,8 @@ export async function addPhysicsSet(key: string, at: Vec3, groundY: number | nul
     items.push({ ...rest, name: part.label, path: stored.vpath, source_path: stored.vpath, textures: { m0: tex }, alpha: { m0: false }, surface_ids: { m0: m.items[0].surface_ids?.top ?? 0 } })
   }
   const start = p.scene_items.length
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   update('Add ' + def.label.toLowerCase(), (d) => {
     Object.assign(d.files, files)
     d.scene_items.push(...items)
@@ -133,7 +136,10 @@ export async function addPhysicsSet(key: string, at: Vec3, groundY: number | nul
     list.push(first + k)
     byPreset.set(part.physics!.preset, list)
   })
-  for (const [preset, list] of byPreset) await makePhysicsProps(list, preset)
+  // The same run and the same mirror rule as the set itself: a stopped AI reply's set gets no props late, and an
+  // AI reply's set isn't copied across the middle.
+  for (const [preset, list] of byPreset) await keepQuiet(noMirror, () => makePhysicsProps(list, preset, run))
+  stillCurrent(run)
   update('Physics shapes', (d) => {
     props.forEach((part, k) => {
       const it = d.scene_items[first + k]

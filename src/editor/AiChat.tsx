@@ -39,8 +39,9 @@ function ReviewCard({ turn }: { turn: Turn }) {
     setBusy(true)
     patch(turn.id, { note: `${label}: applying…` })
     try {
-      const { done, skipped } = await runAiActions(actions, 'AI fix: ' + label)
-      patch(turn.id, { applied: [...(turn.applied ?? []), label], note: `${label}: ${done ? `made ${done} change${done === 1 ? '' : 's'}` : 'nothing changed'}${skipped.length ? `; skipped ${skipped.join('; ')}` : ''}.` })
+      const { done, skipped, stopped } = await runAiActions(actions, 'AI fix: ' + label)
+      // Stopped partway (its time ran out, another map opened), it can be tried again.
+      patch(turn.id, { applied: stopped ? turn.applied : [...(turn.applied ?? []), label], note: `${label}: ${done ? `made ${done} change${done === 1 ? '' : 's'}` : 'nothing changed'}${skipped.length ? `; skipped ${skipped.join('; ')}` : ''}.` })
     } finally { setBusy(false) }
   }
   return (
@@ -75,6 +76,9 @@ export function AiChat({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   /** Waiting on the model (Stop works), as opposed to applying its edits. */
   const [asking, setAsking] = useState(false)
+  /** This chat's reply's edits being made, or waiting their turn: Cancel stops them (and only them). */
+  const [applying, setApplying] = useState(false)
+  const stopEdits = useRef<AbortController | null>(null)
   const abort = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }) }, [turns])
@@ -143,7 +147,9 @@ export function AiChat({ onClose }: { onClose: () => void }) {
       if (actions.length) {
         undoLabel = 'AI: ' + (msg.length > 40 ? msg.slice(0, 40) + '…' : msg)
         patch(id, { pending: false, thinking: undefined, text: reply || 'Working on it.', note: 'Applying…' })
-        const { done, skipped } = await runAiActions(actions, undoLabel)
+        stopEdits.current = new AbortController()
+        setApplying(true)
+        const { done, skipped } = await runAiActions(actions, undoLabel, { signal: stopEdits.current.signal }).finally(() => { setApplying(false); stopEdits.current = null })
         note = [done ? `Made ${done} change${done === 1 ? '' : 's'}.` : 'Nothing changed.', skipped.length ? `Skipped: ${skipped.join('; ')}.` : ''].filter(Boolean).join(' ')
         if (!done) undoLabel = undefined
       }
@@ -202,7 +208,9 @@ export function AiChat({ onClose }: { onClose: () => void }) {
               onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void send(text) } }} aria-label="Message" />
             {asking
               ? <button className="sm" onClick={() => abort.current?.abort()} title="Stop the answer">■ Stop</button>
-              : <button className="primary sm" disabled={busy || !text.trim()} onClick={() => send(text)}>{busy ? 'Working…' : 'Send'}</button>}
+              : applying
+                ? <button className="sm" onClick={() => stopEdits.current?.abort()} title="Stop making the AI's changes: the ones made so far stay">Cancel</button>
+                : <button className="primary sm" disabled={busy || !text.trim()} onClick={() => send(text)}>{busy ? 'Working…' : 'Send'}</button>}
           </div>
         </>
       )}

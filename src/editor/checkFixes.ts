@@ -1,6 +1,6 @@
 // Running the Check tab's fixes (checkIssues.ts): one at a time from its line, or every one at once as a
 // single undo step (Fix all), then the health check again so the list shows what is left.
-import { editJob, isCurrent, startRun, useEditor, withoutMirror } from './store'
+import { JOB_TIME_LIMIT, editJob, isCurrent, startRun, useEditor, withoutMirror } from './store'
 import { addDefaultSky, removeMarkersOfType } from './actions'
 import { fixSpawnsAndWeapons } from './spawnActions'
 import { addStairRamps } from './stairActions'
@@ -57,19 +57,24 @@ export interface FixAllResult { done: string[]; failed: string[] }
 
 /** How long one fix may take before Fix all stops (a file that never loads would otherwise hold the editor). */
 export const FIX_TIME_LIMIT = 120_000
+/** How long Fix all waits for the edit job running: past JOB_TIME_LIMIT, so a job stopped on time lets it begin. */
+export const FIX_WAIT_LIMIT = JOB_TIME_LIMIT + 30_000
 const TOO_LONG = new Error('took too long')
 
 /**
  * Every fix, as one undo step called "Fix all", with the editor locked meanwhile. A fix that fails is reported and
  * the rest still run. Stop on the cover, a fix that takes over FIX_TIME_LIMIT, or opening a map ends it: what was
- * fixed by then stays (one Undo takes it back), and the fixes left are reported as not done.
+ * fixed by then stays (one Undo takes it back), and the fixes left are reported as not done. It begins once the edit
+ * job running then (AI edits) ends, which takes JOB_TIME_LIMIT at most; if it still hasn't after FIX_WAIT_LIMIT, it
+ * fixes nothing.
  */
-export async function fixAll(fixes: AutoFix[], limit = FIX_TIME_LIMIT): Promise<FixAllResult> {
+export async function fixAll(fixes: AutoFix[], limit = FIX_TIME_LIMIT, wait = FIX_WAIT_LIMIT): Promise<FixAllResult> {
   const done: string[] = [], failed: string[] = []
   const st = useEditor.getState()
   const id = st.project?.id
   let next = 0
-  await st.transaction('Fix all', async () => {
+  const minutes = `${Math.round(limit / 60_000)} minutes`
+  const how = await st.transaction('Fix all', async () => {
     // This run ends on Stop, its time limit or a map opened; edit jobs outside it (AI edits) don't.
     const run = startRun()
     for (; next < fixes.length && isCurrent(run); next++) {
@@ -79,7 +84,7 @@ export async function fixAll(fixes: AutoFix[], limit = FIX_TIME_LIMIT): Promise<
       try { done.push(await Promise.race([runAutoFix(f), late])) } catch (err) {
         if (!isCurrent(run)) return
         if (err === TOO_LONG) {
-          failed.push(`${NAMES[f.kind]} (took over ${Math.round(limit / 60_000)} minutes, so Fix all stopped)`)
+          failed.push(`${NAMES[f.kind]} (took over ${minutes}, so Fix all stopped)`)
           next++
           useEditor.getState().stopTransaction()
           return
@@ -87,10 +92,11 @@ export async function fixAll(fixes: AutoFix[], limit = FIX_TIME_LIMIT): Promise<
         failed.push(`${NAMES[f.kind]} (${(err as Error)?.message || String(err)})`)
       } finally { clearTimeout(timer) }
     }
-  })
+  }, { wait })
   // Ended early: the fix running then and the ones after it weren't done.
   if (next < fixes.length) {
-    const why = useEditor.getState().project?.id !== id ? 'another map was opened' : 'stopped'
+    const why = how === 'busy' ? `other changes to the map took over ${Math.floor(wait / 60_000)} minutes, so Fix all didn't start`
+      : useEditor.getState().project?.id !== id ? 'another map was opened' : 'stopped'
     for (; next < fixes.length; next++) failed.push(`${NAMES[fixes[next].kind]} (${why})`)
   }
   if (useEditor.getState().project?.id === id) recheck()

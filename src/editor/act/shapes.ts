@@ -1,5 +1,5 @@
 // Block-out shapes, prefabs and photo frames.
-import { useEditor, currentProject, thingKey, keepQuiet, mirrorPaused } from '../store'
+import { useEditor, currentProject, keepQuiet, mapRun, mirrorPaused, stillCurrent, thingKey } from '../store'
 import { importImage } from '../../lib/importers'
 import { cacheModel } from '../../lib/assets'
 import { uid, type FileRef, type Project, type SceneItem, type Vec3 } from '../../lib/project'
@@ -30,7 +30,7 @@ async function storeShape(shape: Shape) {
 }
 
 /** Adds a block-out shape at the camera target, resting on the surface below if there is one. */
-export async function addShape(presetKey: string, at: Vec3, groundY: number | null, o: { rot?: number; size?: Vec3 } = {}) {
+export async function addShape(presetKey: string, at: Vec3, groundY: number | null, o: { rot?: number; size?: Vec3 } = {}, run = mapRun()) {
   // Called inside withoutMirror (the AI), its edit isn't mirrored either.
   const noMirror = mirrorPaused()
   const preset = SHAPE_PRESETS[presetKey]
@@ -39,6 +39,8 @@ export async function addShape(presetKey: string, at: Vec3, groundY: number | nu
   if (o.size) shape.size = o.size.map((v) => Math.max(0.1, Math.min(400, +v || 1))) as Vec3
   const stored = await storeShape(shape)
   const tex = await defaultShapeTextures()
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   const item: SceneItem = {
     uid: uid(), name: shapeName(preset.label, shape, currentProject()?.settings.world_scale), path: stored.vpath, source_path: stored.vpath, shape,
     position: [at[0], groundY ?? 0, at[2]], rotation: [0, o.rot ?? 0, 0], scale: 1,
@@ -84,12 +86,12 @@ export async function prefabItem(key: string, params: Record<string, number | st
  * With `wall` (the clicked surface's outward direction), one that can go on a
  * wall (a sign, a photo frame) is stuck flat on it, centred on the click.
  */
-export async function addPrefab(key: string, at: Vec3, groundY: number | null, o: { rot?: number; params?: Record<string, number | string>; wall?: Vec3 } = {}) {
+export async function addPrefab(key: string, at: Vec3, groundY: number | null, o: { rot?: number; params?: Record<string, number | string>; wall?: Vec3 } = {}, run = mapRun()) {
   // Called inside withoutMirror (the AI), its edit isn't mirrored either.
   const noMirror = mirrorPaused()
   const def = ALL_PREFABS[key]
   if (!def) return
-  if ((def as { physicsSet?: boolean }).physicsSet) { const physics = await import('../physicsActions'); return keepQuiet(noMirror, () => physics.addPhysicsSet(key, at, groundY, o.rot ?? 0)) }
+  if ((def as { physicsSet?: boolean }).physicsSet) { const physics = await import('../physicsActions'); return keepQuiet(noMirror, () => physics.addPhysicsSet(key, at, groundY, o.rot ?? 0, run)) }
   let params = o.params ?? {}, base: Vec3 = [at[0], groundY ?? 0, at[2]], rot = o.rot ?? 0
   const n = o.wall
   if (def.onWall && n && Math.abs(n[1]) < 0.6) {
@@ -101,6 +103,8 @@ export async function addPrefab(key: string, at: Vec3, groundY: number | null, o
     base = [at[0] + (n[0] / len) * 0.03, at[1] - top / 2, at[2] + (n[2] / len) * 0.03]
   }
   const { item, files } = await prefabItem(key, params, base, rot)
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   update('Add ' + def.label.toLowerCase(), (d) => {
     Object.assign(d.files, files)
     d.scene_items.push(item)
@@ -110,13 +114,15 @@ export async function addPrefab(key: string, at: Vec3, groundY: number | null, o
 }
 
 /** Rebuilds a placed prefab with new settings, in place; repaints the user made are kept where the same part still exists. */
-export async function updatePrefab(index: number, params: Record<string, number | string>) {
+export async function updatePrefab(index: number, params: Record<string, number | string>, run = mapRun()) {
   // Called inside withoutMirror (the AI), its edit isn't mirrored either.
   const noMirror = mirrorPaused()
   const it = currentProject()?.scene_items[index]
   const pf = it?.prefab
   if (!it || !pf || !ALL_PREFABS[pf.key]) return
   const { item, files } = await prefabItem(pf.key, params, it.position, it.rotation[1])
+  // Not on a map opened while it loaded (an AI reply mid-way when the map changed, too).
+  stillCurrent(run)
   const repaint = new Map(Object.entries(pf.defaults).filter(([m, v]) => it.textures[m] && it.textures[m] !== v).map(([m, v]) => [v, it.textures[m]]))
   update('Change ' + ALL_PREFABS[pf.key].label.toLowerCase(), (d) => {
     Object.assign(d.files, files)
