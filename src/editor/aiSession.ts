@@ -18,6 +18,8 @@ export interface Turn {
   review?: Review
   /** Labels of the review fixes already applied. */
   applied?: string[]
+  /** Labels of the review fixes stopped partway, after some of their changes: not run again (it would add them twice). */
+  partly?: string[]
 }
 
 interface ChatState {

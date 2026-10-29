@@ -31,7 +31,7 @@ import { modalOpen, toast, toastError } from '../ui'
 import { useNarrow } from '../lib/touch'
 import { openMapFiles } from '../lib/mapFolder/store'
 import { onQueued, queueEdits, takeEdits, type PendingEdits } from '../lib/pendingEdits'
-import { runAiActions } from './aiActions'
+import { runAiActions, stopAiEdits, useAiApplying } from './aiActions'
 import { runMapChecks } from './mapChecks'
 import { useChat } from './aiSession'
 
@@ -126,7 +126,7 @@ function usePendingEdits(openChat: () => void) {
       // then the health check, summed up with what the wizard found.
       if (job.checks) void runMapChecks(job.summary)
       if (!job.actions.length) return
-      const { done, skipped } = await runAiActions(job.actions, job.label)
+      const { done, skipped } = await runAiActions(job.actions, job.label, { key: 'extras' })
       const chat = useChat.getState()
       if (chat.turns.length || job.openChat) chat.add({ role: 'assistant', text: done ? `Added the extras: ${done} change${done === 1 ? '' : 's'}.` : 'The extras made no changes.', note: skipped.length ? `Skipped: ${skipped.join('; ')}.` : undefined, undoLabel: done ? job.label : undefined })
       else if (done) toast(`AI extras: ${done} change${done === 1 ? '' : 's'} (undo to remove them).`)
@@ -215,6 +215,7 @@ function Editor() {
       {accountsEnabled && <Suspense fallback={null}><CloudSync projectId={project.id} /></Suspense>}
       {picking && <Suspense fallback={null}><SamplePicker onClose={() => setPicking(false)} onBuilt={useSample} /></Suspense>}
       {chatting && <Suspense fallback={null}><AiChat onClose={() => setChatting(false)} /></Suspense>}
+      {!chatting && <AiApplyingNote />}
       {playing && <PlayDialog onClose={() => setPlaying(false)} onSamples={() => { setPlaying(false); setPicking(true) }} />}
       {publishing && <Suspense fallback={null}><PublishDialog projectId={project.id} onClose={() => setPublishing(false)} /></Suspense>}
       {sharing && <Suspense fallback={null}><ShareDialog projectId={project.id} onClose={() => setSharing(false)} /></Suspense>}
@@ -267,6 +268,18 @@ export function BusyLock({ editor }: { editor: RefObject<HTMLDivElement> }) {
       </div>
     </div>,
     document.body,
+  )
+}
+
+/** While the chat is closed: the AI's changes still being made (a new map's extras, a reply), with their Cancel. */
+export function AiApplyingNote() {
+  const applying = useAiApplying((s) => s.running.length > 0)
+  if (!applying) return null
+  return (
+    <div className="ai-applying" role="status">
+      <span className="small">Making the AI's changes…</span>
+      <button className="sm" onClick={() => stopAiEdits()} title="Stop making the AI's changes: the ones made so far stay">Cancel</button>
+    </div>
   )
 }
 
