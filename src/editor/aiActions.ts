@@ -1,6 +1,5 @@
 // Carries out the edits an AI chat reply asks for, as one undo step.
-import { create } from 'zustand'
-import { useEditor, currentProject, editJob, isCurrent, manualEdits, onSameMap, startRun, stillCurrent, withoutMirror, JobCancelled, JobTooLong, JOB_TIME_LIMIT, MapChanged, type Run } from './store'
+import { useEditor, currentProject, editJob, isCurrent, manualEdits, onSameMap, startRun, stillCurrent, withoutMirror, JobCancelled, JobTooLong, JOB_TIME_LIMIT, MapChanged, type HistoryEntry, type Run } from './store'
 import type { Project } from '../lib/project'
 import { getViewer } from './Viewport'
 import * as actions from './actions'
@@ -70,34 +69,33 @@ async function swatchFor(name: string, tint: { color?: unknown; accent?: unknown
  * it waits for Fix all to end, and Fix all waits for it, as it rewrites the undo list from where it started. Mirror
  * mode's copying is off: the AI places both halves itself when asked (mirror: true).
  */
-export async function runAiActions(actions: AiAction[], label: string, limit = JOB_TIME_LIMIT): Promise<{ done: number; skipped: string[] }> {
+export async function runAiActions(actions: AiAction[], label: string, opts: { limit?: number; signal?: AbortSignal } = {}): Promise<AiOutcome> {
   const out: AiResult = { done: 0, skipped: [] }
-  const cancel = new AbortController()
-  useAiEdits.setState((s) => ({ running: [...s.running, cancel] }))
+  let stopped: AiOutcome['stopped']
   try {
-    // Stopped by its time or Cancel: what it did by then is one undo step at once, before the next job begins.
-    await editJob(() => applyAiActions(actions, label, out), { limit, signal: cancel.signal, onStop: () => oneStep(out, label) })
+    // Stopped by its time or its Cancel (`signal`): what it did by then is one undo step at once, before the next
+    // job begins.
+    await editJob(() => applyAiActions(actions, label, out), { limit: opts.limit ?? JOB_TIME_LIMIT, signal: opts.signal, onStop: () => oneStep(out, label) })
   } catch (err) {
     // Queued on a map since left, past the job's time, or cancelled: what it did so far stays, the rest is left out.
-    if (err instanceof MapChanged) out.skipped.push('another map was opened')
-    else if (err instanceof JobTooLong) out.skipped.push(`the rest (it took over ${Math.round(err.limit / 60_000)} minutes)`)
-    else if (err instanceof JobCancelled) out.skipped.push('the rest (cancelled)')
+    if (err instanceof MapChanged) { stopped = 'map'; out.skipped.push('another map was opened') }
+    else if (err instanceof JobTooLong) { stopped = 'time'; out.skipped.push(`the rest (it took over ${Math.round(err.limit / 60_000)} minutes)`) }
+    else if (err instanceof JobCancelled) { stopped = 'cancel'; out.skipped.push('the rest (cancelled)') }
     else throw err
-  } finally {
-    useAiEdits.setState((s) => ({ running: s.running.filter((c) => c !== cancel) }))
   }
-  return { done: out.done, skipped: [...out.skipped] }
+  if (!stopped && out.skipped.includes(MAP_OPENED)) stopped = 'map'
+  return { done: out.done, skipped: [...out.skipped], ...(stopped ? { stopped } : {}) }
 }
 
-/** AI edits running or queued: the chat's Cancel stops them all. */
-export const useAiEdits = create<{ running: AbortController[] }>(() => ({ running: [] }))
-export const cancelAiEdits = () => useAiEdits.getState().running.forEach((c) => c.abort())
+/** What a reply did; `stopped` when it ended before all of it (its time, its Cancel, another map opened). */
+export interface AiOutcome { done: number; skipped: string[]; stopped?: 'time' | 'cancel' | 'map' }
+const MAP_OPENED = 'another map was opened'
 
 interface AiResult {
   done: number
   skipped: string[]
-  /** Where the reply began: the undo list's length, the map then, its run, and the user's edits so far. */
-  start?: { past: number; project: Project; run: Run; manual: number }
+  /** Where the reply began: the last undo step then (none: an empty list), the map then, its run, and the user's edits so far. */
+  start?: { top: HistoryEntry | null; project: Project; run: Run; manual: number }
 }
 
 /**
@@ -108,8 +106,12 @@ interface AiResult {
 function oneStep(out: AiResult, label: string) {
   const b = out.start
   if (!b || !onSameMap(b.run) || manualEdits() !== b.manual) return
-  const now = useEditor.getState()
-  if (now.past.length > b.past) useEditor.setState({ past: [...now.past.slice(0, b.past), { project: b.project, label }], future: [] })
+  const { past } = useEditor.getState()
+  // Its steps are the ones after the step on top when it began (the list keeps its last 150, so its length can stay
+  // the same); if that step has dropped off the list, so did where the reply began, and its steps stay as they are.
+  const at = b.top ? past.lastIndexOf(b.top) : -1
+  if (b.top && at < 0) return
+  if (past.length > at + 1) useEditor.setState({ past: [...past.slice(0, at + 1), { project: b.project, label }], future: [] })
 }
 
 /** Applies the actions, counting into `out` as it goes (so a reply that runs out of time still says what it did). */
@@ -119,7 +121,7 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
   // Another map opened mid-reply, or the reply was stopped: the edits left aren't made. Every helper it calls gets
   // this run and checks it after each load, and so does every step here after an await or in a loop.
   const run = startRun()
-  out.start = { past: st.past.length, project: st.project, run, manual: manualEdits() }
+  out.start = { top: st.past[st.past.length - 1] ?? null, project: st.project, run, manual: manualEdits() }
   const live = () => stillCurrent(run)
   const skipped = out.skipped
   const deletes = new Set<number>()
@@ -288,7 +290,7 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
           }
           if (typeof a.physics === 'string') {
             if (a.physics === 'none' || a.physics === 'static') {
-              for (const i of ids) if (currentProject()!.scene_items[i].physics_preset || currentProject()!.scene_items[i].native_prop_behavior) { live(); await act.returnStatic(i, run); out.done++ }
+              for (const i of ids) { live(); if (currentProject()!.scene_items[i].physics_preset || currentProject()!.scene_items[i].native_prop_behavior) { await act.returnStatic(i, run); out.done++ } }
             } else if (!PRESET_BY_KEY[a.physics]) skipped.push(`unknown physics preset "${a.physics}"`)
             else { await makePhysicsProps(ids, a.physics, run); out.done += ids.length }
           }
@@ -392,6 +394,7 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
           // A material by its name or by its current texture's name; all of them when none is given.
           const want = typeof a.material === 'string' ? squash(a.material) : ''
           for (const i of ids) {
+            live()
             const it = currentProject()!.scene_items[i]
             if (isGlass(it)) continue
             const mats = Object.entries(it.textures || {}).filter(([m, v]) => !want || squash(m) === want || (!!v && squash(niceName(v)).includes(want))).map(([m]) => m)
@@ -452,7 +455,7 @@ async function applyAiActions(actions: AiAction[], label: string, out: AiResult)
   }
   // Another map opened mid-reply (a placement waiting on its model saw it too): none of the rest, no undo step.
   // Stopped (time or Cancel): editJob made its step when it stopped.
-  if (!isCurrent(run)) { if (!onSameMap(run)) skipped.push('another map was opened'); return }
+  if (!isCurrent(run)) { if (!onSameMap(run)) skipped.push(MAP_OPENED); return }
   if (deletes.size) { act.removeItems([...deletes]); useEditor.getState().select(null); out.done += deletes.size }
   oneStep(out, label)
 }

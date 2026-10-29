@@ -31,7 +31,8 @@ export async function storeFileIf(data: Blob, name: string, keep: () => boolean)
   const had = await db.hasBlob(hash)
   const out = await storeFile(data, name)
   if (keep()) return out
-  if (!had && stores.get(hash) === seen + 1) await db.deleteBlob(hash).catch(() => undefined)
+  // Only the first store of it in this tab, and no other since: one that began earlier may still be using it.
+  if (!had && seen === 0 && stores.get(hash) === 1) await db.deleteBlob(hash).catch(() => undefined)
   return null
 }
 

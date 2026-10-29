@@ -7,7 +7,6 @@ import { JobTooLong, MapChanged, editJob, startRun, stillCurrent, useEditor, whe
 import { storeFile } from '../../src/lib/files'
 import { addShape } from '../../src/editor/act/shapes'
 import { runMapChecks } from '../../src/editor/mapChecks'
-import { cancelAiEdits } from '../../src/editor/aiActions'
 import { gameObjectItem } from '../../src/lib/gameObjects/place'
 import { loadIndex } from '../../src/lib/gameObjects/client'
 import { runAiActions } from '../../src/editor/aiActions'
@@ -419,7 +418,7 @@ describe('Work queued or loading when another map opens', () => {
     const b = openMap()
     job.release()
     await job.done
-    expect(await ai).toEqual({ done: 0, skipped: ['another map was opened'] })
+    expect(await ai).toEqual({ done: 0, skipped: ['another map was opened'], stopped: 'map' })
     const st = useEditor.getState()
     expect(st.project).toBe(b)
     expect(st.project!.settings.display_name).not.toBe('Harbor Rumble')
@@ -434,7 +433,7 @@ describe('Work queued or loading when another map opens', () => {
     await vi.waitFor(() => expect(storeFile).toHaveBeenCalled())
     const b = openMap()
     release()
-    expect(await ai).toEqual({ done: 0, skipped: ['another map was opened'] })
+    expect(await ai).toEqual({ done: 0, skipped: ['another map was opened'], stopped: 'map' })
     expect(useEditor.getState().project).toBe(b)
     expect(b.scene_items).toHaveLength(1)
     expect(useEditor.getState().past).toEqual([])
@@ -478,7 +477,7 @@ describe('An AI reply stopped partway', () => {
     vi.mocked(gameObjectItem)
       .mockImplementationOnce(async (e, at) => bench(e, at))
       .mockImplementationOnce(async (e, at) => { await new Promise((r) => setTimeout(r, 300)); return bench(e, at) })
-    const r = await runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: benches', 100)
+    const r = await runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: benches', { limit: 100 })
     expect(r.skipped).toContain('the rest (it took over 0 minutes)')
     expect(r.done).toBe(1)
     // The next job runs at once; the stuck placement wakes after it and writes nothing.
@@ -491,10 +490,11 @@ describe('An AI reply stopped partway', () => {
   it('stops at Cancel the same way', { timeout: 30000 }, async () => {
     openMap()
     const release = hangGameObject()
-    const reply = runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: bench')
+    const cancel = new AbortController()
+    const reply = runAiActions([{ do: 'add_game_object', id: 'bench', x: 5, z: 5, mirror: true }], 'AI: bench', { signal: cancel.signal })
     await vi.waitFor(() => expect(gameObjectItem).toHaveBeenCalled())
-    cancelAiEdits()
-    expect(await reply).toEqual({ done: 0, skipped: ['the rest (cancelled)'] })
+    cancel.abort()
+    expect(await reply).toEqual({ done: 0, skipped: ['the rest (cancelled)'], stopped: 'cancel' })
     release()
     await settle()
     expect(names()).toEqual(['Stairs'])
@@ -509,7 +509,7 @@ describe('An AI reply stopped partway', () => {
     await vi.waitFor(() => expect(loadIndex).toHaveBeenCalled())
     const b = openMap()
     release()
-    expect(await reply).toEqual({ done: 0, skipped: ['another map was opened'] })
+    expect(await reply).toEqual({ done: 0, skipped: ['another map was opened'], stopped: 'map' })
     expect(useEditor.getState().project).toBe(b)
     expect(names()).toEqual(['Stairs'])
     expect(useEditor.getState().past).toEqual([])

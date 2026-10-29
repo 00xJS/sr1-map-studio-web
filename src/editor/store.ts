@@ -22,7 +22,7 @@ export interface Swatch {
 export type SaveState = 'saved' | 'saving' | 'unsaved' | 'error'
 export type SideTab = 'build' | 'check' | 'game' | 'ship'
 
-interface HistoryEntry { project: Project; label: string; merge?: string }
+export interface HistoryEntry { project: Project; label: string; merge?: string }
 
 interface EditorState {
   project: Project | null

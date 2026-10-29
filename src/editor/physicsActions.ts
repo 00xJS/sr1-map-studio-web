@@ -1,7 +1,7 @@
 // Editor commands for physics props (see lib/physicsProps.ts). Turning an
 // object into a native prop goes through the same Python rules as the
 // "Movable and explosive props", under the inspector's More settings.
-import { useEditor, currentProject, mapRun, mirrorPaused, stillCurrent } from './store'
+import { useEditor, currentProject, keepQuiet, mapRun, mirrorPaused, stillCurrent } from './store'
 import { py } from '../lib/py'
 import { isGlass, isProp, type FileRef, type SceneItem, type Vec3 } from '../lib/project'
 import { OBJECT_BUDGET, PRESET_BY_KEY, type PhysicsShape } from '../lib/physicsProps'
@@ -136,7 +136,10 @@ export async function addPhysicsSet(key: string, at: Vec3, groundY: number | nul
     list.push(first + k)
     byPreset.set(part.physics!.preset, list)
   })
-  for (const [preset, list] of byPreset) await makePhysicsProps(list, preset)
+  // The same run and the same mirror rule as the set itself: a stopped AI reply's set gets no props late, and an
+  // AI reply's set isn't copied across the middle.
+  for (const [preset, list] of byPreset) await keepQuiet(noMirror, () => makePhysicsProps(list, preset, run))
+  stillCurrent(run)
   update('Physics shapes', (d) => {
     props.forEach((part, k) => {
       const it = d.scene_items[first + k]
