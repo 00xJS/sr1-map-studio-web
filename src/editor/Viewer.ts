@@ -28,6 +28,7 @@ import { cappedFog, installFogCap } from './fogCap'
 import { syncVehicle } from './vehicleModels'
 import { hiddenSet, layerHidden } from '../lib/layers'
 import { Rain } from './rain'
+import { itemFromGame } from '../lib/gameObjects/policy'
 
 /**
  * How the view is lit. 'game': as the game lights a multiplayer map (a warm sun with shadows, a cool fill, a flat
@@ -862,6 +863,8 @@ export class Viewer {
       }
       const mesh = new THREE.Mesh(info.geometry, materials)
       mesh.castShadow = mesh.receiveShadow = true
+      // Drawn from the player's game or the data pack (for pictures of the view: drawsGameData).
+      mesh.userData.game = itemFromGame(it, this.project!.files)
       mesh.userData.faceOrder = info.faceOrder
       mesh.position.set(...(it.pivot ? (it.pivot.map((v) => -v) as Vec3) : [0, 0, 0] as Vec3))
       node.mesh = mesh
@@ -1149,9 +1152,26 @@ export class Viewer {
     return captureTopDown(this, [this.markerRoot, this.lightRoot, this.grid, this.box, this.gizmo.getHelper(), ...this.helpers, ...(this.ghost ? [this.ghost] : [])], o)
   }
 
-  /** The view as the camera sees it, for the map's thumbnail. */
+  /**
+   * The view as the camera sees it, for the map's thumbnail, its loading picture and a share's preview. Leaves out
+   * the editor's own drawings and anything a marker draws from the player's game (the car at a Vehicle spawn).
+   */
   capture(width = 640, height = 360): Promise<Blob | null> {
-    return captureView({ ...this.captureHost(), camera: this.view.perspective() }, [this.box, this.gizmo.getHelper(), ...this.helpers, ...(this.ghost ? [this.ghost] : [])], width, height)
+    return captureView({ ...this.captureHost(), camera: this.view.perspective() }, [this.box, this.gizmo.getHelper(), ...this.helpers, ...(this.ghost ? [this.ghost] : []), ...this.markerModels()], width, height)
+  }
+
+  /** What markers draw from the player's game (vehicleModels.ts: a Vehicle spawn's car). */
+  private markerModels(): THREE.Object3D[] {
+    return this.markerRoot.children.flatMap((g) => { const car = g.getObjectByName('vehicle'); return car ? [car] : [] })
+  }
+
+  /**
+   * Whether an object on screen now is drawn from the player's game or the data pack: what a picture of the view
+   * would show, even while a swapped object's old model is still drawn until its new one loads.
+   */
+  drawsGameData(): boolean {
+    for (const n of this.items.values()) if (n.mesh?.userData.game && n.group.visible) return true
+    return false
   }
 
   private captureHost() { return { renderer: this.renderer, scene: this.scene, root: this.mapRoot, camera: this.camera, requestRender: () => this.requestRender() } }

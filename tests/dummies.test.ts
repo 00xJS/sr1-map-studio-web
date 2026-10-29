@@ -22,7 +22,7 @@ const { BODY_MAT, BOX_TRIANGLES, POSE_IDS, STAND_IN_MATS, bodySegments, figureJo
 const { MAX_DUMMIES, PLAYER, dummyName, fullLook, lookKey, specKey } = await import('../src/lib/dummies/models')
 const { asStandIn, hasBuiltDummy, overDummyCap, withStandIns } = await import('../src/lib/dummies/standIn')
 const { cleanRecipe, recipeProblem } = await import('../src/lib/recipes')
-const { gameObjectPaths, showsGameData } = await import('../src/lib/gameObjects/policy')
+const { gameObjectPaths, itemFromGame, showsGameData } = await import('../src/lib/gameObjects/policy')
 const { collisionFromProject } = await import('../src/lib/analysis/collision')
 const { mapChecklist } = await import('../src/lib/checklist')
 const { npcDraws } = await import('../src/lib/dummies/bake')
@@ -182,6 +182,54 @@ describe('a dummy where the game\'s files can\'t go', () => {
     expect(showsGameData(sky)).toBe(false)
     sky.settings.sky_texture = '/studio/skies/day.png'
     expect(showsGameData(sky)).toBe(true)
+    // One object at a time (what the editor's view marks on each model it draws).
+    expect(itemFromGame(glass.scene_items[0], glass.files)).toBe(true)
+    expect(itemFromGame(withStandIns(p).scene_items[0], p.files)).toBe(false)
+    // A kept view of game data is a game file: the Showcase says what it is.
+    const view = newProject('View')
+    view.scene_items.push({ uid: 'b', name: 'Box', path: STAND, position: [0, 0, 0], rotation: [0, 0, 0], scale: 1, textures: {}, alpha: {} })
+    view.files[STAND] = p.files[STAND]
+    view.files['/work/f/shot/loading_screen.png'] = ref('shot', 'game')
+    view.settings.loading_image = '/work/f/shot/loading_screen.png'
+    view.settings.loading_mode = 'custom'
+    expect(showcasePlan(view, new Set()).blockers.join(' ')).toMatch(/is kept as a game file: it is a picture of your game files or the data pack/)
+    // Other settings files from the game keep the objects' message.
+    view.settings.loading_mode = 'auto'
+    view.files['/work/f/donor/bbcity.cts'] = ref('donor', 'game')
+    view.settings.bbcity_donor = '/work/f/donor/bbcity.cts'
+    const words = showcasePlan(view, new Set()).blockers.join(' ')
+    expect(words).toMatch(/BBCity donor \(map settings\) comes from your Saints Row game files/)
+    expect(words).not.toMatch(/kept as a game file/)
+  })
+
+  it('counts a custom glass picture or a look layer from the game or the data pack', () => {
+    const glass = newProject('Glass')
+    glass.files[STAND] = ref('stand', 'user')
+    const it: SceneItem = { uid: 'c', name: 'Glass', path: STAND, position: [0, 0, 0], rotation: [0, 0, 0], scale: 1, textures: {}, alpha: {}, native_prefab: 'sr1_native_custom_mesh_glass_experiment' }
+    glass.scene_items.push(it)
+    expect(showsGameData(glass)).toBe(false)
+    it.glass_custom_texture = '/studio/textures/brick.png'
+    expect(showsGameData(glass)).toBe(true)
+    glass.files['/work/f/g/glass.png'] = ref('glass', 'game')
+    it.glass_custom_texture = '/work/f/g/glass.png'
+    expect(showsGameData(glass)).toBe(true)
+    glass.files['/work/f/g/glass.png'] = ref('glass', 'user')
+    expect(showsGameData(glass)).toBe(false)
+    // A look whose layer pictures (not its own file) are from the game.
+    glass.files['/work/f/l/look.json'] = ref('look', 'user')
+    glass.files['/work/f/l/layer.png'] = ref('layer', 'game')
+    it.game_look = { path: '/work/f/l/look.json', layers: ['/work/f/l/layer.png'] }
+    expect(itemFromGame(it, glass.files)).toBe(true)
+  })
+
+  it('reports game data on screen only for shown models drawn from the game', async () => {
+    const { Viewer } = await import('../src/editor/Viewer')
+    const node = (game: boolean, visible = true) => ({ mesh: { userData: { game } }, group: { visible } })
+    const draws = (nodes: object[]) => Viewer.prototype.drawsGameData.call({ items: new Map(nodes.map((n, i) => [String(i), n])) } as never)
+    expect(draws([])).toBe(false)
+    expect(draws([node(false), node(true, false)])).toBe(false)
+    expect(draws([node(false), node(true)])).toBe(true)
+    expect(draws([{ mesh: null, group: { visible: true } }])).toBe(false)
   })
 
   it('leaves its character out of backups but keeps the stand-in', () => {
@@ -342,6 +390,10 @@ describe('pictures of the view', () => {
     expect(cloudThumb(records.get(p.id)!)).toEqual({ thumbnail: pic, clear: false })
     // And a map that shows game data now sends none, whenever its picture was drawn.
     expect(cloudThumb({ project: p, thumbnail: pic })).toEqual({ thumbnail: null, clear: true })
+    // What the view still draws counts too (a swapped game object's old model, until its new one loads).
+    setThumbnailProvider(async () => pic, () => true)
+    await saveNow(true)
+    expect(records.get(p.id)!.thumb_game).toBe(true)
     setThumbnailProvider(null)
   })
 
@@ -365,6 +417,9 @@ describe('pictures of the view', () => {
     expect(json.settings.loading_image).toBe('')
     expect(json.settings.loading_mode).toBe('auto')
     expect(json.files['/work/f/shot/loading_screen.png']).toBeUndefined()
+    // A map set to have no loading picture keeps none.
+    kept.settings.loading_mode = 'none'
+    expect(JSON.parse(strFromU8((await files(await exportProjectZip(kept)))['project.json'])).settings.loading_mode).toBe('none')
     expect(Object.keys(zip).some((k) => k.endsWith('/shot'))).toBe(false)
   })
 })

@@ -101,7 +101,7 @@ export default function Home() {
     p.id = uid()
     p.name = rec.name + ' copy'
     p.updated_at = new Date().toISOString()
-    await db.putProject({ id: p.id, name: p.name, updated_at: p.updated_at, project: p, thumbnail: rec.thumbnail })
+    await db.putProject({ id: p.id, name: p.name, updated_at: p.updated_at, project: p, thumbnail: rec.thumbnail, ...(rec.thumb_game ? { thumb_game: true } : {}) })
     await refresh()
   })
 

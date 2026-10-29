@@ -316,7 +316,7 @@ export function Viewport({ onEmptyImport, onSamples }: { onEmptyImport: (files: 
     const ground = attachGroundTools(viewer)
     const offMeasure = attachMeasure(viewer)
     if (import.meta.env.DEV) (window as any).__viewer = viewer
-    setThumbnailProvider(() => viewer.capture())
+    setThumbnailProvider(() => viewer.capture(), () => viewer.drawsGameData())
     const sync = () => {
       const s = useEditor.getState()
       const place = s.placeMode || (s.tool === 'select' ? '' : s.tool)
