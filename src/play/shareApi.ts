@@ -519,9 +519,12 @@ export async function submitTime(token: string, e: { mode: RunMode; ms: number; 
   if (!live(share)) throw new ShareRejected(GONE)
   const { doc } = validateShareDoc(unpackShare(fromBase64(share.data)))
   if (!doc) throw new ShareRejected('This map can’t take times.')
+  // As the share function does: the quick checks first, the walls only for a run that passes them.
+  const quick = checkTime(entry, doc.project.markers)
+  if (quick.length) throw new ShareRejected('This time can’t go on the board.', quick)
   const walls = wallsOf(doc)
   if (walls === 'too many') throw new ShareRejected('This map can’t take times.')
-  const problems = checkTime(entry, doc.project.markers, walls ?? undefined)
+  const problems = walls ? checkTime(entry, doc.project.markers, walls) : []
   if (problems.length) throw new ShareRejected('This time can’t go on the board.', problems)
   const all = await localAll<LocalTime>('times')
   if (all.filter((t) => t.ip_hash === LOCAL_IP && ago(t.created_at, 3600_000)).length >= SHARE_RULES.timesPerHour) throw new ShareRejected('That’s a lot of times in an hour. Try again later.')

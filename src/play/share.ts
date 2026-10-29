@@ -7,7 +7,7 @@
 // viewer's browser remakes. So nothing uploaded by a user, and nothing from
 // Saints Row, can ride along: there are no image bytes in a share at all.
 import { gunzipSync, gzipSync, strFromU8, strToU8 } from 'fflate'
-import { isPose, standInObj, validFigureScale } from '../lib/dummies/figure'
+import { isPose, standInObj, validFigureScale, type PoseId } from '../lib/dummies/figure'
 import { gameSignature, MB } from '../lib/hubRules'
 import { isDataPackPath, normalizeProject, type Project, type Vec3 } from '../lib/project'
 import { LIBRARY_ID, cleanRecipe, fromLegacy, textureRecipeProblem, type TextureRecipe } from '../lib/recipes'
@@ -39,10 +39,12 @@ export type ModelBuild =
   | { kind: 'shape'; shape: Shape }
   | { kind: 'compound'; pieces: CompoundPiece[] }
   | { kind: 'prefab'; key: string; params: Record<string, number | string>; at: Vec3; rot: number }
+  /** A decoy dummy's stand-in figure (lib/dummies/figure.ts): its pose and the world scale it was made at. */
+  | { kind: 'figure'; pose: PoseId; ws: number }
 
 /** A block-out shape, a compound of shapes, a prefab from the site's library, or a model someone imported. */
-export type MadeKind = 'shape' | 'compound' | 'prefab' | 'import'
-export const MADE_KINDS: readonly MadeKind[] = ['shape', 'compound', 'prefab', 'import']
+export type MadeKind = 'shape' | 'compound' | 'prefab' | 'figure' | 'import'
+export const MADE_KINDS: readonly MadeKind[] = ['shape', 'compound', 'prefab', 'figure', 'import']
 
 /**
  * The gallery shows only maps whose every model was made on the site: an
@@ -327,9 +329,11 @@ export function validateShareDoc(raw: unknown): { problems: string[]; doc: Share
   for (const it of project.scene_items) {
     const dm = it.dummy as { pose?: unknown; ws?: unknown; stand_in?: { path: string; textures: Record<string, string> } } | undefined
     if (!dm) continue
-    const ok = isPose(dm.pose) && validFigureScale(dm.ws)
-    if (ok) kinds.add(`${dm.pose}:${dm.ws}`)
-    const figure = ok && kinds.size <= MAX_FIGURE_KINDS ? standInText(dm.pose as Parameters<typeof standInObj>[0], dm.ws as number) : null
+    const key = `${dm.pose}:${dm.ws}`
+    // Once the share has that many, only a new kind is turned away: more dummies of a kind already seen are fine.
+    const ok = isPose(dm.pose) && validFigureScale(dm.ws) && (kinds.has(key) || kinds.size < MAX_FIGURE_KINDS)
+    if (ok) kinds.add(key)
+    const figure = ok ? standInText(dm.pose as Parameters<typeof standInObj>[0], dm.ws as number) : null
     if (!figure || dm.stand_in?.path !== it.path || models.get(it.path) !== figure) delete it.dummy
     else dm.stand_in.textures = { ...it.textures }
   }

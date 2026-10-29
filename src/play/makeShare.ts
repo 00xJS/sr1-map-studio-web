@@ -63,6 +63,7 @@ export async function recipeFor(ref: FileRef): Promise<TextureRecipe | null> {
 export function madeKind(ref: FileRef | undefined, prefab: boolean): MadeKind {
   if (ref?.recipe?.kind === 'shape') return 'shape'
   if (ref?.recipe?.kind === 'compound') return 'compound'
+  if (ref?.recipe?.kind === 'figure') return 'figure'
   return prefab ? 'prefab' : 'import'
 }
 
@@ -78,6 +79,7 @@ export function modelBuild(obj: string, ref: FileRef | undefined, users: SceneIt
     for (const it of users) if (it.shape?.kind === r.shape.kind) tries.push({ kind: 'shape', shape: it.shape })
     tries.push({ kind: 'shape', shape: r.shape })
   } else if (r?.kind === 'compound') tries.push({ kind: 'compound', pieces: r.pieces })
+  else if (r?.kind === 'figure') tries.push({ kind: 'figure', pose: r.pose, ws: r.ws })
   else for (const it of users) if (it.prefab) tries.push({ kind: 'prefab', key: it.prefab.key, params: it.prefab.params, at: [...it.position], rot: it.rotation[1] })
   return tries.find((b) => buildMakes(b, obj)) ?? null
 }
