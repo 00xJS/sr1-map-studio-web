@@ -17,6 +17,7 @@ import { checkModes, levelEntries, unusedModeMarkers } from '../../lib/levels'
 import { MODE_HINTS } from '../../lib/labels'
 import { MP_PACK } from '../../lib/gameFiles'
 import { gameSkyAvailable, gameSkyWanted, SKY_SOURCE } from '../../lib/gameSky'
+import { showsGameData } from '../../lib/gameObjects/policy'
 
 const sanitize = (s: string) => s.trim().replace(/[^a-zA-Z0-9_]/g, '_').toLowerCase()
 
@@ -271,7 +272,9 @@ export function LoadingSetting() {
     try {
       const blob = await v.capture(LOADING_SIZE[0], LOADING_SIZE[1])
       if (!blob) return
-      await act.setProjectFile('loading_image', new File([blob], 'loading_screen.png', { type: 'image/png' }))
+      // A view of game objects or built dummies is game data: it stays on this device (never uploaded or shared).
+      const p = useEditor.getState().project
+      await act.setProjectFile('loading_image', new File([blob], 'loading_screen.png', { type: 'image/png' }), !!p && showsGameData(p))
       pick('custom')
     } catch (e) { toastError(e) } finally { setBusy(false) }
   }

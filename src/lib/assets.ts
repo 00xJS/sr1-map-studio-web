@@ -32,6 +32,15 @@ export function loadModel(project: Project | null, vpath: string): Promise<ObjMo
 
 export function peekModel(vpath: string): Promise<ObjModel> | undefined { return models.get(vpath) }
 export function cacheModel(vpath: string, model: ObjModel) { models.set(vpath, Promise.resolve(model)) }
+/** Forgets parsed models and picture URLs of files the map stopped using (they load again if asked for). */
+export function forgetFiles(vpaths: string[]) {
+  for (const v of vpaths) {
+    models.delete(v)
+    const t = textures.get(v)
+    textures.delete(v)
+    t?.then((url) => { if (url) URL.revokeObjectURL(url) }, () => {})
+  }
+}
 
 const BROWSER_IMAGE = /\.(png|jpe?g|bmp|gif|webp)$/i
 

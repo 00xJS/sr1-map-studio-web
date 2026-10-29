@@ -1,8 +1,8 @@
 // How a decoy dummy goes where the game's files can't (share links, the Showcase, the hub): its stand-in figure.
 // Pure module (the share and publish functions use it).
 import type { Project, SceneItem } from '../project'
-import { BODY_MAT, FLESH_SURFACE, isPose } from './figure'
-import { validModel, type DummySpec } from './models'
+import { BODY_MAT, BOX_TRIANGLES, FLESH_SURFACE, isPose } from './figure'
+import { MAX_DUMMIES, validModel, type DummySpec } from './models'
 
 export interface DummyRef extends DummySpec {
   source: 'dummy'
@@ -19,6 +19,17 @@ export const dummyRefOf = (it: { dummy?: unknown }): DummyRef | null => {
   return d && d.source === 'dummy' && validModel(d.model) && isPose(d.pose) && typeof d.stand_in?.path === 'string' ? d : null
 }
 export const isDummy = (it: { dummy?: unknown }) => !!dummyRefOf(it)
+const countDummies = (items: { dummy?: unknown }[]) => items.reduce((n, it) => n + (isDummy(it) ? 1 : 0), 0)
+
+/** Why an edit can't be made (it adds dummies past the cap), or null. A map already over may still lose some. */
+export function overDummyCap(before: { dummy?: unknown }[], after: { dummy?: unknown }[]): string | null {
+  const n = countDummies(after)
+  if (n <= MAX_DUMMIES || n <= countDummies(before)) return null
+  return `A map can have at most ${MAX_DUMMIES} dummies (about one lobby's worth of extra people to draw): this would make ${n}.`
+}
+
+/** Whether any dummy is drawn from the player's game: a picture of the editor's view would show the real character. */
+export const hasBuiltDummy = (items: { dummy?: unknown }[]) => items.some((it) => !!dummyRefOf(it)?.built)
 
 export const MATERIAL_ALPHA = (mat: string) => mat === BODY_MAT
 export const SURFACES = (mats: string[]) => Object.fromEntries(mats.map((m) => [m, m === BODY_MAT ? FLESH_SURFACE : 0]))
@@ -36,6 +47,8 @@ export function asStandIn(it: SceneItem): SceneItem {
     ...it, path: d.stand_in.path, source_path: d.stand_in.path, textures,
     alpha: Object.fromEntries(mats.map((m) => [m, MATERIAL_ALPHA(m)])), surface_ids: SURFACES(mats),
     collision_materials: [BODY_MAT], dummy: { ...d, built: false },
+    // The figure and its body boxes, 13 boxes each.
+    triangles: 2 * 13 * BOX_TRIANGLES,
   }
   delete out.game_look
   delete out.collision_excluded_faces

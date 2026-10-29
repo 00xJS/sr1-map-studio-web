@@ -7,6 +7,7 @@ import { adoptRecipes, libraryIds } from '../lib/showcase'
 import { publishShowcase } from '../lib/sync'
 import { Check, Field, FileButton, Modal, toastError } from '../ui'
 import { saveNow, useEditor } from './store'
+import { hasBuiltDummy } from '../lib/dummies/standIn'
 import '../pages/home.css'
 
 /** Screenshots go up as WebP, at most 1600 px wide, so they stay well under the 2 MB cap. */
@@ -144,6 +145,9 @@ export function PublishDialog({ projectId, onClose }: { projectId: string; onClo
         </div></div>
       )}
       {plan && !plan.blockers.length && <div className="callout ok"><p className="small">Everything in this map is made from Map Studio's own textures, shapes and prefabs.</p></div>}
+      {project && hasBuiltDummy(project.scene_items) && (
+        <p className="small muted">Its decoy dummies go as plain stand-in figures, and the map's automatic picture is left out: it shows them as built from your game files. Your screenshots below are sent as they are.</p>
+      )}
 
       <Field label="Title" hint={`${title.trim().length}/80`}>
         <input value={title} maxLength={80} onChange={(e) => setTitle(e.target.value)} disabled={busy} />

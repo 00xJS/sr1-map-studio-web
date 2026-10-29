@@ -25,7 +25,8 @@ export interface BakedDummy {
   /** Three vertex indices per triangle, facing out (counter-clockwise seen from outside). */
   triangles: Uint32Array
   triMaterial: Uint16Array
-  materials: { name: string; picture: Picture }[]
+  /** One picture per material; `png` once the worker has encoded it. */
+  materials: { name: string; picture: Picture; png?: Blob }[]
   /** Where the joints ended up, for the body boxes. */
   joints: Joints
   /** Standing height, metres. */

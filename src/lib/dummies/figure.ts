@@ -113,8 +113,11 @@ export function figureJoints(pose: PoseId): Joints {
 /** A box along a segment: from `a` to `b`, `w` wide (across the body) and `d` deep, each tapering to `w2`/`d2` at `b`. */
 export interface Segment { a: V3; b: V3; w: number; d: number; w2?: number; d2?: number; part: StandInPart }
 
-/** The body as boxes, one per limb (13), from any set of joints. */
-export function bodySegments(j: Joints): Segment[] {
+/**
+ * The body as boxes, one per limb (13), from any set of joints. `top`: the height of the top of the head when it is
+ * known (a baked character's hair), so the head box reaches it.
+ */
+export function bodySegments(j: Joints, top?: number): Segment[] {
   const mid = (a: V3, b: V3, k = 0.5): V3 => add(a, mul(sub(b, a), k))
   const hipMid = mid(j.lHip, j.rHip)
   const headUp = norm(sub(j.head, j.neck))
@@ -129,7 +132,7 @@ export function bodySegments(j: Joints): Segment[] {
   return [
     { a: add(hipMid, [0, -0.1, 0]), b: add(hipMid, [0, 0.12, 0]), w: 0.34, d: 0.22, part: 'legs' },
     { a: add(hipMid, [0, 0.1, 0]), b: j.neck, w: 0.3, d: 0.2, w2: 0.4, d2: 0.24, part: 'top' },
-    { a: j.neck, b: add(j.head, mul(headUp, 0.12)), w: 0.19, d: 0.23, part: 'skin' },
+    { a: j.neck, b: headTop(j, headUp, top), w: 0.19, d: 0.23, part: 'skin' },
     { a: j.lShoulder, b: j.lElbow, w: 0.11, d: 0.11, w2: 0.09, d2: 0.09, part: 'top' },
     { a: j.rShoulder, b: j.rElbow, w: 0.11, d: 0.11, w2: 0.09, d2: 0.09, part: 'top' },
     { a: j.lElbow, b: hand(j.lElbow, j.lWrist), w: 0.09, d: 0.09, w2: 0.07, d2: 0.05, part: 'skin' },
@@ -140,6 +143,13 @@ export function bodySegments(j: Joints): Segment[] {
     { a: j.rKnee, b: j.rAnkle, w: 0.12, d: 0.13, w2: 0.08, d2: 0.09, part: 'legs' },
     foot(j.lAnkle, j.lToe), foot(j.rAnkle, j.rToe),
   ]
+}
+
+/** Where the head box ends: 12 cm past the head joint, or up to `top` along the head's own up when that is higher. */
+function headTop(j: Joints, up: V3, top?: number): V3 {
+  const end = add(j.head, mul(up, 0.12))
+  if (top === undefined || up[1] < 0.3 || end[1] >= top) return end
+  return add(j.head, mul(up, Math.min(0.4, (top - j.head[1]) / up[1])))
 }
 
 /** A segment's 8 corners: the 4 at `a` then the 4 at `b`, each (-w,-d) (+w,-d) (+w,+d) (-w,+d). */
@@ -203,7 +213,7 @@ export function boxesObj(segments: Segment[], mat: (part: StandInPart) => string
 }
 
 /** The body boxes alone (the solid part of every dummy), for any joints. */
-export const bodyObj = (j: Joints, ws: number, start?: ObjStart) => boxesObj(bodySegments(j), () => BODY_MAT, ws, 'Body boxes (solid, not drawn)', start)
+export const bodyObj = (j: Joints, ws: number, start?: ObjStart, top?: number) => boxesObj(bodySegments(j, top), () => BODY_MAT, ws, 'Body boxes (solid, not drawn)', start)
 
 /**
  * The stand-in: a plain figure in the pose (drawn, not solid) and its body boxes (solid, not drawn). What a dummy

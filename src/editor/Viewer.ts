@@ -18,7 +18,7 @@ import type { ObjModel } from '../lib/geometry'
 import { solidMaterial } from '../lib/analysis/collision'
 import { setNormals } from '../lib/prefabRender'
 import { loadModel, peekModel, textureUrl } from '../lib/assets'
-import { isCustomNative, isGlass, isProp, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
+import { isCustomNative, isGlass, isProp, referencedPaths, type Light, type Marker, type Project, type SceneItem, type Vec3 } from '../lib/project'
 import { RETAIL_MARKER_COLORS, syncZone } from './zones'
 import { gameSkyAvailable, gameSkyWanted } from '../lib/gameSky'
 import { paintGameSky, type SkyTint } from './skyLook'
@@ -686,6 +686,23 @@ export class Viewer {
     this.syncMapLights()
     this.syncGizmo()
     this.requestRender()
+  }
+
+  /**
+   * Drops the drawn geometry and textures of files the map no longer uses (a rebuilt dummy's old character), once
+   * the view has moved on to the new ones. They load again if the map uses them again (undo).
+   */
+  forget(paths: string[]) {
+    setTimeout(() => {
+      const live = new Set(this.project ? referencedPaths(this.project) : [])
+      for (const p of paths) {
+        if (live.has(p)) continue
+        this.geos.get(p)?.then((g) => g.geometry.dispose(), () => {})
+        this.geos.delete(p)
+        this.textures.get(p)?.dispose()
+        this.textures.delete(p)
+      }
+    }, 3000)
   }
 
   private geometry(path: string): Promise<GeoInfo> {
