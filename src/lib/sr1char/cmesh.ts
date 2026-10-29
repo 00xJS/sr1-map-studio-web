@@ -29,6 +29,8 @@ export interface CmeshGeometry {
 /** A named point on the mesh (96-byte record: a 68-byte name, position at +68, quaternion x, y, z, w at +80). */
 export interface CmeshTag { name: string; pos: number[]; quat: number[] }
 export interface Cmesh {
+  /** Render mesh type (header +44): 0 static (weapons, props), 1 and 2 the skinned character kinds. */
+  mtype: number
   bsphere: number[]
   bbox: number[]
   textures: string[]
@@ -36,7 +38,7 @@ export interface Cmesh {
   records: MeshRecord[]
   vids: { record: number; vid: number; draws: Draw[] }[]
   tags: CmeshTag[]
-  /** Record 0's vertices (the character layout) and strip; empty with `noGeometry`. */
+  /** Record 0's vertices (the character layout, or the static one for type 0) and strip; empty with `noGeometry`. */
   geometry: CmeshGeometry
 }
 
@@ -114,8 +116,11 @@ export function parseCmesh(u8: Uint8Array, opts: CmeshOptions = {}): Cmesh {
   if (!hsz) throw new Error('unknown cmesh mesh type ' + mtype)
   const hd = p.take(hsz, 4); p.align(16)
   const bbox = [0, 1, 2, 3, 4, 5].map((i) => p.f32(hd + 4 * i))
-  const nrec = p.s16(hd + 28), n48 = p.u16(hd + 48), n50 = p.u16(hd + 50)
-  const has36 = p.u32(hd + 36) !== 0, has40 = p.u32(hd + 40) !== 0, has44 = p.u32(hd + 44) !== 0
+  // Type 0 (static meshes: weapons, props, .smesh_xbox2) stops at +36 (sub_82235048); only types 1 and 2 have the
+  // tables at +40, +44, +48 and +50 (sub_82235318), so for type 0 those bytes are already the record table.
+  const ext = mtype !== 0
+  const nrec = p.s16(hd + 28), n48 = ext ? p.u16(hd + 48) : 0, n50 = ext ? p.u16(hd + 50) : 0
+  const has36 = p.u32(hd + 36) !== 0, has40 = ext && p.u32(hd + 40) !== 0, has44 = ext && p.u32(hd + 44) !== 0
   const recs = p.take(nrec * 16, 16)
   const t36 = has36 ? p.take(nrec * 12, 16) : 0
   for (let i = 0; i < nrec; i++) {
@@ -154,8 +159,8 @@ export function parseCmesh(u8: Uint8Array, opts: CmeshOptions = {}): Cmesh {
     rec.ibOffset = p.take(rec.nidx * 2, 32)
     if (!(rec.flags & 0x20)) rec.vbOffset = p.take(rec.nverts * rec.stride, 32)
   }
-  const geometry = opts.noGeometry ? emptyGeometry() : decodeSkinned(u8, records[0])
-  return { bsphere, bbox, textures, materials, records, vids, tags, geometry }
+  const geometry = opts.noGeometry ? emptyGeometry() : mtype === 0 ? decodeStatic(u8, records[0]) : decodeSkinned(u8, records[0])
+  return { mtype, bsphere, bbox, textures, materials, records, vids, tags, geometry }
 }
 
 const emptyGeometry = (): CmeshGeometry => ({ nverts: 0, pos: new Float32Array(0), nrm: new Float32Array(0), uv0: new Float32Array(0), uv1: new Float32Array(0), uv2: new Float32Array(0), strip: new Uint16Array(0), boneWeights: new Uint8Array(0), boneIndices: new Uint8Array(0) })
@@ -168,13 +173,31 @@ export function readStrip(u8: Uint8Array, rec: MeshRecord): Uint16Array {
   return strip
 }
 
+const dec10 = (w: number, k: number) => { let v = (w >>> (10 * k)) & 1023; if (v >= 512) v -= 1024; return v / 511 }
+
+/** A static record's vertices (type 0): position, normal at +12, tangent at +16, UV0 at +20, UV1 at +24 (stride 32 and 36). */
+function decodeStatic(u8: Uint8Array, rec: MeshRecord): CmeshGeometry {
+  const p = new Cursor(new DataView(u8.buffer, u8.byteOffset, u8.byteLength))
+  const n = rec.nverts, S = rec.stride, V = rec.vbOffset
+  if (V + n * S > u8.byteLength) throw new Error('cmesh vertex data runs past the end of the file')
+  const pos = new Float32Array(n * 3), nrm = new Float32Array(n * 3), uv0 = new Float32Array(n * 2), uv1 = new Float32Array(n * 2)
+  for (let i = 0; i < n; i++) {
+    const o = V + S * i
+    pos[3 * i] = p.f32(o); pos[3 * i + 1] = p.f32(o + 4); pos[3 * i + 2] = p.f32(o + 8)
+    const nw = p.u32(o + 12)
+    nrm[3 * i] = dec10(nw, 0); nrm[3 * i + 1] = dec10(nw, 1); nrm[3 * i + 2] = dec10(nw, 2)
+    uv0[2 * i] = p.s16(o + 20) / 1024; uv0[2 * i + 1] = p.s16(o + 22) / 1024
+    if (S >= 28) { uv1[2 * i] = p.s16(o + 24) / 1024; uv1[2 * i + 1] = p.s16(o + 26) / 1024 }
+  }
+  return { nverts: n, pos, nrm, uv0, uv1, uv2: new Float32Array(n * 2), strip: readStrip(u8, rec), boneWeights: new Uint8Array(n * 4), boneIndices: new Uint8Array(n * 4) }
+}
+
 /** A character record's vertices (the skinned layout: position, weights, bones, normal, UVs). */
 function decodeSkinned(u8: Uint8Array, rec: MeshRecord): CmeshGeometry {
   const p = new Cursor(new DataView(u8.buffer, u8.byteOffset, u8.byteLength))
   const n = rec.nverts, S = rec.stride, V = rec.vbOffset
   if (V + n * S > u8.byteLength) throw new Error('cmesh vertex data runs past the end of the file')
   const pos = new Float32Array(n * 3), nrm = new Float32Array(n * 3), uv0 = new Float32Array(n * 2), uv1 = new Float32Array(n * 2), uv2 = new Float32Array(n * 2)
-  const dec10 = (w: number, k: number) => { let v = (w >>> (10 * k)) & 1023; if (v >= 512) v -= 1024; return v / 511 }
   for (let i = 0; i < n; i++) {
     const o = V + S * i
     pos[3 * i] = p.f32(o); pos[3 * i + 1] = p.f32(o + 4); pos[3 * i + 2] = p.f32(o + 8)

@@ -10,6 +10,7 @@ import { volitionHash, hex8 } from '../src/lib/sr1char/hash'
 import { clothingMaterial, eyeMaterial, hairMaterial, skinMaterial } from '../src/lib/sr1char/materials'
 import { PACKFILES, pickPackfiles } from '../src/lib/sr1char/folder'
 import { buildPlayer } from '../src/lib/sr1char/player'
+import { parseCmesh, stripToTriangles } from '../src/lib/sr1char/cmesh'
 import { CROUCH_EYE, CROUCH_HEIGHT, CROUCH_SPEED, STAND_EYE, STAND_HEIGHT } from '../src/editor/walk'
 
 const up = (x: number) => (x + 2047) & ~2047
@@ -163,5 +164,28 @@ describe.skipIf(!GAME_TESTS || !haveGame)('the player from a local game install'
       expect(Math.abs(new THREE.Box3().setFromObject(p.object, true).min.y)).toBeLessThan(0.06)
     }
     p.dispose()
+  }, 120000)
+
+  // Weapons and props are type-0 (static) meshes, whose render header stops at +36: every one reads to the end of the
+  // file with its vertices inside its own bounding box and unit normals.
+  it.skipIf(!existsSync(GAME + '/preload_lower.vpp_xbox2'))('reads every static mesh (.smesh_xbox2)', async () => {
+    const pack = await openVpp(await openAsBlob(GAME + '/preload_lower.vpp_xbox2'), 'preload_lower')
+    const names = pack.list().filter((n) => n.toLowerCase().endsWith('.smesh_xbox2'))
+    expect(names.length).toBeGreaterThan(50)
+    for (const name of names) {
+      const u8 = await pack.read(name)
+      const m = parseCmesh(u8), g = m.geometry, [x0, y0, z0, x1, y1, z1] = m.bbox
+      expect(m.mtype, name).toBe(0)
+      expect(m.vids, name).toEqual([])
+      const end = Math.max(...m.records.map((r) => Math.max(r.ibOffset + r.nidx * 2, r.vbOffset + r.nverts * r.stride)))
+      expect(end, name).toBeLessThanOrEqual(u8.length)
+      for (let i = 0; i < g.nverts; i++) {
+        const [x, y, z] = [g.pos[3 * i], g.pos[3 * i + 1], g.pos[3 * i + 2]]
+        expect(x >= x0 - 1e-3 && x <= x1 + 1e-3 && y >= y0 - 1e-3 && y <= y1 + 1e-3 && z >= z0 - 1e-3 && z <= z1 + 1e-3, name).toBe(true)
+        expect(Math.abs(Math.hypot(g.nrm[3 * i], g.nrm[3 * i + 1], g.nrm[3 * i + 2]) - 1), name).toBeLessThan(0.05)
+      }
+      expect(g.strip.every((k) => k < g.nverts), name).toBe(true)
+      expect(m.records[0].subs.reduce((a, s) => a + stripToTriangles(g.strip, s.start, s.count).length, 0), name).toBeGreaterThan(0)
+    }
   }, 120000)
 })
