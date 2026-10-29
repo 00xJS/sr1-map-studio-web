@@ -49,6 +49,16 @@ export const hasUnsyncedChanges = (rec: Pick<ProjectRecord, 'updated_at' | 'clou
  * Upload the project's user files, thumbnail and data to the cloud.
  * Throws ConflictError when the cloud copy changed elsewhere (pass force to overwrite).
  */
+/**
+ * The thumbnail a cloud save sends: the saved picture is a render of the editor's view, so none goes up if it was
+ * drawn while the map showed anything from the player's game, or if the map shows some now. `clear`: take down
+ * one sent before (it may show the same).
+ */
+export function cloudThumb(rec: Pick<ProjectRecord, 'project' | 'thumbnail' | 'thumb_game'>): { thumbnail: Blob | null; clear: boolean } {
+  if (rec.thumb_game || showsGameData(rec.project)) return { thumbnail: null, clear: true }
+  return { thumbnail: rec.thumbnail ?? null, clear: false }
+}
+
 export async function pushProject(id: string, onProgress?: Progress, opts: { force?: boolean } = {}): Promise<{ updated_at: string }> {
   const { b } = await signedIn()
   // Anything saved locally after this moment counts as unsynced.
@@ -72,8 +82,8 @@ export async function pushProject(id: string, onProgress?: Progress, opts: { for
   }, onProgress)
 
   onProgress?.({ phase: 'Saving project', done: 0, total: 1 })
-  // The saved picture is a render of the editor's view: none goes up while the map draws anything from the game.
-  const res = await b.putCloudProject(rec.project, showsGameData(rec.project) ? null : rec.thumbnail ?? null, { expectedUpdatedAt })
+  const thumb = cloudThumb(rec)
+  const res = await b.putCloudProject(rec.project, thumb.thumbnail, { expectedUpdatedAt, clearThumb: thumb.clear })
   const latest = (await db.getProject(id)) ?? rec
   await db.putProject({ ...latest, cloud: { synced_at: syncedAt, remote_updated_at: res.updated_at } })
   onProgress?.({ phase: 'Saved to cloud', done: 1, total: 1 })

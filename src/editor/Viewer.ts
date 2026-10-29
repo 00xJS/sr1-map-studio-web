@@ -1146,17 +1146,18 @@ export class Viewer {
 
   /** Straight-down picture of `rect` for the minimap (viewer/capture.ts). */
   captureTopDown(o: { size: number; rect: MinimapRect; mirror?: boolean }): Promise<Blob | null> {
-    return captureTopDown(this, [this.markerRoot, this.lightRoot, this.grid, this.box, this.gizmo.getHelper(), ...this.helpers], o)
+    return captureTopDown(this, [this.markerRoot, this.lightRoot, this.grid, this.box, this.gizmo.getHelper(), ...this.helpers, ...(this.ghost ? [this.ghost] : [])], o)
   }
 
   /** The view as the camera sees it, for the map's thumbnail. */
   capture(width = 640, height = 360): Promise<Blob | null> {
-    return captureView({ ...this.captureHost(), camera: this.view.perspective() }, [this.box, this.gizmo.getHelper(), ...this.helpers], width, height)
+    return captureView({ ...this.captureHost(), camera: this.view.perspective() }, [this.box, this.gizmo.getHelper(), ...this.helpers, ...(this.ghost ? [this.ghost] : [])], width, height)
   }
 
   private captureHost() { return { renderer: this.renderer, scene: this.scene, root: this.mapRoot, camera: this.camera, requestRender: () => this.requestRender() } }
 
-  /** Things drawn over the map for a tool (the measured line): left out of the thumbnail and the minimap. */
+  /** Things drawn over the map for a tool (the measured line): left out of the thumbnail and the minimap, as the
+   *  placement ghost is (it may be an object from the game). */
   private helpers: THREE.Object3D[] = []
   addHelper(o: THREE.Object3D) { this.helpers.push(o); this.scene.add(o); this.requestRender() }
   removeHelper(o: THREE.Object3D) { this.helpers = this.helpers.filter((h) => h !== o); this.scene.remove(o); this.requestRender() }

@@ -5,13 +5,30 @@ import { db, sha256 } from './db'
 import { storeFile } from './files'
 import { importModels } from './importers'
 import { cacheModel } from './assets'
-import { gameObjectPaths } from './gameObjects/policy'
+import { gameObjectPaths, showsGameData } from './gameObjects/policy'
 import {
   defaultSettings, maxMapName, newProject, normalizeProject, referencedPaths, uid,
   type Light, type Marker, type Project, type SceneItem, type Asset, type FileRef,
 } from './project'
 
-export async function exportProjectZip(project: Project, thumbnail?: Blob): Promise<Blob> {
+/**
+ * The project with its loading picture left out when that is a view of game data ("Keep this view" over objects
+ * from the game, kept as a game file): it goes back to the automatic picture, rendered by whoever exports it.
+ */
+export function withoutGamePictures(p: Project): Project {
+  const pic = p.settings.loading_image
+  if (!pic || p.files[pic]?.origin !== 'game') return p
+  const files = { ...p.files }
+  delete files[pic]
+  return { ...p, files, settings: { ...p.settings, loading_image: '', loading_mode: 'auto' } }
+}
+
+/**
+ * A backup zip. `thumbGame`: the thumbnail was drawn while the map showed something from the player's game. Pictures
+ * of the view that show game data stay on this device, like the game's objects.
+ */
+export async function exportProjectZip(source: Project, thumbnail?: Blob, thumbGame = false): Promise<Blob> {
+  const project = withoutGamePictures(source)
   const entries: Record<string, Uint8Array> = { 'project.json': strToU8(JSON.stringify(project, null, 1)) }
   // Objects from the player's game travel as where they came from, never as files (see gameObjects/policy.ts).
   const fromGame = gameObjectPaths(project)
@@ -21,7 +38,7 @@ export async function exportProjectZip(project: Project, thumbnail?: Blob): Prom
     const blob = await db.getBlob(ref.hash)
     if (blob) entries[`files/${ref.hash}`] = new Uint8Array(await blob.arrayBuffer())
   }
-  if (thumbnail) entries['thumbnail.webp'] = new Uint8Array(await thumbnail.arrayBuffer())
+  if (thumbnail && !thumbGame && !showsGameData(source)) entries['thumbnail.webp'] = new Uint8Array(await thumbnail.arrayBuffer())
   return new Blob([zipSync(entries, { level: 6 })], { type: 'application/zip' })
 }
 

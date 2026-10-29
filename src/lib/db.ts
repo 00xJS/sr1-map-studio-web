@@ -12,6 +12,8 @@ export interface ProjectRecord {
   updated_at: string
   project: Project
   thumbnail?: Blob
+  /** The thumbnail was drawn while the map showed something from the player's game: it never leaves this device. */
+  thumb_game?: boolean
   cloud?: { synced_at: string; remote_updated_at: string }
 }
 export interface BlobRecord { hash: string; blob: Blob; size: number }
