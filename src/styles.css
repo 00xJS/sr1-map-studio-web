@@ -249,6 +249,7 @@ table.mats tr:hover td { background: #22172a; }
 .modal pre { white-space: pre-wrap; font: 12px/1.5 var(--mono); background: var(--bg-input); padding: 10px; border-radius: 6px; margin: 0; max-height: 50vh; overflow: auto; }
 .ai-applying { position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 210; display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; border-radius: 8px; background: var(--bg-raised); border: 1px solid var(--line-strong); box-shadow: var(--shadow); }
 .phone .ai-applying { bottom: 72px; }
+.ai-applying.inline { position: static; transform: none; box-shadow: none; margin-bottom: 8px; justify-content: space-between; }
 .toasts { position: fixed; right: 16px; bottom: 16px; display: flex; flex-direction: column; gap: 8px; z-index: 200; max-width: 420px; }
 .toast { background: #22152a; border: 1px solid var(--line-strong); border-left: 3px solid var(--accent); border-radius: 6px; padding: 10px 12px; box-shadow: var(--shadow); white-space: pre-wrap; }
 .toast.bad { border-left-color: var(--bad); }
