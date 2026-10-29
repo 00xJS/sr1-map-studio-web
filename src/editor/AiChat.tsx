@@ -7,7 +7,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useEditor, saveNow } from './store'
 import { getViewer } from './Viewport'
-import { runAiActions } from './aiActions'
+import { runAiActions, stopAiEdits, useAiApplying } from './aiActions'
 import { useChat, type Turn } from './aiSession'
 import { KeySetup, readKey, readModel } from './AiKey'
 import { loadLibrary } from './paint'
@@ -31,17 +31,24 @@ const openThought = (content: string) => { const m = content.match(/<think>([\s\
 
 const VERDICT_ICON = { good: '✅', ok: '⚠️', bad: '⛔' } as const
 
-function ReviewCard({ turn }: { turn: Turn }) {
+export function ReviewCard({ turn }: { turn: Turn }) {
   const r = turn.review!
   const patch = useChat((s) => s.patch)
   const [busy, setBusy] = useState(false)
+  // A fix of this card being applied (in the store, so it shows again when the chat is reopened).
+  const fixKey = (label: string) => `fix:${turn.id}:${label}`
+  const running = useAiApplying((s) => s.running.filter((r) => r.key.startsWith(`fix:${turn.id}:`)).map((r) => r.key))
   const apply = async (label: string, actions: AiAction[]) => {
     setBusy(true)
     patch(turn.id, { note: `${label}: applying…` })
     try {
-      const { done, skipped, stopped } = await runAiActions(actions, 'AI fix: ' + label)
-      // Stopped partway (its time ran out, another map opened), it can be tried again.
-      patch(turn.id, { applied: stopped ? turn.applied : [...(turn.applied ?? []), label], note: `${label}: ${done ? `made ${done} change${done === 1 ? '' : 's'}` : 'nothing changed'}${skipped.length ? `; skipped ${skipped.join('; ')}` : ''}.` })
+      const { done, skipped, stopped } = await runAiActions(actions, 'AI fix: ' + label, { key: fixKey(label) })
+      // Stopped before any change, it can be tried again; stopped partway, running it again would add its changes
+      // twice, so it isn't offered again.
+      const t = useChat.getState().turns.find((x) => x.id === turn.id) ?? turn
+      patch(turn.id, {
+        ...(!stopped ? { applied: [...(t.applied ?? []), label] } : done ? { partly: [...(t.partly ?? []), label] } : {}),
+        note: `${label}: ${done ? `made ${done} change${done === 1 ? '' : 's'}` : 'nothing changed'}${skipped.length ? `; skipped ${skipped.join('; ')}` : ''}.` })
     } finally { setBusy(false) }
   }
   return (
@@ -53,11 +60,15 @@ function ReviewCard({ turn }: { turn: Turn }) {
           {s.notes.map((n, i) => <div key={i} className="small muted">{n}</div>)}
           {!!s.fixes.length && (
             <div className="row wrap">
-              {s.fixes.map((f) => (
-                <button key={f.label} className="sm" disabled={busy || turn.applied?.includes(f.label)} onClick={() => apply(f.label, f.actions)} title={`${f.actions.length} edit${f.actions.length === 1 ? '' : 's'}, one undo step`}>
-                  {turn.applied?.includes(f.label) ? '✓ ' : '🔧 '}{f.label}
-                </button>
-              ))}
+              {s.fixes.map((f) => running.includes(fixKey(f.label))
+                ? <button key={f.label} className="sm" onClick={() => stopAiEdits(fixKey(f.label))} title={"Stop making the AI's changes: the ones made so far stay"}>Cancel {f.label}</button>
+                : turn.partly?.includes(f.label)
+                  ? <button key={f.label} className="sm" disabled title="Stopped partway: the changes it made stay (Undo takes them back). Ask the AI again to finish it.">◐ {f.label}</button>
+                  : (
+                    <button key={f.label} className="sm" disabled={busy || running.length > 0 || turn.applied?.includes(f.label)} onClick={() => apply(f.label, f.actions)} title={`${f.actions.length} edit${f.actions.length === 1 ? '' : 's'}, one undo step`}>
+                      {turn.applied?.includes(f.label) ? '✓ ' : '🔧 '}{f.label}
+                    </button>
+                  ))}
             </div>
           )}
         </div>
@@ -76,9 +87,9 @@ export function AiChat({ onClose }: { onClose: () => void }) {
   const [busy, setBusy] = useState(false)
   /** Waiting on the model (Stop works), as opposed to applying its edits. */
   const [asking, setAsking] = useState(false)
-  /** This chat's reply's edits being made, or waiting their turn: Cancel stops them (and only them). */
-  const [applying, setApplying] = useState(false)
-  const stopEdits = useRef<AbortController | null>(null)
+  /** The chat's reply's edits, or a new map's AI extras, being made or waiting their turn: Cancel stops them (and only
+   *  them). Kept in the store, so closing the chat doesn't lose it. */
+  const applying = useAiApplying((s) => s.running.some((r) => r.key === 'chat' || r.key === 'extras'))
   const abort = useRef<AbortController | null>(null)
   const listRef = useRef<HTMLDivElement>(null)
   useEffect(() => { listRef.current?.scrollTo({ top: listRef.current.scrollHeight }) }, [turns])
@@ -147,9 +158,7 @@ export function AiChat({ onClose }: { onClose: () => void }) {
       if (actions.length) {
         undoLabel = 'AI: ' + (msg.length > 40 ? msg.slice(0, 40) + '…' : msg)
         patch(id, { pending: false, thinking: undefined, text: reply || 'Working on it.', note: 'Applying…' })
-        stopEdits.current = new AbortController()
-        setApplying(true)
-        const { done, skipped } = await runAiActions(actions, undoLabel, { signal: stopEdits.current.signal }).finally(() => { setApplying(false); stopEdits.current = null })
+        const { done, skipped } = await runAiActions(actions, undoLabel, { key: 'chat' })
         note = [done ? `Made ${done} change${done === 1 ? '' : 's'}.` : 'Nothing changed.', skipped.length ? `Skipped: ${skipped.join('; ')}.` : ''].filter(Boolean).join(' ')
         if (!done) undoLabel = undefined
       }
@@ -209,7 +218,7 @@ export function AiChat({ onClose }: { onClose: () => void }) {
             {asking
               ? <button className="sm" onClick={() => abort.current?.abort()} title="Stop the answer">■ Stop</button>
               : applying
-                ? <button className="sm" onClick={() => stopEdits.current?.abort()} title="Stop making the AI's changes: the ones made so far stay">Cancel</button>
+                ? <button className="sm" onClick={() => stopAiEdits('chat', 'extras')} title="Stop making the AI's changes: the ones made so far stay">Cancel</button>
                 : <button className="primary sm" disabled={busy || !text.trim()} onClick={() => send(text)}>{busy ? 'Working…' : 'Send'}</button>}
           </div>
         </>
