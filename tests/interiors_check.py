@@ -168,7 +168,10 @@ def full_export(pack, tmp):
         if not r['ok']:
             return [], None, logs
         chunk = (Path(r['value']['out_dir']) / 'drytest.bbchunk_xbox2').read_bytes()
+        chunk_of[job] = chunk
         return regions.read_regions(chunk), r['value']['summary'], logs
+
+    chunk_of = {}
 
     rs, summary, logs = export('dry', always_clear_weather=False, dry_interiors=True)
     print('      regions:', [(tuple(round(v, 1) for v in lo), tuple(round(v, 1) for v in hi), hex(f)) for lo, hi, f in rs])
@@ -180,8 +183,13 @@ def full_export(pack, tmp):
     check(len(rs) == 2 and rs[-1][2] == regions.MAP_REGION_FLAGS and inside(rs[-1][:2], centre),
           "export: the minimap's map-wide region stays last")
     check(summary and summary.get('dry_boxes') == 1 and any(line.startswith('Dry interiors: 1 box') for line in logs), 'export: summary and log say so')
+    # The falling rain stops at a rain occluder, not at the region (reported 2026-10-28: it rained inside without one).
+    occ = regions.occluder_bounds(chunk_of['dry'])
+    check(len(occ) == 1 and occ[0] == dry[0][:2] and regions.without_occluders(chunk_of['dry']) == [],
+          f'export: a rain occluder with the rain blocker\'s box, none for the map-wide region ({len(occ)})')
     rs, summary, logs = export('clear', always_clear_weather=True, dry_interiors=False)
     check([r[2] for r in rs] == [regions.MAP_REGION_FLAGS] and summary and not summary.get('dry_boxes'), 'export: switched off, only the map region')
+    check(regions.occluder_bounds(chunk_of['clear']) == [], 'export: switched off, no rain occluders')
 
 
 pack = os.environ.get('SR1_DATA_PACK')
@@ -195,7 +203,7 @@ if pack:
     check([f for _, _, f in got] == [0x3B, 0x8, 0] and got[1][:2] == ((10, 0, 10), (20, 5, 20)), 'insert: the new box between a room and the map region')
     before = {s.name: bytes(s.data) for s in rc.read_chunk(two).secs}
     after = {s.name: bytes(s.data) for s in rc.read_chunk(out).secs}
-    check([k for k in before if before[k] != after[k]] == [regions.SECTION], 'insert: only the region section changed')
+    check([k for k in before if before[k] != after[k]] == [regions.OCCLUDERS, regions.OCCLUDER_TREE, regions.SECTION], 'insert: only the region and rain occluder sections changed')
     # A box over the whole floor plan but not the map's height does not stand in for the map region.
     low = regions.write_regions(original, [(interiors.volume(((-90, -1, -90), (90, 5, 90))), regions.FLAG_INDOOR, 0.0)])
     check(regions.covered(low, -80, 80, -80, 80) and not regions.covered(low, -80, 80, -80, 80, -50, 100), 'covered: a low box is not the whole map')

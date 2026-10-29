@@ -123,6 +123,28 @@ describe('playtest.lua', () => {
     }
   })
 
+  it('logs the rain where the camera is: in and out of a rain blocker, once a second while it rains', () => {
+    const log = parsePlaytest(play({ scenario: 'rain' }).files['playtest/rooftop-20261027-180211.jsonl'])
+    expect(log.skipped).toEqual([])
+    const rain = log.events.filter((e): e is Extract<PlaytestEvent, { ev: 'rain' }> => e.ev === 'rain')
+    expect(rain[0]).toMatchObject({ t: 0, indoor: false, region: -1, weather: 4, fade: 0, screenRain: [0.8, 0.5] })
+    // Into the blocker at 3 s, a line on the way in, the fade at 1 and the screen rain gone by the next second.
+    const into = rain.find((e) => e.indoor)!
+    expect(into.t).toBeCloseTo(3, 1)
+    expect(into.region).toBe(8)
+    expect(rain.find((e) => e.t > 4.5 && e.t < 6)).toMatchObject({ indoor: true, fade: 1, screenRain: [0, 0] })
+    // Out at 6 s: a line as the camera leaves (the latch holds while the fade runs down), then one at the clear.
+    expect(rain.find((e) => e.t >= 6 && e.region === -1)?.t).toBeCloseTo(6, 1)
+    expect(rain.some((e) => e.t > 7 && !e.indoor && e.fade === 0)).toBe(true)
+    // About one a second while it rains, plus the crossings.
+    expect(rain.length).toBeGreaterThanOrEqual(9)
+    expect(rain.length).toBeLessThanOrEqual(14)
+  })
+
+  it('logs no rain in a clear match outside any region (the sample log has none)', () => {
+    expect(parsePlaytest(play().files['playtest/rooftop-20261027-180211.jsonl']).events.some((e) => e.ev === 'rain')).toBe(false)
+  })
+
   it('starts a second file when play starts again within the same second', () => {
     const { files } = play({ scenario: 'reenter' })
     const first = parsePlaytest(files['playtest/rooftop-20261027-180211.jsonl'])
