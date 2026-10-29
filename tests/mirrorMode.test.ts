@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 import { afterEach, describe, expect, it } from 'vitest'
-import { command, mirrorCentreNow, useEditor, withoutMirror } from '../src/editor/store'
+import { command, mirrorCentreNow, undonePinCount, useEditor, withoutMirror } from '../src/editor/store'
 import { bundleItems, placeBundle } from '../src/editor/act/several'
 import { newLight, newMarker, newProject, uid, type Project, type SceneItem, type Vec3 } from '../src/lib/project'
 import { mirrorEdit, mirrorSession, symmetryOf } from '../src/lib/mirrorEdit'
@@ -227,6 +227,19 @@ describe('mirror mode', () => {
     lone.markers = [newMarker('Red team spawn', [30, 0, 30]), { ...newMarker('Weapon pickup', [40, 0, 40]), weapon: 'ak47' }]
     st().open(lone)
     st().set({ mirror: true })
+    expect(mirrorCentreNow()).toEqual([0, 0])
+  })
+
+  it('a new edit after undoing past where it was turned on lets go of the pins it can no longer redo to', () => {
+    const p = newProject('Pins')
+    p.markers = [newMarker('Red team spawn', [10, 0, -20]), newMarker('Blue team spawn', [-10, 0, 20])]
+    st().open(p)
+    st().update('Move spawns', (d) => { d.markers[0].position = [60, 0, -20]; d.markers[1].position = [40, 0, 20] })
+    st().set({ mirror: true })
+    st().undo()
+    expect(undonePinCount()).toBe(1)
+    st().update('Rename', (d) => { d.name = 'other way' })
+    expect(undonePinCount()).toBe(0)
     expect(mirrorCentreNow()).toEqual([0, 0])
   })
 

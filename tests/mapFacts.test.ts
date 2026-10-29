@@ -159,4 +159,27 @@ describe('AI edit helpers', () => {
     expect(plan.items).toEqual({ drop: [2], copy: [1, 3] })
     expect(plan.markers).toEqual({ drop: [1], copy: [0] })
   })
+
+  it('an off-centre map, read about its middle, has the same sides, cover, crossings and weapons as round the origin', () => {
+    const build = (dx: number, dz: number) => {
+      const at = (v: Vec3): Vec3 => [v[0] + dx, v[1], v[2] + dz]
+      const p = newProject('Offset')
+      // A wall across the middle with one gap in it: the only way across, at the middle's row.
+      p.scene_items = [shape('Ground', at([0, 0, 0]), [80, 1, 120]), shape('Crate', at([15, 0.5, -20]), [3, 2, 3]), shape('Crate', at([-15, 0.5, 20]), [3, 2, 3]),
+        shape('Wall', at([-25, 0.5, 0]), [30, 4, 1]), shape('Wall', at([25, 0.5, 0]), [30, 4, 1], 180)]
+      p.markers = [newMarker('Red team spawn', at([0, 1.1, -50])), newMarker('Blue team spawn', at([0, 1.1, 50])),
+        { ...newMarker('Weapon pickup', at([10, 1.1, -30])), weapon: 'sniper_rifle' }, { ...newMarker('Weapon pickup', at([-10, 1.1, 30])), weapon: 'sniper_rifle' }]
+      return p
+    }
+    const here = gatherFacts({ project: build(0, 0) })
+    const there = gatherFacts({ project: build(100, 40), middle: [100, 40] })
+    expect(there.cover).toEqual(here.cover)
+    expect(here.flow.crossings).toHaveLength(1)
+    expect(there.flow.crossings).toEqual(here.flow.crossings)
+    expect(there.weapons.power.map((w) => w.side)).toEqual(['red', 'blue'])
+    expect([there.weapons.red, there.weapons.middle, there.weapons.blue]).toEqual([here.weapons.red, here.weapons.middle, here.weapons.blue])
+    expect(there.issues.map((i) => i.id).sort()).toEqual(here.issues.map((i) => i.id).sort())
+    // Read about the origin instead, both pickups count as blue's.
+    expect(gatherFacts({ project: build(100, 40) }).weapons.power.map((w) => w.side)).toEqual(['blue', 'blue'])
+  })
 })

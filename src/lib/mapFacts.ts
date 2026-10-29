@@ -250,7 +250,7 @@ export const gridFacts: FactSource = {
       }
       if (s.wrongEnd) issues.push({
         id: 'spawn-end-' + s.marker, topic: 'spawns', severity: 'bad',
-        text: `${mk.type} #${s.marker} is at the other team's end (red belongs at -Z, blue at +Z).`,
+        text: `${mk.type} #${s.marker} is at the other team's end (red belongs on the -Z side of the middle, blue on the +Z side).`,
         fix: { label: 'Move it to its own end', actions: [{ do: 'move_marker', index: s.marker, x: r1(2 * mid[0] - mk.position[0]), z: r1(2 * mid[1] - mk.position[2]) }] },
       })
     }
@@ -356,10 +356,10 @@ export const gridFacts: FactSource = {
     if (Math.abs(cover.red - cover.blue) > 0.1) issues.push({ id: 'cover-unfair', topic: 'fairness', severity: 'warn', text: `Red's side has cover on ${Math.round(cover.red * 100)}% of its floor, blue's on ${Math.round(cover.blue * 100)}%.` })
     if (!issues.some((x) => x.topic === 'cover') && zone.middle[1]) issues.push({ id: 'cover-ok', topic: 'cover', severity: 'good', text: `Cover near ${Math.round(cover.middle * 100)}% of the middle and ${Math.round(cover.red * 100)}% of each side.` })
 
-    // Flow: ways across the middle at ground level, and a ground route between the team ends.
+    // Flow: ways across the middle at ground level (along its row), and a ground route between the team ends.
     const crossings: number[] = []
     {
-      const [, k] = g.cell(0, 0)
+      const [, k] = g.cell(mid[0], mid[1])
       let run = 0
       for (let i = 0; i <= g.nx; i++) {
         const ok = i < g.nx && k >= 0 && k < g.nz && walkable(g.top[k * g.nx + i])
