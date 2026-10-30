@@ -7,6 +7,8 @@ import type { Vec3 } from '../project'
 export const SOLID = 1
 /** Blocks sight (glass, fences and other see-through materials do not). */
 export const OPAQUE = 2
+/** Part of an object marked climbable (SceneItem.climbable). */
+export const CLIMBABLE = 4
 
 export interface AnalysisMarker {
   type: string
@@ -20,7 +22,7 @@ export interface AnalysisMarker {
 export interface AnalysisInput {
   /** World-space triangles, 9 floats each. */
   tris: Float32Array
-  /** One byte per triangle: SOLID | OPAQUE. */
+  /** One byte per triangle: SOLID | OPAQUE | CLIMBABLE. */
   flags: Uint8Array
   markers: AnalysisMarker[]
 }
@@ -118,8 +120,8 @@ export interface SightLane { from: Vec3; to: Vec3; metres: number }
 
 /**
  * Getting around: 'sprint-gap' only a sprinting jump crosses, 'wide-gap' too wide to jump, 'hurt-drop' a fall that
- * costs health, 'kill-drop' one that kills (or off the map), 'climb-only' a wall the game's own maps would let you
- * climb but exported maps can't.
+ * costs health, 'kill-drop' one that kills (or off the map), 'climb-only' a wall with no way up: the game climbs only
+ * at ledges a map lists, and an export lists them only for objects marked climbable.
  */
 export type MoveKind = 'sprint-gap' | 'wide-gap' | 'hurt-drop' | 'kill-drop' | 'climb-only'
 

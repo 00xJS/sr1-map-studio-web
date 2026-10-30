@@ -133,10 +133,11 @@ export const TEST_BATCHES: TestBatch[] = [
   {
     id: 3,
     title: 'Batch 3: features you turn on',
-    blurb: 'One bigger yard holding every opt-in feature: a pool, physics props, breakables, Blinged Out Ride and more.',
-    features: ['water', 'physics_props', 'breakable_glass', 'breakable_wood', 'crate_debris', 'blinged_out_ride', 'item_props', 'sound_zones', 'surface_registration', 'decoy_dummies', 'pimp_exit'],
+    blurb: 'One bigger yard holding every opt-in feature: a pool, physics props, breakables, climbable objects, Blinged Out Ride and more.',
+    features: ['water', 'climb_ledges', 'physics_props', 'breakable_glass', 'breakable_wood', 'crate_debris', 'blinged_out_ride', 'item_props', 'sound_zones', 'surface_registration', 'decoy_dummies', 'pimp_exit'],
     where: {
       water: 'The walled pool in the south-east corner: walk up the ramp and jump in.',
+      climb_ledges: 'South-west of the middle, a box 1.5 m high and 3 m deep; north-west of the middle, a wall 2.5 m high and 0.5 m thick. Try the long sides.',
       physics_props: 'The crate tower (south-west), the tire ramp (south) and the propane tanks (west): shoot, kick and blast them.',
       breakable_glass: 'The blue pane north-east of the middle.',
       breakable_wood: 'The plank box beside the pane.',
@@ -163,7 +164,7 @@ export const TEST_BATCHES: TestBatch[] = [
     ],
     sample: () => ({
       id: 'testoptin', name: 'Test 3 Opt-ins', icon: '🧪', theme: 'Starter', modes: [...GB, BOR],
-      description: 'In-game test map: water, physics props, breakables, Blinged Out Ride, item props, sound zones and surface registration.',
+      description: 'In-game test map: water, climbable objects, physics props, breakables, Blinged Out Ride, item props, sound zones and surface registration.',
       parts: [
         ground(160, 160, T.floor), ...perimeter(160, 160, 10, T.wall),
         // The pool: a walled basin 18 × 18 inside, water 2.5 m deep, its rim 0.5 m above the water; a ramp up the west side.
@@ -171,6 +172,8 @@ export const TEST_BATCHES: TestBatch[] = [
         box('Pool wall', [1, 6, 18], [40.5, 1, -50], PB.steel, PB.steel), box('Pool wall', [1, 6, 18], [59.5, 1, -50], PB.steel, PB.steel),
         { ...box('Pool water', [18, 5, 18], [50, 1, -50], T.water, T.water), water: true },
         ramp('Pool ramp', [6, 6, 10], [35, 1, -50], T.wood, T.wall, -90),
+        { ...box('Climb box', [8, 3, 6], [-16, 1, -16], T.wall, T.wall), climbable: true },
+        { ...box('Climb wall', [10, 5, 1], [-16, 1, 14], T.wall, T.brick), climbable: true },
         ...physicsSet('crate_tower', -50, -50),
         ...physicsSet('tire_ramp', 0, -45),
         ...physicsSet('propane_chain', -60, 30),
@@ -232,6 +235,7 @@ export function carries(p: Project, id: FeatureId): boolean {
     case 'dry_interiors': return dryInteriors(s) && items.some((it) => it.name.startsWith('Roof'))
     case 'rain_blockers': return !s.always_clear_weather && p.markers.some((m) => m.type === RAIN_BLOCKER || m.type === INDOOR_ROOM)
     case 'water': return items.some((it) => it.swimmable_water)
+    case 'climb_ledges': return items.some((it) => it.climbable)
     case 'physics_props': return items.some((it) => !!it.physics_preset)
     case 'breakable_glass': return breakables.some((it) => it.native_breakable_kind === 'glass')
     case 'breakable_wood': return breakables.some((it) => it.native_breakable_kind === 'wood' && it.native_profile !== CRATE_PROFILE)

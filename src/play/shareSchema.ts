@@ -72,7 +72,7 @@ const ITEM: { [K in keyof SceneItem]?: Clean } & Record<string, Clean> = {
   native_breakable_kind: str(16), native_opacity: num, native_use_alpha: bool, native_prop_behavior: str(16),
   native_original_name: str(), native_prop_original_name: str(), native_profile: str(64),
   physics_preset: str(64), physics_shape: str(16), physics_bottom_heavy: bool,
-  swimmable_water: bool, water_materials: strs, collision_materials: strs, triangles: num, shape, group: str(), layer: str(),
+  swimmable_water: bool, water_materials: strs, climbable: bool, collision_materials: strs, triangles: num, shape, group: str(), layer: str(),
   dummy: (v) => dummy(v),
 }
 

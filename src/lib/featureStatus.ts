@@ -31,6 +31,7 @@ export const FEATURES = {
   rain_blockers: { label: 'Rain blockers and indoor rooms', state: 'exports', note: 'Hand-placed rain blocker and indoor room markers. Not reported on their own, but they had the same fault as dry interiors (reported not working in game on 2026-10-28). New exports add the rain occluders the game stops falling rain at, not yet tried in game. Look for: no rain inside the marked box when the weather changes; shots, players and the camera still pass through its sides.' },
   ambience: { label: 'Background sound', state: 'untested', note: "Borrowed from your game when the map loads. Look for: the retail map's sound bed or sound spots." },
   water: { label: 'Swimmable water', state: 'exports', note: 'No collision, see-through, swim surface at the top. Look for: swimming, and climbing back out.' },
+  climb_ledges: { label: 'Climbable objects', state: 'exports', note: "The edges of flat tops on objects marked Climbable, written as the game's climb ledges (pull up and stand). Look for: a pull-up onto the box and the wall from each long side, ending stood on top; no grab within 0.35 m of a corner." },
   physics_props: { label: 'Physics props', state: 'exports', note: 'Loose, heavy, rolling, bouncy, explosive and breakable props with fitted collision.' },
   breakable_glass: { label: 'Breakable glass', state: 'untested', note: 'Your mesh with a fitted Havok box hull. Look for: it shatters when shot.' },
   breakable_wood: { label: 'Breakable wood', state: 'untested', note: 'A loose object that disappears when it breaks.' },

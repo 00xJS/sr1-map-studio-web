@@ -1,10 +1,10 @@
 // The floor players can stand on, as a walking graph: a grid of columns over
 // the map, a node for every surface in a column with room above it, and edges
-// where the walk-through's player could step, climb a ramp, jump up a ledge or
-// drop down to the neighbouring spot. Shortest walks come from Dijkstra on it.
+// where the walk-through's player could step, climb a ramp, jump up a ledge,
+// pull up onto an object marked climbable or drop down to the neighbouring spot. Shortest walks come from Dijkstra on it.
 import type { Bvh } from './bvh'
-import { SOLID, type FloorGrid } from './types'
-import { CROUCH_SPEED, FALL, JUMP_HEIGHT, LETHAL_FALL_M, MANTLE, MAX_SLOPE_DEG, RUN_SPEED, STEP, UNITS_PER_M } from '../player'
+import { CLIMBABLE, SOLID, type FloorGrid } from './types'
+import { CLIMB, CROUCH_SPEED, FALL, JUMP_HEIGHT, LETHAL_FALL_M, MANTLE, MAX_SLOPE_DEG, RUN_SPEED, STEP, UNITS_PER_M } from '../player'
 
 /** The walk-through's player (src/editor/walk.ts), editor units. Kept here so the worker doesn't load three.js. */
 export const PLAYER = { stand: 3.56, crouch: 2.22, standEye: 3.24, crouchEye: 2.1, radius: 0.85, step: STEP, jump: JUMP_HEIGHT, walk: RUN_SPEED, crouchSpeed: CROUCH_SPEED }
@@ -87,7 +87,11 @@ export function buildFloor(bvh: Bvh, cell: number, maxDrop: number): FloorGraph 
       // You end up on the highest floor in that column you can get to (a deck under a roof, say, not the roof).
       const c = j * nx + i
       for (let b = colStart[c]; b < colStart[c + 1]; b++) {
-        if (pos[b * 3 + 1] > ay + maxRise) continue
+        if (pos[b * 3 + 1] > ay + maxRise) {
+          // Too high to jump: only up a climb ledge.
+          if (canClimb(bvh, pos, crouchOnly, a, b)) { to.push(b); cost.push(flat * 2 + 6); break }
+          continue
+        }
         const cst = edge(bvh, pos, crouchOnly, a, b, flat, maxDrop, ys, tris)
         if (cst > 0) { to.push(b); cost.push(cst); break }
       }
@@ -138,6 +142,16 @@ function edge(bvh: Bvh, pos: Float32Array, crouchOnly: Uint8Array, a: number, b:
   }
   // A hop over something low in the way (a railing, a parapet) onto floor about as high.
   return canHop(bvh, ax, ay, az, bx, bz) ? flat * 1.5 + 2 : 0
+}
+
+/** Whether the player at a can pull up onto b: the top of an object marked climbable, in the game's climbing range, with room over the edge. */
+function canClimb(bvh: Bvh, pos: Float32Array, crouchOnly: Uint8Array, a: number, b: number): boolean {
+  const ax = pos[a * 3], ay = pos[a * 3 + 1], az = pos[a * 3 + 2]
+  const bx = pos[b * 3], by = pos[b * 3 + 1], bz = pos[b * 3 + 2]
+  if (crouchOnly[a] || by - ay < CLIMB.minM * UNITS_PER_M || by - ay > CLIMB.maxM * UNITS_PER_M) return false
+  if (bvh.closest(bx, by + 0.1, bz, 0, -1, 0, 0.3, CLIMBABLE) < 0) return false
+  const over = by + 1
+  return !bvh.blocked(ax, over, az, bx, over, bz, SOLID) && !bvh.blocked(ax, ay + 0.2, az, ax, over, az, SOLID)
 }
 
 /** Whether a jump from a clears whatever stands between it and b: nothing above a, nothing at the top of the jump. */

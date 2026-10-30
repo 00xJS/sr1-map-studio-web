@@ -5,7 +5,7 @@
 // but not sight.
 import { exportMatName, transformPoint, type ObjModel } from '../geometry'
 import { isGlass, type Project, type SceneItem } from '../project'
-import { OPAQUE, SOLID, type AnalysisInput, type AnalysisMarker } from './types'
+import { CLIMBABLE, OPAQUE, SOLID, type AnalysisInput, type AnalysisMarker } from './types'
 
 const KINDS = ['Shared spawn', 'Red team spawn', 'Blue team spawn', 'Weapon pickup', 'Chains drop-off']
 
@@ -67,13 +67,13 @@ function addItem(it: SceneItem, mdl: ObjModel, tris: number[], flags: number[]) 
       const v = mdl.faces[f * 3 + k] * 3
       tris.push(world[v], world[v + 1], world[v + 2])
     }
-    flags.push(glass || it.alpha?.[mat] ? SOLID : SOLID | OPAQUE)
+    flags.push((glass || it.alpha?.[mat] ? SOLID : SOLID | OPAQUE) | (it.climbable && !glass ? CLIMBABLE : 0))
   }
 }
 
 /** A short key that changes whenever something the checks look at changes (to tell when a report is out of date). */
 export function analysisKey(project: Project): string {
-  const items = project.scene_items.map((it) => [it.path, it.position, it.rotation, it.scale, it.pivot, it.collision_disabled, it.collision_excluded_faces?.length, it.collision_materials, it.swimmable_water, it.water_materials, it.alpha, it.native_prefab])
+  const items = project.scene_items.map((it) => [it.path, it.position, it.rotation, it.scale, it.pivot, it.collision_disabled, it.collision_excluded_faces?.length, it.collision_materials, it.swimmable_water, it.water_materials, it.alpha, it.native_prefab, it.climbable])
   const markers = project.markers.filter((mk) => KINDS.includes(mk.type)).map((mk) => [mk.type, mk.position, mk.type === 'Weapon pickup' ? mk.weapon : /spawn/i.test(mk.type) ? mk.yaw : ''])
   const text = JSON.stringify([items, markers])
   // FNV-1a, enough to notice a change.

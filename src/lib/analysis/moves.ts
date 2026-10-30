@@ -1,10 +1,12 @@
 // Getting around the way the game's player does: gaps only a sprinting jump
-// crosses (or none), drops that hurt or kill, and walls the game's own maps
-// would let you climb but exported maps can't (they have no climb ledges yet,
-// so the floor graph never counts them as a way up).
+// crosses (or none), drops that hurt or kill, and walls with no way up. The game
+// climbs only at ledges a map lists, and an export lists them only for objects
+// marked climbable; the floor graph counts those as a way up, so a wall still
+// found here is one nothing marked gets you over.
 import type { Bvh } from './bvh'
 import { FREE_DROP, JUMP_UP, LETHAL_DROP, PLAYER, type FloorGraph } from './floor'
 import { SOLID, type MoveFinding, type MoveKind } from './types'
+import { statusSentence } from '../featureStatus'
 import { CLIMB, GAP, MAX_HP, UNITS_PER_M, fallDamage } from '../player'
 import type { Vec3 } from '../project'
 
@@ -71,7 +73,7 @@ export function findMoves(bvh: Bvh, g: FloorGraph): MoveFinding[] {
       const i = ci + di, j = cj + dj
       if (i < 0 || j < 0 || i >= nx || j >= nz) continue
       const len = cell * (di && dj ? Math.SQRT2 : 1)
-      // A wall the game's own maps could let you climb (with a climb ledge on top), onto floor you can't reach:
+      // A wall a climb ledge would get you up, onto floor you can't reach (one on a climbable object is reachable):
       // a face in the way (anywhere across the next column) and a real platform on top, not a crate.
       const top = below(i, j, ay + CLIMB.maxM * UNITS_PER_M)
       const rise = top >= 0 ? pos[top * 3 + 1] - ay : 0
@@ -79,7 +81,7 @@ export function findMoves(bvh: Bvh, g: FloorGraph): MoveFinding[] {
         && bvh.blocked(ax, ay + low, az, ax + di * cell * 1.5, ay + low, az + dj * cell * 1.5, SOLID) && area(top, PLATFORM)) {
         out['climb-only'].push({
           kind: 'climb-only', at: [ax, ay, az], to: P(top), metres: m(rise),
-          text: `A ${m(rise)} m wall: the game's own maps let you climb walls like this, exported maps can't yet. Add stairs or a ramp if it should be a way up.`,
+          text: `A ${m(rise)} m wall with no way up. Marking the object on top Climbable lets players pull up it.${statusSentence('climb_ledges')} Or add stairs or a ramp, if it should be a way up.`,
         })
         continue
       }
@@ -158,7 +160,7 @@ export function movesSummary(moves: MoveFinding[]): string | null {
     ...say(n('wide-gap'), 'gap too wide to jump', 'gaps too wide to jump'),
     ...say(n('kill-drop'), 'drop that kills', 'drops that kill'),
     ...say(n('hurt-drop'), 'drop that hurts', 'drops that hurt'),
-    ...say(n('climb-only'), "wall only climbable on the game's own maps", "walls only climbable on the game's own maps"),
+    ...say(n('climb-only'), 'wall with no way up', 'walls with no way up'),
   ]
   return said.length ? `Getting around: ${said.join(', ')}.` : null
 }

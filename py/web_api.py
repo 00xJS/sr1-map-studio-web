@@ -42,6 +42,7 @@ import fast_dxt
 import map_features as features
 import regions
 import interiors
+import climb
 import minimap_region
 import collision_fix
 import retail_features as retail
@@ -472,6 +473,8 @@ def _export(s, log):
     physics.apply_shapes(chunk, glass_items, result.get('native_glass', {}).get('placements', []), _parse, ws, mirror, log)
     if crate_donor:
         retail.crate_debris.add_debris(chunk, out / (base + '.peg_xbox2'), crate_donor, log)
+    # Climb ledges on the objects marked climbable, converted like the markers (py/climb.py).
+    ledge_count = climb.add_ledges(chunk, items, mesh, lambda p: sr1_cts.convert_xyz(p, ws, mirror, fixed_origin), log)
     # Last change to the chunk: the game's own sky, when the editor passed in the player's game files.
     game_sky = native_sky.add(chunk, out / (base + '.peg_xbox2'), sky_donor, log) if sky_donor else False
     rect = s.get('minimap_rect')
@@ -504,6 +507,7 @@ def _export(s, log):
         'native_props': result.get('native_props', {}).get('created', 0),
         'lights': result.get('lighting', {}).get('exported', 0),
         'water_volumes': water_count,
+        'climb_ledges': ledge_count,
         'regions': region_count,
         'dry_boxes': min(len(dry), region_count),
         'game_sky': int(game_sky),

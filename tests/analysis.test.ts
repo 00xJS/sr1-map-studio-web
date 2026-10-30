@@ -143,17 +143,23 @@ describe('gaps, drops and walls', () => {
     expect(kinds(from(22))).not.toContain('hurt-drop')
   })
 
-  it('a 2 m wall is no way up in an exported map; with stairs it is', () => {
+  it('a 2 m wall is no way up in an exported map; with stairs, or marked climbable, it is', () => {
     const base: MarkerSpec[] = [['Shared spawn', [-20, 0, -20]], ['Shared spawn', [20, 0, 20]], ['Weapon pickup', [0, 4, 0], { weapon: 'ak47' }]]
     const wall = check([ground(), box([10, 4, 10], [0, 0, 0])], base)
     expect(wall.unreachable.map((u) => u.type)).toEqual(['Weapon pickup'])
     const climb = wall.moves.filter((mv) => mv.kind === 'climb-only')
     expect(climb.length).toBeGreaterThan(0)
     expect(climb[0].metres).toBe(2)
-    expect(climb[0].text).toMatch(/exported maps can't yet/)
+    expect(climb[0].text).toMatch(/no way up.*Climbable/)
     const stairs = check([ground(), box([10, 4, 10], [0, 0, 0]), { ...box([6, 4, 10], [0, 0, 10], 'stairs'), segments: 16 }], base)
     expect(stairs.unreachable).toEqual([])
     expect(kinds(stairs)).not.toContain('climb-only')
+    const marked = check([ground(), { ...box([10, 4, 10], [0, 0, 0]), climbable: true }], base)
+    expect(marked.unreachable).toEqual([])
+    expect(kinds(marked)).not.toContain('climb-only')
+    // Higher than the game's 3.15 m: marked or not, nobody gets up it.
+    const high = check([ground(), { ...box([10, 8, 10], [0, 0, 0]), climbable: true }], [base[0], base[1], ['Weapon pickup', [0, 8, 0], { weapon: 'ak47' }]])
+    expect(high.unreachable.map((u) => u.type)).toEqual(['Weapon pickup'])
   })
 })
 
