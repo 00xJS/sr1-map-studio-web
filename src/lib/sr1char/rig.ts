@@ -1,6 +1,7 @@
 // Ported from SR1-Creator (github.com/00xJS/SR1-Creator)
 // Saints Row (2006) skeleton (.rig_xbox2), as used by the player body (pc.rig_xbox2 in preload.vpp_xbox2).
-// Header (big-endian u32 at 0x20): version 4, bone count, ...; bone records of 36 bytes from 0x140:
+// Header (big-endian u32 at 0x20): version 4, bone count, ...; one u32 per bone from 0x40, then bone records of 36 bytes
+// from the next 16-byte boundary (0x140 for the 64-bone people, from Kewizzle's SR1 Studio):
 // {u32 name offset, float inverse-bind translation xyz (= -rest position), float local offset from parent xyz,
 //  u32 parent index (0xFFFFFFFF for the root), u32 0xFFFFFFFF}. Rest orientations are identity, so a pose is a set
 // of rotations about each bone's rest position. Names are NUL-terminated strings after the records.
@@ -9,20 +10,35 @@ import * as THREE from 'three'
 export interface RigBone { name: string; rest: THREE.Vector3; parent: number }
 export interface Rig { bones: RigBone[]; byName: Record<string, number> }
 
+const printable = (c: number) => c >= 0x20 && c <= 0x7e
+
+/** Where the name table starts: the first place every bone's name offset lands on a whole string. Bones aren't always called "Root" first, and other data can come before the names. */
+function findNames(u8: Uint8Array, offsets: number[], from: number): number {
+  for (let base = from; base < u8.length; base++) {
+    const fits = offsets.every((o) => {
+      let i = base + o
+      if (i >= u8.length || !printable(u8[i]) || (o > 0 && u8[i - 1] !== 0)) return false
+      while (i < u8.length && printable(u8[i])) i++
+      return i < u8.length && u8[i] === 0
+    })
+    if (fits) return base
+  }
+  throw new Error('rig has no name table this reader understands')
+}
+
 export function parseRig(u8: Uint8Array): Rig {
   const dv = new DataView(u8.buffer, u8.byteOffset, u8.byteLength)
   const n = dv.getUint32(0x24)
-  const REC = 0x140, SZ = 36
-  // names: the first record is the root, whose name is "Root"; locate the name table from it
-  let rootAt = -1
-  for (let i = REC + n * SZ; i < u8.length - 4; i++) if (u8[i] === 82 && u8[i + 1] === 111 && u8[i + 2] === 111 && u8[i + 3] === 116 && u8[i + 4] === 0) { rootAt = i; break }
-  if (rootAt < 0) throw new Error('rig has no Root bone')
-  const nameBase = rootAt - dv.getUint32(REC)
+  const SZ = 36, REC = Math.ceil((0x40 + 4 * n) / 16) * 16
+  if (n > 4096 || REC + n * SZ > u8.length) throw new Error('rig bone table runs past the end of the file')
+  const offsets = Array.from({ length: n }, (_, i) => dv.getUint32(REC + SZ * i))
+  const nameBase = findNames(u8, offsets, REC + n * SZ)
   const str = (o: number) => { let s = ''; for (let i = nameBase + o; u8[i]; i++) s += String.fromCharCode(u8[i]); return s }
   const bones: RigBone[] = []
   for (let i = 0; i < n; i++) {
     const o = REC + SZ * i, par = dv.getUint32(o + 28)
-    bones.push({ name: str(dv.getUint32(o)), rest: new THREE.Vector3(-dv.getFloat32(o + 4), -dv.getFloat32(o + 8), -dv.getFloat32(o + 12)), parent: par === 0xffffffff ? -1 : par })
+    if (par !== 0xffffffff && par >= n) throw new Error('rig parent index is outside the bone table')
+    bones.push({ name: str(offsets[i]), rest: new THREE.Vector3(-dv.getFloat32(o + 4), -dv.getFloat32(o + 8), -dv.getFloat32(o + 12)), parent: par === 0xffffffff ? -1 : par })
   }
   return { bones, byName: Object.fromEntries(bones.map((b, i) => [b.name, i])) }
 }
