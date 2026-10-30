@@ -577,7 +577,7 @@ def brawl_spawns(cts_text):
         return (text[:a] + head + body + text[b:]).replace('\n', nl), 0, len(team)
     gone = {m.group(1) for blk in team for m in [re.search(r'(?m)^\$Start nav:\s*"([^"]+)"', blk)] if m}
     # Say so in the file, for anyone reading it: the team spawns weren't lost.
-    note = (f'// {len(team)} team spawn(s) are only in the Protect Tha Pimp / Blinged Out Ride CTS (<map>_ptp.cts, <map>_bor.cts):\n'
+    note = (f'// {len(team)} team spawn(s) left out here. Protect Tha Pimp and Blinged Out Ride, when on, have them in <map>_ptp.cts and <map>_bor.cts:\n'
             "// Gangsta Brawl and Big Ass Chains, team versions too, spawn everyone at these Player spawns, as the game's own maps do.\n")
     text = text[:a] + head + note + ''.join(blk for blk in blocks if blk not in team) + text[b:]
     span = _cts_section(text, '#Navpoints')
@@ -590,16 +590,35 @@ def brawl_spawns(cts_text):
 
 
 def write_brawl_spawns(out_dir, base, log):
-    """Applies brawl_spawns to <base>.cts, after the BOR CTS has copied its team respawns."""
+    """Applies brawl_spawns to <base>.cts, after the PTP and BOR CTS files are written and BOR has copied its team respawns."""
     p = Path(out_dir) / (base + '.cts')
     if not p.is_file():
         return
     text, left_out, unteamed = brawl_spawns(p.read_bytes().decode('utf-8-sig'))
     if left_out:
-        log(f'Gangsta Brawl and Big Ass Chains use the free-for-all spawns only, like the game\'s own maps; '
-            f'the {left_out} team spawn(s) are kept for Protect Tha Pimp and Blinged Out Ride.')
+        users = [mode for suffix, mode in (('_ptp', 'Protect Tha Pimp'), ('_bor', 'Blinged Out Ride')) if (Path(out_dir) / f'{base}{suffix}.cts').is_file()]
+        kept = (f'the {left_out} team spawn(s) are kept for {" and ".join(users)}.' if users else
+                f'the {left_out} team spawn(s) are not in this export: only Protect Tha Pimp and Blinged Out Ride use them, and neither is on.')
+        log(f'Gangsta Brawl and Big Ass Chains use the free-for-all spawns only, like the game\'s own maps; {kept}')
     elif unteamed:
         log(f'No free-for-all spawns: Gangsta Brawl and Big Ass Chains will use the {unteamed} team spawn(s) for everyone. '
             'Place Shared spawns spread over the map so players do not appear next to each other.')
     if left_out or unteamed:
         p.write_bytes(text.encode('utf-8'))
+
+
+# The game's spawn table holds this many (0x83E36280, emptied on load by 0x824BA498). The adder 0x824C2BA8 returns 0
+# when it is full and the $Respawn parser 0x824BC708 ignores that, so later spawns are dropped in file order.
+MAX_SPAWNS = 64
+
+
+def check_spawn_limit(out_dir, base, log):
+    """Warns about each CTS file with more respawns than the game keeps. Run after the last change to any of them."""
+    for suffix in ('', '_ptp', '_bor'):
+        p = Path(out_dir) / f'{base}{suffix}.cts'
+        if not p.is_file():
+            continue
+        n = len(re.findall(r'(?m)^\$Respawn:', p.read_bytes().decode('utf-8-sig')))
+        if n > MAX_SPAWNS:
+            log(f'WARNING: {p.name} has {n} spawns. The game keeps the first {MAX_SPAWNS} in the file and ignores the rest with no error, '
+                f'so a team later in the file can lose some or all of its spawns. Remove {n - MAX_SPAWNS}.')

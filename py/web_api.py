@@ -64,9 +64,9 @@ from weapon_catalog_v042 import WEAPON_CATALOG
 
 STUDIO = Path('/studio')
 WORK = Path('/work')
-# The desktop list also offered 'Pimp exit (experimental)'; the game has no
-# "pimp exit" trigger action (retail CTS files only use "pimp enter"), so it
-# is not offered.
+# The desktop list also offered 'Pimp exit (experimental)'. The game has no
+# "pimp exit" trigger action: it logs the name as an error and reads it as
+# "execute lua script", so nothing happens. Old projects can still hold one.
 PIMP_EXIT = 'Pimp exit (experimental)'
 MARKER_TYPES = ['Shared spawn', 'Red team spawn', 'Blue team spawn', 'Weapon pickup', 'Vehicle spawn',
                 'Chains drop-off', 'Pimp entrance', 'Sphere trigger (custom)',
@@ -100,6 +100,7 @@ def catalogs():
         'marker_types': MARKER_TYPES,
         'spawn_kinds': sorted(sr1_cts.SPAWN_KINDS),
         'trigger_kinds': sorted(sr1_cts.TRIGGER_KINDS),
+        'trigger_actions': list(sr1_cts.TRIGGER_ACTIONS),
         'special_spawn_types': list(sr1_cts.SPECIAL_SPAWN_TYPES),
         'human_char_types': list(sr1_cts.HUMAN_CHAR_TYPES),
         'weapons': [list(x) for x in WEAPON_CATALOG],
@@ -341,6 +342,8 @@ def _write_ptp_cts(out, job, base, markers, world_scale, mirror_x, origin, space
     sr1_cts.validate_spawn_links(text, spawns)
     (out / (base + '_ptp.cts')).write_text(text, encoding='utf-8', newline='\r\n')
     log(f'Protect Tha Pimp CTS: {spawns} team respawns, {report["counts"].get("Pimp entrance", 0)} pimp entrance trigger(s)')
+    for limit in report['limits']:
+        log('Protect Tha Pimp CTS: ' + limit)
 
 
 def export_project(spec_json, log):
@@ -493,6 +496,7 @@ def _export(s, log):
     shared_textures.check_size(out / (base + '.peg_xbox2'), log, early['copied_bytes'] if early else 0)
     extras = retail.finish(s, out, base, markers, ws, mirror, (0., 0., 0.) if space == 'game' else fixed_origin, space, log)
     features.write_brawl_spawns(out, base, log)
+    features.check_spawn_limit(out, base, log)
     files =sorted(str(p) for p in out.rglob('*') if p.is_file())
     summary = {
         'render_triangles': result['bbchunk']['render_triangles'],

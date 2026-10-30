@@ -188,6 +188,7 @@ def export_map(obj_path,texture_mapping,output_dir,map_name='halo_map',reference
     # The final CTS is written BEFORE hashing and ZIP packaging.
     sr1_cts.validate_spawn_links(cts_text,len(placed))
     say(f'    CTS: {len(placed)} explicitly placed respawn(s); no automatic spawns')
+    for limit in cts_report['limits']: say('    CTS: '+limit)
 
 
     say('4/5 Re-parsing and validating material batches / PEG / MOPP collision...')
