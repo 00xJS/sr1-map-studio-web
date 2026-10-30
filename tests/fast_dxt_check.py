@@ -15,6 +15,11 @@ import peg_xbox2_beaver as peg  # noqa: E402
 import fast_dxt  # noqa: E402
 
 original_fmt, original_img = peg.compress_image_for_format, peg.compress_image
+
+# The DXT5 alpha palette as every decoder builds it (src/lib/sr1char/peg.ts too): the encoder must pick from the same
+# values, or soft alpha comes out too opaque. Alpha 128 in a 0-255 block has to stay near 128.
+assert peg._alpha_palette(255, 0) == [255, 0, 219, 182, 146, 109, 73, 36], peg._alpha_palette(255, 0)
+assert peg._alpha_palette(0, 255) == [0, 255, 51, 102, 153, 204, 0, 255], peg._alpha_palette(0, 255)
 rng = np.random.default_rng(7)
 
 
