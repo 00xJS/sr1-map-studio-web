@@ -1,10 +1,10 @@
 """Extract render geometry from a supported SR1/Xbox2 BBChunk to Wavefront OBJ.
 
-Recovers retail mesh positions and instance transforms from common 12-, 16-, 20-, 24-, 28-, 32- and 36-byte vertices. UVs are
-only decoded for the known 24-byte vertex layout; other UV layouts remain unknown.
+Recovers retail mesh positions, instance transforms, and recognized normal/UV
+layouts (from Kewizzle's SR1 Studio 3.6). Other channels are not extracted.
 """
 from pathlib import Path
-import struct, json, re, io
+import struct, json, re, io, math, hashlib
 from collections import defaultdict
 import peg_xbox2_beaver as peg
 from PIL import Image
@@ -33,6 +33,28 @@ def _dds_from_peg(entry):
     struct.pack_into('<I',h,108,0x1000)
     return bytes(h)+raw
 
+def _ctx1_image(entry):
+    """Two-channel CTX1 normal map, matching the vendored SR1-Creator decoder.
+    Preserve X/Y; reconstruct positive Z for the PNG derivative only.
+    """
+    width,height=entry.width,entry.height
+    raw=peg.untile_x360(peg.swap16(entry.payload),width,height,'DXT1')
+    pixels=bytearray(width*height*4);bw=(width+3)//4;bh=(height+3)//4
+    if len(raw)<bw*bh*8:raise ValueError('Truncated CTX1 block data')
+    for by in range(bh):
+        for bx in range(bw):
+            block=raw[(by*bw+bx)*8:(by*bw+bx+1)*8]
+            px=[block[0],block[2],(2*block[0]+block[2])//3,(block[0]+2*block[2])//3]
+            py=[block[1],block[3],(2*block[1]+block[3])//3,(block[1]+2*block[3])//3]
+            indices=int.from_bytes(block[4:8],'little')
+            for i in range(16):
+                x=bx*4+(i&3);y=by*4+(i>>2)
+                if x>=width or y>=height:continue
+                k=(indices>>(2*i))&3;nx=px[k]/127.5-1;ny=py[k]/127.5-1
+                z=round((math.sqrt(max(0,1-nx*nx-ny*ny))*.5+.5)*255)
+                p=(y*width+x)*4;pixels[p:p+4]=bytes((px[k],py[k],z,255))
+    return Image.frombytes('RGBA',(width,height),bytes(pixels))
+
 
 def _material_names(ch,g):
     strings=rc.chunk_strings(ch)
@@ -56,26 +78,22 @@ def _material_names(ch,g):
 
 
 def _extract_peg_textures(peg_path,dir_path,referenced):
-    _,hdr,entries=peg.parse_peg(peg_path)
-    lut={e.name.lower():e for e in entries if e.name}
+    _,hdr,entries=peg.parse_peg(peg_path,include_frames=True)
+    lut={}
+    for e in entries:
+        # First actual frame, never the parser's guessed payload for an alias.
+        if e.name and e.frame_size:lut.setdefault(e.name.lower(),e)
     result={}; failures=[]
     dir_path.mkdir(parents=True,exist_ok=True)
     for name in sorted(referenced):
         e=lut.get(name.lower())
         if e is None:
             failures.append('Not in PEG: '+name);continue
-        filename=_safe_stem(name)+'.png'
+        filename=_safe_stem(name)+'_'+hashlib.sha256(name.encode()).hexdigest()[:8]+'.png'
         try:
-            img=Image.open(io.BytesIO(_dds_from_peg(e)))
+            img=_ctx1_image(e) if e.fmt==0x025b else Image.open(io.BytesIO(_dds_from_peg(e)))
             img.load()
-            # Preserve aspect ratio while raising the longest edge to 1024.
-            # The DDS decoder may return RGB or RGBA; resizing retains alpha.
-            max_edge=max(img.size)
-            if 0 < max_edge < 1024:
-                scale=1024.0/max_edge
-                out_size=(max(1,int(round(img.width*scale))),
-                          max(1,int(round(img.height*scale))))
-                img=img.resize(out_size,Image.Resampling.LANCZOS)
+            # Keep decoded source resolution; re-editing must not resample textures.
             img.save(dir_path/filename)
             result[name.lower()]='textures/'+filename
         except Exception as ex:
@@ -238,6 +256,18 @@ def _merge_secondary_into_main(main_path, secondary_path, vertex_offset):
     return {'merged': True, 'vertices': verts, 'faces': faces}
 
 
+def _normal(word):
+    values=[(word>>(10*k))&1023 for k in range(3)]
+    return [(v-1024 if v>=512 else v)/511. for v in values]
+
+def _layout(vb,stride,count):
+    # Same evidence-based layout test as the game reader (gameObjects/chunk.ts).
+    if 24<=stride<=36 and count:
+        n=min(count,16);unit=sum(.85<math.sqrt(sum(x*x for x in _normal(rc.U32(vb.vd,i*stride+12))))<1.15 for i in range(n))
+        if unit*2>=n:return True,20,(stride-20)//4
+    if 16<=stride<=28:return False,12,(stride-12)//4
+    return (False,20,1) if stride>=24 else (False,-1,0)
+
 def export_bbchunk_obj(source, destination, include_all=False, peg_path=None):
     source=Path(source); destination=Path(destination)
     if not source.is_file(): raise FileNotFoundError(source)
@@ -251,7 +281,7 @@ def export_bbchunk_obj(source, destination, include_all=False, peg_path=None):
     if peg_path:
         linked,extraction_warnings=_extract_peg_textures(Path(peg_path),destination.parent/'textures',referenced)
     mtl=destination.with_suffix('.mtl')
-    total_faces=0; used_meshes=0; skipped=0; warnings=[]; global_vertex=0; used_materials=set(); extracted_strides=defaultdict(int)
+    total_faces=0; used_meshes=0; skipped=0; warnings=[]; global_vertex=0; global_uv=0; global_normal=0; used_materials=set(); extracted_strides=defaultdict(int)
     # Retail map mesh definitions are shared by many placed instances. Their
     # 112-byte instance records contain position, rotation and source mesh ID.
     instances=ch.get('instances').data
@@ -324,6 +354,7 @@ def export_bbchunk_obj(source, destination, include_all=False, peg_path=None):
                         warnings.append('Skipped mesh %d submesh %d: unsupported vertex stride %d'%(mi,si,stride));skipped+=1;continue
                     inds=[rc.U16(vb.ib,i) for i in range(0,len(vb.ib)-1,2)]
                     start=global_vertex+1
+                    lit,uv_at,uv_sets=_layout(vb,stride,count);uv_start=global_uv+1;normal_start=global_normal+1
                     group='instance_%03d_mesh_%03d_sub_%02d'%(ii,mi,si)
                     out.write('o '+group+'\n')
                     for n in range(count):
@@ -333,10 +364,20 @@ def export_bbchunk_obj(source, destination, include_all=False, peg_path=None):
                             raise ValueError('nonfinite position in mesh %d, vertex %d'%(mi,n))
                         world=[position[j]+sum(local[k]*rotation[3*k+j] for k in range(3)) for j in range(3)]
                         out.write('v %.9g %.9g %.9g\n'%tuple(world))
-                    if stride==24:
+                    if uv_sets:
                         for n in range(count):
-                            u,v=struct.unpack_from('>hh',vb.vd,n*stride+20)
+                            u,v=struct.unpack_from('>hh',vb.vd,n*stride+uv_at)
                             out.write('vt %.9g %.9g\n'%(u/1024.0,v/1024.0))
+                        global_uv+=count
+                    if lit:
+                        import numpy as np
+                        normal_matrix=np.linalg.inv(np.array(rotation).reshape(3,3)).T
+                        for n in range(count):
+                            normal=np.array(_normal(rc.U32(vb.vd,n*stride+12)))@normal_matrix
+                            length=float(np.linalg.norm(normal))
+                            normal=normal/max(length,1e-12)
+                            out.write('vn %.9g %.9g %.9g\n'%tuple(normal))
+                        global_normal+=count
                     emitted=0
                     for bi in range(rc.U16(sub.s16,2)):
                         at=bi*8
@@ -359,9 +400,11 @@ def export_bbchunk_obj(source, destination, include_all=False, peg_path=None):
                             a,b,c=inds[first+k:first+k+3]
                             if len({a,b,c})<3 or max(a,b,c)>=count:continue
                             if k&1:a,b=b,a
-                            a+=start;b+=start;c+=start
-                            if stride==24: out.write('f %d/%d %d/%d %d/%d\n'%(a,a,b,b,c,c))
-                            else:out.write('f %d %d %d\n'%(a,b,c))
+                            def corner(v):
+                                if lit:return '%d/%d/%d'%(start+v,uv_start+v,normal_start+v)
+                                if uv_sets:return '%d/%d'%(start+v,uv_start+v)
+                                return str(start+v)
+                            out.write('f '+' '.join(corner(v) for v in (a,b,c))+'\n')
                             emitted+=1
                     if emitted: used_meshes+=1;total_faces+=emitted;extracted_strides[stride]+=1
                     global_vertex+=count
@@ -390,8 +433,11 @@ def export_bbchunk_obj(source, destination, include_all=False, peg_path=None):
     report['static_objects'] = static_report
     if static_report['count']:
         report['warnings'].append('%d named static objects are references, not embedded mesh geometry; see static_objects.json' % static_report['count'])
-    destination.with_suffix('.obj_report.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
     if not total_faces: raise RuntimeError('No supported render triangles extracted. See '+str(destination.with_suffix('.obj_report.json')))
+    report['texture_files']=linked
+    report['uv_vertices']=global_uv;report['normal_vertices']=global_normal
+    report['note']='OBJ contains the decoded primary UV set and recovered normals where the layout is recognized. Shader data, extra UV sets, native lighting, physics, visibility and scripts are not extracted.'
+    destination.with_suffix('.obj_report.json').write_text(json.dumps(report,indent=2),encoding='utf-8')
     return report
 
 if __name__=='__main__':
