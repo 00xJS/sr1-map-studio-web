@@ -266,8 +266,10 @@ def add(chunk_path, peg_path, donor_dir, log):
         if name in strings:
             index[name] = strings.index(name)
             continue
-        index[name] = rc.add_strings(ch, [name])[0]
-        strings.append(name)
+        # Keep the PEG's spelling (the donor chunk may capitalize .tgn names).
+        stored_name = by_name.get(name.lower(), {}).get('name', name)
+        index[name] = rc.add_strings(ch, [stored_name])[0]
+        strings.append(stored_name)
         t = by_name.get(name.lower())
         if t is None or name.lower() in have:
             shared.append(name)
