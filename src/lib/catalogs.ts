@@ -6,6 +6,7 @@ export interface Catalogs {
   marker_types: string[]
   spawn_kinds: string[]
   trigger_kinds: string[]
+  trigger_actions: string[]
   special_spawn_types: string[]
   human_char_types: string[]
   weapons: [string, string][]

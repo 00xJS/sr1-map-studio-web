@@ -64,6 +64,8 @@ export function retailMarkerDefaults(type: string): Partial<Marker> {
   if (type === BOR_CAR_RED || type === BOR_CAR_BLUE) return { vehicle: BOR_DEFAULT_CAR }
   if (type === SOUND_ZONE) return { shape: 'sphere', radius: SOUND_DEFAULT_RADIUS, size: [...SOUND_DEFAULT_BOX] as Vec3, volume: SOUND_DEFAULT_VOLUME, sound: '' }
   if (type === ITEM_PROP) return { item: '' }
+  // On the game's own maps most drop-offs start on: 17 of 21 have no +Disabled, and no map starts them all off.
+  if (type === 'Chains drop-off') return { disabled: false }
   if (type in REGION_BOXES) return { size: [...REGION_BOXES[type]] as Vec3, ...(type === INDOOR_ROOM ? { ambient: REGION_DEFAULT_AMBIENT } : {}) }
   return {}
 }
@@ -81,7 +83,7 @@ export const RETAIL_MARKER_HINTS: Record<string, string> = {
   [SOUND_ZONE]: 'A sphere or box that plays a sound from your game, like birds, traffic or room tone.',
   [RAIN_BLOCKER]: 'A box where it never rains: put one over a building or under a roof. Rain only falls on maps whose weather changes each match.',
   [INDOOR_ROOM]: 'A box that feels indoors: no rain, an even room light, no sky and no sun shadows.',
-  [ITEM_PROP]: 'A small object the game places by name, like a weapon pickup: a chair, a flag, a barrel…' + statusSentence('item_props'),
+  [ITEM_PROP]: 'A small object the game places by name, like a weapon pickup: a chair, a flag, a barrel… In a custom match where the host turns on lobby weapons, the game swaps it for one of those weapons.' + statusSentence('item_props'),
 }
 
 /** What Blinged Out Ride still needs, in words ([] when the map has all of it). */

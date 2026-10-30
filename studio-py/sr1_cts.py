@@ -7,13 +7,17 @@ import math
 import re
 
 # Names and CTS fields below are transcribed from the supplied retail CTS samples.
-# The sample mp_ptp_01.cts proves "pimp enter" only, NOT "pimp exit".
-# Keep the latter explicitly experimental until an in-game reference confirms it.
+# The game has "pimp enter" but no "pimp exit": see TRIGGER_ACTIONS.
 SPECIAL_SPAWN_TYPES = ('Beer Chat', 'Beer Stand', 'Bouncer', 'Bum at fire', 'Dance pair c', 'Dance pair d', 'Dancer', 'Dead body', 'Drinking 40', 'Drunk vomit', 'Fountain', 'Gang Cluster', 'Gang Cluster2', 'Gang Sitting', 'Gang Standing', 'Gravesite', 'Jackhammering', 'Lounge', 'NPC busted', 'Ped Dance Cluster', 'Reading news', 'SH Gang Cluster', 'Sitting', 'Sitting paper', 'Sitting reading', 'Sleeping', 'Smoking Weed', 'Store browse bling', 'Store browse gun', 'Store browse wine', 'Stripper and fans', 'Suicide')
 HUMAN_CHAR_TYPES = ('LC_X_F_Thug1-01_A', 'LC_X_M_Killa1-01', 'LC_X_M_Killa2-01', 'LC_X_M_Thug1-01', 'LC_X_M_Thug2-01', 'LC_X_M_Thug2-02', 'TS_X_M_Killa-A', 'TS_X_M_KillaB', 'TS_X_M_Thug1-01', 'TS_X_M_Thug1-01b', 'TS_X_M_Thug2-01', 'VK_X_M_Killa1-02', 'VK_X_M_Killa1-03', 'VK_X_M_Thug1-02', 'VK_X_M_Thug2-02', 'VK_X_M_killa1-01', 'WR_X_F_Thug1-01', 'WR_X_F_Thug1-02', 'WR_X_M_Killa2-01', 'WR_X_M_Killa2-03', 'WR_X_M_Thug2-01')
 
 SPAWN_KINDS = {'Shared spawn','Red team spawn','Blue team spawn'}
-TRIGGER_KINDS = {'Chains drop-off','Pimp entrance','Pimp exit (experimental)','Sphere trigger (custom)'}
+TRIGGER_KINDS = {'Chains drop-off','Pimp entrance','Sphere trigger (custom)'}
+# The names the game's $Trigger action reader knows, in its order (table at 0x82038650, compared ignoring case).
+# Any other name is logged as a parse error and read as index 0, "execute lua script" (0x82635DF8).
+TRIGGER_ACTIONS = ('execute lua script', 'chains drop off', 'multiplayer chop shop', 'blinged victory', 'blinged chop shop entrance', 'pimp enter', 'crib clothing', 'crib weapons', 'cash pickup', 'garage enter', 'garage interior', 'save vehicle', 'multiplayer_crib', 'pushback control point', 'stronghold', 'tagging', 'enter hidden clinic', 'repair vehicle', 'player creation', 'plastic surgeon', 'hair salon', 'tattoo parlor', 'clothing store', 'jewelry store', 'theatre', 'hospital', 'police station', 'liquor store', 'freckle bitches', 'music store', 'weapon store', 'forgive and forget', 'car mechanic', 'car dealership', 'train station', 'medic', 'save spot', 'callback', 'double callback', 'audio region', 'interior region')
+# $Trigger max fires is kept in one byte (0x824EB788: stb to +286), so 256 would read as 0.
+MAX_TRIGGER_FIRES = 255
 NAV_KINDS = {'Ground navpoint','Floating navpoint'}
 CATEGORIES = SPAWN_KINDS | TRIGGER_KINDS | NAV_KINDS | {'Weapon pickup','Vehicle spawn','Special spawn','Human NPC spawn'}
 SECTION_FOR = {**{k:'#Respawns' for k in SPAWN_KINDS},
@@ -93,8 +97,8 @@ def _quoted(s, field):
 def build_cts(template_text, markers, map_id, scale=1.0, mirror_x=True, origin=(0.,0.,0.), coordinate_space="scene", replace_respawns=False):
     """Append native CTS records to a template without altering unrelated sections.
 
-    'Pimp exit (experimental)' uses an *unconfirmed* 'pimp exit' action string.
-    The retail evidence only establishes 'pimp enter'.
+    report['limits'] holds what the creator should read in the export log: values
+    changed or written that the game will not take as they stand.
     """
     map_id=_text_id(map_id)
     if not math.isfinite(float(scale)) or float(scale)<=0: raise ValueError('Invalid world scale')
@@ -106,13 +110,14 @@ def build_cts(template_text, markers, map_id, scale=1.0, mirror_x=True, origin=(
         text=_clear_respawns_and_spawn_navs(text)
     used=set(re.findall(r'"([^"\n]+)"',text))
     sections={name:[] for name in ORDER}
-    counters={'spawn':0,'weapon':0,'vehicle':0,'chains':0,'pimp_in':0,'pimp_out':0,
+    counters={'spawn':0,'weapon':0,'vehicle':0,'chains':0,'pimp_in':0,
               'trigger':0,'ground_nav':0,'floating_nav':0,'special':0,'human':0}
-    report={'counts':{},'warnings':[],'preserved_existing_cts':True,'injected_names':[],
+    report={'counts':{},'warnings':[],'limits':[],'preserved_existing_cts':True,'injected_names':[],
             'map_origin':list(origin) if origin is not None else None,
             'coordinate_space':coordinate_space, 'exported_positions':[]}
     group_ids={}
     special_count=0
+    chains_on=0
     for m in markers:
         kind=m.get('type')
         if kind not in CATEGORIES: raise ValueError('Unsupported marker category: '+str(kind))
@@ -124,12 +129,12 @@ def build_cts(template_text, markers, map_id, scale=1.0, mirror_x=True, origin=(
         yaw=convert_yaw(m.get('yaw',0),bool(mirror_x),coordinate_space)
         category=('spawn' if kind in SPAWN_KINDS else 'weapon' if kind=='Weapon pickup'
                   else 'vehicle' if kind=='Vehicle spawn' else 'chains' if kind=='Chains drop-off'
-                  else 'pimp_in' if kind=='Pimp entrance' else 'pimp_out' if kind=='Pimp exit (experimental)'
+                  else 'pimp_in' if kind=='Pimp entrance'
                   else 'trigger' if kind=='Sphere trigger (custom)' else 'ground_nav' if kind=='Ground navpoint'
                   else 'floating_nav' if kind=='Floating navpoint' else 'special' if kind=='Special spawn'
                   else 'human')
         prefixes={'spawn':'respawn','weapon':'item','vehicle':'veh','chains':'chains',
-                  'pimp_in':'pimp_enter','pimp_out':'pimp_exit','trigger':'trigger',
+                  'pimp_in':'pimp_enter','trigger':'trigger',
                   'ground_nav':'nav','floating_nav':'floatnav','special':'special','human':'human'}
         while True:
             index=counters[category];counters[category]+=1
@@ -161,21 +166,26 @@ def build_cts(template_text, markers, map_id, scale=1.0, mirror_x=True, origin=(
                 sections['#Vehicles'].append(f'$Vehicle:\t\t"{name}"\n$Vehicle type:\t"{label}"\n$Start nav:\t\t"{name}"\n$Stream Distance:\t\t\t50.000\n\n')
             elif kind in TRIGGER_KINDS:
                 action=('chains drop off' if kind=='Chains drop-off' else 'pimp enter' if kind=='Pimp entrance'
-                        else 'pimp exit' if kind=='Pimp exit (experimental)'
                         else _quoted(m.get('trigger_action',''),'custom trigger action'))
                 radius=float(m.get('radius',.7));delay=int(m.get('delay_ms',10000))
                 max_fires=int(m.get('max_fires',0))
                 if not math.isfinite(radius) or not 0<radius<=1000:raise ValueError('Invalid trigger radius')
                 if not 0<=delay<=1000000:raise ValueError('Invalid trigger delay')
-                if not 0<=max_fires<=1000000:raise ValueError('Invalid trigger max fires')
+                if max_fires<0:raise ValueError('Invalid trigger max fires')
+                if max_fires>MAX_TRIGGER_FIRES:
+                    report['limits'].append(f'A trigger had max fires {max_fires}: lowered to {MAX_TRIGGER_FIRES}, the most the game can store')
+                    max_fires=MAX_TRIGGER_FIRES
+                if action.lower() not in TRIGGER_ACTIONS:
+                    report['limits'].append(f'The game has no "{action}" trigger action: it logs an error and treats the trigger as "execute lua script", so it does nothing')
+                # Most of the game's own drop-offs have no +Disabled: 17 of 21 on its MP maps, and only mp_bac_03 uses it (on 4 of 5).
+                disabled=m.get('disabled',kind!='Chains drop-off')
+                if kind=='Chains drop-off' and not disabled:chains_on+=1
                 sections['#Triggers'].append(
                     f'$Trigger:\t\t\t\t"{name}"\n$Trigger type:\t\t\t"sphere"\n'
                     f'$Trigger action:\t\t"{action}"\n$Trigger max fires:\t{max_fires}\n'
                     f'$Trigger delay:\t\t{delay}\n$Start nav:\t\t\t\t"{name}"\n'
-                    + ('+Disabled\n' if m.get('disabled',True) else '')
+                    + ('+Disabled\n' if disabled else '')
                     + f'$Sphere radius:\t\t{radius:.6f}\n\n')
-                if kind=='Pimp exit (experimental)':
-                    report['warnings'].append('Pimp exit is experimental: supplied retail CTS proves only the "pimp enter" action')
             elif kind=='Human NPC spawn':
                 character=_quoted(m.get('char_type',''),'human character type')
                 leash=float(m.get('leash_distance',10.0))
@@ -204,6 +214,8 @@ def build_cts(template_text, markers, map_id, scale=1.0, mirror_x=True, origin=(
     for heading in reversed(ORDER):
         text=_append_section(text,heading,''.join(sections[heading]))
     if not markers:report['warnings'].append('No markers added')
+    if report['counts'].get('Chains drop-off') and not chains_on:
+        report['limits'].append("Every Chains drop-off starts switched off, which none of the game's own maps does. Not tested in game")
     spawn_count=sum(report['counts'].get(k,0) for k in SPAWN_KINDS)
     if spawn_count<4: report['warnings'].append('mapconv recommends at least 4 spawns; ideally 8 or more')
     report['warnings'].append('Template retains existing chunk/include references; check they match your installed map')
