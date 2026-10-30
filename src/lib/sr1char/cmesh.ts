@@ -29,7 +29,7 @@ export interface CmeshGeometry {
 /** A named point on the mesh (96-byte record: a 68-byte name, position at +68, quaternion x, y, z, w at +80). */
 export interface CmeshTag { name: string; pos: number[]; quat: number[] }
 export interface Cmesh {
-  /** Render mesh type (header +44): 0 static (weapons, props), 1 and 2 the skinned character kinds. */
+  /** Render mesh type (+44 of the file header, not of the render header): 0 static (weapons, props), 1 characters and car parts, 2 unused in retail. */
   mtype: number
   bsphere: number[]
   bbox: number[]
@@ -175,12 +175,15 @@ export function readStrip(u8: Uint8Array, rec: MeshRecord): Uint16Array {
 
 const dec10 = (w: number, k: number) => { let v = (w >>> (10 * k)) & 1023; if (v >= 512) v -= 1024; return v / 511 }
 
-/** A static record's vertices (type 0): position, normal at +12, tangent at +16, UV0 at +20, UV1 at +24 (stride 32 and 36). */
+/**
+ * A static record's vertices (type 0): position, normal at +12, tangent at +16, then 4-byte UV sets from +20: one at
+ * stride 24, three at 32, four at 36 (the fourth, at +32, isn't kept).
+ */
 function decodeStatic(u8: Uint8Array, rec: MeshRecord): CmeshGeometry {
   const p = new Cursor(new DataView(u8.buffer, u8.byteOffset, u8.byteLength))
   const n = rec.nverts, S = rec.stride, V = rec.vbOffset
   if (V + n * S > u8.byteLength) throw new Error('cmesh vertex data runs past the end of the file')
-  const pos = new Float32Array(n * 3), nrm = new Float32Array(n * 3), uv0 = new Float32Array(n * 2), uv1 = new Float32Array(n * 2)
+  const pos = new Float32Array(n * 3), nrm = new Float32Array(n * 3), uv0 = new Float32Array(n * 2), uv1 = new Float32Array(n * 2), uv2 = new Float32Array(n * 2)
   for (let i = 0; i < n; i++) {
     const o = V + S * i
     pos[3 * i] = p.f32(o); pos[3 * i + 1] = p.f32(o + 4); pos[3 * i + 2] = p.f32(o + 8)
@@ -188,8 +191,9 @@ function decodeStatic(u8: Uint8Array, rec: MeshRecord): CmeshGeometry {
     nrm[3 * i] = dec10(nw, 0); nrm[3 * i + 1] = dec10(nw, 1); nrm[3 * i + 2] = dec10(nw, 2)
     uv0[2 * i] = p.s16(o + 20) / 1024; uv0[2 * i + 1] = p.s16(o + 22) / 1024
     if (S >= 28) { uv1[2 * i] = p.s16(o + 24) / 1024; uv1[2 * i + 1] = p.s16(o + 26) / 1024 }
+    if (S >= 32) { uv2[2 * i] = p.s16(o + 28) / 1024; uv2[2 * i + 1] = p.s16(o + 30) / 1024 }
   }
-  return { nverts: n, pos, nrm, uv0, uv1, uv2: new Float32Array(n * 2), strip: readStrip(u8, rec), boneWeights: new Uint8Array(n * 4), boneIndices: new Uint8Array(n * 4) }
+  return { nverts: n, pos, nrm, uv0, uv1, uv2, strip: readStrip(u8, rec), boneWeights: new Uint8Array(n * 4), boneIndices: new Uint8Array(n * 4) }
 }
 
 /** A character record's vertices (the skinned layout: position, weights, bones, normal, UVs). */
