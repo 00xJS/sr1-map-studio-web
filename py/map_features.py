@@ -607,14 +607,32 @@ def write_brawl_spawns(out_dir, base, log):
         p.write_bytes(text.encode('utf-8'))
 
 
+def loaded_cts(spec):
+    """Which CTS files the selected modes load, as name suffixes. The main file is always written, but only Gangsta
+    Brawl and Big Ass Chains load it. A spec without modes, or with none (the map then gets a Gangsta Brawl entry), counts as loading it."""
+    modes = spec.get('modes')
+    main = not modes or any('Gangsta Brawl' in mode or 'Chains' in mode for mode in modes)
+    return [suffix for suffix, on in (('', main), ('_ptp', spec.get('ptp')), ('_bor', spec.get('bor'))) if on]
+
+
+def check_chains_on(spec, markers, log):
+    """Warns when every drop-off starts off and a Chains mode is on. Blinged Out Ride removes the flag from its own
+    copy (bor_mode.bor_cts) and no other mode uses drop-offs."""
+    if not any('Chains' in mode for mode in spec.get('modes') or ['Big Ass Chains']):
+        return
+    drops = [m for m in markers if m.get('type') == 'Chains drop-off']
+    if drops and all(m.get('disabled', False) for m in drops):
+        log("WARNING: every Chains drop-off starts switched off, which none of the game's own maps does. Not tested in game.")
+
+
 # The game's spawn table holds this many (0x83E36280, emptied on load by 0x824BA498). The adder 0x824C2BA8 returns 0
 # when it is full and the $Respawn parser 0x824BC708 ignores that, so later spawns are dropped in file order.
 MAX_SPAWNS = 64
 
 
-def check_spawn_limit(out_dir, base, log):
-    """Warns about each CTS file with more respawns than the game keeps. Run after the last change to any of them."""
-    for suffix in ('', '_ptp', '_bor'):
+def check_spawn_limit(out_dir, base, suffixes, log):
+    """Warns about each CTS file named (loaded_cts) with more respawns than the game keeps. Run after the last change to any of them."""
+    for suffix in suffixes:
         p = Path(out_dir) / f'{base}{suffix}.cts'
         if not p.is_file():
             continue

@@ -65,6 +65,8 @@ export async function runExport(project: Project, onLog: (t: string) => void, on
     bbcity_donor: s.bbcity_donor, cts_template: s.cts_template, marker_game_coords: s.marker_game_coords, ...sky,
     // Early surface registration: the map's textures copied into a map-specific sf_ environment pair (py/surface_registration.py).
     surface_preload: !!s.surface_preload,
+    // Which CTS files the game will load, so the export log only warns about those (map_features.loaded_cts).
+    modes: s.modes,
     ptp: s.modes.includes('Protect Tha Pimp'),
     // Blinged Out Ride: <map>_bor.cts and <map>_mode.xtbl (py/bor_mode.py).
     bor: s.modes.includes(BOR),

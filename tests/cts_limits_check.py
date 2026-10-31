@@ -72,9 +72,30 @@ check('+Disabled' not in text and not report['limits'], 'chains: no +Disabled un
 text, report = cts(M('Chains drop-off', disabled=True), M('Chains drop-off', disabled=False))
 check(text.count('+Disabled') == 1 and not report['limits'], 'chains: some off is written, as on mp_bac_03')
 text, report = cts(M('Chains drop-off', disabled=True), M('Chains drop-off', disabled=True))
-check(text.count('+Disabled') == 2 and any('switched off' in x for x in report['limits']), 'chains: all off is written and reported')
+check(text.count('+Disabled') == 2 and not report['limits'], 'chains: all off is written; only a Chains mode warns about it')
 text, report = cts(M('Pimp entrance'), M('Sphere trigger (custom)', trigger_action='save spot'))
 check(text.count('+Disabled') == 2, 'other triggers keep their default')
+
+# Which files each mode loads, and the messages that follow them. Same mode names and rules as src/lib/levels.ts.
+for modes, ptp, bor, want in ((['Gangsta Brawl'], 0, 0, ['']), (['Team Big Ass Chains'], 0, 0, ['']), (['Protect Tha Pimp'], 1, 0, ['_ptp']),
+                              (['Blinged Out Ride'], 0, 1, ['_bor']), (['Team Gangsta Brawl', 'Protect Tha Pimp', 'Blinged Out Ride'], 1, 1, ['', '_ptp', '_bor']),
+                              ([], 0, 0, [''])):
+    check(map_features.loaded_cts(dict(modes=modes, ptp=ptp, bor=bor)) == want, f'loaded files: {modes} load {want}')
+check(map_features.loaded_cts({}) == [''], 'loaded files: a spec with no modes counts as loading the main file')
+
+
+def chains_log(modes, *flags):
+    logged = []
+    map_features.check_chains_on(dict(modes=modes), [M('Chains drop-off', disabled=f) for f in flags], logged.append)
+    return '\n'.join(logged)
+
+
+check('every Chains drop-off' in chains_log(['Big Ass Chains'], True, True), 'chains: all off warns in Big Ass Chains')
+check('every Chains drop-off' in chains_log(['Team Big Ass Chains', 'Blinged Out Ride'], True), 'chains: and when Blinged Out Ride is on beside it')
+check(not chains_log(['Big Ass Chains'], True, False), 'chains: some on is fine')
+check(not chains_log(['Big Ass Chains']), 'chains: no drop-offs, nothing to say')
+for modes in (['Gangsta Brawl'], ['Blinged Out Ride'], ['Protect Tha Pimp']):
+    check(not chains_log(modes, True, True), f'chains: no warning on {modes}')
 
 # Item props: distinct types, not how many
 with tempfile.TemporaryDirectory() as tmp:
@@ -99,15 +120,24 @@ with tempfile.TemporaryDirectory() as tmp:
     types, count, log = export([f'w{i}' for i in range(5)], [f'p{i}' for i in range(15)] + ['P0', 'p16', 'w1'])
     check(count == 17 and types.count('p16') == 0, 'props: a type already in the map still fits at the limit')
 
+    def type_log(*suffixes):
+        logged = []
+        item_props.check_type_limit(tmp, 'm', suffixes, logged.append)
+        return '\n'.join(logged)
+
     types, count, log = export([f'w{i}' for i in range(21)], ['w1', 'p1'])
     check(len(set(types)) == 21 and count == 1, 'props: never adds a type past the limit; pickups are kept')
-    check('WARNING: 21 different weapon pickup types' in log, 'pickups: past the limit is a warning')
+    check('m.cts has 21 different item types' in type_log(''), 'pickups: past the limit is a warning')
+    check(type_log('_ptp') == '', 'pickups: not warned about when no selected mode loads the main file')
+    Path(tmp, 'm_bor.cts').write_text(Path(tmp, 'm.cts').read_text(encoding='utf-8'), encoding='utf-8')
+    check('m_bor.cts has 21' in type_log('_bor') and 'm.cts' not in type_log('_bor'), "pickups: Blinged Out Ride's copy is checked on its own")
+    Path(tmp, 'm_bor.cts').unlink()
 
     types, count, log = export([f'w{i}' for i in range(21)], [])
-    check(count == 0 and 'WARNING: 21' in log, 'pickups: warned about with no props too')
+    check(count == 0 and 'has 21' in type_log(''), 'pickups: warned about with no props too')
 
     types, count, log = export(['ak47'], [])
-    check(count == 0 and not log, 'no props, within the limit: nothing to say')
+    check(count == 0 and not log and not type_log(''), 'no props, within the limit: nothing to say')
 
 
 # Spawns: per CTS file, and the log line about team spawns
@@ -123,15 +153,21 @@ with tempfile.TemporaryDirectory() as tmp:
         step(tmp, 'm', logged.append)
         return '\n'.join(logged)
 
+    def limit_log(*suffixes):
+        logged = []
+        map_features.check_spawn_limit(tmp, 'm', suffixes, logged.append)
+        return '\n'.join(logged)
+
     spawn_cts('m.cts', respawns('', 64))
-    check(spawn_log(map_features.check_spawn_limit) == '', 'spawns: 64 in a file is fine')
+    check(limit_log('') == '', 'spawns: 64 in a file is fine')
     spawn_cts('m_ptp.cts', respawns('1', 40) + respawns('2', 40))
-    log = spawn_log(map_features.check_spawn_limit)
+    log = limit_log('', '_ptp')
     check('m_ptp.cts has 80 spawns' in log and 'Remove 16' in log and 'm.cts' not in log, 'spawns: only the file over the limit is named')
     spawn_cts('m.cts', respawns('', 65))
     spawn_cts('m_bor.cts', respawns('1', 65))
-    log = spawn_log(map_features.check_spawn_limit)
+    log = limit_log('', '_ptp', '_bor')
     check(all(f'{n} has' in log for n in ('m.cts', 'm_ptp.cts', 'm_bor.cts')), 'spawns: each file is checked on its own')
+    check('m.cts' not in limit_log('_ptp'), 'spawns: a main file no selected mode loads is not warned about')
 
     for f in ('m_ptp.cts', 'm_bor.cts'):
         Path(tmp, f).unlink()
@@ -177,10 +213,10 @@ def full_export(pack, tmp):
                + [P('Chains drop-off', 10, disabled=True), P('Chains drop-off', 12, disabled=True)]
                + [P('Sphere trigger (custom)', 14, trigger_action='pimp exit', max_fires=300), P('Pimp entrance', 16, max_fires=999)])
 
-    def export(job, marks, ptp=True):
+    def export(job, marks, ptp=True, **modes):
         logs = []
         spec = dict(job=job, scene_items=[ground], markers=marks, lights=[], base_name='limits', world_scale=0.5, mirror_x=True,
-                    flip_obj_v=True, double_sided=False, ptp=ptp)
+                    flip_obj_v=True, double_sided=False, ptp=ptp, **modes)
         return json.loads(web_api.export_project(json.dumps(spec), logs.append)), '\n'.join(logs)
 
     r, log = export('limits', markers)
@@ -194,7 +230,7 @@ def full_export(pack, tmp):
         check(fires(main).count(255) == 1 and fires(ptp).count(255) == 1, 'export: max fires lowered in both CTS files')
         check('max fires 300' in log and 'max fires 999' in log, 'export log: max fires lowered, main and Protect Tha Pimp')
         check('no "pimp exit" trigger action' in log and 'pimp exit' not in main.replace('"pimp exit"', '', 1), 'export log: unknown action')
-        check('Every Chains drop-off starts switched off' in log, 'export log: every drop-off off')
+        check('every Chains drop-off starts switched off' in log, 'export log: every drop-off off, with no modes given')
     r, log = export('exit', markers + [P('Pimp exit (experimental)', 18)])
     check(not r['ok'] and 'pimp exit' in r['error'], 'export: a pimp exit marker stops it')
 
@@ -203,6 +239,41 @@ def full_export(pack, tmp):
     check(r['ok'] and 'limits_ptp.cts has 80 spawns' in log and 'limits.cts has' not in log, 'export log: 40 shared, 80 team warns about the PTP file only')
     r, log = export('off', [P('Shared spawn', i) for i in range(8)] + teams[:-1], ptp=False)
     check(r['ok'] and 'not in this export' in log and 'kept for' not in log and not list(Path(r['value']['out_dir']).glob('*_ptp.cts')), 'export log: 8 shared, 80 team, PTP off says they are not exported')
+
+    # What each mode's file really receives, with the modes the editor sends.
+    pair = [P('Red team spawn', -8), P('Blue team spawn', 8)]
+    main_only = ([P('Shared spawn', i) for i in range(70)] + [P('Weapon pickup', i, label=f'w{i}') for i in range(21)] + [P('Item prop', i, item=f'p{i}') for i in range(3)]
+                 + [P('Chains drop-off', 10, disabled=True), P('Sphere trigger (custom)', 14, trigger_action='pimp exit', max_fires=300)])
+    r, log = export('ptponly', main_only + pair + [P('Pimp entrance', 16, max_fires=999)], modes=['Protect Tha Pimp'])
+    check(r['ok'], 'mode export: Protect Tha Pimp only runs')
+    check('limits.cts has' not in log and 'different item types' not in log, 'mode export: Protect Tha Pimp only says nothing about the main file spawns or item types')
+    check('max fires 300' not in log and 'pimp exit' not in log and 'every Chains drop-off' not in log, 'mode export: nor its triggers')
+    check('max fires 999' in log, "mode export: the pimp entrance is in Protect Tha Pimp's file, so its max fires are logged")
+    check('Item props left out' in log and 'turns placed items' not in log, 'mode export: item props are said to go unused')
+
+    gb = ([P('Shared spawn', i) for i in range(70)] + [P('Weapon pickup', i, label=f'w{i}') for i in range(21)]
+          + [P('Chains drop-off', 10, disabled=True), P('Sphere trigger (custom)', 14, trigger_action='pimp exit', max_fires=300), P('Pimp entrance', 16, max_fires=999)])
+    r, log = export('gb', gb, ptp=False, modes=['Gangsta Brawl'])
+    check(r['ok'] and 'limits.cts has 70 spawns' in log and 'limits.cts has 21 different item types' in log, 'mode export: Gangsta Brawl warns about the main file')
+    check('max fires 300' in log and 'pimp exit' in log, 'mode export: and its triggers')
+    check('max fires 999' not in log, 'mode export: not the pimp entrance, which is not exported')
+    check('every Chains drop-off' not in log, 'mode export: Gangsta Brawl does not use drop-offs')
+    r, log = export('bac', gb, ptp=False, modes=['Big Ass Chains'])
+    check(r['ok'] and 'every Chains drop-off' in log, 'mode export: Big Ass Chains warns about them all off')
+
+    import bor_mode
+    bor = ([P('Red team spawn', -10), P('Blue team spawn', 10), P('Shared spawn', 0)]
+           + [P(k, i) for i, k in enumerate((bor_mode.CAR_RED, bor_mode.CAR_BLUE, bor_mode.GARAGE_RED, bor_mode.GARAGE_BLUE, bor_mode.CHOP_SHOP, bor_mode.ENTRANCE, bor_mode.DOOR, bor_mode.VICTORY, bor_mode.CASH, bor_mode.CASH))]
+           + [P('Chains drop-off', 12, disabled=True), P('Sphere trigger (custom)', 14, trigger_action='pimp exit', max_fires=300)])
+    r, log = export('boronly', bor + [P('Weapon pickup', i, label=f'w{i}') for i in range(10)] + [P('Item prop', i, item=f'p{i}') for i in range(11)], ptp=False, bor=True, modes=['Blinged Out Ride'])
+    check(r['ok'], 'mode export: Blinged Out Ride only runs' + ('' if r['ok'] else ': ' + r['error']))
+    if r['ok']:
+        text = (Path(r['value']['out_dir']) / 'limits_bor.cts').read_bytes().decode()
+        check(len(item_props.item_types(text)) == 10, "mode export: Blinged Out Ride's file gets weapon pickups only")
+        check('different item types' not in log and 'every Chains drop-off' not in log, 'mode export: so 21 with props says nothing, nor do drop-offs it switches on')
+        check('max fires 300' in log and 'pimp exit' in log, 'mode export: its copy holds the custom trigger, which is logged')
+    r, log = export('borover', bor + [P('Weapon pickup', i, label=f'w{i}') for i in range(21)], ptp=False, bor=True, modes=['Blinged Out Ride'])
+    check(r['ok'] and 'limits_bor.cts has 21 different item types' in log and 'limits.cts has' not in log, 'mode export: 21 pickups warn about the Blinged Out Ride file only')
 
 
 pack = os.environ.get('SR1_DATA_PACK')

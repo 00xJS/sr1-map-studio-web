@@ -16,7 +16,7 @@ import { catalogs } from '../lib/catalogs'
 import { MAX_TRIGGER_FIRES } from '../lib/levels'
 import { loadModel, textureUrl } from '../lib/assets'
 import { MARKER_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/labels'
-import { PIMP_EXIT, isCustomNative, isGlass, isProp, type Light, type Marker, type SceneItem, type Vec3 } from '../lib/project'
+import { PIMP_EXIT, isCustomNative, isGlass, isProp, setMarkerType, type Light, type Marker, type SceneItem, type Vec3 } from '../lib/project'
 import { RETAIL_MARKER_TYPES } from '../lib/retailModes'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
 import { prefabParams } from '../lib/prefabs'
@@ -476,7 +476,7 @@ function MarkerInspector({ m, index }: { m: Marker; index: number }) {
       <div className="section">
         {m.type !== 'Weapon pickup' && (
           <Field label="What it is" hint={MARKER_HINTS[m.type]}>
-            <select value={m.type} onChange={(e) => set('Marker type', (d) => { d.type = e.target.value })}>
+            <select value={m.type} onChange={(e) => set('Marker type', (d) => setMarkerType(d, e.target.value))}>
               {m.type === PIMP_EXIT && <option value={PIMP_EXIT}>Pimp exit (not in the game, change this)</option>}
               {types.map((t) => <option key={t} value={t}>{markerLabel(t)}</option>)}
             </select>
@@ -554,7 +554,7 @@ function MarkerMore({ m, set }: { m: Marker; set: SetMarker }) {
   return (
     <div className="section">
       <Field label="Every kind of marker">
-        <select value={m.type} onChange={(e) => set('Marker type', (d) => { d.type = e.target.value })}>
+        <select value={m.type} onChange={(e) => set('Marker type', (d) => setMarkerType(d, e.target.value))}>
           {m.type === PIMP_EXIT && <option value={PIMP_EXIT}>Pimp exit (not in the game, change this)</option>}
           {MARKER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>

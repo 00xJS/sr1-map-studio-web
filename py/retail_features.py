@@ -69,6 +69,11 @@ def finish(spec, out_dir, base, markers, world_scale, mirror_x, origin, space, l
         log('Blinged Out Ride markers are only used when the Blinged Out Ride mode is selected.')
     zones = sound_zones.collect(markers, world_scale, mirror_x, origin, space, log)
     out['sound_zones'] = sound_zones.write(out_dir, base, zones, map_features.add_include, log)
-    props = item_props.collect(markers, world_scale, mirror_x, origin, space, log)
-    out['item_props'] = item_props.write(out_dir, base, props, log)
+    # Item props go only in the main file; Blinged Out Ride's copy of it is already written.
+    out['item_props'] = 0
+    if '' in map_features.loaded_cts(spec):
+        props = item_props.collect(markers, world_scale, mirror_x, origin, space, log)
+        out['item_props'] = item_props.write(out_dir, base, props, log)
+    elif any(m.get('type') == item_props.TYPE for m in markers):
+        log(f'Item props left out: they go in {base}.cts, which none of the selected modes loads.')
     return out

@@ -81,11 +81,7 @@ def write(out_dir, base, props, log):
     if not props and not path.is_file():
         return 0
     text = path.read_bytes().decode('utf-8-sig')
-    types = item_types(text)
-    if len(types) > MAX_ITEM_TYPES:
-        log(f'WARNING: {len(types)} different weapon pickup types. A custom match with lobby weapons on gets a missing item past '
-            f'{MAX_ITEM_TYPES}, which may crash it: use {MAX_ITEM_TYPES} or fewer.')
-    props = _within_type_limit(props, types, log)
+    props = _within_type_limit(props, item_types(text), log)
     if not props:
         return 0
     nl = '\r\n' if '\r\n' in text else '\n'
@@ -108,3 +104,15 @@ def write(out_dir, base, props, log):
     log(f'Item props: {len(props)} placed by name in {path.name} (untested in game).')
     log('Item props: in a custom match with lobby weapons on, the game turns placed items into those weapons, item props too.')
     return len(props)
+
+
+def check_type_limit(out_dir, base, suffixes, log):
+    """Warns about each CTS file named (map_features.loaded_cts) with more item types than the game keeps. Run after write."""
+    for suffix in suffixes:
+        path = Path(out_dir) / f'{base}{suffix}.cts'
+        if not path.is_file():
+            continue
+        n = len(item_types(path.read_bytes().decode('utf-8-sig')))
+        if n > MAX_ITEM_TYPES:
+            log(f'WARNING: {path.name} has {n} different item types. A custom match with lobby weapons on gets a missing item past '
+                f'{MAX_ITEM_TYPES}, which may crash it: use {MAX_ITEM_TYPES} or fewer.')

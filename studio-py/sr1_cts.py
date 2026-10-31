@@ -117,7 +117,6 @@ def build_cts(template_text, markers, map_id, scale=1.0, mirror_x=True, origin=(
             'coordinate_space':coordinate_space, 'exported_positions':[]}
     group_ids={}
     special_count=0
-    chains_on=0
     for m in markers:
         kind=m.get('type')
         if kind not in CATEGORIES: raise ValueError('Unsupported marker category: '+str(kind))
@@ -179,7 +178,6 @@ def build_cts(template_text, markers, map_id, scale=1.0, mirror_x=True, origin=(
                     report['limits'].append(f'The game has no "{action}" trigger action: it logs an error and treats the trigger as "execute lua script", so it does nothing')
                 # Most of the game's own drop-offs have no +Disabled: 17 of 21 on its MP maps, and only mp_bac_03 uses it (on 4 of 5).
                 disabled=m.get('disabled',kind!='Chains drop-off')
-                if kind=='Chains drop-off' and not disabled:chains_on+=1
                 sections['#Triggers'].append(
                     f'$Trigger:\t\t\t\t"{name}"\n$Trigger type:\t\t\t"sphere"\n'
                     f'$Trigger action:\t\t"{action}"\n$Trigger max fires:\t{max_fires}\n'
@@ -214,8 +212,6 @@ def build_cts(template_text, markers, map_id, scale=1.0, mirror_x=True, origin=(
     for heading in reversed(ORDER):
         text=_append_section(text,heading,''.join(sections[heading]))
     if not markers:report['warnings'].append('No markers added')
-    if report['counts'].get('Chains drop-off') and not chains_on:
-        report['limits'].append("Every Chains drop-off starts switched off, which none of the game's own maps does. Not tested in game")
     spawn_count=sum(report['counts'].get(k,0) for k in SPAWN_KINDS)
     if spawn_count<4: report['warnings'].append('mapconv recommends at least 4 spawns; ideally 8 or more')
     report['warnings'].append('Template retains existing chunk/include references; check they match your installed map')

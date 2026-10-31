@@ -45,6 +45,7 @@ import interiors
 import minimap_region
 import collision_fix
 import retail_features as retail
+import item_props
 import native_sky
 import retail_records
 import peg_mips
@@ -480,6 +481,12 @@ def _export(s, log):
     rect = s.get('minimap_rect')
     if rect and opt('minimap_texture'):
         _write_minimap_region(out, base, [float(v) for v in rect], fixed_origin, ws, bool(s.get('mirror_x', True)), log)
+    # Blinged Out Ride's file is a copy of the main one, so what the main file's triggers need matters to it too.
+    loaded = features.loaded_cts(s)
+    if '' in loaded or '_bor' in loaded:
+        for limit in result['cts_limits']:
+            log('CTS: ' + limit)
+    features.check_chains_on(s, main_markers, log)
     if s.get('ptp'):
         origin = (0., 0., 0.) if space == 'game' else fixed_origin
         _write_ptp_cts(out, job, base, ptp_markers, ws, bool(s.get('mirror_x', True)), origin, space, log)
@@ -496,7 +503,8 @@ def _export(s, log):
     shared_textures.check_size(out / (base + '.peg_xbox2'), log, early['copied_bytes'] if early else 0)
     extras = retail.finish(s, out, base, markers, ws, mirror, (0., 0., 0.) if space == 'game' else fixed_origin, space, log)
     features.write_brawl_spawns(out, base, log)
-    features.check_spawn_limit(out, base, log)
+    features.check_spawn_limit(out, base, loaded, log)
+    item_props.check_type_limit(out, base, loaded, log)
     files =sorted(str(p) for p in out.rglob('*') if p.is_file())
     summary = {
         'render_triangles': result['bbchunk']['render_triangles'],

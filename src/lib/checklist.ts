@@ -4,7 +4,7 @@ import { PIMP_EXIT, SPAWN_TYPES, gameSkyWanted, isCustomNative, isGlass, type Pr
 import { retailChecklist } from './retailModes'
 import { isDummy, dummyRefOf } from './dummies/standIn'
 import { MANY_LOOKS, MAX_DUMMIES, lookKey } from './dummies/models'
-import { CHAINS_DROPS, DROP_GAP, FFA_SPAWNS, MAX_ITEM_TYPES, SPAWN_GAP, bunched, crowdedSpawns, crowdedText, freeForAll, itemTypes, itemTypesText, spawnLimitTexts, unusedModeMarkers } from './levels'
+import { CHAINS_DROPS, DROP_GAP, FFA_SPAWNS, SPAWN_GAP, bunched, crowdedSpawns, crowdedText, freeForAll, itemTypesText, spawnLimitTexts, unusedModeMarkers } from './levels'
 
 export type Fix =
   | { kind: 'tool'; tool: string; spawn?: string }
@@ -132,7 +132,8 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
   if (looks > MANY_LOOKS) add({ id: 'dummy-looks', state: 'suggested', text: `${looks} different dummy looks add about ${looks} MB to the map's textures: give some the same look (copies share their pictures).`, fix: { kind: 'select', index: first }, action: 'Show' })
 
   spawnLimitTexts(modes, p.markers).forEach((text, i) => add({ id: `spawn-limit-${i}`, state: 'suggested', text }))
-  if (itemTypes(p.markers).size > MAX_ITEM_TYPES) add({ id: 'item-types', state: 'suggested', text: itemTypesText(p.markers) })
+  const itemsOver = itemTypesText(modes, p.markers)
+  if (itemsOver) add({ id: 'item-types', state: 'suggested', text: itemsOver })
 
   const exits = count(PIMP_EXIT)
   if (exits) add({ id: 'exit', state: 'needed', text: `Erase ${exits === 1 ? 'the pimp exit marker' : `${exits} pimp exit markers`}: the game has no pimp exit`, fix: { kind: 'tool', tool: 'erase' }, action: 'Erase' })
