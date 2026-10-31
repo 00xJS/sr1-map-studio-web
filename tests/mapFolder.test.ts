@@ -12,7 +12,7 @@ import { packageMetadata } from '../src/lib/exporter'
 import { SPAWN_TYPES, defaultSettings, newMarker } from '../src/lib/project'
 import { readChunk } from '../src/lib/gameObjects/chunk'
 import { decodeText, mapIdentity, parseLevels, parseStrings } from '../src/lib/mapFolder/meta'
-import { ctsMarkers, parseCts, soundZones, toEditor, yawToEditor, type Frame } from '../src/lib/mapFolder/cts'
+import { ctsMarkers, hasWeaponPickups, parseCts, soundZones, toEditor, yawToEditor, type Frame } from '../src/lib/mapFolder/cts'
 import { FAKE_SKY, backFaces, chunkSoup, objectName, sceneOrigin, splitParts, splitScene, type TriSoup } from '../src/lib/mapFolder/scene'
 import { chunkStems, findMaps, folderEntries, type MapSource } from '../src/lib/mapFolder/files'
 import { baseNameFor, readMapInfo } from '../src/lib/mapFolder/info'
@@ -73,7 +73,7 @@ $Pos:			<1.000000 10.000000 1.000000>
 $Orient:		[0.000000]
 +Chunk:		"myarena"
 
-$Navpoint:	"myarena__studio_$item001"
+$Navpoint:	"myarena__studio_$prop000"
 $Type:		"ground"
 $Pos:			<3.000000 10.000000 1.000000>
 $Orient:		[0.000000]
@@ -114,9 +114,9 @@ $Item:		"myarena__studio_$item000"
 $Item type:	"pump action shotgun"
 $Start nav:	"myarena__studio_$item000"
 
-$Item:		"myarena__studio_$item001"
+$Item:		"myarena__studio_$prop000"
 $Item type:	"Chair_Office"
-$Start nav:	"myarena__studio_$item001"
+$Start nav:	"myarena__studio_$prop000"
 
 // -------
 #Triggers
@@ -264,6 +264,24 @@ describe('CTS files back into markers', () => {
     expect(spawn.yaw).toBeCloseTo(90, 3)
     expect(toEditor(frame, [-2, 10.5, 4])).toEqual([4, 1, 8])
     expect(yawToEditor(-Math.PI / 2)).toBe(90)
+  })
+  it('tells whether a file has weapon pickups, not just item props', () => {
+    const item = (type: string) => parseCts(`#Items\n$Item:\t"a"\n$Item type:\t"${type}"\n$Start nav:\t"a"\n\n#End\n`)
+    expect(hasWeaponPickups(item('pump action shotgun'))).toBe(true)
+    expect(hasWeaponPickups(item('Chair_Office'))).toBe(false)
+    expect(hasWeaponPickups(undefined)).toBe(false)
+  })
+  it('keeps a weapon ID typed in under Other… as a pickup, by the name the exporter gave its record', () => {
+    const file = (name: string, type: string) => parseCts(`#Navpoints\n$Navpoint:\t"${name}"\n$Type:\t"ground"\n$Pos:\t<1 2 3>\n$Orient:\t[0]\n\n#Items\n$Item:\t"${name}"\n$Item type:\t"${type}"\n$Start nav:\t"${name}"\n\n#End\n`)
+    const typed = file('map__studio_$item000', 'glockL')
+    expect(hasWeaponPickups(typed)).toBe(true)
+    // In both files, as a kept weapon is: one marker, not a prop and a pickup.
+    expect(ctsMarkers({ main: typed, ptp: typed }, frame).markers).toMatchObject([{ type: 'Weapon pickup', weapon: 'glockL', label: 'glockL' }])
+    const prop = file('map__studio_$prop000', 'Chair_Office')
+    expect(hasWeaponPickups(prop)).toBe(false)
+    expect(ctsMarkers({ main: prop }, frame).markers).toMatchObject([{ type: 'Item prop', item: 'Chair_Office' }])
+    // A map from elsewhere: only the weapon list can say.
+    expect(ctsMarkers({ main: file('item1', 'glockL') }, frame).markers).toMatchObject([{ type: 'Item prop', item: 'glockL' }])
   })
   it('reads every kind the exporter writes', () => {
     expect(of('Weapon pickup').map((m) => m.weapon)).toEqual(['pump_action_shotgun'])

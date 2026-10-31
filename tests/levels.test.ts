@@ -50,6 +50,13 @@ describe('levelEntries', () => {
     expect(gb).toMatchObject({ ctsFile: 'arena', weapons: 2, name: 'arena GB' })
     expect(ptp).toMatchObject({ ctsFile: 'arena_ptp', weapons: 6, vehicles: 0, name: 'arena PTP' })
   })
+
+  it('counts the weapon pickups a Protect Tha Pimp map keeps, but no vehicles', () => {
+    const markers = [at('Weapon pickup', { label: 'ak47' }), at('Weapon pickup', { label: 'tec9' }), at('Vehicle spawn', { label: 'baron' })]
+    const [gb, ptp] = levelEntries('arena', ['Gangsta Brawl', 'Protect Tha Pimp'], markers, true)
+    expect(gb).toMatchObject({ weapons: 2, vehicles: 1 })
+    expect(ptp).toMatchObject({ ctsFile: 'arena_ptp', weapons: 2, vehicles: 0 })
+  })
 })
 
 describe('checkModes', () => {
@@ -98,6 +105,12 @@ describe('packageMetadata', () => {
     expect(x).toContain(`<ID>${levelId('arena', 'Protect Tha Pimp')}</ID>`)
     expect(x).toContain('<num_customizable_weapons>1</num_customizable_weapons>')
     expect(x.match(/<MultiplayerLevel>/g)).toHaveLength(2)
+  })
+
+  it('writes the kept weapons into the PTP entry', () => {
+    const entry = (keep: boolean) => strFromU8(packageMetadata('Arena', 'arena', 'Arena', { modes: ['Protect Tha Pimp'], always_clear_weather: true, ptp_keep_weapons: keep }, [at('Weapon pickup', { label: 'ak47' })])['Arena/levels/multiplayer_levels_extra.xtbl'])
+    expect(entry(false)).toContain('<num_customizable_weapons>6</num_customizable_weapons>')
+    expect(entry(true)).toContain('<num_customizable_weapons>1</num_customizable_weapons>')
   })
 })
 

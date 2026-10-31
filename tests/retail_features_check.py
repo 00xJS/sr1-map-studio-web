@@ -155,6 +155,27 @@ def made_up_donor(pack, folder):
     return payload, names
 
 
+def ptp_weapons(tmp):
+    import web_api
+    markers = [M('Shared spawn', (0, 0, 0)), M('Red team spawn', (-9, 0, 0)), M('Blue team spawn', (9, 0, 0)), M('Pimp entrance', (0, 0, 9)),
+               dict(M('Weapon pickup', (0, 0, -9)), label='ak47'), dict(M('Vehicle spawn', (5, 0, -9)), label='baron')]
+
+    def written(job, keep):
+        folder = tmp / job
+        folder.mkdir()
+        logs = []
+        web_api._write_ptp_cts(folder, folder, 'ptpmap', web_api._ptp_markers(dict(ptp_keep_weapons=keep), markers), 0.5, True, (0., 0., 0.), 'scene', logs.append)
+        return (folder / 'ptpmap_ptp.cts').read_text(encoding='utf-8'), logs[-1]
+
+    off, _ = written('ptp_off', False)
+    check('$Item:' not in off and off.count('$Respawn:') == 2, 'PTP CTS: team spawns and no weapons by default')
+    on, log = written('ptp_on', True)
+    check(on.count('$Item:') == 1 and '"ak47"' in on and on.count('$Respawn:') == 2, 'PTP CTS: keeps the weapon pickup when asked')
+    check('$Vehicle:' not in on and '1 weapon pickup(s)' in log, 'PTP CTS: still no vehicles, and the log counts the weapons')
+    start = re.search(r'(?m)^\$Start nav:\s*"([^"]+__studio_\$item000)"', on)
+    check(bool(start) and f'$Navpoint:\t"{start.group(1)}"' in on, 'PTP CTS: the kept weapon has its navpoint')
+
+
 def full_export(pack, tmp, game):
     import web_api
     studio = tmp / 'studio'
@@ -293,6 +314,7 @@ with tempfile.TemporaryDirectory() as t:
     bor_text()
     sound_text()
     crate_bytes()
+    ptp_weapons(tmp)
     pack = os.environ.get('SR1_DATA_PACK')
     if pack:
         full_export(Path(pack), tmp, os.environ.get('SR1_GAME_PACKFILES'))

@@ -41,9 +41,10 @@ export function customizableCounts(markers: Marker[]): { weapons: number; vehicl
 }
 
 /** Blinged Out Ride is listed only when the map has everything the mode needs. */
-export function levelEntries(map: string, modes: GameMode[], markers: Marker[]): LevelEntry[] {
+export function levelEntries(map: string, modes: GameMode[], markers: Marker[], ptpKeepWeapons = false): LevelEntry[] {
   const main = customizableCounts(markers)
-  const ptp = customizableCounts([]) // the PTP CTS holds team spawns and pimp entrances only
+  // The PTP CTS holds team spawns and pimp entrances, and the weapon pickups only if the map keeps them.
+  const ptp = customizableCounts(ptpKeepWeapons ? markers.filter((m) => m.type === 'Weapon pickup') : [])
   // BOR cars come from <map>_mode.xtbl: the extra cars per team, as retail mp_bor_01 (3).
   const bor = { weapons: main.weapons, vehicles: borExtraCars(markers) }
   return modes.filter((mode) => mode !== BOR || !borMissing(markers).length).map((mode) => {

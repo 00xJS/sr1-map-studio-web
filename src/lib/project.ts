@@ -166,6 +166,8 @@ export interface ProjectSettings {
   cts_template: string
   marker_game_coords: boolean
   modes: GameMode[]
+  /** Weapon pickups go in <map>_ptp.cts too. Unset counts as off, like the game's own PTP maps, which have none. */
+  ptp_keep_weapons?: boolean
   /** Off: the server rolls time of day and weather each match, like retail maps without the flag. */
   always_clear_weather: boolean
   /**

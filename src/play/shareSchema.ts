@@ -90,7 +90,7 @@ const LIGHT: Record<keyof Light, Clean> = {
 const SETTINGS: Record<keyof ProjectSettings, Clean> = {
   base_name: str(64), display_name: str(), world_scale: num, mirror_x: bool, flip_obj_v: bool, double_sided: bool,
   sky_texture: str(), minimap_texture: str(), sky_scale: num, native_sky: str(32), game_sky: bool, bbcity_donor: str(),
-  surface_preload: bool, cts_template: str(), marker_game_coords: bool, modes: strs, always_clear_weather: bool,
+  surface_preload: bool, cts_template: str(), marker_game_coords: bool, modes: strs, ptp_keep_weapons: bool, always_clear_weather: bool,
   dry_interiors: bool, remove_invisible_walls: bool, minimap_mode: str(16), minimap_rect: nums(4), loading_mode: str(16),
   loading_image: str(), ambience: str(),
 }
