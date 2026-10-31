@@ -142,6 +142,9 @@ describe('rigs', () => {
     const orphan = makeRig(['Root', 'Spine'])
     new DataView(orphan.buffer).setUint32(0x50 + 36 + 28, 7) // the second bone's parent
     expect(() => parseRig(orphan)).toThrow(/parent index/)
+    const shifted = makeRig(['Root', 'Spine'])
+    new DataView(shifted.buffer).setUint32(0x50 + 36 + 32, 0) // the second bone's closing field
+    expect(() => parseRig(shifted)).toThrow(/not laid out/)
   })
 })
 
@@ -211,21 +214,25 @@ describe.skipIf(!GAME_TESTS || !haveGame)('the player from a local game install'
   it('reads the rigs of the game, whatever their bone count', async () => {
     let read = 0, refused = 0
     const sizes = new Set<number>(), seen = new Set<string>()
+    // Their names fit by chance, but they're laid out some other way.
+    const misread = new Set(['cs_casemoney.rig_xbox2', 'cs_switchblade.rig_xbox2'])
     for (const file of readdirSync(GAME).filter((f) => f.endsWith('.vpp_xbox2') && !/^(music|sounds)/i.test(f))) {
       const pack = await openVpp(await openAsBlob(GAME + '/' + file), file).catch(() => null)
       for (const name of pack ? pack.list().filter((n) => n.toLowerCase().endsWith('.rig_xbox2')) : []) {
         if (seen.has(name.toLowerCase())) continue
         seen.add(name.toLowerCase())
         let rig
-        try { rig = parseRig(await pack!.read(name)) } catch { refused++; continue }
+        try { rig = parseRig(await pack!.read(name)) } catch { refused++; misread.delete(name.toLowerCase()); continue }
         read++
         sizes.add(rig.bones.length)
         expect(rig.bones.every((b) => /^[\x20-\x7e]+$/.test(b.name)), name).toBe(true)
+        expect(rig.bones.every((b) => [b.rest.x, b.rest.y, b.rest.z].every((c) => Number.isFinite(c) && Math.abs(c) < 1000)), name).toBe(true)
         expect(rig.bones.filter((b) => b.parent < 0).length, name).toBeGreaterThan(0)
       }
     }
-    expect(read).toBeGreaterThan(150)
+    expect(read).toBeGreaterThanOrEqual(179)
     expect(read).toBeGreaterThan(refused)
+    expect([...misread]).toEqual([])
     expect(sizes.size).toBeGreaterThan(1)
   }, 300000)
 

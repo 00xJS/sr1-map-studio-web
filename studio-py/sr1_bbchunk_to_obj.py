@@ -367,7 +367,8 @@ def export_bbchunk_obj(source, destination, include_all=False, peg_path=None):
                     if uv_sets:
                         for n in range(count):
                             u,v=struct.unpack_from('>hh',vb.vd,n*stride+uv_at)
-                            out.write('vt %.9g %.9g\n'%(u/1024.0,v/1024.0))
+                            # OBJ's V runs up from the bottom and the game's down from the top; the map exporter flips it back.
+                            out.write('vt %.9g %.9g\n'%(u/1024.0,1.0-v/1024.0))
                         global_uv+=count
                     if lit:
                         import numpy as np

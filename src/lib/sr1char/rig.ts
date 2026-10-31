@@ -37,6 +37,8 @@ export function parseRig(u8: Uint8Array): Rig {
   const bones: RigBone[] = []
   for (let i = 0; i < n; i++) {
     const o = REC + SZ * i, par = dv.getUint32(o + 28)
+    // Names can fit by chance in a rig laid out some other way; this field is the same in every rig that reads right.
+    if (dv.getUint32(o + 32) !== 0xffffffff) throw new Error('rig bone records are not laid out as this reader expects')
     if (par !== 0xffffffff && par >= n) throw new Error('rig parent index is outside the bone table')
     bones.push({ name: str(offsets[i]), rest: new THREE.Vector3(-dv.getFloat32(o + 4), -dv.getFloat32(o + 8), -dv.getFloat32(o + 12)), parent: par === 0xffffffff ? -1 : par })
   }
