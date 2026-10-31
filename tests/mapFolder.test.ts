@@ -12,7 +12,7 @@ import { packageMetadata } from '../src/lib/exporter'
 import { SPAWN_TYPES, defaultSettings, newMarker } from '../src/lib/project'
 import { readChunk } from '../src/lib/gameObjects/chunk'
 import { decodeText, mapIdentity, parseLevels, parseStrings } from '../src/lib/mapFolder/meta'
-import { ctsMarkers, parseCts, soundZones, toEditor, yawToEditor, type Frame } from '../src/lib/mapFolder/cts'
+import { ctsMarkers, hasWeaponPickups, parseCts, soundZones, toEditor, yawToEditor, type Frame } from '../src/lib/mapFolder/cts'
 import { FAKE_SKY, backFaces, chunkSoup, objectName, sceneOrigin, splitParts, splitScene, type TriSoup } from '../src/lib/mapFolder/scene'
 import { chunkStems, findMaps, folderEntries, type MapSource } from '../src/lib/mapFolder/files'
 import { baseNameFor, readMapInfo } from '../src/lib/mapFolder/info'
@@ -264,6 +264,12 @@ describe('CTS files back into markers', () => {
     expect(spawn.yaw).toBeCloseTo(90, 3)
     expect(toEditor(frame, [-2, 10.5, 4])).toEqual([4, 1, 8])
     expect(yawToEditor(-Math.PI / 2)).toBe(90)
+  })
+  it('tells whether a file has weapon pickups, not just item props', () => {
+    const item = (type: string) => parseCts(`#Items\n$Item:\t"a"\n$Item type:\t"${type}"\n$Start nav:\t"a"\n\n#End\n`)
+    expect(hasWeaponPickups(item('pump action shotgun'))).toBe(true)
+    expect(hasWeaponPickups(item('Chair_Office'))).toBe(false)
+    expect(hasWeaponPickups(undefined)).toBe(false)
   })
   it('reads every kind the exporter writes', () => {
     expect(of('Weapon pickup').map((m) => m.weapon)).toEqual(['pump_action_shotgun'])

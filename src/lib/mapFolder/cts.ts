@@ -90,6 +90,9 @@ export interface CtsMarkers {
   skipped: string[]
 }
 
+/** The map's PTP file has weapon pickups, so an export of the opened map should keep them there. */
+export const hasWeaponPickups = (cts?: Cts) => !!cts?.records.some((r) => r.kind === 'Item' && weaponId(unquote(r.fields['Item type'] ?? '')))
+
 const posKey = (m: Marker) => `${m.type}|${m.label}|${m.position.map((v) => Math.round(v * 20)).join(',')}`
 
 /**

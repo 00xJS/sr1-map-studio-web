@@ -66,6 +66,7 @@ export async function runExport(project: Project, onLog: (t: string) => void, on
     // Early surface registration: the map's textures copied into a map-specific sf_ environment pair (py/surface_registration.py).
     surface_preload: !!s.surface_preload,
     ptp: s.modes.includes('Protect Tha Pimp'),
+    ptp_keep_weapons: !!s.ptp_keep_weapons,
     // Blinged Out Ride: <map>_bor.cts and <map>_mode.xtbl (py/bor_mode.py).
     bor: s.modes.includes(BOR),
     ...crate,
@@ -143,12 +144,12 @@ export const helpText = (display: string, description: string | undefined) =>
  * Same layout and formatting as the community maps installed in SaintsReborn/dist/maps:
  * bundle_info, the level list, the help page for the map and its strings in every game language.
  */
-export function packageMetadata(folder: string, map: string, display: string, settings: Pick<ProjectSettings, 'modes' | 'always_clear_weather'>, markers: Marker[], description = ''): Record<string, Uint8Array> {
+export function packageMetadata(folder: string, map: string, display: string, settings: Pick<ProjectSettings, 'modes' | 'always_clear_weather' | 'ptp_keep_weapons'>, markers: Marker[], description = ''): Record<string, Uint8Array> {
   const bundle = ['<root>', '<Table>', '\t<BundleInfo>', '\t\t<BundleInfoFlags>', '\t\t\t<Flag>BUNDLE_TYPE_LEVEL</Flag>', '\t\t\t</BundleInfoFlags>', '\t\t</BundleInfo>', '\t</Table>', '</root>', ''].join(CRLF)
   const flags = settings.always_clear_weather
     ? ['\t\t<Flags>', '\t\t\t<Flag>AlwaysClearWeather</Flag>', '\t\t\t</Flags>']
     : []
-  const levels = levelEntries(map, settings.modes.length ? settings.modes : ['Gangsta Brawl'], markers).map((e) => [
+  const levels = levelEntries(map, settings.modes.length ? settings.modes : ['Gangsta Brawl'], markers, !!settings.ptp_keep_weapons).map((e) => [
     '\t<MultiplayerLevel>',
     `\t\t<Name>${e.name}</Name>`,
     `\t\t<Mode>${e.mode}</Mode>`,

@@ -58,7 +58,7 @@ function Modes() {
   const set = useSet()
   const s = project.settings
   const modeCheck = checkModes(s, project.markers)
-  const entries = levelEntries(sanitize(s.base_name) || 'map', s.modes, project.markers)
+  const entries = levelEntries(sanitize(s.base_name) || 'map', s.modes, project.markers, !!s.ptp_keep_weapons)
   return (
     <div className="section" id="game-modes">
       <span className="section-title">Game modes</span>
@@ -67,6 +67,12 @@ function Modes() {
           <span className="stack tight"><span>{m}</span><span className="faint small">{MODE_HINTS[m]}</span></span>
         </Check>
       ))}
+      {s.modes.includes('Protect Tha Pimp') && (
+        <Check checked={!!s.ptp_keep_weapons} onChange={(v) => set('Weapons in Protect Tha Pimp', 'ptp_keep_weapons', v)}
+          title={"Off is like the game's own Protect Tha Pimp maps, which have no weapon pickups." + statusSentence('ptp_weapons')}>
+          Keep weapon pickups in Protect Tha Pimp
+        </Check>
+      )}
       {modeCheck.errors.map((e) => <span key={e} className="small bad">{e}</span>)}
       {modeCheck.warnings.map((w) => {
         const unused = unusedModeMarkers(s.modes, project.markers).find((u) => u.text === w)
