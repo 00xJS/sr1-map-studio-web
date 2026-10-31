@@ -73,7 +73,7 @@ $Pos:			<1.000000 10.000000 1.000000>
 $Orient:		[0.000000]
 +Chunk:		"myarena"
 
-$Navpoint:	"myarena__studio_$item001"
+$Navpoint:	"myarena__studio_$prop000"
 $Type:		"ground"
 $Pos:			<3.000000 10.000000 1.000000>
 $Orient:		[0.000000]
@@ -114,9 +114,9 @@ $Item:		"myarena__studio_$item000"
 $Item type:	"pump action shotgun"
 $Start nav:	"myarena__studio_$item000"
 
-$Item:		"myarena__studio_$item001"
+$Item:		"myarena__studio_$prop000"
 $Item type:	"Chair_Office"
-$Start nav:	"myarena__studio_$item001"
+$Start nav:	"myarena__studio_$prop000"
 
 // -------
 #Triggers
@@ -270,6 +270,18 @@ describe('CTS files back into markers', () => {
     expect(hasWeaponPickups(item('pump action shotgun'))).toBe(true)
     expect(hasWeaponPickups(item('Chair_Office'))).toBe(false)
     expect(hasWeaponPickups(undefined)).toBe(false)
+  })
+  it('keeps a weapon ID typed in under Other… as a pickup, by the name the exporter gave its record', () => {
+    const file = (name: string, type: string) => parseCts(`#Navpoints\n$Navpoint:\t"${name}"\n$Type:\t"ground"\n$Pos:\t<1 2 3>\n$Orient:\t[0]\n\n#Items\n$Item:\t"${name}"\n$Item type:\t"${type}"\n$Start nav:\t"${name}"\n\n#End\n`)
+    const typed = file('map__studio_$item000', 'glockL')
+    expect(hasWeaponPickups(typed)).toBe(true)
+    // In both files, as a kept weapon is: one marker, not a prop and a pickup.
+    expect(ctsMarkers({ main: typed, ptp: typed }, frame).markers).toMatchObject([{ type: 'Weapon pickup', weapon: 'glockL', label: 'glockL' }])
+    const prop = file('map__studio_$prop000', 'Chair_Office')
+    expect(hasWeaponPickups(prop)).toBe(false)
+    expect(ctsMarkers({ main: prop }, frame).markers).toMatchObject([{ type: 'Item prop', item: 'Chair_Office' }])
+    // A map from elsewhere: only the weapon list can say.
+    expect(ctsMarkers({ main: file('item1', 'glockL') }, frame).markers).toMatchObject([{ type: 'Item prop', item: 'glockL' }])
   })
   it('reads every kind the exporter writes', () => {
     expect(of('Weapon pickup').map((m) => m.weapon)).toEqual(['pump_action_shotgun'])
