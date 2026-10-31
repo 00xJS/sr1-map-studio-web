@@ -72,7 +72,7 @@ const ITEM: { [K in keyof SceneItem]?: Clean } & Record<string, Clean> = {
   native_breakable_kind: str(16), native_opacity: num, native_use_alpha: bool, native_prop_behavior: str(16),
   native_original_name: str(), native_prop_original_name: str(), native_profile: str(64),
   physics_preset: str(64), physics_shape: str(16), physics_bottom_heavy: bool,
-  swimmable_water: bool, water_materials: strs, collision_materials: strs, triangles: num, shape, group: str(), layer: str(),
+  swimmable_water: bool, water_materials: strs, climbable: bool, collision_materials: strs, triangles: num, shape, group: str(), layer: str(),
   dummy: (v) => dummy(v),
 }
 
@@ -90,7 +90,7 @@ const LIGHT: Record<keyof Light, Clean> = {
 const SETTINGS: Record<keyof ProjectSettings, Clean> = {
   base_name: str(64), display_name: str(), world_scale: num, mirror_x: bool, flip_obj_v: bool, double_sided: bool,
   sky_texture: str(), minimap_texture: str(), sky_scale: num, native_sky: str(32), game_sky: bool, bbcity_donor: str(),
-  surface_preload: bool, cts_template: str(), marker_game_coords: bool, modes: strs, always_clear_weather: bool,
+  surface_preload: bool, cts_template: str(), marker_game_coords: bool, modes: strs, ptp_keep_weapons: bool, always_clear_weather: bool,
   dry_interiors: bool, remove_invisible_walls: bool, minimap_mode: str(16), minimap_rect: nums(4), loading_mode: str(16),
   loading_image: str(), ambience: str(),
 }

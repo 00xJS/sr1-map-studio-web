@@ -31,6 +31,7 @@ import sr1_scene
 import sr1_cts
 import sr1_export
 import sr1_lighting
+import sr1_safe_export
 import sr1_native_glass as native
 import sr1_native_props as props
 import sr1_breakable_tools as breakable_tools
@@ -42,6 +43,7 @@ import fast_dxt
 import map_features as features
 import regions
 import interiors
+import climb
 import minimap_region
 import collision_fix
 import retail_features as retail
@@ -332,9 +334,15 @@ def _write_minimap_region(out, base, rect, origin, world_scale, mirror_x, log):
     return bool(done)
 
 
+def _ptp_markers(s, markers):
+    """What goes in <map>_ptp.cts: team spawns and pimp entrances, plus the weapon pickups if the map keeps them."""
+    kinds = ('Red team spawn', 'Blue team spawn', 'Pimp entrance') + (('Weapon pickup',) if s.get('ptp_keep_weapons') else ())
+    return [m for m in markers if m.get('type') in kinds]
+
+
 def _write_ptp_cts(out, job, base, markers, world_scale, mirror_x, origin, space, log):
     """<map>_ptp.cts, as retail mp_ptp_* and installed PTP packs: team respawns
-    (+MPTeam1/+MPTeam2) and "pimp enter" triggers only, no items."""
+    (+MPTeam1/+MPTeam2) and "pimp enter" triggers only, no items unless the map keeps its weapon pickups."""
     skeleton = job / 'ptp_skeleton.cts'
     sr1_sidecars.build_cts(skeleton, base, [])
     text, report = sr1_cts.build_cts(skeleton.read_text(encoding='ascii'), markers, base, world_scale, mirror_x,
@@ -342,7 +350,9 @@ def _write_ptp_cts(out, job, base, markers, world_scale, mirror_x, origin, space
     spawns = sum(1 for m in markers if m.get('type') in sr1_cts.SPAWN_KINDS)
     sr1_cts.validate_spawn_links(text, spawns)
     (out / (base + '_ptp.cts')).write_text(text, encoding='utf-8', newline='\r\n')
-    log(f'Protect Tha Pimp CTS: {spawns} team respawns, {report["counts"].get("Pimp entrance", 0)} pimp entrance trigger(s)')
+    weapons = report['counts'].get('Weapon pickup', 0)
+    log(f'Protect Tha Pimp CTS: {spawns} team respawns, {report["counts"].get("Pimp entrance", 0)} pimp entrance trigger(s)'
+        + (f', {weapons} weapon pickup(s)' if weapons else ''))
     for limit in report['limits']:
         log('Protect Tha Pimp CTS: ' + limit)
 
@@ -397,7 +407,7 @@ def _export(s, log):
     if not any(m.get('type') in sr1_cts.SPAWN_KINDS for m in markers):
         raise ValueError('Place at least one spawn in the Spawns tab. Random default spawns are disabled.')
     # Pimp entrances only matter in Protect Tha Pimp, which loads its own CTS.
-    ptp_markers = [m for m in markers if m.get('type') in ('Red team spawn', 'Blue team spawn', 'Pimp entrance')]
+    ptp_markers = _ptp_markers(s, markers)
     main_markers = [m for m in markers if m.get('type') != 'Pimp entrance' and not retail.extra_marker(m)]
     if any(m.get('type') == 'Pimp entrance' for m in markers):
         log('Pimp entrance markers go only into the Protect Tha Pimp CTS.')
@@ -476,6 +486,8 @@ def _export(s, log):
     physics.apply_shapes(chunk, glass_items, result.get('native_glass', {}).get('placements', []), _parse, ws, mirror, log)
     if crate_donor:
         retail.crate_debris.add_debris(chunk, out / (base + '.peg_xbox2'), crate_donor, log)
+    # Climb ledges on the objects marked climbable, converted like the markers (py/climb.py).
+    ledge_count = climb.add_ledges(chunk, items, mesh, lambda p: sr1_cts.convert_xyz(p, ws, mirror, fixed_origin), log)
     # Last change to the chunk: the game's own sky, when the editor passed in the player's game files.
     game_sky = native_sky.add(chunk, out / (base + '.peg_xbox2'), sky_donor, log) if sky_donor else False
     rect = s.get('minimap_rect')
@@ -505,6 +517,8 @@ def _export(s, log):
     features.write_brawl_spawns(out, base, log)
     features.check_spawn_limit(out, base, loaded, log)
     item_props.check_type_limit(out, base, loaded, log)
+    # export_map checked the map before the changes above: check the finished files too.
+    sr1_safe_export.validate_map(out, base, allowed_external_textures=('ds_grad_blk.tga',) if game_sky else ())
     files =sorted(str(p) for p in out.rglob('*') if p.is_file())
     summary = {
         'render_triangles': result['bbchunk']['render_triangles'],
@@ -516,6 +530,7 @@ def _export(s, log):
         'native_props': result.get('native_props', {}).get('created', 0),
         'lights': result.get('lighting', {}).get('exported', 0),
         'water_volumes': water_count,
+        'climb_ledges': ledge_count,
         'regions': region_count,
         'dry_boxes': min(len(dry), region_count),
         'game_sky': int(game_sky),

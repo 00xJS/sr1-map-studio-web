@@ -45,9 +45,10 @@ export function customizableCounts(markers: Marker[]): { weapons: number; vehicl
 }
 
 /** Blinged Out Ride is listed only when the map has everything the mode needs. */
-export function levelEntries(map: string, modes: GameMode[], markers: Marker[]): LevelEntry[] {
+export function levelEntries(map: string, modes: GameMode[], markers: Marker[], ptpKeepWeapons = false): LevelEntry[] {
   const main = customizableCounts(markers)
-  const ptp = customizableCounts([]) // the PTP CTS holds team spawns and pimp entrances only
+  // The PTP CTS holds team spawns and pimp entrances, and the weapon pickups only if the map keeps them.
+  const ptp = customizableCounts(ptpKeepWeapons ? markers.filter((m) => m.type === 'Weapon pickup') : [])
   // BOR cars come from <map>_mode.xtbl: the extra cars per team, as retail mp_bor_01 (3).
   const bor = { weapons: main.weapons, vehicles: borExtraCars(markers) }
   return modes.filter((mode) => mode !== BOR || !borMissing(markers).length).map((mode) => {
@@ -76,12 +77,13 @@ export function itemTypes(markers: ItemMarker[]): Set<string> {
 
 /**
  * The item type limit in plain words, or nothing when the files the selected modes load are within it. Item props go
- * only in the main file: Blinged Out Ride's copy is made before they are added, and Protect Tha Pimp's file has no items.
+ * only in the main file: Blinged Out Ride's copy is made before they are added, and Protect Tha Pimp's file has only
+ * the weapon pickups, if the map keeps them there.
  */
-export function itemTypesText(modes: GameMode[], markers: ItemMarker[]): string | null {
+export function itemTypesText(modes: GameMode[], markers: ItemMarker[], ptpKeepWeapons = false): string | null {
   const weapons = itemTypes(markers.filter((m) => m.type === 'Weapon pickup')).size
   const main = freeForAll(modes)
-  const types = main ? itemTypes(markers).size : modes.includes(BOR) ? weapons : 0
+  const types = main ? itemTypes(markers).size : modes.includes(BOR) || (ptpKeepWeapons && modes.includes('Protect Tha Pimp')) ? weapons : 0
   if (types <= MAX_ITEM_TYPES) return null
   const fix = weapons <= MAX_ITEM_TYPES
     ? `The export leaves out item props that add a type past ${MAX_ITEM_TYPES}: place fewer different ones to choose which stay.`
@@ -176,7 +178,7 @@ export function unusedModeMarkers(modes: GameMode[], markers: Pick<Marker, 'type
   return out
 }
 
-export function checkModes(settings: Pick<ProjectSettings, 'modes'>, markers: Marker[]): ModeCheck {
+export function checkModes(settings: Pick<ProjectSettings, 'modes' | 'ptp_keep_weapons'>, markers: Marker[]): ModeCheck {
   const errors: string[] = []
   const warnings: string[] = []
   const count = (type: string) => markers.filter((m) => m.type === type).length
@@ -200,7 +202,7 @@ export function checkModes(settings: Pick<ProjectSettings, 'modes'>, markers: Ma
   const crowded = crowdedSpawns(markers)
   if (crowded.length) warnings.push(crowdedText(markers, crowded))
   warnings.push(...spawnLimitTexts(modes, markers))
-  const itemsOver = itemTypesText(modes, markers)
+  const itemsOver = itemTypesText(modes, markers, !!settings.ptp_keep_weapons)
   if (itemsOver) warnings.push(itemsOver)
   const triggers = loadedTriggers(modes, markers)
   const overFires = triggers.filter((m) => m.max_fires > MAX_TRIGGER_FIRES).length

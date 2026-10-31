@@ -132,7 +132,7 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
   if (looks > MANY_LOOKS) add({ id: 'dummy-looks', state: 'suggested', text: `${looks} different dummy looks add about ${looks} MB to the map's textures: give some the same look (copies share their pictures).`, fix: { kind: 'select', index: first }, action: 'Show' })
 
   spawnLimitTexts(modes, p.markers).forEach((text, i) => add({ id: `spawn-limit-${i}`, state: 'suggested', text }))
-  const itemsOver = itemTypesText(modes, p.markers)
+  const itemsOver = itemTypesText(modes, p.markers, !!p.settings.ptp_keep_weapons)
   if (itemsOver) add({ id: 'item-types', state: 'suggested', text: itemsOver })
 
   const exits = count(PIMP_EXIT)

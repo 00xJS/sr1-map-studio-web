@@ -90,6 +90,18 @@ export interface CtsMarkers {
   skipped: string[]
 }
 
+/** The exporter's name for a weapon pickup's record; item props are "__studio_$prop000". */
+const EXPORTED_PICKUP = /__studio_\$item\d+$/
+
+/** The weapon an $Item gives, or null for an item prop. A weapon ID typed in under Other… isn't in the list, but the record's name still says it's a pickup. */
+function pickupWeapon(r: CtsRecord): string | null {
+  const type = unquote(r.fields['Item type'] ?? '')
+  return weaponId(type) ?? (type && EXPORTED_PICKUP.test(r.name) ? type : null)
+}
+
+/** The map's PTP file has weapon pickups, so an export of the opened map should keep them there. */
+export const hasWeaponPickups = (cts?: Cts) => !!cts?.records.some((r) => r.kind === 'Item' && pickupWeapon(r))
+
 const posKey = (m: Marker) => `${m.type}|${m.label}|${m.position.map((v) => Math.round(v * 20)).join(',')}`
 
 /**
@@ -124,7 +136,7 @@ export function ctsMarkers(files: { main?: Cts; ptp?: Cts; ambience?: Cts }, fra
         add(m(team))
       } else if (r.kind === 'Item') {
         const type = unquote(r.fields['Item type'] ?? '')
-        const w = weaponId(type)
+        const w = pickupWeapon(r)
         if (w) add(Object.assign(m('Weapon pickup'), { weapon: w, label: w }))
         else if (type) add(Object.assign(m(ITEM_PROP), { item: type, label: type }))
       } else if (r.kind === 'Vehicle') {

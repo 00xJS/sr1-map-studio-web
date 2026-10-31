@@ -329,6 +329,7 @@ export async function materialize(parts: Part[], onProgress?: (t: string) => voi
         textures: { top: top.vpath, side: side.vpath, ...(rock ? { rock: rock.vpath } : {}) }, alpha: { top: seeThrough(part.top), side: seeThrough(part.side), ...(rock ? { rock: false } : {}) },
         surface_ids: { top: top.surface, side: side.surface, ...(rock ? { rock: rock.surface } : {}) }, physics_intent: 'Static',
         ...(part.water ? { swimmable_water: true } : {}),
+        ...(part.climbable ? { climbable: true } : {}),
       })
     }
     // Prefab: origin at its placement point (or the first part's base), turned as placed; one material per distinct texture.

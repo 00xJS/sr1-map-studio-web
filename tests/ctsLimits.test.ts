@@ -62,6 +62,14 @@ describe('Max fires', () => {
   })
 })
 
+describe('Item types in Protect Tha Pimp', () => {
+  it('counts weapon pickups only when the map keeps them in its PTP file', () => {
+    const ptp = (keep: boolean) => checkModes({ modes: ['Protect Tha Pimp'], ptp_keep_weapons: keep }, pickups(21)).warnings.join('\n')
+    expect(ptp(false)).not.toMatch(/different item types/)
+    expect(ptp(true)).toMatch(/21 different item types/)
+  })
+})
+
 describe('Starts switched off', () => {
   it('new drop-offs start on, as most of the game\'s own do; other triggers keep their default', () => {
     expect(newMarker('Chains drop-off').disabled).toBe(false)

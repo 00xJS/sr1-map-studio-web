@@ -2,7 +2,7 @@
 // Reborn install and is skipped when there is none; no game file is ever copied into the repo.
 import { describe, expect, it } from 'vitest'
 import { GAME_TESTS } from './testMode'
-import { existsSync, openAsBlob } from 'node:fs'
+import { existsSync, openAsBlob, readdirSync } from 'node:fs'
 import * as THREE from 'three'
 import { zlibSync } from 'fflate'
 import { openVpp } from '../src/lib/sr1char/vpp'
@@ -10,6 +10,8 @@ import { volitionHash, hex8 } from '../src/lib/sr1char/hash'
 import { clothingMaterial, eyeMaterial, hairMaterial, skinMaterial } from '../src/lib/sr1char/materials'
 import { PACKFILES, pickPackfiles } from '../src/lib/sr1char/folder'
 import { buildPlayer } from '../src/lib/sr1char/player'
+import { parseCmesh, stripToTriangles } from '../src/lib/sr1char/cmesh'
+import { parseRig } from '../src/lib/sr1char/rig'
 import { CROUCH_EYE, CROUCH_HEIGHT, CROUCH_SPEED, STAND_EYE, STAND_HEIGHT } from '../src/editor/walk'
 
 const up = (x: number) => (x + 2047) & ~2047
@@ -104,6 +106,48 @@ describe('materials', () => {
   })
 })
 
+/** A rig in the game's layout: the bone table after one u32 per bone, then `gap` other bytes, then the names. */
+function makeRig(names: string[], gap = 0): Uint8Array {
+  const n = names.length, rec = Math.ceil((0x40 + 4 * n) / 16) * 16, table = rec + n * 36
+  const chars = names.map((s) => s + '\0').join('')
+  const u8 = new Uint8Array(table + gap + chars.length), dv = new DataView(u8.buffer)
+  dv.setUint32(0x20, 4); dv.setUint32(0x24, n)
+  let at = 0
+  names.forEach((s, i) => {
+    const o = rec + 36 * i
+    dv.setUint32(o, at); dv.setFloat32(o + 4, -i)
+    dv.setUint32(o + 28, i ? i - 1 : 0xffffffff); dv.setUint32(o + 32, 0xffffffff)
+    at += s.length + 1
+  })
+  u8.fill(0xc7, table, table + gap)
+  u8.set(new TextEncoder().encode(chars), table + gap)
+  return u8
+}
+
+describe('rigs', () => {
+  it('finds the bone table from the bone count, not only at 0x140', () => {
+    const rig = parseRig(makeRig(['Body', 'Door', 'Wheel']))
+    expect(rig.bones.map((b) => b.name)).toEqual(['Body', 'Door', 'Wheel'])
+    expect(rig.bones[2].parent).toBe(1)
+    expect(rig.bones[2].rest.x).toBe(2)
+    expect(rig.byName.Door).toBe(1)
+  })
+  it('reads names whatever the first bone is called, past other data', () => {
+    expect(parseRig(makeRig(['root', 'Spine'], 40)).bones[0].name).toBe('root')
+  })
+  it('turns down a rig it cannot read instead of reading past the file', () => {
+    const big = makeRig(['Root', 'Spine'])
+    new DataView(big.buffer).setUint32(0x24, 9000)
+    expect(() => parseRig(big)).toThrow(/past the end/)
+    const orphan = makeRig(['Root', 'Spine'])
+    new DataView(orphan.buffer).setUint32(0x50 + 36 + 28, 7) // the second bone's parent
+    expect(() => parseRig(orphan)).toThrow(/parent index/)
+    const shifted = makeRig(['Root', 'Spine'])
+    new DataView(shifted.buffer).setUint32(0x50 + 36 + 32, 0) // the second bone's closing field
+    expect(() => parseRig(shifted)).toThrow(/not laid out/)
+  })
+})
+
 // A local Saints Reborn install, if there is one (nothing from it is written anywhere).
 const GAME = process.env.SR1_PACKFILES || 'C:/Games/SaintsReborn/dist/game/packfiles'
 const haveGame = existsSync(GAME + '/misc2.vpp_xbox2')
@@ -163,5 +207,59 @@ describe.skipIf(!GAME_TESTS || !haveGame)('the player from a local game install'
       expect(Math.abs(new THREE.Box3().setFromObject(p.object, true).min.y)).toBeLessThan(0.06)
     }
     p.dispose()
+  }, 120000)
+
+  // Most rigs read, each with one root or a few, and every parent in its table. (About a quarter use layouts this
+  // reader doesn't know yet and are turned down cleanly: people fall back to the player's skeleton.)
+  it('reads the rigs of the game, whatever their bone count', async () => {
+    let read = 0, refused = 0
+    const sizes = new Set<number>(), seen = new Set<string>()
+    // Their names fit by chance, but they're laid out some other way.
+    const misread = new Set(['cs_casemoney.rig_xbox2', 'cs_switchblade.rig_xbox2'])
+    for (const file of readdirSync(GAME).filter((f) => f.endsWith('.vpp_xbox2') && !/^(music|sounds)/i.test(f))) {
+      const pack = await openVpp(await openAsBlob(GAME + '/' + file), file).catch(() => null)
+      for (const name of pack ? pack.list().filter((n) => n.toLowerCase().endsWith('.rig_xbox2')) : []) {
+        if (seen.has(name.toLowerCase())) continue
+        seen.add(name.toLowerCase())
+        let rig
+        try { rig = parseRig(await pack!.read(name)) } catch { refused++; misread.delete(name.toLowerCase()); continue }
+        read++
+        sizes.add(rig.bones.length)
+        expect(rig.bones.every((b) => /^[\x20-\x7e]+$/.test(b.name)), name).toBe(true)
+        expect(rig.bones.every((b) => [b.rest.x, b.rest.y, b.rest.z].every((c) => Number.isFinite(c) && Math.abs(c) < 1000)), name).toBe(true)
+        expect(rig.bones.filter((b) => b.parent < 0).length, name).toBeGreaterThan(0)
+      }
+    }
+    expect(read).toBeGreaterThanOrEqual(179)
+    expect(read).toBeGreaterThan(refused)
+    expect([...misread]).toEqual([])
+    expect(sizes.size).toBeGreaterThan(1)
+  }, 300000)
+
+  // Weapons and props are type-0 (static) meshes, whose render header stops at +36: every one reads to the end of the
+  // file (padded to 4096 bytes) with its vertices inside its own bounding box and unit normals.
+  it('reads every static mesh (.smesh_xbox2)', async () => {
+    let read = 0
+    for (const file of ['preload_lower.vpp_xbox2', 'smesh.vpp_xbox2']) {
+      if (!existsSync(GAME + '/' + file)) continue
+      const pack = await openVpp(await openAsBlob(GAME + '/' + file), file)
+      for (const name of pack.list().filter((n) => n.toLowerCase().endsWith('.smesh_xbox2'))) {
+        const u8 = await pack.read(name), at = file + ': ' + name
+        const m = parseCmesh(u8), g = m.geometry, [x0, y0, z0, x1, y1, z1] = m.bbox
+        expect(m.mtype, at).toBe(0)
+        expect(m.vids, at).toEqual([])
+        const end = Math.max(...m.records.map((r) => Math.max(r.ibOffset + r.nidx * 2, r.vbOffset + r.nverts * r.stride)))
+        expect(Math.ceil(end / 4096) * 4096, at).toBe(u8.length)
+        for (let i = 0; i < g.nverts; i++) {
+          const [x, y, z] = [g.pos[3 * i], g.pos[3 * i + 1], g.pos[3 * i + 2]]
+          expect(x >= x0 - 1e-3 && x <= x1 + 1e-3 && y >= y0 - 1e-3 && y <= y1 + 1e-3 && z >= z0 - 1e-3 && z <= z1 + 1e-3, at).toBe(true)
+          expect(Math.abs(Math.hypot(g.nrm[3 * i], g.nrm[3 * i + 1], g.nrm[3 * i + 2]) - 1), at).toBeLessThan(0.05)
+        }
+        expect(g.strip.every((k) => k < g.nverts), at).toBe(true)
+        expect(m.records[0].subs.reduce((a, s) => a + stripToTriangles(g.strip, s.start, s.count).length, 0), at).toBeGreaterThan(0)
+        read++
+      }
+    }
+    expect(read).toBeGreaterThan(50)
   }, 120000)
 })

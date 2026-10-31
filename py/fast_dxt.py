@@ -110,7 +110,7 @@ def _dxt5_alpha(b):
     swap = a0 < a1
     a0, a1 = np.where(swap, a1, a0), np.where(swap, a0, a1)
     # After the adjustments a0 > a1 always holds, so the 8-value palette applies.
-    pal = np.stack([a0, a1] + [((7 - i) * a0 + (i - 1) * a1) // 7 for i in range(2, 8)], axis=1)
+    pal = np.stack([a0, a1] + [((8 - i) * a0 + (i - 1) * a1 + 3) // 7 for i in range(2, 8)], axis=1)
     q = np.abs(al[:, :, None] - pal[:, None, :]).argmin(-1)
     bits = (q.astype(np.uint64) << (3 * np.arange(16, dtype=np.uint64))).sum(-1)
     out = np.zeros((len(b), 8), dtype=np.uint8)

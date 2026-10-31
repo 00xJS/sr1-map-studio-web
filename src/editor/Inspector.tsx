@@ -206,6 +206,11 @@ function ObjectInspector({ it, index }: { it: SceneItem; index: number }) {
           <Check checked={!!it.swimmable_water} onChange={(v) => set('Swimmable water', (d) => { d.swimmable_water = v })}>
             <span className="stack tight"><span>Swimmable water <Status id="water" /></span><span className="faint small">{waterHint(it)}</span></span>
           </Check>
+          {!it.collision_disabled && !it.swimmable_water && (
+            <Check checked={!!it.climbable} onChange={(v) => set('Climbable', (d) => { if (v) d.climbable = true; else delete d.climbable })}>
+              <span className="stack tight"><span>Climbable <Status id="climb_ledges" /></span><span className="faint small">Players can grab the edges of its flat top and pull up, from 0.75 to 3.15 m off the floor. Not within 0.35 m of a corner, and not on an edge under 0.7 m.</span></span>
+            </Check>
+          )}
         </div>
       )}
       <PhysicsPanel indices={[index]} />

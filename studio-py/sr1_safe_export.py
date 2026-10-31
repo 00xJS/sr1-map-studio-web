@@ -11,9 +11,10 @@ from pathlib import Path
 
 EXTENSIONS=('bbchunk_xbox2','peg_xbox2','bbcity_xbox2','hmap_xbox2','pvsv_xbox2','cts')
 
-def validate_map(folder, name):
+def validate_map(folder, name, *, allowed_external_textures=()):
     import sr_reborn_core as core
     import peg_xbox2_beaver as peg
+    import sr1_ledges
     folder=Path(folder)
     for ext in EXTENSIONS:
         if not (folder/f'{name}.{ext}').is_file():
@@ -33,8 +34,12 @@ def validate_map(folder, name):
     if missing: raise ValueError('Spawn references missing chunk(s): '+', '.join(sorted(set(missing))))
     chunk=core.read_chunk((folder/f'{name}.bbchunk_xbox2').read_bytes())
     core.chunk_geometry(chunk)
+    sr1_ledges.read(chunk)
     _,_,entries=peg.parse_peg(folder/f'{name}.peg_xbox2')
-    if core.chunk_strings(chunk)!=[entry.name for entry in entries]:
+    chunk_names=core.chunk_strings(chunk)
+    peg_names=[entry.name for entry in entries]
+    # The game's sky can reference an always-loaded retail texture by name.
+    if [n for n in chunk_names if n not in allowed_external_textures or n in peg_names]!=peg_names:
         raise ValueError('BBChunk and PEG texture tables disagree. The export is incomplete or contains files from different builds.')
     if len(city)==3060416:
         environment=city[0x3ec:0x3fc].split(b'\0')[0].decode('ascii')

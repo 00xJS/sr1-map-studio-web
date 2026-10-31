@@ -17,7 +17,7 @@ const OVERLAYS: { kind: OverlayKind; label: string; title: string; advanced?: bo
   { kind: 'traffic', label: 'Traffic', title: 'Where the bots ran most: where players will actually run' },
   { kind: 'spawns', label: 'Spawns', title: 'Every spawn, coloured by how safe it is, with lines from the places that can see the risky ones' },
   { kind: 'sides', label: 'Red vs blue', title: 'Which team gets to each spot first', advanced: true },
-  { kind: 'moves', label: 'Getting around', title: 'Gaps that take a sprinting jump (or can’t be jumped), drops that hurt or kill, and walls only the game’s own maps let you climb' },
+  { kind: 'moves', label: 'Getting around', title: 'Gaps that take a sprinting jump (or can’t be jumped), drops that hurt or kill, and walls with no way up' },
 ]
 
 const LEGEND: Record<OverlayKind, string> = {
@@ -27,11 +27,11 @@ const LEGEND: Record<OverlayKind, string> = {
   traffic: 'Purple: a few runs. Red to yellow: busier. Yellow rings: the busiest spots.',
   spawns: 'Green: safe. Yellow: could use more cover. Red: easy to camp. Click a spawn in the Check tab to see the places that can see it.',
   sides: 'Red or blue: the team that gets there first walking from its spawns.',
-  moves: 'Blue: a gap only a sprinting jump crosses. Purple: too wide to jump. Orange: a drop that hurts. Red: a drop that kills. Yellow: a wall exported maps can’t climb. Numbers are metres.',
+  moves: 'Blue: a gap only a sprinting jump crosses. Purple: too wide to jump. Orange: a drop that hurts. Red: a drop that kills. Yellow: a wall with no way up (Climbable on the object on top adds one). Numbers are metres.',
 }
 
 const MOVE_WORD: Record<MoveKind, string> = {
-  'sprint-gap': 'Sprint-jump gaps', 'wide-gap': 'Gaps too wide to jump', 'kill-drop': 'Drops that kill', 'hurt-drop': 'Drops that hurt', 'climb-only': 'Walls you can’t climb in exported maps',
+  'sprint-gap': 'Sprint-jump gaps', 'wide-gap': 'Gaps too wide to jump', 'kill-drop': 'Drops that kill', 'hurt-drop': 'Drops that hurt', 'climb-only': 'Walls with no way up',
 }
 
 const RISK_WORD = { ok: 'Safe', watch: 'Needs cover', campable: 'Easy to camp' } as const

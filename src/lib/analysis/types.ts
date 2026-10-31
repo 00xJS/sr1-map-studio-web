@@ -23,6 +23,11 @@ export interface AnalysisInput {
   /** One byte per triangle: SOLID | OPAQUE. */
   flags: Uint8Array
   markers: AnalysisMarker[]
+  /**
+   * Where the objects marked climbable could have climb ledges, before they are checked against the map (ledges.ts):
+   * 6 floats a segment, in the same units as `tris`. None: nothing can be climbed.
+   */
+  ledges?: Float32Array
 }
 
 export interface AnalysisOptions {
@@ -118,8 +123,8 @@ export interface SightLane { from: Vec3; to: Vec3; metres: number }
 
 /**
  * Getting around: 'sprint-gap' only a sprinting jump crosses, 'wide-gap' too wide to jump, 'hurt-drop' a fall that
- * costs health, 'kill-drop' one that kills (or off the map), 'climb-only' a wall the game's own maps would let you
- * climb but exported maps can't.
+ * costs health, 'kill-drop' one that kills (or off the map), 'climb-only' a wall with no way up: the game climbs only
+ * at ledges a map lists, and an export lists them only for objects marked climbable.
  */
 export type MoveKind = 'sprint-gap' | 'wide-gap' | 'hurt-drop' | 'kill-drop' | 'climb-only'
 

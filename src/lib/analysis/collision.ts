@@ -5,6 +5,7 @@
 // but not sight.
 import { exportMatName, transformPoint, type ObjModel } from '../geometry'
 import { isGlass, type Project, type SceneItem } from '../project'
+import { segments, topEdges } from './ledges'
 import { OPAQUE, SOLID, type AnalysisInput, type AnalysisMarker } from './types'
 
 const KINDS = ['Shared spawn', 'Red team spawn', 'Blue team spawn', 'Weapon pickup', 'Chains drop-off']
@@ -13,17 +14,25 @@ const KINDS = ['Shared spawn', 'Red team spawn', 'Blue team spawn', 'Weapon pick
 export function collisionFromProject(project: Project, model: (path: string) => ObjModel | undefined): AnalysisInput {
   const tris: number[] = []
   const flags: number[] = []
+  /** The solid faces of the objects marked climbable. */
+  const climbable: number[] = []
   for (const it of project.scene_items) {
     if (it.collision_disabled) continue
     if (it.swimmable_water && !it.water_materials?.length) continue
     const mdl = model(it.path)
     if (!mdl) continue
-    addItem(it, mdl, tris, flags)
+    addItem(it, mdl, tris, flags, climbable)
   }
   const markers: AnalysisMarker[] = project.markers
     .filter((mk) => KINDS.includes(mk.type))
     .map((mk) => ({ type: mk.type, position: mk.position, uid: mk.uid, ...(mk.type === 'Weapon pickup' ? { weapon: mk.weapon } : /spawn/i.test(mk.type) ? { yaw: mk.yaw } : {}) }))
-  return { tris: Float32Array.from(tris), flags: Uint8Array.from(flags), markers }
+  return { tris: Float32Array.from(tris), flags: Uint8Array.from(flags), markers, ...(climbable.length ? { ledges: ledgeCandidates(climbable, project.settings.world_scale || 0.5) } : {}) }
+}
+
+/** Long segments round the tops of these faces (editor units), worked out in game metres as the export does. */
+function ledgeCandidates(faces: number[], ws: number): Float32Array {
+  const segs = segments(topEdges(faces.map((v) => v * ws)))
+  return Float32Array.from(segs.flatMap(([a, b]) => [...a, ...b].map((v) => v / ws)))
 }
 
 /** Each swimmable water object's area and surface, editor units: [x0, z0, x1, z1, surface]. */
@@ -51,7 +60,7 @@ export function waterAreas(project: Project, model: (path: string) => ObjModel |
 /** Whether a material of the object is drawn only (SceneItem.collision_materials names the solid ones). */
 export const solidMaterial = (it: Pick<SceneItem, 'collision_materials'>, mat: string) => !it.collision_materials || it.collision_materials.includes(exportMatName(mat))
 
-function addItem(it: SceneItem, mdl: ObjModel, tris: number[], flags: number[]) {
+function addItem(it: SceneItem, mdl: ObjModel, tris: number[], flags: number[], climbable: number[]) {
   const excluded = new Set(it.collision_excluded_faces ?? [])
   const water = new Set(it.swimmable_water ? it.water_materials ?? [] : [])
   const glass = isGlass(it)
@@ -66,6 +75,7 @@ function addItem(it: SceneItem, mdl: ObjModel, tris: number[], flags: number[]) 
     for (let k = 0; k < 3; k++) {
       const v = mdl.faces[f * 3 + k] * 3
       tris.push(world[v], world[v + 1], world[v + 2])
+      if (it.climbable && !glass) climbable.push(world[v], world[v + 1], world[v + 2])
     }
     flags.push(glass || it.alpha?.[mat] ? SOLID : SOLID | OPAQUE)
   }
@@ -73,7 +83,7 @@ function addItem(it: SceneItem, mdl: ObjModel, tris: number[], flags: number[]) 
 
 /** A short key that changes whenever something the checks look at changes (to tell when a report is out of date). */
 export function analysisKey(project: Project): string {
-  const items = project.scene_items.map((it) => [it.path, it.position, it.rotation, it.scale, it.pivot, it.collision_disabled, it.collision_excluded_faces?.length, it.collision_materials, it.swimmable_water, it.water_materials, it.alpha, it.native_prefab])
+  const items = project.scene_items.map((it) => [it.path, it.position, it.rotation, it.scale, it.pivot, it.collision_disabled, it.collision_excluded_faces?.length, it.collision_materials, it.swimmable_water, it.water_materials, it.alpha, it.native_prefab, it.climbable])
   const markers = project.markers.filter((mk) => KINDS.includes(mk.type)).map((mk) => [mk.type, mk.position, mk.type === 'Weapon pickup' ? mk.weapon : /spawn/i.test(mk.type) ? mk.yaw : ''])
   const text = JSON.stringify([items, markers])
   // FNV-1a, enough to notice a change.

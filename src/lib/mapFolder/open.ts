@@ -8,7 +8,7 @@ import { newLight, newProject, type FileRef, type Light, type Project, type Scen
 import { objText, plain, rgbaPng, safe, stemOf, surfaceOf } from '../gameObjects/place'
 import type { ObjectMesh } from '../gameObjects/extract'
 import { fileAt } from './files'
-import { ctsMarkers, toEditor, type Frame } from './cts'
+import { ctsMarkers, hasWeaponPickups, toEditor, type Frame } from './cts'
 import { MAX_BASE, baseNameFor, type MapInfo } from './info'
 import type { MapScene, SceneTexture } from './read'
 import type { MapPiece } from './scene'
@@ -155,6 +155,7 @@ export async function openMapProject(info: MapInfo, onProgress: (t: string) => v
   s.base_name = baseNameFor(info.stem)
   if (s.base_name !== info.stem.toLowerCase()) notes.push(`The map's id "${info.stem}" is longer than the exporter allows (${MAX_BASE}); an export makes it "${s.base_name}", a map of its own in the game.`)
   if (id.modes.length) s.modes = id.modes
+  if (hasWeaponPickups(info.cts.ptp)) s.ptp_keep_weapons = true
   if (id.otherModes.length) notes.push('Modes the editor can\'t export: ' + id.otherModes.join(', ') + '.')
   s.always_clear_weather = id.alwaysClearWeather
   p.description = id.description
