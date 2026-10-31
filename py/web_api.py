@@ -31,6 +31,7 @@ import sr1_scene
 import sr1_cts
 import sr1_export
 import sr1_lighting
+import sr1_safe_export
 import sr1_native_glass as native
 import sr1_native_props as props
 import sr1_breakable_tools as breakable_tools
@@ -493,6 +494,8 @@ def _export(s, log):
     shared_textures.check_size(out / (base + '.peg_xbox2'), log, early['copied_bytes'] if early else 0)
     extras = retail.finish(s, out, base, markers, ws, mirror, (0., 0., 0.) if space == 'game' else fixed_origin, space, log)
     features.write_brawl_spawns(out, base, log)
+    # export_map checked the map before the changes above: check the finished files too.
+    sr1_safe_export.validate_map(out, base, allowed_external_textures=('ds_grad_blk.tga',) if game_sky else ())
     files =sorted(str(p) for p in out.rglob('*') if p.is_file())
     summary = {
         'render_triangles': result['bbchunk']['render_triangles'],

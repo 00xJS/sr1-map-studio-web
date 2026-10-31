@@ -165,8 +165,8 @@ def compress_dxt1_block(px):
 
 def _alpha_palette(a0,a1):
     if a0>a1:
-        return [a0,a1]+[((7-i)*a0+(i-1)*a1)//7 for i in range(2,8)]
-    return [a0,a1]+[((5-i)*a0+(i-1)*a1)//5 for i in range(2,6)]+[0,255]
+        return [a0,a1]+[((8-i)*a0+(i-1)*a1+3)//7 for i in range(2,8)]
+    return [a0,a1]+[((6-i)*a0+(i-1)*a1+2)//5 for i in range(2,6)]+[0,255]
 
 def compress_dxt5_block(px):
     al=[p[3] for p in px]
@@ -290,10 +290,11 @@ def build_from_reference(reference_path,output_path,replacements):
     replacements maps PEG entry index -> {'source_path':..., 'peg_name':...}.
     Unreplaced entries and payloads are copied from the known-working reference.
     """
-    _,h,entries=parse_peg(reference_path)
+    reference_raw,h,entries=parse_peg(reference_path)
     if h.version!=8 or h.platform!=3 or h.count<=0:
         raise RuntimeError('reference PEG is not the expected SR1 Xbox2 layout')
-    if h.dir_size!=HEADER_SIZE+h.count*ENTRY_SIZE:
+    table_end=HEADER_SIZE+h.count*ENTRY_SIZE
+    if h.total_entries!=h.count or h.dir_size not in (table_end,align(table_end,16)) or any(reference_raw[table_end:h.dir_size]):
         raise RuntimeError('reference PEG does not use the recovered inline-name 0x48 entry layout')
 
     built=[]

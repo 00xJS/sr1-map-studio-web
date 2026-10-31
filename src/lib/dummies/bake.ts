@@ -150,17 +150,23 @@ export function npcDraws(cmesh: Cmesh, dark: boolean, outfit: number): Draw[] {
   return [...new Map(out.map((d) => [d.start + ':' + d.count + ':' + d.mat, d])).values()]
 }
 
+/** A skeleton, or null when its file is one of the layouts parseRig can't read yet. */
+function readableRig(u8: Uint8Array | null | undefined): Rig | null {
+  if (!u8) return null
+  try { return parseRig(u8) } catch { return null }
+}
+
 /** The person's skeleton: their own, the one character.xtbl names, or the player's (every person has the same 64 bones). */
 async function npcRig(lib: Lib, name: string): Promise<Rig | null> {
-  const own = await lib.maybe(name + '.rig_xbox2')
-  if (own) return parseRig(own)
+  const own = readableRig(await lib.maybe(name + '.rig_xbox2'))
+  if (own) return own
   const table = await lib.maybe('character.xtbl')
   if (table) {
     const text = new TextDecoder().decode(table)
     const at = text.toLowerCase().indexOf('<name>' + name.toLowerCase() + '</name>')
     const m = at >= 0 ? /<Rig>\s*<Filename>([^<]+?)\.rigx<\/Filename>/i.exec(text.slice(at, at + 2000)) : null
-    const rig = m && (await lib.maybe(m[1].toLowerCase() + '.rig_xbox2'))
-    if (rig) return parseRig(rig)
+    const rig = readableRig(m && (await lib.maybe(m[1].toLowerCase() + '.rig_xbox2')))
+    if (rig) return rig
   }
   const pc = await lib.maybe('pc.rig_xbox2')
   return pc ? parseRig(pc) : null
