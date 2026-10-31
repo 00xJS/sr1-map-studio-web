@@ -47,6 +47,7 @@ import climb
 import minimap_region
 import collision_fix
 import retail_features as retail
+import item_props
 import native_sky
 import retail_records
 import peg_mips
@@ -66,9 +67,9 @@ from weapon_catalog_v042 import WEAPON_CATALOG
 
 STUDIO = Path('/studio')
 WORK = Path('/work')
-# The desktop list also offered 'Pimp exit (experimental)'; the game has no
-# "pimp exit" trigger action (retail CTS files only use "pimp enter"), so it
-# is not offered.
+# The desktop list also offered 'Pimp exit (experimental)'. The game has no
+# "pimp exit" trigger action: it logs the name as an error and reads it as
+# "execute lua script", so nothing happens. Old projects can still hold one.
 PIMP_EXIT = 'Pimp exit (experimental)'
 MARKER_TYPES = ['Shared spawn', 'Red team spawn', 'Blue team spawn', 'Weapon pickup', 'Vehicle spawn',
                 'Chains drop-off', 'Pimp entrance', 'Sphere trigger (custom)',
@@ -102,6 +103,7 @@ def catalogs():
         'marker_types': MARKER_TYPES,
         'spawn_kinds': sorted(sr1_cts.SPAWN_KINDS),
         'trigger_kinds': sorted(sr1_cts.TRIGGER_KINDS),
+        'trigger_actions': list(sr1_cts.TRIGGER_ACTIONS),
         'special_spawn_types': list(sr1_cts.SPECIAL_SPAWN_TYPES),
         'human_char_types': list(sr1_cts.HUMAN_CHAR_TYPES),
         'weapons': [list(x) for x in WEAPON_CATALOG],
@@ -351,6 +353,8 @@ def _write_ptp_cts(out, job, base, markers, world_scale, mirror_x, origin, space
     weapons = report['counts'].get('Weapon pickup', 0)
     log(f'Protect Tha Pimp CTS: {spawns} team respawns, {report["counts"].get("Pimp entrance", 0)} pimp entrance trigger(s)'
         + (f', {weapons} weapon pickup(s)' if weapons else ''))
+    for limit in report['limits']:
+        log('Protect Tha Pimp CTS: ' + limit)
 
 
 def export_project(spec_json, log):
@@ -489,6 +493,12 @@ def _export(s, log):
     rect = s.get('minimap_rect')
     if rect and opt('minimap_texture'):
         _write_minimap_region(out, base, [float(v) for v in rect], fixed_origin, ws, bool(s.get('mirror_x', True)), log)
+    # Blinged Out Ride's file is a copy of the main one, so what the main file's triggers need matters to it too.
+    loaded = features.loaded_cts(s)
+    if '' in loaded or '_bor' in loaded:
+        for limit in result['cts_limits']:
+            log('CTS: ' + limit)
+    features.check_chains_on(s, main_markers, log)
     if s.get('ptp'):
         origin = (0., 0., 0.) if space == 'game' else fixed_origin
         _write_ptp_cts(out, job, base, ptp_markers, ws, bool(s.get('mirror_x', True)), origin, space, log)
@@ -505,6 +515,8 @@ def _export(s, log):
     shared_textures.check_size(out / (base + '.peg_xbox2'), log, early['copied_bytes'] if early else 0)
     extras = retail.finish(s, out, base, markers, ws, mirror, (0., 0., 0.) if space == 'game' else fixed_origin, space, log)
     features.write_brawl_spawns(out, base, log)
+    features.check_spawn_limit(out, base, loaded, log)
+    item_props.check_type_limit(out, base, loaded, log)
     # export_map checked the map before the changes above: check the finished files too.
     sr1_safe_export.validate_map(out, base, allowed_external_textures=('ds_grad_blk.tga',) if game_sky else ())
     files =sorted(str(p) for p in out.rglob('*') if p.is_file())

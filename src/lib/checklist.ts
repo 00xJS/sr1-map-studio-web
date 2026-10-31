@@ -4,7 +4,7 @@ import { PIMP_EXIT, SPAWN_TYPES, gameSkyWanted, isCustomNative, isGlass, type Pr
 import { retailChecklist } from './retailModes'
 import { isDummy, dummyRefOf } from './dummies/standIn'
 import { MANY_LOOKS, MAX_DUMMIES, lookKey } from './dummies/models'
-import { CHAINS_DROPS, DROP_GAP, FFA_SPAWNS, SPAWN_GAP, bunched, crowdedSpawns, crowdedText, freeForAll, unusedModeMarkers } from './levels'
+import { CHAINS_DROPS, DROP_GAP, FFA_SPAWNS, SPAWN_GAP, bunched, crowdedSpawns, crowdedText, freeForAll, itemTypesText, spawnLimitTexts, unusedModeMarkers } from './levels'
 
 export type Fix =
   | { kind: 'tool'; tool: string; spawn?: string }
@@ -130,6 +130,10 @@ export function mapChecklist(p: Project, dataPack: boolean | null): CheckItem[] 
   if (resizedCount) add({ id: 'dummy-scale', state: 'suggested', text: `${resizedCount === 1 ? '1 decoy dummy was' : `${resizedCount} decoy dummies were`} made before the world scale changed and will export at the wrong size: select ${resizedCount === 1 ? 'it' : 'one'} and choose "Build again at this scale" (built ones need your game folder).`, fix: { kind: 'select', index: resized }, action: 'Show' })
   const looks = new Set(dummies.map((it) => lookKey(dummyRefOf(it)!))).size
   if (looks > MANY_LOOKS) add({ id: 'dummy-looks', state: 'suggested', text: `${looks} different dummy looks add about ${looks} MB to the map's textures: give some the same look (copies share their pictures).`, fix: { kind: 'select', index: first }, action: 'Show' })
+
+  spawnLimitTexts(modes, p.markers).forEach((text, i) => add({ id: `spawn-limit-${i}`, state: 'suggested', text }))
+  const itemsOver = itemTypesText(modes, p.markers, !!p.settings.ptp_keep_weapons)
+  if (itemsOver) add({ id: 'item-types', state: 'suggested', text: itemsOver })
 
   const exits = count(PIMP_EXIT)
   if (exits) add({ id: 'exit', state: 'needed', text: `Erase ${exits === 1 ? 'the pimp exit marker' : `${exits} pimp exit markers`}: the game has no pimp exit`, fix: { kind: 'tool', tool: 'erase' }, action: 'Erase' })

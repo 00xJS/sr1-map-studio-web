@@ -13,9 +13,10 @@ import { More } from './More'
 import { Check, Field, FileButton, NumberInput, Status, Vec3Input, confirmDialog, toast, toastError, useBusy } from '../ui'
 import { statusParen, triedInGame } from '../lib/featureStatus'
 import { catalogs } from '../lib/catalogs'
+import { MAX_TRIGGER_FIRES } from '../lib/levels'
 import { loadModel, textureUrl } from '../lib/assets'
 import { MARKER_HINTS, SIMPLE_MARKERS, markerLabel } from '../lib/labels'
-import { PIMP_EXIT, isCustomNative, isGlass, isProp, type Light, type Marker, type SceneItem, type Vec3 } from '../lib/project'
+import { PIMP_EXIT, isCustomNative, isGlass, isProp, setMarkerType, type Light, type Marker, type SceneItem, type Vec3 } from '../lib/project'
 import { RETAIL_MARKER_TYPES } from '../lib/retailModes'
 import { ALL_PREFABS } from '../lib/prefabRegistry'
 import { prefabParams } from '../lib/prefabs'
@@ -480,7 +481,7 @@ function MarkerInspector({ m, index }: { m: Marker; index: number }) {
       <div className="section">
         {m.type !== 'Weapon pickup' && (
           <Field label="What it is" hint={MARKER_HINTS[m.type]}>
-            <select value={m.type} onChange={(e) => set('Marker type', (d) => { d.type = e.target.value })}>
+            <select value={m.type} onChange={(e) => set('Marker type', (d) => setMarkerType(d, e.target.value))}>
               {m.type === PIMP_EXIT && <option value={PIMP_EXIT}>Pimp exit (not in the game, change this)</option>}
               {types.map((t) => <option key={t} value={t}>{markerLabel(t)}</option>)}
             </select>
@@ -558,7 +559,7 @@ function MarkerMore({ m, set }: { m: Marker; set: SetMarker }) {
   return (
     <div className="section">
       <Field label="Every kind of marker">
-        <select value={m.type} onChange={(e) => set('Marker type', (d) => { d.type = e.target.value })}>
+        <select value={m.type} onChange={(e) => set('Marker type', (d) => setMarkerType(d, e.target.value))}>
           {m.type === PIMP_EXIT && <option value={PIMP_EXIT}>Pimp exit (not in the game, change this)</option>}
           {MARKER_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
         </select>
@@ -583,9 +584,14 @@ function MarkerMore({ m, set }: { m: Marker; set: SetMarker }) {
         <div className="form-grid">
           <Field label="Trigger radius (m)"><NumberInput value={m.radius} step={0.1} min={0.05} max={1000} onChange={(v) => set('Radius', (d) => { d.radius = v })} /></Field>
           <Field label="Delay (ms)"><NumberInput value={m.delay_ms} step={1000} digits={0} min={0} onChange={(v) => set('Delay', (d) => { d.delay_ms = Math.round(v) })} /></Field>
-          <Field label="Max fires (0 = no limit)"><NumberInput value={m.max_fires} step={1} digits={0} min={0} onChange={(v) => set('Max fires', (d) => { d.max_fires = Math.round(v) })} /></Field>
+          <Field label="Max fires (0 = no limit)"><NumberInput value={m.max_fires} step={1} digits={0} min={0} max={MAX_TRIGGER_FIRES} onChange={(v) => set('Max fires', (d) => { d.max_fires = Math.round(v) })} /></Field>
           <Check checked={m.disabled} onChange={(v) => set('Initially disabled', (d) => { d.disabled = v })}>Starts switched off</Check>
-          {m.type === 'Sphere trigger (custom)' && <Field label="Trigger action"><input value={m.trigger_action} onChange={(e) => set('Trigger action', (d) => { d.trigger_action = e.target.value }, 'action')} /></Field>}
+          {m.type === 'Sphere trigger (custom)' && (
+            <Field label="Trigger action">
+              <input list="trigger-actions" value={m.trigger_action} onChange={(e) => set('Trigger action', (d) => { d.trigger_action = e.target.value }, 'action')} />
+              <datalist id="trigger-actions">{catalogs.trigger_actions.map((t) => <option key={t} value={t} />)}</datalist>
+            </Field>
+          )}
         </div>
       )}
       {m.type === 'Special spawn' && (

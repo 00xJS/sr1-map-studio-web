@@ -279,6 +279,17 @@ export function newMarker(type: string, position: Vec3 = [0, 0, 0]): Marker {
 }
 
 /**
+ * Changes a marker's type in place. "Starts switched off" differs by type (a drop-off starts on, a pimp entrance
+ * off), so it becomes the new type's default, or a spawn changed into a drop-off would keep the spawn's unused value.
+ * Choosing the type it already has changes nothing.
+ */
+export function setMarkerType(m: Marker, type: string) {
+  if (type === m.type) return
+  m.type = type
+  m.disabled = newMarker(type).disabled
+}
+
+/**
  * Light ranges in game metres, as the game's own lights have them: full brightness out to the first, dark at the
  * second. Interior omni lights ("BB Omni") 1 / 3 m, street lamps (lampPostStLightA) 11 / 17 m. A light's
  * inner_range and range are in editor units; the exporter multiplies them by the map's world scale.

@@ -42,7 +42,7 @@ export const FEATURES = {
   surface_registration: { label: 'Early surface registration', state: 'exports', note: 'Two sf_… files so footsteps and bullet impacts follow each texture.' },
   native_sky: { label: 'Native sky presets', state: 'untested', note: 'Stages an original sky resource pair with your map.' },
   ptp_weapons: { label: 'Weapon pickups in Protect Tha Pimp', state: 'exports', note: "The map's weapon pickups in its Protect Tha Pimp spawn file too; the game's own PTP maps have none. Look for: pickups appear and come back, and a Custom match can swap them." },
-  pimp_exit: { label: 'Pimp exit marker', state: 'untested', note: 'The game has no pimp exit action we know of.' },
+  pimp_exit: { label: 'Pimp exit marker', state: 'untested', note: 'The game has no pimp exit action: it logs the name as an error and reads it as "execute lua script", so the marker does nothing.' },
   decoy_dummies: { label: 'Decoy dummies', state: 'untested', note: 'Posed player and people models standing as map geometry, solid only in their body boxes. Look for: shots and players stop at the body, no health bar or team arrow over them, how they look beside real players.' },
 } satisfies Record<string, Feature>
 

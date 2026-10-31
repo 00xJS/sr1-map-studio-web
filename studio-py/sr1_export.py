@@ -357,7 +357,7 @@ def export_map(obj_path,texture_mapping,output_dir,map_name='halo_map',reference
     manifest['build_id']=build_id
     report={'lighting':lighting_report,'runtime_registration_audit':runtime_inputs,'material_chain_audit':material_chain,'exporter_version':EXPORTER_VERSION,'backend':'reborn_multibatch','build_id':build_id,
             'map_name':map_name,'obj':str(obj_path),'world_scale':float(world_scale),'mirror_x':bool(mirror_x),'flip_obj_v':bool(flip_obj_v),'double_sided':bool(double_sided),'files':files,'tga_dir':str(tga_dir),
-            'bbchunk':bb_report,'peg':peg_report,'sidecars':side,
+            'bbchunk':bb_report,'peg':peg_report,'sidecars':side,'cts_limits':cts_report['limits'],
             'skybox':{'enabled':bool(sky_texture),'source':sky_texture or None,'mesh':118 if sky_texture else None,
                       'material':28 if sky_texture else None,'texture_slot':30 if sky_texture else None,
                       'size':bb_report.get('sky',{}),'native_bbcity_donor':bbcity_donor or str(ref/'beavercreek.bbcity_xbox2')},

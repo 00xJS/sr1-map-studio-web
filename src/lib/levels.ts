@@ -4,7 +4,9 @@
 // Protect Tha Pimp loads its own <map>_ptp.cts, as the retail PTP maps do;
 // Blinged Out Ride its own <map>_bor.cts plus levels/<map>_mode.xtbl.
 import { PIMP_EXIT, SPAWN_TYPES, type GameMode, type Marker, type ProjectSettings } from './project'
-import { BOR, BOR_TYPES, borExtraCars, borMissing, borWarnings } from './retailModes'
+import { catalogs } from './catalogs'
+import { ITEM_PROP } from './gameObjects/items'
+import { BOR, BOR_CAR_BLUE, BOR_CAR_RED, BOR_TYPES, borExtraCars, borMissing, borWarnings } from './retailModes'
 import { SPAWN_RULES, UNITS_PER_M } from './player'
 
 export interface LevelEntry {
@@ -30,9 +32,11 @@ export function levelId(map: string, mode: GameMode): number {
 const distinct = (values: string[]) => new Set(values.map((v) => v.replace(/-/g, ' ').trim().toLowerCase()).filter(Boolean)).size
 
 /**
- * Retail maps list as many customizable weapons/vehicles as distinct
- * $Item type / $Vehicle type values in the CTS the entry loads (mp_bac_03
- * 11/4, mp_arena 8/1); maps without weapon pickups (all PTP maps) use 6.
+ * The most lobby weapons/vehicles the host can turn on in a custom match.
+ * Retail maps list as many as distinct $Item type / $Vehicle type values in
+ * the CTS the entry loads (mp_bac_03 11/4, mp_arena 8/1); maps without weapon
+ * pickups (all PTP maps) use 6. Item props don't need a row of their own: with
+ * fewer rows on than types, the game reuses the chosen weapons.
  */
 export function customizableCounts(markers: Marker[]): { weapons: number; vehicles: number } {
   const weapons = distinct(markers.filter((m) => m.type === 'Weapon pickup').map((m) => m.label || m.weapon))
@@ -55,10 +59,65 @@ export function levelEntries(map: string, modes: GameMode[], markers: Marker[], 
   })
 }
 
+/** $Trigger max fires is one byte in the game; sr1_cts.py lowers anything above this. */
+export const MAX_TRIGGER_FIRES = 255
+/**
+ * Different $Item types a custom match with lobby weapons on can remember (0x823DBF50); the next one gets a
+ * missing item. py/item_props.py leaves out item props that go past it. Weapon pickups are only warned about.
+ */
+export const MAX_ITEM_TYPES = 20
+
+type ItemMarker = Pick<Marker, 'type' | 'label' | 'weapon' | 'item'>
+
+/** The distinct $Item types the map's main CTS will name: weapon pickups and item props that have an item chosen. */
+export function itemTypes(markers: ItemMarker[]): Set<string> {
+  const names = markers.flatMap((m) => (m.type === 'Weapon pickup' ? [(m.label || m.weapon).replace(/-/g, ' ')] : m.type === ITEM_PROP && m.item ? [m.item] : []))
+  return new Set(names.map((n) => n.trim().toLowerCase()).filter(Boolean))
+}
+
+/**
+ * The item type limit in plain words, or nothing when the files the selected modes load are within it. Item props go
+ * only in the main file: Blinged Out Ride's copy is made before they are added, and Protect Tha Pimp's file has only
+ * the weapon pickups, if the map keeps them there.
+ */
+export function itemTypesText(modes: GameMode[], markers: ItemMarker[], ptpKeepWeapons = false): string | null {
+  const weapons = itemTypes(markers.filter((m) => m.type === 'Weapon pickup')).size
+  const main = freeForAll(modes)
+  const types = main ? itemTypes(markers).size : modes.includes(BOR) || (ptpKeepWeapons && modes.includes('Protect Tha Pimp')) ? weapons : 0
+  if (types <= MAX_ITEM_TYPES) return null
+  const fix = weapons <= MAX_ITEM_TYPES
+    ? `The export leaves out item props that add a type past ${MAX_ITEM_TYPES}: place fewer different ones to choose which stay.`
+    : `Use ${MAX_ITEM_TYPES} or fewer different weapon pickups${main ? ': the export keeps every pickup and leaves out any item prop that adds a new type' : ''}.`
+  return `This map uses ${types} different item types, counting weapon pickups${main ? ' and item props' : ''}. In a custom match with lobby weapons on, the game keeps track of ${MAX_ITEM_TYPES}: past that it gets a missing item, which may crash the match. ${fix}`
+}
+
+/**
+ * Spawns the game keeps from one CTS file (0x83E36280); later ones in the file are dropped with no error, by
+ * 0x824C2BA8 and its caller. Its own maps have at most 29. map_features.py warns at export too.
+ */
+export const MAX_SPAWNS = 64
+
+/** The spawn limit for each spawn file the selected modes load, in plain words: one text for each file over it. */
+export function spawnLimitTexts(modes: GameMode[], markers: Pick<Marker, 'type'>[]): string[] {
+  const count = (types: string[]) => markers.filter((m) => types.includes(m.type)).length
+  const team = count(['Red team spawn', 'Blue team spawn'])
+  const files: [string, number][] = []
+  // With no Player spawns, the main file holds the team spawns with their teams removed (map_features.brawl_spawns).
+  if (freeForAll(modes)) files.push(['Gangsta Brawl and Big Ass Chains', count(['Shared spawn']) || team])
+  if (modes.includes('Protect Tha Pimp')) files.push(['Protect Tha Pimp', team])
+  if (modes.includes(BOR)) files.push(['Blinged Out Ride', team + count([BOR_CAR_RED, BOR_CAR_BLUE])])
+  return files.filter(([, n]) => n > MAX_SPAWNS).map(([what, n]) => `${n} spawns in the ${what} spawn file${what === 'Blinged Out Ride' ? ', counting team cars' : ''}. The game keeps the first ${MAX_SPAWNS} in the file and ignores the rest with no error, so a team placed later can lose some or all of its spawns. Its own maps have at most 29: remove ${n - MAX_SPAWNS}.`)
+}
+
 export interface ModeCheck { errors: string[]; warnings: string[] }
 
 /** Gangsta Brawl and Big Ass Chains, team versions too: everyone spawns at Player spawns (no team ones), as on the game's own maps. */
 export const freeForAll = (modes: GameMode[]) => modes.some((m) => m.includes('Gangsta Brawl') || m.includes('Chains'))
+/** Triggers in the main file reach the game: those modes load it and Blinged Out Ride loads a copy. Protect Tha Pimp's own file has none. */
+const mainTriggersLoaded = (modes: GameMode[]) => freeForAll(modes) || modes.includes(BOR)
+/** The triggers a selected mode's file really holds: a pimp entrance is only in Protect Tha Pimp's, the others only in the main file. */
+const loadedTriggers = (modes: GameMode[], markers: Marker[]) => markers.filter((m) => catalogs.trigger_kinds.includes(m.type)
+  && (m.type === 'Pimp entrance' ? modes.includes('Protect Tha Pimp') : mainTriggersLoaded(modes)))
 /** Player spawns the game's own GB/BAC maps have (8 to 10). */
 export const FFA_SPAWNS = 8
 /** Chains drop-offs on each of the game's own BAC maps. */
@@ -119,7 +178,7 @@ export function unusedModeMarkers(modes: GameMode[], markers: Pick<Marker, 'type
   return out
 }
 
-export function checkModes(settings: Pick<ProjectSettings, 'modes'>, markers: Marker[]): ModeCheck {
+export function checkModes(settings: Pick<ProjectSettings, 'modes' | 'ptp_keep_weapons'>, markers: Marker[]): ModeCheck {
   const errors: string[] = []
   const warnings: string[] = []
   const count = (type: string) => markers.filter((m) => m.type === type).length
@@ -142,8 +201,20 @@ export function checkModes(settings: Pick<ProjectSettings, 'modes'>, markers: Ma
   }
   const crowded = crowdedSpawns(markers)
   if (crowded.length) warnings.push(crowdedText(markers, crowded))
+  warnings.push(...spawnLimitTexts(modes, markers))
+  const itemsOver = itemTypesText(modes, markers, !!settings.ptp_keep_weapons)
+  if (itemsOver) warnings.push(itemsOver)
+  const triggers = loadedTriggers(modes, markers)
+  const overFires = triggers.filter((m) => m.max_fires > MAX_TRIGGER_FIRES).length
+  if (overFires) warnings.push(`${overFires} trigger${overFires === 1 ? ' has' : 's have'} more than ${MAX_TRIGGER_FIRES} max fires, the most the game can store. The export lowers ${overFires === 1 ? 'it' : 'them'} to ${MAX_TRIGGER_FIRES}.`)
+  // Saved projects aren't filled in field by field (normalizeProject), so a hand-edited one can have no action at all.
+  const typed = triggers.filter((m) => m.type === 'Sphere trigger (custom)').map((m) => (m.trigger_action ?? '').trim())
+  const unknown = [...new Set(typed.filter((a) => a && !catalogs.trigger_actions.includes(a.toLowerCase())))]
+  if (unknown.length) warnings.push(`The game has no ${unknown.map((a) => `"${a}"`).join(', ')} trigger action. It logs an error and treats the trigger as "execute lua script", so it does nothing: choose one of the game's actions.`)
+  const drops = markers.filter((m) => m.type === 'Chains drop-off')
   if (modes.some((m) => m.includes('Chains'))) {
-    const drops = markers.filter((m) => m.type === 'Chains drop-off')
+    // Only here: Blinged Out Ride removes the flag from its own copy, and the other modes don't use drop-offs.
+    if (drops.length && drops.every((m) => m.disabled)) warnings.push(`Every Chains drop-off has "Starts switched off" on, which none of the game's own maps does (most start them all on). Older maps got it by default: turn it off unless you meant it.`)
     if (drops.length < 2) warnings.push(`Big Ass Chains modes need Chains drop-off markers; place at least 2, ideally ${CHAINS_DROPS} (the drop-off moves between them during the match).`)
     else if (drops.length < CHAINS_DROPS) warnings.push(`${drops.length} Chains drop-offs: the game's own maps have ${CHAINS_DROPS}, spread over the map, and the drop-off moves between them during the match.`)
     const close = bunched(drops, DROP_GAP)
