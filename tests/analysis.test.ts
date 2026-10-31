@@ -161,6 +161,36 @@ describe('gaps, drops and walls', () => {
     const high = check([ground(), { ...box([10, 8, 10], [0, 0, 0]), climbable: true }], [base[0], base[1], ['Weapon pickup', [0, 8, 0], { weapon: 'ak47' }]])
     expect(high.unreachable.map((u) => u.type)).toEqual(['Weapon pickup'])
   })
+
+  it('a deck marked climbable: up onto it, and the floor under it still walked to', () => {
+    const deck = { ...box([20, 1, 20], [0, 4, 0]), climbable: true }
+    const r = check([ground(), deck], [['Shared spawn', [25, 0, 25]], ['Shared spawn', [0, 0, 0]], ['Weapon pickup', [0, 5, 0], { weapon: 'ak47' }]])
+    expect(r.unreachable).toEqual([])
+    expect(kinds(r)).not.toContain('climb-only')
+  })
+
+  const spawns: MarkerSpec[] = [['Shared spawn', [-20, 0, -20]], ['Shared spawn', [20, 0, 20]]]
+  const onTop = (y: number): MarkerSpec => ['Weapon pickup', [1, y, 1], { weapon: 'ak47' }]
+
+  it('climbs only where the export writes a ledge: a 1.5 m pillar yes, a 0.6 m pillar no', () => {
+    const wide = check([ground(), { ...box([3, 4, 3], [1, 0, 1]), climbable: true }], [...spawns, onTop(4)])
+    expect(wide.unreachable).toEqual([])
+    // A corner's 0.35 m each way leaves nothing to grab on an edge under 0.7 m.
+    const narrow = check([ground(), { ...box([1.2, 4, 1.2], [1, 0, 1]), climbable: true }], [...spawns, onTop(4)])
+    expect(narrow.unreachable.map((u) => u.type)).toEqual(['Weapon pickup'])
+  })
+
+  it('a sloped roof or ramp marked climbable has no top to write ledges for', () => {
+    // A 39 degree roof on 2 m walls: the eaves are in climbing range, but the export writes nothing for a sloped top.
+    const walls = box([12, 4, 10], [0, 0, 0])
+    const roof = { ...box([12, 4, 10], [0, 4, 0], 'roof'), climbable: true }
+    expect(sampleInput({ parts: [ground(), walls, roof], markers: [] }).ledges?.length ?? 0).toBe(0)
+    const r = check([ground(), walls, roof], [...spawns, ['Weapon pickup', [0, 8, 0], { weapon: 'ak47' }]])
+    expect(r.unreachable.map((u) => u.type)).toEqual(['Weapon pickup'])
+    // 27 degrees: walked up its low end, never climbed from its sides.
+    const ramp = { ...box([6, 5, 10], [0, 0, 0], 'ramp'), climbable: true }
+    expect(sampleInput({ parts: [ground(), ramp], markers: [] }).ledges?.length ?? 0).toBe(0)
+  })
 })
 
 describe('sight lines', () => {

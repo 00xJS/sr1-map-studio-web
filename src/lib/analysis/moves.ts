@@ -1,8 +1,8 @@
 // Getting around the way the game's player does: gaps only a sprinting jump
 // crosses (or none), drops that hurt or kill, and walls with no way up. The game
 // climbs only at ledges a map lists, and an export lists them only for objects
-// marked climbable; the floor graph counts those as a way up, so a wall still
-// found here is one nothing marked gets you over.
+// marked climbable; the floor graph counts the ones it would write (ledges.ts) as
+// a way up, so a wall still found here is one no ledge gets you over.
 import type { Bvh } from './bvh'
 import { FREE_DROP, JUMP_UP, LETHAL_DROP, PLAYER, type FloorGraph } from './floor'
 import { SOLID, type MoveFinding, type MoveKind } from './types'
@@ -81,7 +81,7 @@ export function findMoves(bvh: Bvh, g: FloorGraph): MoveFinding[] {
         && bvh.blocked(ax, ay + low, az, ax + di * cell * 1.5, ay + low, az + dj * cell * 1.5, SOLID) && area(top, PLATFORM)) {
         out['climb-only'].push({
           kind: 'climb-only', at: [ax, ay, az], to: P(top), metres: m(rise),
-          text: `A ${m(rise)} m wall with no way up. Marking the object on top Climbable lets players pull up it.${statusSentence('climb_ledges')} Or add stairs or a ramp, if it should be a way up.`,
+          text: `A ${m(rise)} m wall with no way up. Marking the object on top Climbable lets players pull up, if its top is flat with an edge over 0.7 m.${statusSentence('climb_ledges')} Or add stairs or a ramp, if it should be a way up.`,
         })
         continue
       }

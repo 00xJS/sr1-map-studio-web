@@ -21,6 +21,7 @@ import shutil
 import struct
 import sys
 import tempfile
+from collections import Counter
 from pathlib import Path
 
 import numpy as np
@@ -287,6 +288,17 @@ check(climb.rate(s, edge) == 'blocked', 'a slab just over the top: no room to pu
 s = solid(ground, box(0, 0, 0, 6, 1.5, 3), box(0, 0, -0.3, 6, 3, -0.05))
 check(climb.rate(s, edge) in ('wall', 'low'), f'a wall right in front of the edge: not from that side ({climb.rate(s, edge)})')
 
+
+# ---- The same answers as the health checks (src/lib/analysis/ledges.ts, tests/climbLedges.test.ts) ----
+
+for case in json.loads((root / 'tests' / 'fixtures' / 'climb_ledges.json').read_text(encoding='utf-8'))['cases']:
+    v = case['verts']
+    found = climb.segments(climb.top_edges(v, case['marked'], same))
+    keep, metres, short, rated = climb.plan(found, climb._Solid(np.array([[v[i] for i in t] for t in case['marked'] + case['other']], dtype=np.float64)))
+    got = dict(segments=len(found), kept=len(keep), short=short, metres=round(metres, 3), rated=dict(sorted(Counter(rated.values()).items())))
+    check(got == case['expect'], f"shared case, {case['name']}" + ('' if got == case['expect'] else f': {got} != {case["expect"]}'))
+ends = climb.segments([((0.0, 2.0, 0.0), (6.0, 2.0, 0.0)), ((0.0, 2.0, 0.0), (3.0, 2.0, 0.0)), ((3.0, 2.0, 0.0), (6.0, 2.0, 0.0))])
+check(len(ends) == 1, f"two objects' edges along one line are written once ({len(ends)})")
 
 # ---- A real chunk ----
 

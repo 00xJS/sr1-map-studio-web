@@ -17,6 +17,11 @@ sr1_ledges.py). What the game asks of a ledge is in research report BC section 3
 
 Which way a ledge faces does not matter, so there is no setting for it.
 
+The health checks count the same ledges with a copy of these steps and numbers,
+src/lib/analysis/ledges.ts: change both. tests/climbLedges.test.ts and this
+side's tests/climb_check.py hold them to the same cases in
+tests/fixtures/climb_ledges.json.
+
 Nothing here has been tried in game yet.
 """
 import math
@@ -168,12 +173,16 @@ def _thin(line):
 
 
 def segments(edges):
-    """The outline as long segments: pieces in a line (or a gentle curve) become one, joins keep the same floats."""
-    out = []
+    """The outline as long segments: pieces in a line (or a gentle curve) become one, joins keep the same floats.
+
+    Two objects' edges along one line can come out the same segment: it is written once."""
+    out = {}
     for line in _chains(edges):
         points = _thin(line)
-        out += [(a, b) for a, b in zip(points, points[1:]) if _run(a, b) >= MIN_RUN]
-    return out
+        for a, b in zip(points, points[1:]):
+            if _run(a, b) >= MIN_RUN:
+                out.setdefault((a, b) if a < b else (b, a), (a, b))
+    return list(out.values())
 
 
 def _dead(p, seg, at):
@@ -285,6 +294,13 @@ def rate(solid, seg):
     return best
 
 
+def plan(segs, solid):
+    """What to write of the segments: (kept, metres to grab, too short, each segment's rating)."""
+    rated = {s: rate(solid, s) for s in segs}
+    keep, metres, short = usable([s for s in segs if rated[s] in ('reach', 'high')])
+    return keep, metres, short, rated
+
+
 def wanted_faces(items, mesh, log):
     """The solid faces of the objects marked climbable (the scene mesh's, numbered per object as the collision
     exclusions are), and how many objects have any."""
@@ -321,9 +337,8 @@ def add_ledges(chunk_path, items, mesh, convert, log):
     path = Path(chunk_path)
     chunk = rc.read_chunk(path.read_bytes())
     solid = _Solid(interiors.solid_triangles(chunk)) if segs else None
-    rated = {s: rate(solid, s) for s in segs}
+    keep, metres, short, rated = plan(segs, solid)
     left = Counter(rated.values())
-    keep, metres, short = usable([s for s in segs if rated[s] in ('reach', 'high')])
     if not keep:
         log('Climb ledges: nothing to write. A climbable object needs a flat top with an edge at least 0.7 m long, '
             '0.75 m or more above the floor beside it, with room above the top.')

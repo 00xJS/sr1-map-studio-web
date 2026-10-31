@@ -55,7 +55,7 @@ export async function planSpawnFix(project: Project, opts: { ramps?: boolean } =
   // The planner works in the usual editor units (0.5 m each): a map at another world scale is measured in game metres.
   const k = (project.settings.world_scale || 0.5) / 0.5
   const markers = project.markers.map((m) => ({ type: m.type, position: m.position.map((v) => v * k) as typeof m.position, weapon: m.weapon }))
-  const prep = prepareMap({ tris: k === 1 ? input.tris : input.tris.map((v) => v * k), flags: input.flags, markers }, { cell: 2 })
+  const prep = prepareMap({ tris: k === 1 ? input.tris : input.tris.map((v) => v * k), flags: input.flags, markers, ledges: k === 1 ? input.ledges : input.ledges?.map((v) => v * k) }, { cell: 2 })
   // Water objects: their seabed is no place for a spawn or a gun.
   const wetModels = new Map<string, ObjModel>()
   await Promise.all([...new Set(project.scene_items.filter((it) => it.swimmable_water).map((it) => it.path))].map(async (p) => {

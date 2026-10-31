@@ -7,8 +7,6 @@ import type { Vec3 } from '../project'
 export const SOLID = 1
 /** Blocks sight (glass, fences and other see-through materials do not). */
 export const OPAQUE = 2
-/** Part of an object marked climbable (SceneItem.climbable). */
-export const CLIMBABLE = 4
 
 export interface AnalysisMarker {
   type: string
@@ -22,9 +20,14 @@ export interface AnalysisMarker {
 export interface AnalysisInput {
   /** World-space triangles, 9 floats each. */
   tris: Float32Array
-  /** One byte per triangle: SOLID | OPAQUE | CLIMBABLE. */
+  /** One byte per triangle: SOLID | OPAQUE. */
   flags: Uint8Array
   markers: AnalysisMarker[]
+  /**
+   * Where the objects marked climbable could have climb ledges, before they are checked against the map (ledges.ts):
+   * 6 floats a segment, in the same units as `tris`. None: nothing can be climbed.
+   */
+  ledges?: Float32Array
 }
 
 export interface AnalysisOptions {
