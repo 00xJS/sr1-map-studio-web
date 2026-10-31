@@ -53,6 +53,8 @@ export interface SceneItem {
   swimmable_water?: boolean
   /** With swimmable_water: only these materials are the water (a prefab's water part); unset = the whole object. */
   water_materials?: string[]
+  /** Players can pull up onto its flat top: the top's edges are exported as the game's climb ledges (py/climb.py). */
+  climbable?: boolean
   triangles?: number
   /** Block-out shape this item's OBJ was generated from (see shapes.ts). */
   shape?: import('./shapes').Shape

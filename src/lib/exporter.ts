@@ -206,6 +206,7 @@ function exportNotes(p: Project, r: ExportResult) {
     `Native objects: ${s.native_objects} (including ${s.native_props} movable/explosive props)`,
     `Native point lights: ${s.lights} (first gameplay test pending)`,
     ...(s.water_volumes ? [`Swimmable water: ${s.water_volumes} volume(s)${statusParen('water')}`] : []),
+    ...(s.climb_ledges ? [`Climb ledges: ${s.climb_ledges} on the objects marked climbable${statusParen('climb_ledges')}`] : []),
     ...(s.regions - (s.dry_boxes ?? 0) > 0 ? [`Rain blockers and indoor rooms: ${s.regions - (s.dry_boxes ?? 0)}${statusParen('rain_blockers')}`] : []),
     ...(s.dry_boxes ? [`Dry interiors: ${s.dry_boxes} box(es) over the floor under roofs and ceilings, where the rain stops${statusParen('dry_interiors')}`] : []),
     `Sky: ${s.game_sky ? `the game's own sky from mp_bac_01 in your game files${statusParen('game_sky')}`

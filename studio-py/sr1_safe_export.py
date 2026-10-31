@@ -14,6 +14,7 @@ EXTENSIONS=('bbchunk_xbox2','peg_xbox2','bbcity_xbox2','hmap_xbox2','pvsv_xbox2'
 def validate_map(folder, name, *, allowed_external_textures=()):
     import sr_reborn_core as core
     import peg_xbox2_beaver as peg
+    import sr1_ledges
     folder=Path(folder)
     for ext in EXTENSIONS:
         if not (folder/f'{name}.{ext}').is_file():
@@ -33,6 +34,7 @@ def validate_map(folder, name, *, allowed_external_textures=()):
     if missing: raise ValueError('Spawn references missing chunk(s): '+', '.join(sorted(set(missing))))
     chunk=core.read_chunk((folder/f'{name}.bbchunk_xbox2').read_bytes())
     core.chunk_geometry(chunk)
+    sr1_ledges.read(chunk)
     _,_,entries=peg.parse_peg(folder/f'{name}.peg_xbox2')
     chunk_names=core.chunk_strings(chunk)
     peg_names=[entry.name for entry in entries]

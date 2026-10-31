@@ -26,6 +26,7 @@ export function sampleInput(sample: Pick<Sample, 'parts' | 'markers'>) {
     return {
       uid: String(i), name: part.label, path, position: part.at, rotation: [0, part.rot ?? 0, 0], scale: 1, textures: {}, alpha: {},
       ...(part.water ? { swimmable_water: true } : {}),
+      ...(part.climbable ? { climbable: true } : {}),
     }
   })
   // A little above the surface, as samples are built.

@@ -41,6 +41,8 @@ export interface Part {
   group?: string
   /** Swimmable water: exported with no collision as a water volume (its textures should be used by nothing else in the prefab). */
   water?: boolean
+  /** Players can climb the edges of its flat top (SceneItem.climbable). */
+  climbable?: boolean
   /** Terrain grid and heights (see Shape.cells / Shape.heights); `rock` textures its steepest ground (default: side). */
   cells?: [number, number]
   heights?: number[]

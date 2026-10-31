@@ -2,6 +2,7 @@
 // a report out (sight lines, spawn safety, red vs blue fairness, a bot
 // playtest). No DOM or three.js, so it runs in a worker, in tests and for the AI.
 import { Bvh } from './bvh'
+import { ledgesOf } from './ledges'
 import { buildFloor, dijkstra, dijkstraTo, LETHAL_DROP, nodeNear, PLAYER, twoWay, type FloorGraph } from './floor'
 import { observe, pickLanes, pickObservers, sees, type SightCounts } from './sight'
 import { botPlaytest, fieldCache } from './bots'
@@ -60,7 +61,7 @@ export function prepareMap(input: AnalysisInput, opts: AnalysisOptions = {}): Pr
   const [minX, , minZ] = bvh.min, [maxX, , maxZ] = bvh.max
   const area = Math.max(1, (maxX - minX) * (maxZ - minZ))
   const cell = opts.cell ?? Math.max(2, Math.ceil(Math.sqrt(area / 90000) * 2) / 2)
-  const g = buildFloor(bvh, cell, opts.maxDrop ?? LETHAL_DROP)
+  const g = buildFloor(bvh, cell, opts.maxDrop ?? LETHAL_DROP, ledgesOf(bvh, input.ledges))
   lap('floor')
 
   // Markers on the floor graph.
